@@ -42,6 +42,13 @@ def main(argv=None):
     pcache = sub.add_parser('cache', help='缓存管理')
     pcache.add_argument('action', choices=['clear', 'info'])
 
+    psite = sub.add_parser('site', help='站内搜索(知名站点官方接口, 与传统搜索引擎区分)')
+    psite.add_argument('site', nargs='?', help='站点 key, `webtool site list` 查看全部')
+    psite.add_argument('query', nargs='?', help='站内搜索词')
+    psite.add_argument('-n', '--max', type=int, default=10)
+    psite.add_argument('-f', '--format', choices=['json', 'text'], default='json')
+    psite.add_argument('--lang', default='zh', help='wikipedia 语言版本')
+
     args = p.parse_args(argv)
     cfg = _proxy.load_config()
     if args.proxy:
@@ -60,6 +67,9 @@ def main(argv=None):
         elif args.cmd == 'cache':
             from .cache import handle
             out = handle(args, cfg)
+        elif args.cmd == 'site':
+            from .sitesearch import do_site
+            out = do_site(args, cfg)
         return 0
     except BrokenPipeError:
         return 0

@@ -8,7 +8,6 @@ import time
 import urllib.parse
 
 from . import cache
-from .http import http_get
 
 
 def do_fetch(args, cfg):
