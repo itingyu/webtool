@@ -21,7 +21,7 @@ def _fmt_filters(out):
         parts.append(f"黑名单剔除 {out['blocked_by_blocklist']} 条(--no-blocklist 关闭)")
     if out.get('filtered_low_weight'):
         mw = out.get('_min_weight')
-        label = f"sem<{mw} 剔除" if mw else '质量poor(sem<0.15) 剔除'
+        label = f"sem<{mw} 剔除" if mw else '质量poor(断层) 剔除'
         parts.append(f"{label} {out['filtered_low_weight']} 条(--min-weight 调阈值, --no-weight-filter 关闭)")
     if out.get('dedup_removed'):
         parts.append(f"跨引擎去重合并 {out['dedup_removed']} 条(--no-dedupe 关闭)")

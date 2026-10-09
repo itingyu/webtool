@@ -114,12 +114,12 @@ def _do_search(args, cfg, filter_ad=True):
         results = [r for r in results if r['sem_score'] >= args.min_weight]
         n_low -= len(results)
     elif not args.no_semantic and not args.no_weight_filter:
-        # 默认兜底: 按质量标签过滤 — quality=poor 即 sem_score<0.15 (绝对硬门,
-        # 与 query 近零词面重叠的泛匹配噪声); 至少保留 3 条, poor 占多数时退回权重前 3
+        # 默认兜底: 按质量标签过滤 — quality=poor 即 sem_score 过低的噪声页;
+        # 至少保留 1 条 (最优结果不丢), poor 占多数时退回权重最高 1 条
         n_low = len(results)
         kept = [r for r in results if r.get('quality') != 'poor']
-        if len(kept) < 3:
-            kept = sorted(results, key=lambda r: -r['weight'])[:3]
+        if not kept:
+            kept = [max(results, key=lambda r: r['weight'])]
         n_low -= len(kept)
         results = kept
     else:
@@ -140,6 +140,7 @@ def _do_search(args, cfg, filter_ad=True):
     out = {'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'cache': per_engine, 'total': len(results), 'results': results,
            'dedup_removed': dedup_removed,
+           'filtered_low_weight': n_low,
            'sorted_by': 'weight(semantic)' if not args.no_semantic else 'weight'}
     if quality_hint:
         out['quality_hint'] = quality_hint
@@ -154,11 +155,10 @@ def _do_search(args, cfg, filter_ad=True):
 def _low_quality(results, query=None):
     """质量诊断: 过滤后剩余结果整体 sem 偏低 → query 与召回脱节
 
-    在过滤后的集合上判定即可: 正常 query 过滤后剩的是好结果 (sem>=0.15),
-    全垃圾批即使保底保留 3 条, 其 sem 依然全 0 → 均值 <0.1 稳定触发。
+    保底只留 1 条也要诊断 (那条往往就是 poor), 剩 1 条即判。
     """
     from .qhint import need_retry
-    if len(results) < 3:
+    if not results:
         return False
     return need_retry({i: r.get('sem_score', 0) for i, r in enumerate(results)})
 

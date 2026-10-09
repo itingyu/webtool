@@ -17,8 +17,8 @@
   prior(r):  域名先验 (词典/百科在实体 query 下 ×0.5, 见 REF_PRIOR)
   final = base × pos × agree × sem × entity × prior × (0.2 if is_ad)
 
-  sem_raw 即余弦值本身 (0-1), 仅用于排序; quality 标签亦基于 sem_raw (双门:
-  poor=绝对<0.15, good=绝对>=0.2 且相对>0.5),
+  sem_raw 即 BM25 归一化分 (0-1), 仅用于排序; quality 标签亦基于 sem_raw
+  (断层自适应: poor = sem < max(0.12, top×0.35)),
   输出字段 sem_score = round(sem_raw, 3) — 与旧版的压缩值含义不同。
 """
 import math
@@ -79,10 +79,9 @@ def title_fingerprint(t):
 def rerank(results, query, use_semantic=True):
     """评分排序: merge() 的排序半程, 供多轮召回复用
 
-    每条结果带 engines/weight/sem_score(0-1 余弦)/confirmations/quality 字段。
-    quality 双门标签: poor = sem<0.15 绝对硬门 (零词面重叠, 过滤层剔除对象);
-    good = sem>=0.2 且相对最高分 >0.5; 其余 fair。纯相对分位在全垃圾批会把
-    垃圾标 good, 纯绝对阈会误伤英文页/短 query 好结果, 故取双门。
+    每条结果带 engines/weight/sem_score(0-1 BM25 归一化)/confirmations/quality。
+    quality 断层自适应: cut = max(0.12, top×0.35), sem<cut=poor (与批内头部
+    断层 → 噪声), sem>=top×0.5=good, 其余 fair。比固定阈值更能贴合每批分布。
     """
     if not results:
         return results
@@ -123,17 +122,18 @@ def rerank(results, query, use_semantic=True):
         r['confirmations'] = n_eng
 
     results.sort(key=lambda r: -r['weight'])
-    # quality 双门标签: poor 是绝对硬门 (sem<0.15, 与 query 近零词面重叠,
-    # 供过滤层剔除), good 兼看相对分位 (sem>=0.2 且 rel>0.5) — 纯相对分位
-    # 在「全垃圾」批会把垃圾标成 good, 纯绝对阈又会误伤英文页/短 query。
+    # quality: 断层自适应标签 (v1.4) — 坏结果的特征不是 sem 绝对值低, 而是与
+    # 批内头部「断层」。cut = max(0.12, top*0.35): 0.12 下限防全垃圾批互相抬轿
+    # (全 0 分时 cut 仍是 0.12, 谁也逃不掉), 35% 相对线在正常批自动贴合分布,
+    # 英文页/短 query 的低重叠好结果 (sem 0.25-0.5) 不会被固定阈值误伤。
     sems = [r['sem_score'] for r in results]
-    mx = max(sems) if sems else 1.0
+    top = max(sems) if sems else 0.0
+    cut = max(0.12, top * 0.35)
     for r in results:
         s = r['sem_score']
-        rel = s / mx if mx > 0 else 1.0
-        if s < 0.15:
+        if s < cut:
             r['quality'] = 'poor'
-        elif s >= 0.2 and rel > 0.5:
+        elif s >= 0.5 * top:
             r['quality'] = 'good'
         else:
             r['quality'] = 'fair'
@@ -234,36 +234,42 @@ def _tokenize(s):
 
 
 def _semantic_scores(query, results):
-    """TF-IDF 余弦相似度: query vs title×2 + snippet; 返回原始余弦 (0-1, 无压缩)
+    """BM25 相关性: query vs title×2 + snippet; 返回归一化 0-1 (语料无关)
 
-    排序乘区与质量闸门都基于原始余弦, 不做地板膨胀, 保持区分度。
+    v1.4 改用 BM25 替代 TF-IDF 余弦:
+    - 分数跨批稳定 (TF-IDF 的 IDF 基于候选集自身, 批内组成一变分数就漂移)
+    - 长度归一 (b=0.75): 长 snippet 不再被稀释, 短摘要不再占优
+    - 词频饱和 (k1=1.2): 标题重复堆词收益递减
+    归一化分母 = query 各 token 的理论最大 idf 之和, 与候选分布无关。
     """
     q_tokens = _tokenize(query)
     if not q_tokens:
         return {i: 1.0 for i in range(len(results))}
-    # 文档频率
+    k1, b = 1.2, 0.75
     docs = []
     for r in results:
         docs.append(_tokenize((r.get('title', '') + ' ') * 2 + ' ' + (r.get('snippet', ''))))
     n_docs = len(docs)
+    avgdl = sum(len(d) for d in docs) / n_docs or 1
     df = {}
     for doc in docs:
         for t in set(doc):
             df[t] = df.get(t, 0) + 1
 
-    def tfidf(tokens):
-        tf = {}
-        for t in tokens:
-            tf[t] = tf.get(t, 0) + 1
-        return {t: (c / len(tokens)) * math.log(1 + n_docs / (1 + df.get(t, 0)))
-                for t, c in tf.items()}
+    def idf(t):
+        return math.log(1 + (n_docs - df.get(t, 0) + 0.5) / (df.get(t, 0) + 0.5))
 
-    qv = tfidf(q_tokens)
-    qnorm = math.sqrt(sum(v * v for v in qv.values())) or 1.0
+    uniq_q = set(q_tokens)
+    max_s = sum(idf(t) for t in uniq_q) or 1.0
     scores = {}
     for i, doc in enumerate(docs):
-        dv = tfidf(doc)
-        dot = sum(qv[t] * dv[t] for t in qv if t in dv)
-        dnorm = math.sqrt(sum(v * v for v in dv.values())) or 1.0
-        scores[i] = max(0.0, min(1.0, dot / (qnorm * dnorm)))
+        tf = {}
+        for t in doc:
+            tf[t] = tf.get(t, 0) + 1
+        s = 0.0
+        for t in uniq_q:
+            if t not in tf:
+                continue
+            s += idf(t) * (tf[t] * (k1 + 1)) / (tf[t] + k1 * (1 - b + b * len(doc) / avgdl))
+        scores[i] = max(0.0, min(1.0, s / max_s))
     return scores
