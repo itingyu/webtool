@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "webtool"
+version = "0.1.0"
+description = "Agent-friendly web search & content fetch CLI: clean markdown/text/json, ad-free, token-efficient, zero hard deps"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "itingyu"}]
+keywords = ["agent", "web-scraping", "search", "markdown", "llm", "cli"]
+classifiers = [
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: WWW/HTTP",
+]
+
+[project.optional-dependencies]
+extract = ["trafilatura>=2.0", "readability-lxml", "html2text", "inscriptis"]
+socks = ["pysocks"]
+full = ["webtool[extract,socks]"]
+
+[project.scripts]
+webtool = "webtool.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
