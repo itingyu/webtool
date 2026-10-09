@@ -48,6 +48,7 @@ webtool search "2026年最新最强大语言模型排行榜 GPT Claude Gemini"  
 ```
 
 - 中文技术词用引擎习惯叫法：`大模型` 而非 `大语言模型`（bing 对后者整串分词失败）
+- **搜索词优先用英文**：`LLM leaderboard`、`FastAPI deployment`——英文按空格分词无歧义，不存在「大语言模型」被切碎的问题
 - 召回质量低时输出会带 `💡` 提示（`quality_hint` 字段），按提示改词重搜即可——工具不改写你的 query，改词权在你
 
 ## 命令速查

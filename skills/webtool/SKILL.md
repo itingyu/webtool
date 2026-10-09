@@ -52,7 +52,7 @@ webtool config set default_engines bing,sogou        # 持久化默认引擎
 ## Agent 使用要点
 
 1. **query 用精简写法**：「核心实体 + 意图词」，如 `LLM 排行榜`、`fastapi 部署`；别堆「2026年最新最强」修饰词——中文引擎分词会被带偏，召回词典/百科噪声
-2. 中文技术词优先用引擎习惯叫法：`大模型` 而非 `大语言模型`（bing 对后者整串分词失败）
+2. **搜索词优先用英文**：`LLM leaderboard`、`FastAPI deployment`——英文按空格分词无歧义；中文技术词退而求其次用引擎习惯叫法：`大模型` 而非 `大语言模型`（bing 对后者整串分词失败）
 3. 输出看 `quality_hint`：有提示就按建议改词重搜，别硬解析 poor 结果
 4. 字段以实际输出为准：`weight`/`sem_score`/`quality`/`filters_applied`/`errors`
 5. 报错自带处置建议（如引擎冷却→换引擎、被风控→装 curl_cffi），照做即可
