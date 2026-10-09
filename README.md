@@ -97,8 +97,35 @@ webtool site wikipedia 机器学习 --lang zh
 
 反爬一致性（实测）：所有站点统一 Chrome 131 浏览器 UA + XHR 指纹（Sec-Ch-Ua/Sec-Fetch/Referer/Origin 与真人浏览器一致）；裸 python UA 打 B站直接 412，浏览器 UA 全部 200。不用带项目联系方式的 tool UA。
 
+## 黑名单与权重过滤
+
+搜索结果默认做三层清理，每层剔除量都回显在结果里（json: `filters_applied` 字段；text: 末尾 `—` 说明行）：
+
+| 层 | 说明 | 关闭参数 |
+|---|---|---|
+| 广告 | baidu result-op 卡片 + 广告词/域名识别 | `--keep-ad` 只标记不删 |
+| 黑名单 | 21 个内置内容农场（csdn/jb51/51cto/baijiahao…） | `--no-blocklist` |
+| 权重 | 默认剔除权重垫底 ~15%（至少留 3 条） | `--no-weight-filter` |
+
+```bash
+webtool blocklist show                    # 查看内置+自定义
+webtool blocklist add csdn.net            # 追加黑名单
+webtool blocklist add blog.csdn.net/x --allow   # 白名单例外(优先于黑名单)
+webtool blocklist remove csdn.net
+webtool blocklist reset                   # 恢复内置默认
+
+# 用户配置文件 ~/.webtool/blocklist.json (持久化):
+# {"block": ["example.com"], "allow": ["good.example.com"]}
+
+# 命令行临时追加 (不落盘):
+webtool search q --block csdn.net --block jb51.net --allow blog.csdn.net/me
+webtool search q --min-weight 0.8         # 只要权重>=0.8 的结果
+```
+
+权重公式：`引擎排名衰减(1/√rank) × 引擎可信度 × 多引擎确认加成 × 语义相关度`，json 里每条带 `weight` / `sem_score` 字段，`--no-semantic` 关闭语义项。
+
 ## 局限与后续
 
 - 不做 JS 渲染（SPA 页面 fetch 空时会有 hint 提示）
-- 知乎正文 403（需登录态）；百度/Google/DDG 搜索不可纯 HTTP
+- 知乎正文 403（需登录态）；Google Web 搜索不可纯 HTTP（Google News RSS 可用）
 - V2 计划：docling PDF 提取、SearXNG 自托管接入、cookie 池

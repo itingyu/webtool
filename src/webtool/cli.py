@@ -28,6 +28,15 @@ def main(argv=None):
     ps.add_argument('--keep-ad', action='store_true', help='保留广告结果并标记 is_ad (默认已过滤)')
     ps.add_argument('--no-dedupe', action='store_true', help='关闭跨引擎去重')
     ps.add_argument('--no-semantic', action='store_true', help='关闭语义向量排序(纯位置权重)')
+    ps.add_argument('--min-weight', type=float, default=0.0,
+                    help='只保留 weight>=阈值 的结果 (0=默认剔除权重垫底~15%%)')
+    ps.add_argument('--block', action='append', default=[],
+                    help='临时追加黑名单域名, 可多次')
+    ps.add_argument('--allow', action='append', default=[],
+                    help='临时白名单例外(优先于黑名单), 可多次')
+    ps.add_argument('--no-blocklist', action='store_true', help='关闭黑名单过滤')
+    ps.add_argument('--no-weight-filter', action='store_true',
+                    help='关闭权重过滤(保留全部, 含低权重)')
 
     pf = sub.add_parser('fetch', help='抓取 URL 并提取正文')
     pf.add_argument('url', nargs='?', help='要抓取的 URL')
@@ -47,6 +56,11 @@ def main(argv=None):
     pcache = sub.add_parser('cache', help='缓存管理')
     pcache.add_argument('action', choices=['clear', 'info'])
 
+    pbl = sub.add_parser('blocklist', help='黑名单管理 (低质量站点)')
+    pbl.add_argument('action', choices=['show', 'add', 'remove', 'reset'])
+    pbl.add_argument('domain', nargs='?', help='域名, 如 csdn.net')
+    pbl.add_argument('--allow', action='store_true', help='add/remove 白名单例外')
+
     psite = sub.add_parser('site', help='站内搜索(知名站点官方接口, 与传统搜索引擎区分)')
     psite.add_argument('site', nargs='?', help='站点 key, `webtool site list` 查看全部')
     psite.add_argument('query', nargs='?', help='站内搜索词')
@@ -54,6 +68,8 @@ def main(argv=None):
     psite.add_argument('-f', '--format', choices=['json', 'text'], default='json')
     psite.add_argument('--lang', default='zh', help='wikipedia 语言版本')
     psite.add_argument('--no-proxy', action='store_true', help='本次不走代理')
+    psite.add_argument('--block', action='append', default=[], help='临时追加黑名单域名')
+    psite.add_argument('--no-blocklist', action='store_true', help='关闭黑名单过滤')
 
     args = p.parse_args(argv)
     cfg = _proxy.load_config()
@@ -82,6 +98,9 @@ def main(argv=None):
         elif args.cmd == 'site':
             from .sitesearch import do_site
             out = do_site(args, cfg)
+        elif args.cmd == 'blocklist':
+            from .blocklist import handle_cli
+            return handle_cli(args)
         return 0
     except BrokenPipeError:
         return 0

@@ -76,8 +76,15 @@ def do_site(args, cfg):
                              ensure_ascii=False), file=sys.stderr)
             return 1
 
+    if not args.no_blocklist:
+        from .blocklist import filter_blocklist
+        results, n_blocked = filter_blocklist(results, extra_block=args.block or ())
+    else:
+        n_blocked = 0
     out = {'site': args.site, 'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'source': src, 'total': len(results), 'results': results}
+    if n_blocked:
+        out['blocked_by_blocklist'] = n_blocked
     if args.format == 'json':
         print(json.dumps(out, ensure_ascii=False, indent=1))    else:
         for r in results:

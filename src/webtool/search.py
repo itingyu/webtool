@@ -76,28 +76,63 @@ def _do_search(args, cfg, filter_ad=True):
                 continue
         results.extend([dict(r, engine=eng) for r in rs])
 
-    # 合并: 去重 + 权重排序 (语义向量可选)
+    # 合并: 去重 + 黑名单 + 权重排序 (语义向量可选) + 权重阈值
     from .merge import merge as _merge
+    from .blocklist import filter_blocklist
     n_before = len(results)
     results = _merge(results, args.query,
                      use_semantic=not args.no_semantic,
                      dedupe=not args.no_dedupe)
     dedup_removed = n_before - len(results)
+    if args.no_blocklist:
+        n_blocked = 0
+    else:
+        results, n_blocked = filter_blocklist(
+            results, extra_block=args.block or (), extra_allow=args.allow or ())
+    if args.min_weight > 0 and not args.no_weight_filter:
+        n_low = len(results)
+        results = [r for r in results if r['weight'] >= args.min_weight]
+        n_low -= len(results)
+    elif args.no_weight_filter or args.min_weight > 0:
+        n_low = 0
+    else:
+        n_low = 0
+        # 默认兜底: 剔除权重垫底的 15% (至少保留 3 条, 不至空手)
+        if results and len(results) > 4:
+            ws = sorted(r['weight'] for r in results)
+            floor = ws[int(len(ws) * 0.15) - 1] if len(ws) > 3 else ws[0]
+            kept = [r for r in results if r['weight'] > floor] or results[:max(3, len(results) - 2)]
+            n_low = len(results) - len(kept)
+            results = kept
 
     if args.resolve_links:
         _resolve_sogou_links(results, cfg)
 
     out = {'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'cache': per_engine, 'total': len(results), 'results': results,
-           'dedup_removed': dedup_removed, 'sorted_by': 'weight(semantic)' if not args.no_semantic else 'weight'}
+           'dedup_removed': dedup_removed,
+           'sorted_by': 'weight(semantic)' if not args.no_semantic else 'weight'}
+    # 过滤说明行: 无论 json/text 都带, Agent 可感知剔除量
+    filters = []
+    if n_blocked:
+        filters.append(f'黑名单剔除 {n_blocked} 条 (--no-blocklist 关闭)')
+        out['blocked_by_blocklist'] = n_blocked
+    if n_low:
+        label = f'权重<{args.min_weight} 剔除' if args.min_weight > 0 else '权重垫底15% 剔除'
+        filters.append(f'{label} {n_low} 条 (--min-weight 调阈值, --no-weight-filter 关闭)')
+        out['filtered_low_weight'] = n_low
     if ad_filtered:
+        filters.append(f'广告过滤 {ad_filtered} 条')
         out['ad_filtered'] = ad_filtered
+    out['filters_applied'] = filters
     if errors:
         out['errors'] = errors
     if args.format == 'json':
         print(json.dumps(out, ensure_ascii=False, indent=1))
     else:
         _print_text(out)
+        for f in filters:
+            print(f'[{f}]', file=sys.stderr)
     return 0
 
 
@@ -107,6 +142,9 @@ def _print_text(out):
         print(f"    {r['url']}")
         if r.get('snippet'):
             print(f"    {r['snippet'][:150]}")
+    # 过滤说明行 (stdout, json/text 一致可见)
+    if out.get('filters_applied'):
+        print('— ' + '; '.join(out['filters_applied']))
     if out.get('errors'):
         print('errors: ' + json.dumps(out['errors'], ensure_ascii=False), file=sys.stderr)
 
