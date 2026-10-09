@@ -82,22 +82,18 @@ def do_site(args, cfg):
     else:
         n_blocked = 0
 
-    # 权重排序 + 阈值过滤 (与 search 一致, config/CLI 双通道)
+    # 质量排序 + 过滤 (与 search 一致: 断层标签过滤, config/CLI 开关双通道)
     from .merge import merge as _merge
-    min_weight = args.min_weight if getattr(args, 'min_weight', 0) > 0 else float(cfg.get('min_weight') or 0)
     no_wf = args.no_weight_filter or cfg.get('weight_filter') == 'off'
     n_before = len(results)
     results = _merge(results, args.query, use_semantic=cfg.get('semantic') != 'off', dedupe=cfg.get('dedupe') != 'off')
     dedup_removed = n_before - len(results)
     n_low = 0
-    if min_weight > 0 and not no_wf:
+    if not no_wf and not cfg.get('semantic') == 'off':
         n_low = len(results)
-        results = [r for r in results if r['weight'] >= min_weight]
-        n_low -= len(results)
-    elif not no_wf and len(results) > 4:
-        ws = sorted(r['weight'] for r in results)
-        floor = ws[max(0, int(len(ws) * 0.15) - 1)]
-        kept = [r for r in results if r['weight'] > floor] or results[:max(3, len(results) - 2)]
+        kept = [r for r in results if r.get('quality') != 'poor']
+        if not kept:
+            kept = [max(results, key=lambda r: r['weight'])]
         n_low = len(results) - len(kept)
         results = kept
 
@@ -108,14 +104,13 @@ def do_site(args, cfg):
     if dedup_removed:
         filters.append(f'跨引擎去重合并 {dedup_removed} 条(--no-dedupe 关闭)')
     if n_low:
-        label = f'权重<{min_weight} 剔除' if min_weight > 0 else '权重垫底15% 剔除'
-        filters.append(f'{label} {n_low} 条 (--min-weight 调阈值, --no-weight-filter 关闭)')
+        label = '质量poor(断层) 剔除'
+        filters.append(f'{label} {n_low} 条 (--no-weight-filter 关闭)')
 
     out = {'site': args.site, 'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'source': src, 'total': len(results), 'results': results,
            'dedup_removed': dedup_removed, 'blocked_by_blocklist': n_blocked,
            'filtered_low_weight': n_low}
-    out['_min_weight'] = min_weight
     from .render import render
     render(out, args.format, 'site')
     return 0

@@ -2,7 +2,7 @@
 """webtool config: 统一配置管理子命令
 
 配置层级 (优先级从高到低):
-1. 命令行参数 (--proxy / --block / --min-weight ...)
+1. 命令行参数 (--proxy / --block / --no-weight-filter ...)
 2. 引擎/站点级配置 (~/.webtool/config.json 的 engine_proxy)
 3. 全局配置 (config set 写入的键)
 4. 内置默认值
@@ -18,8 +18,7 @@ CONFIG_PATH = os.path.expanduser('~/.webtool/config.json')
 # 可配置键白名单: (键名, 说明, 合法值)
 CONFIG_KEYS = {
     'proxy':            ('HTTP/SOCKS 代理地址', '如 http://127.0.0.1:2080 / socks5://...', None),
-    'min_weight':       ('默认权重阈值(0=只剔垫底15%)', '0 ~ 2.0 浮点', float),
-    'weight_filter':    ('默认权重过滤开关', 'on / off', ('on', 'off')),
+    'weight_filter':    ('质量过滤开关(断层自适应)', 'on / off', ('on', 'off')),
     'blocklist':        ('黑名单开关', 'on / off', ('on', 'off')),
     'ad_filter':        ('广告过滤开关', 'on / off', ('on', 'off')),
     'dedupe':           ('跨引擎去重开关', 'on / off', ('on', 'off')),

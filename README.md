@@ -55,7 +55,7 @@ webtool search "2026年最新最强大语言模型排行榜 GPT Claude Gemini"  
 
 | 命令 | 说明 |
 |---|---|
-| `search <q>` | `-e` 引擎组合 `-n` 条数 `-f json/text/markdown` `--min-weight N` 权重阈值 `--block/--allow` 临时黑白名单 `--no-retry` 关质量提示 |
+| `search <q>` | `-e` 引擎组合 `-n` 条数 `-f json/text/markdown` `--block/--allow` 临时黑白名单 `--no-retry` 关质量提示 |
 | `fetch <url>` | `-f markdown/text/json/html` `--max-chars` `--raw` `--url-file` 批量 |
 | `site <site> <q>` | 站内搜索（同支持三格式与过滤链）；`site list` 查全部，`docs/custom-sites.md` 自定义 |
 | `config list/get/set/unset` | 持久化配置：默认引擎/格式/权重阈值/各过滤开关/单引擎代理 |
@@ -73,7 +73,7 @@ webtool search "2026年最新最强大语言模型排行榜 GPT Claude Gemini"  
 |---|---|---|
 | `default_engines` | 默认引擎组合 | `bing,baidu` |
 | `default_format` | 默认输出格式 | `markdown` |
-| `min_weight` | sem 绝对阈值(0=默认剔 quality=poor) | `0.3` |
+| `weight_filter` | 质量过滤开关(断层自适应) | `on` / `off` |
 | `blocklist` / `ad_filter` / `weight_filter` / `dedupe` / `semantic` | 各过滤开关 | `on` / `off` |
 | `engine_proxy.<engine>` | 单引擎代理 | `engine_proxy.google http://...` |
 | `timeout` / `cache` | 超时秒数 / 缓存开关 | `25` / `off` |
@@ -84,7 +84,7 @@ webtool search "2026年最新最强大语言模型排行榜 GPT Claude Gemini"  
 |---|---|---|
 | 广告 | baidu result-op 卡片 + 广告词/域名识别 | `--keep-ad` 只标记 |
 | 黑名单 | 21 内置内容农场；`~/.webtool/blocklist.json` 可加 block/allow（allow 优先） | `--no-blocklist` |
-| 权重 | 默认剔 **quality=poor**（断层自适应，至少留 1 条）；`--min-weight 0.3` 改按 sem 绝对阈值 | `--no-weight-filter` |
+| 权重 | 默认剔 **quality=poor**（断层自适应，至少留 1 条；全 poor 时退回权重最高 1 条） | `--no-weight-filter` |
 
 ```bash
 webtool blocklist add csdn.net                  # 追加黑名单(持久)

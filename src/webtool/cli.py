@@ -29,15 +29,13 @@ def main(argv=None):
     ps.add_argument('--no-dedupe', action='store_true', help='关闭跨引擎去重')
     ps.add_argument('--no-semantic', action='store_true', help='关闭语义向量排序(纯位置权重)')
     ps.add_argument('--no-retry', action='store_true', help='关闭低召回自动重试(默认开启)')
-    ps.add_argument('--min-weight', type=float, default=0.0,
-                    help='只保留 sem_score>=阈值 的结果 (0=默认剔 quality=poor, 即 sem<0.15)')
     ps.add_argument('--block', action='append', default=[],
                     help='临时追加黑名单域名, 可多次')
     ps.add_argument('--allow', action='append', default=[],
                     help='临时白名单例外(优先于黑名单), 可多次')
     ps.add_argument('--no-blocklist', action='store_true', help='关闭黑名单过滤')
     ps.add_argument('--no-weight-filter', action='store_true',
-                    help='关闭权重过滤(保留全部, 含低权重)')
+                    help='关闭质量过滤(保留全部)')
 
     pf = sub.add_parser('fetch', help='抓取 URL 并提取正文')
     pf.add_argument('url', nargs='?', help='要抓取的 URL')
@@ -77,8 +75,7 @@ def main(argv=None):
     psite.add_argument('--no-proxy', action='store_true', help='本次不走代理')
     psite.add_argument('--block', action='append', default=[], help='临时追加黑名单域名')
     psite.add_argument('--no-blocklist', action='store_true', help='关闭黑名单过滤')
-    psite.add_argument('--no-weight-filter', action='store_true', help='关闭权重过滤')
-    psite.add_argument('--min-weight', type=float, default=0.0, help='权重阈值')
+    psite.add_argument('--no-weight-filter', action='store_true', help='关闭质量过滤')
 
     args = p.parse_args(argv)
     cfg = _proxy.load_config()

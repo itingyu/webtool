@@ -23,7 +23,8 @@ version: 1.3.0
 
 ```sh
 webtool search "LLM 排行榜" -e bing,sogou -n 5      # 精简 query 优先!
-webtool search "大模型 排行榜" --min-weight 0.3      # 显式提阈值
+webtool search "大模型 排行榜" -f markdown           # 三格式任选
+webtool search "大模型 排行榜" --no-weight-filter    # 关质量过滤看全量
 webtool fetch <url> -f json --with-metadata          # 带元数据 json
 webtool site github fastapi                          # GitHub 仓库搜索
 webtool config set default_engines bing,sogou        # 持久化默认引擎
@@ -31,10 +32,10 @@ webtool config set default_engines bing,sogou        # 持久化默认引擎
 
 ## 关键参数
 
-- **search / site**：`-e` 引擎(site 无) `-n` 条数 `-f json/text/markdown` `--min-weight` 权重阈值 `--no-blocklist` `--no-weight-filter` `--no-retry`(关质量提示) `--keep-ad`(仅search) `--no-dedupe` `--no-semantic` `--block/--allow` 临时黑白名单 `--no-proxy`
+- **search / site**：`-e` 引擎(site 无) `-n` 条数 `-f json/text/markdown` `--no-blocklist` `--no-weight-filter`(关质量过滤) `--no-retry`(关质量提示) `--keep-ad`(仅search) `--no-dedupe` `--no-semantic` `--block/--allow` 临时黑白名单 `--no-proxy`
 - **fetch**：`-f markdown/text/json/html` `--max-chars` `--raw` `--url-file` 批量
 - **config**：`list` / `get <k>` / `set <k> <v>` / `unset <k>`，写 `~/.webtool/config.json`
-  可配项：`proxy` `min_weight` `weight_filter` `blocklist` `ad_filter` `dedupe` `semantic` `default_engines` `default_format` `timeout` `cache` `engine_proxy.<engine>`
+  可配项：`proxy` `weight_filter` `blocklist` `ad_filter` `dedupe` `semantic` `default_engines` `default_format` `timeout` `cache` `engine_proxy.<engine>`
 - **全局**：`--proxy` `--no-cache`（须放子命令前）
 
 ## 权重与过滤 (v1.3)
@@ -45,7 +46,7 @@ webtool config set default_engines bing,sogou        # 持久化默认引擎
 |---|---|---|
 | 广告 | 剔除 | `--keep-ad` 只标记 |
 | 黑名单 | 21 内容农场 | `--no-blocklist` |
-| 权重 | **剔 quality=poor**（断层自适应：与批内头部断层即判噪声，至少留 1 条；全剔时退回权重最高 1 条） | `--no-weight-filter`；`--min-weight N` 改按 sem 绝对阈值 |
+| 权重 | **剔 quality=poor**（断层自适应：与批内头部断层即判噪声，至少留 1 条；全剔时退回权重最高 1 条） | `--no-weight-filter` |
 
 低质量召回（全体 sem 偏低）不自动改写 query——改写可能引歧义；输出 `quality_hint` 字段 + `💡` 行提醒优化 query 词。
 

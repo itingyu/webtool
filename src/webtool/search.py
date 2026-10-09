@@ -32,12 +32,8 @@ def do_search_raw(args, cfg):
 def _do_search(args, cfg, filter_ad=True):
     t0 = time.time()
     # 配置文件默认值 ← 命令行覆盖 (config set 的持久配置是底线, CLI 参数可临时改)
-    if args.min_weight <= 0 and cfg.get('min_weight') not in (None, 0):
-        args.min_weight = float(cfg['min_weight'])
-    if args.no_weight_filter and cfg.get('weight_filter') == 'off':
-        args.no_weight_filter = True     # config 已 off, CLI 也要求 off → off
-    if not args.no_weight_filter and cfg.get('weight_filter') == 'off' and args.min_weight <= 0:
-        args.no_weight_filter = True     # config off 且 CLI 未显式开 → off
+    if args.no_weight_filter or cfg.get('weight_filter') == 'off':
+        args.no_weight_filter = True
     if args.no_blocklist or cfg.get('blocklist') == 'off':
         args.no_blocklist = True
     if cfg.get('ad_filter') == 'off':
@@ -109,21 +105,16 @@ def _do_search(args, cfg, filter_ad=True):
     else:
         results, n_blocked = filter_blocklist(
             results, extra_block=args.block or (), extra_allow=args.allow or ())
-    if args.min_weight > 0 and not args.no_weight_filter:
-        n_low = len(results)
-        results = [r for r in results if r['sem_score'] >= args.min_weight]
-        n_low -= len(results)
-    elif not args.no_semantic and not args.no_weight_filter:
-        # 默认兜底: 按质量标签过滤 — quality=poor 即 sem_score 过低的噪声页;
-        # 至少保留 1 条 (最优结果不丢), poor 占多数时退回权重最高 1 条
+    n_low = 0
+    if not args.no_semantic and not args.no_weight_filter:
+        # 默认: 按质量标签过滤 — quality=poor 即与批内头部断层的噪声页;
+        # 至少保留 1 条 (最优结果不丢), 全 poor 时退回权重最高 1 条
         n_low = len(results)
         kept = [r for r in results if r.get('quality') != 'poor']
         if not kept:
             kept = [max(results, key=lambda r: r['weight'])]
         n_low -= len(kept)
         results = kept
-    else:
-        n_low = 0
     pre_filter_sem = [r.get('sem_score', 0) for r in results]
     n_pre = len(results)
 
@@ -144,7 +135,6 @@ def _do_search(args, cfg, filter_ad=True):
            'sorted_by': 'weight(semantic)' if not args.no_semantic else 'weight'}
     if quality_hint:
         out['quality_hint'] = quality_hint
-    out['_min_weight'] = args.min_weight
     if errors:
         out['errors'] = errors
     from .render import render
