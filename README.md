@@ -77,6 +77,26 @@ webtool fetch <url> -f json --with-metadata --max-chars 2000
 
 实测数据见 `docs/design.md`（Google 需 JS 渲染、DDG 有 anomaly 盾、百度需验证码，均不可纯 HTTP 抓取，故未收录）。
 
+## 站内搜索（与搜索引擎区分）
+
+`webtool site <site> <query>` 走知名站点的**官方/公开接口**，只做站内检索，不当通用搜索引擎用：
+
+| site | 说明 | site | 说明 |
+|---|---|---|---|
+| github | 仓库搜索（★/语言/更新时间） | csdn | CSDN 博客 |
+| so | Stack Overflow 问答 | juejin | 掘金文章 |
+| hn | Hacker News（Algolia 官方 API） | bilibili | B站视频（播放数排序参考） |
+| wikipedia | 维基百科（`--lang en/zh/...`） | sspai | 少数派文章 |
+| arxiv | arXiv 论文（作者/日期） | npm | npm 包 |
+
+```bash
+webtool site list                            # 列出全部站点
+webtool site github fastapi -n 5             # JSON 输出带 stars/lang
+webtool site wikipedia 机器学习 --lang zh
+```
+
+反爬一致性（实测）：所有站点统一 Chrome 131 浏览器 UA + XHR 指纹（Sec-Ch-Ua/Sec-Fetch/Referer/Origin 与真人浏览器一致）；裸 python UA 打 B站直接 412，浏览器 UA 全部 200。不用带项目联系方式的 tool UA。
+
 ## 局限与后续
 
 - 不做 JS 渲染（SPA 页面 fetch 空时会有 hint 提示）
