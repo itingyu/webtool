@@ -111,24 +111,26 @@ def _do_search(args, cfg, filter_ad=True):
             results, extra_block=args.block or (), extra_allow=args.allow or ())
     if args.min_weight > 0 and not args.no_weight_filter:
         n_low = len(results)
-        results = [r for r in results if r['weight'] >= args.min_weight]
+        results = [r for r in results if r['sem_score'] >= args.min_weight]
         n_low -= len(results)
-    elif not args.no_weight_filter:
-        # 默认兜底: 绝对阈值 0.15 (剔明显垃圾; 至少保留 3 条, 不至空手)
+    elif not args.no_semantic and not args.no_weight_filter:
+        # 默认兜底: 按质量标签过滤 — quality=poor 即 sem_score<0.15 (绝对硬门,
+        # 与 query 近零词面重叠的泛匹配噪声); 至少保留 3 条, poor 占多数时退回权重前 3
         n_low = len(results)
-        kept = [r for r in results if r['weight'] >= 0.15]
+        kept = [r for r in results if r.get('quality') != 'poor']
         if len(kept) < 3:
             kept = sorted(results, key=lambda r: -r['weight'])[:3]
         n_low -= len(kept)
         results = kept
     else:
         n_low = 0
+    pre_filter_sem = [r.get('sem_score', 0) for r in results]
+    n_pre = len(results)
 
     # 质量诊断: 结果集与 query 整体脱节 → 输出 query 优化建议 (不自动改写,
     # 自动改词可能引入歧义, 改写权在用户; 这里只做检测 + 提醒)
     quality_hint = None
-    if not args.no_semantic and not args.no_retry \
-            and _low_quality(results, args.query):
+    if not args.no_semantic and not args.no_retry and _low_quality(results):
         from .qhint import build_hint
         quality_hint = build_hint(args.query, results)
 
@@ -149,8 +151,12 @@ def _do_search(args, cfg, filter_ad=True):
     return 0
 
 
-def _low_quality(results, query):
-    """质量诊断: sem_score 绝对值过低说明 query 与召回全脱节"""
+def _low_quality(results, query=None):
+    """质量诊断: 过滤后剩余结果整体 sem 偏低 → query 与召回脱节
+
+    在过滤后的集合上判定即可: 正常 query 过滤后剩的是好结果 (sem>=0.15),
+    全垃圾批即使保底保留 3 条, 其 sem 依然全 0 → 均值 <0.1 稳定触发。
+    """
     from .qhint import need_retry
     if len(results) < 3:
         return False

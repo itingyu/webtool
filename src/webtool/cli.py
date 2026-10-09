@@ -30,7 +30,7 @@ def main(argv=None):
     ps.add_argument('--no-semantic', action='store_true', help='关闭语义向量排序(纯位置权重)')
     ps.add_argument('--no-retry', action='store_true', help='关闭低召回自动重试(默认开启)')
     ps.add_argument('--min-weight', type=float, default=0.0,
-                    help='只保留 weight>=阈值 的结果 (0=默认剔除权重垫底~15%%)')
+                    help='只保留 sem_score>=阈值 的结果 (0=默认剔 quality=poor, 即 sem<0.15)')
     ps.add_argument('--block', action='append', default=[],
                     help='临时追加黑名单域名, 可多次')
     ps.add_argument('--allow', action='append', default=[],

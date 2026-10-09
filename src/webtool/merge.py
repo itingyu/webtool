@@ -17,7 +17,8 @@
   prior(r):  域名先验 (词典/百科在实体 query 下 ×0.5, 见 REF_PRIOR)
   final = base × pos × agree × sem × entity × prior × (0.2 if is_ad)
 
-  sem_raw 即余弦值本身 (0-1), 仅用于排序; 质量闸门 (quality_gate) 亦用 sem_raw,
+  sem_raw 即余弦值本身 (0-1), 仅用于排序; quality 标签亦基于 sem_raw (双门:
+  poor=绝对<0.15, good=绝对>=0.2 且相对>0.5),
   输出字段 sem_score = round(sem_raw, 3) — 与旧版的压缩值含义不同。
 """
 import math
@@ -79,7 +80,9 @@ def rerank(results, query, use_semantic=True):
     """评分排序: merge() 的排序半程, 供多轮召回复用
 
     每条结果带 engines/weight/sem_score(0-1 余弦)/confirmations/quality 字段。
-    quality: 基于所有结果的 sem_score 分位, >0.6=good, <0.45=poor, 其余=fair。
+    quality 双门标签: poor = sem<0.15 绝对硬门 (零词面重叠, 过滤层剔除对象);
+    good = sem>=0.2 且相对最高分 >0.5; 其余 fair。纯相对分位在全垃圾批会把
+    垃圾标 good, 纯绝对阈会误伤英文页/短 query 好结果, 故取双门。
     """
     if not results:
         return results
@@ -120,12 +123,20 @@ def rerank(results, query, use_semantic=True):
         r['confirmations'] = n_eng
 
     results.sort(key=lambda r: -r['weight'])
-    # quality: 相对分位 (单条结果=1.0)
+    # quality 双门标签: poor 是绝对硬门 (sem<0.15, 与 query 近零词面重叠,
+    # 供过滤层剔除), good 兼看相对分位 (sem>=0.2 且 rel>0.5) — 纯相对分位
+    # 在「全垃圾」批会把垃圾标成 good, 纯绝对阈又会误伤英文页/短 query。
     sems = [r['sem_score'] for r in results]
     mx = max(sems) if sems else 1.0
     for r in results:
-        rel = r['sem_score'] / mx if mx > 0 else 1.0
-        r['quality'] = 'good' if rel > 0.6 else ('poor' if rel < 0.45 else 'fair')
+        s = r['sem_score']
+        rel = s / mx if mx > 0 else 1.0
+        if s < 0.15:
+            r['quality'] = 'poor'
+        elif s >= 0.2 and rel > 0.5:
+            r['quality'] = 'good'
+        else:
+            r['quality'] = 'fair'
 
     for i, r in enumerate(results):
         r['rank'] = i + 1

@@ -63,7 +63,7 @@ webtool search "2026年最新最强大语言模型排行榜 GPT Claude Gemini"  
 | `blocklist show/add/remove/reset` | 黑名单管理 |
 | `engines --check` / `cache clear/info` | 健康检查 / 缓存 |
 
-过滤开关：`--no-blocklist` `--no-weight-filter`（默认剔 weight<0.15）`--keep-ad` `--no-dedupe` `--no-semantic` `--no-retry`。
+过滤开关：`--no-blocklist` `--no-weight-filter`（默认剔 quality=poor，即 sem<0.15）`--keep-ad` `--no-dedupe` `--no-semantic` `--no-retry`。
 
 **三格式与过滤回显**：search/site 的 json/text/markdown 信息量对齐，每层剔除量（广告/黑名单/权重/去重）三种格式都回显并附撤销参数——json `filters_applied` 字段、text 末尾 `—` 行、markdown `**过滤统计**` 块。
 
@@ -73,7 +73,7 @@ webtool search "2026年最新最强大语言模型排行榜 GPT Claude Gemini"  
 |---|---|---|
 | `default_engines` | 默认引擎组合 | `bing,baidu` |
 | `default_format` | 默认输出格式 | `markdown` |
-| `min_weight` | 默认权重阈值(0=用内置 0.15 兜底) | `0.3` |
+| `min_weight` | sem 绝对阈值(0=默认剔 quality=poor) | `0.3` |
 | `blocklist` / `ad_filter` / `weight_filter` / `dedupe` / `semantic` | 各过滤开关 | `on` / `off` |
 | `engine_proxy.<engine>` | 单引擎代理 | `engine_proxy.google http://...` |
 | `timeout` / `cache` | 超时秒数 / 缓存开关 | `25` / `off` |
@@ -84,7 +84,7 @@ webtool search "2026年最新最强大语言模型排行榜 GPT Claude Gemini"  
 |---|---|---|
 | 广告 | baidu result-op 卡片 + 广告词/域名识别 | `--keep-ad` 只标记 |
 | 黑名单 | 21 内置内容农场；`~/.webtool/blocklist.json` 可加 block/allow（allow 优先） | `--no-blocklist` |
-| 权重 | 默认绝对阈值 **weight<0.15 剔除**（至少留 3 条）；`--min-weight 0.3` 显式阈值 | `--no-weight-filter` |
+| 权重 | 默认剔 **quality=poor**（sem_score<0.15 绝对硬门，至少留 3 条）；`--min-weight 0.3` 改按 sem 绝对阈值 | `--no-weight-filter` |
 
 ```bash
 webtool blocklist add csdn.net                  # 追加黑名单(持久)
@@ -92,7 +92,9 @@ webtool blocklist add blog.csdn.net/x --allow   # 白名单例外
 webtool search q --block jb51.net               # 临时追加(不落盘)
 ```
 
-权重公式（v1.3）：`引擎基础分 × 名次衰减(1/log2(rank+1)) × 多引擎共识加成 × 语义乘区 × 实体命中(title 命中×1.6/仅摘要×1.15/零命中×0.45) × 域名先验(实体 query 下词典/百科×0.5)`；每条结果带 `weight`/`sem_score`(0-1 余弦)/`quality`(good/fair/poor) 字段。
+权重公式（v1.3）：`引擎基础分 × 名次衰减(1/log2(rank+1)) × 多引擎共识加成 × 语义乘区 × 实体命中(title 命中×1.6/仅摘要×1.15/零命中×0.45) × 域名先验(实体 query 下词典/百科×0.5)`；每条结果带 `weight`/`sem_score`(0-1 余弦)/`quality` 字段。
+
+`quality` 双门标签：**poor** = sem<0.15 绝对硬门（零词面重叠噪声）；**good** = sem≥0.2 且相对最高分 >0.5；其余 fair。纯相对分位在全垃圾批会把垃圾标 good，纯绝对阈会误伤英文页/短 query 好结果，故取双门。
 
 低质量召回不自动改写 query（避免引入歧义），输出 `quality_hint` 提醒优化 query 词；`--no-retry` 关闭。
 
