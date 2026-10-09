@@ -6,18 +6,36 @@ import sys
 import time
 
 from . import cache
+from .adfilter import is_ad, mark_ads
 from .engines.bing import search as bing_search
 from .engines.sogou import search as sogou_search
+from .engines.google import search as google_search
+from .engines.baidu import search as baidu_search
 
-ENGINES = {'bing': bing_search, 'sogou': sogou_search}
+ENGINES = {'bing': bing_search, 'sogou': sogou_search,
+           'google': google_search, 'baidu': baidu_search}
+# 各引擎代理建议: None=跟随全局; 'required'=必须代理; 'direct'=建议直连
+ENGINE_PROXY_HINT = {'bing': 'direct', 'sogou': 'direct',
+                     'google': 'required', 'baidu': 'direct'}
 
 
 def do_search(args, cfg):
+    """默认入口: 广告已过滤 (--no-ad 恒真, cli 层控制)"""
+    return _do_search(args, cfg, filter_ad=args.no_ad)
+
+
+def do_search_raw(args, cfg):
+    """--keep-ad: 保留广告并标 is_ad 字段"""
+    return _do_search(args, cfg, filter_ad=False)
+
+
+def _do_search(args, cfg, filter_ad=True):
     t0 = time.time()
     engines = [e.strip() for e in args.engine.split(',') if e.strip()]
     results = []
     errors = []
     per_engine = {}
+    ad_filtered = 0
     for eng in engines:
         fn = ENGINES.get(eng)
         if not fn:
@@ -30,10 +48,27 @@ def do_search(args, cfg):
             per_engine[eng] = 'cache'
         else:
             eproxy = (cfg.get('engine_proxy') or {}).get(eng)
-            proxy = eproxy if eproxy is not None else cfg.get('proxy')
+            hint = ENGINE_PROXY_HINT.get(eng)
+            if args.no_proxy:
+                proxy = None            # 命令行指定不走代理, 最高优先
+            elif eproxy is not None:
+                proxy = eproxy          # 引擎级配置次之
+            elif hint == 'required' and not cfg.get('proxy'):
+                errors.append({'engine': eng,
+                               'error': f'{eng} 需要代理: webtool proxy set <proxy> 或 --proxy'})
+                continue
+            else:
+                proxy = cfg.get('proxy')
             try:
                 rs = fn(args.query, max_results=args.max, proxy=proxy,
                         timeout=cfg.get('timeout', 15), market=args.market)
+                n_ad = sum(1 for r in rs if r.get('is_ad'))
+                if filter_ad:
+                    rs = [r for r in rs if not r.get('is_ad')]
+                    ad_filtered += n_ad
+                else:
+                    from .adfilter import mark_ads
+                    mark_ads(rs)
                 cache.put(cfg, 'search', ckey, rs)
                 per_engine[eng] = 'fresh'
             except Exception as e:
@@ -41,11 +76,22 @@ def do_search(args, cfg):
                 continue
         results.extend([dict(r, engine=eng) for r in rs])
 
+    # 合并: 去重 + 权重排序 (语义向量可选)
+    from .merge import merge as _merge
+    n_before = len(results)
+    results = _merge(results, args.query,
+                     use_semantic=not args.no_semantic,
+                     dedupe=not args.no_dedupe)
+    dedup_removed = n_before - len(results)
+
     if args.resolve_links:
         _resolve_sogou_links(results, cfg)
 
     out = {'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
-           'cache': per_engine, 'total': len(results), 'results': results}
+           'cache': per_engine, 'total': len(results), 'results': results,
+           'dedup_removed': dedup_removed, 'sorted_by': 'weight(semantic)' if not args.no_semantic else 'weight'}
+    if ad_filtered:
+        out['ad_filtered'] = ad_filtered
     if errors:
         out['errors'] = errors
     if args.format == 'json':

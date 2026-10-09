@@ -20,7 +20,8 @@ classifiers = [
 [project.optional-dependencies]
 extract = ["trafilatura>=2.0", "readability-lxml", "html2text", "inscriptis"]
 socks = ["pysocks"]
-full = ["webtool[extract,socks]"]
+tls = ["curl_cffi>=0.16"]          # TLS/JA3 指纹模拟 (百度等强风控站推荐)
+full = ["webtool[extract,socks,tls]"]
 
 [project.scripts]
 webtool = "webtool.cli:main"

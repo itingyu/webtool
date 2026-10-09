@@ -18,11 +18,16 @@ def main(argv=None):
 
     ps = sub.add_parser('search', help='多引擎网页搜索')
     ps.add_argument('query')
-    ps.add_argument('-e', '--engine', default='bing,sogou', help='逗号分隔: bing,sogou,ddg,jina')
+    ps.add_argument('-e', '--engine', default='bing,sogou', help='逗号分隔: bing,sogou,baidu,google')
     ps.add_argument('-n', '--max', type=int, default=8, help='每引擎结果数')
     ps.add_argument('-f', '--format', choices=['json', 'text'], default='json')
-    ps.add_argument('--market', default='zh-CN', help='bing 市场: zh-CN / en-US')
+    ps.add_argument('--market', default='zh-CN', help='市场: zh-CN / en-US')
     ps.add_argument('--resolve-links', action='store_true', help='解析搜狗跳转链为真实 URL')
+    ps.add_argument('--no-ad', action='store_true', help='过滤广告结果')
+    ps.add_argument('--no-proxy', action='store_true', help='本次不走代理(覆盖配置)')
+    ps.add_argument('--keep-ad', action='store_true', help='保留广告结果并标记 is_ad (默认已过滤)')
+    ps.add_argument('--no-dedupe', action='store_true', help='关闭跨引擎去重')
+    ps.add_argument('--no-semantic', action='store_true', help='关闭语义向量排序(纯位置权重)')
 
     pf = sub.add_parser('fetch', help='抓取 URL 并提取正文')
     pf.add_argument('url', nargs='?', help='要抓取的 URL')
@@ -48,6 +53,7 @@ def main(argv=None):
     psite.add_argument('-n', '--max', type=int, default=10)
     psite.add_argument('-f', '--format', choices=['json', 'text'], default='json')
     psite.add_argument('--lang', default='zh', help='wikipedia 语言版本')
+    psite.add_argument('--no-proxy', action='store_true', help='本次不走代理')
 
     args = p.parse_args(argv)
     cfg = _proxy.load_config()
@@ -56,7 +62,13 @@ def main(argv=None):
 
     try:
         if args.cmd == 'search':
-            out = do_search(args, cfg)
+            if args.keep_ad:
+                # --keep-ad: 只标记不过滤
+                from .search import do_search_raw
+                out = do_search_raw(args, cfg)
+            else:
+                args.no_ad = True
+                out = do_search(args, cfg)
         elif args.cmd == 'fetch':
             out = do_fetch(args, cfg)
         elif args.cmd == 'proxy':

@@ -5,6 +5,7 @@ import urllib.parse
 import http.cookiejar
 
 from ..http import http_get, build_opener
+from .. import captcha
 
 ENDPOINT = 'https://www.sogou.com/web'
 
@@ -23,15 +24,18 @@ def _new_session():
 
 def search(query, max_results=10, proxy=None, timeout=15, market=None, _session=None):
     """返回 [{title,url,snippet}]  url 可能是 /link?url= 跳转链"""
+    if captcha.suspended('sogou'):
+        raise RuntimeError(f"sogou 冷却中({captcha.cooldown_left('sogou')}s, 此前触发反爬), 请换引擎: -e bing,baidu")
     cj, opener = _session if _session else _new_session()
     q = urllib.parse.quote(query)
     page = 1
     from ..resilient import fetch as rfetch
     html, status, _via = rfetch(f'{ENDPOINT}?query={q}', proxy=proxy, timeout=timeout)
-    # 检查 antispider 跳转 (搜狗偶尔返回 anti 页含 JS 跳转)
-    m = re.search(r'window\.location\.replace\("([^"]+)"\)', html)
-    if m and 'antispider' in m.group(1) or (m and '/antispider/' in m.group(1)):
-        raise RuntimeError('sogou antispider triggered, 建议降低频率或换引擎')
+    # 验证页识别 (统一走 captcha 模块指纹)
+    blocked, sign = captcha.detect('sogou', html)
+    if blocked:
+        captcha.mark_blocked('sogou')
+        raise RuntimeError(f'sogou 反爬拦截({sign}); 已冷却{captcha.cooldown_left("sogou")}s, 请换 -e bing,baidu')
     items = re.findall(
         r'<h3 class="vr-title">(?:[^<]|<!--[^>]*-->)*<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
         html, re.S)
@@ -44,6 +48,7 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, _session=
         out.append({'rank': len(out) + 1, 'title': title, 'url': url, 'snippet': ''})
         if len(out) >= max_results:
             break
+    captcha.mark_ok('sogou')
     # 附带摘要 (可选字段, 解析失败不影响)
     _fill_snippets(html, out)
     return out

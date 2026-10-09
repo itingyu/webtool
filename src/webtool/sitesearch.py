@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """webtool site: 站内搜索调度 (区别于传统搜索引擎)"""
 import json
+import os
 import sys
 import time
 
@@ -10,17 +11,36 @@ from .engines.sites import SITES
 
 def do_site(args, cfg):
     if args.site in (None, 'list'):
-        print(json.dumps(
-            [{'site': k, 'desc': v['desc'], 'proxy_hint': v['proxy']} for k, v in SITES.items()],
-            ensure_ascii=False, indent=1))
+        from .customsites import load_custom_sites
+        rows = []
+        for k, v in SITES.items():
+            rows.append({'site': k, 'desc': v['desc'], 'proxy_hint': v['proxy'], 'source': 'builtin'})
+        for k, v in load_custom_sites().items():
+            if v.get('_error'):
+                rows.append({'site': k, 'desc': v['_error'], 'source': 'custom(BROKEN)'})
+            else:
+                rows.append({'site': k, 'desc': v.get('desc', ''), 'proxy_hint': v.get('proxy', 'auto'),
+                             'source': 'custom(~/.webtool/sites)'})
+        print(json.dumps(rows, ensure_ascii=False, indent=1))
         return 0
     if not args.query:
         print('usage: webtool site <site> <query>', file=sys.stderr)
         return 2
-    entry = SITES.get(args.site)
-    if not entry:
-        print(f'unknown site: {args.site}\navailable: {", ".join(SITES)}\nuse `webtool site list` for detail',
-              file=sys.stderr)
+
+    # 自定义站点优先查 (允许覆盖内置)
+    from .customsites import load_custom_sites, search_custom
+    customs = load_custom_sites()
+    kind, spec = None, None
+    if args.site in customs and not customs[args.site].get('_error'):
+        kind, spec = 'custom', customs[args.site]
+    elif args.site in customs:
+        print(f'site {args.site} 配置有误: {customs[args.site]["_error"]}', file=sys.stderr)
+        return 2
+    elif args.site in SITES:
+        kind, spec = 'builtin', SITES[args.site]
+    else:
+        print(f'unknown site: {args.site}\navailable: {", ".join(sorted(set(SITES) | set(customs)))}\n'
+              f'use `webtool site list` for detail', file=sys.stderr)
         return 2
 
     t0 = time.time()
@@ -29,29 +49,37 @@ def do_site(args, cfg):
     if cached is not None:
         results, src = cached, 'cache'
     else:
-        fn = entry['fn']
-        hint = entry['proxy']
+        # 代理策略: 命令行 --no-proxy > 站点配置 proxy 字段 > 全局
+        site_proxy = spec.get('proxy', 'auto') if kind == 'custom' else spec['proxy']
         proxy = (cfg.get('engine_proxy') or {}).get(f'site:{args.site}')
-        if proxy is None:
-            proxy = cfg.get('proxy') if hint == 'proxy' else cfg.get('proxy')  # auto: 全局代理, resilient 会自动降级
-        if args.site == 'wikipedia' and args.lang != 'zh':
-            def fn(q, limit, proxy, timeout, **kw):
-                return SITES['wikipedia']['fn'](q, limit, proxy, timeout, lang=args.lang)
+        if args.no_proxy:
+            proxy = None
+        elif proxy is None:
+            if site_proxy == 'direct':
+                proxy = None
+            elif site_proxy == 'proxy' or cfg.get('proxy'):
+                proxy = cfg.get('proxy')
         try:
-            results = fn(args.query, args.max, proxy, cfg.get('timeout', 15))
+            if kind == 'custom':
+                results = search_custom(args.site, spec, args.query, args.max,
+                                        proxy, cfg.get('timeout', 15))
+            elif args.site == 'wikipedia' and args.lang != 'zh':
+                results = SITES['wikipedia']['fn'](args.query, args.max, proxy,
+                                                   cfg.get('timeout', 15), lang=args.lang)
+            else:
+                results = spec['fn'](args.query, args.max, proxy, cfg.get('timeout', 15))
             cache.put(cfg, 'search', ckey, results)
             src = 'fresh'
         except Exception as e:
             print(json.dumps({'error': str(e)[:300], 'site': args.site,
-                              'hint': f'可试 --proxy 或降低 -n; site list 查看可用站点'},
+                              'hint': '可试 --proxy / --no-proxy 或降低 -n; `webtool site list` 查看站点'},
                              ensure_ascii=False), file=sys.stderr)
             return 1
 
     out = {'site': args.site, 'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'source': src, 'total': len(results), 'results': results}
     if args.format == 'json':
-        print(json.dumps(out, ensure_ascii=False, indent=1))
-    else:
+        print(json.dumps(out, ensure_ascii=False, indent=1))    else:
         for r in results:
             print(f"- {r['title']}\n  {r['url']}")
             if r.get('snippet'):
