@@ -28,6 +28,7 @@ def main(argv=None):
     ps.add_argument('--keep-ad', action='store_true', help='保留广告结果并标记 is_ad (默认已过滤)')
     ps.add_argument('--no-dedupe', action='store_true', help='关闭跨引擎去重')
     ps.add_argument('--no-semantic', action='store_true', help='关闭语义向量排序(纯位置权重)')
+    ps.add_argument('--no-retry', action='store_true', help='关闭低召回自动重试(默认开启)')
     ps.add_argument('--min-weight', type=float, default=0.0,
                     help='只保留 weight>=阈值 的结果 (0=默认剔除权重垫底~15%%)')
     ps.add_argument('--block', action='append', default=[],

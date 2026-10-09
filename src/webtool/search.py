@@ -32,7 +32,7 @@ def do_search_raw(args, cfg):
 def _do_search(args, cfg, filter_ad=True):
     t0 = time.time()
     # 配置文件默认值 ← 命令行覆盖 (config set 的持久配置是底线, CLI 参数可临时改)
-    if args.min_weight <= 0 and cfg.get('min_weight') is not None:
+    if args.min_weight <= 0 and cfg.get('min_weight') not in (None, 0):
         args.min_weight = float(cfg['min_weight'])
     if args.no_weight_filter and cfg.get('weight_filter') == 'off':
         args.no_weight_filter = True     # config 已 off, CLI 也要求 off → off
@@ -96,7 +96,7 @@ def _do_search(args, cfg, filter_ad=True):
                 continue
         results.extend([dict(r, engine=eng) for r in rs])
 
-    # 合并: 去重 + 黑名单 + 权重排序 (语义向量可选) + 权重阈值
+    # 合并: 去重 + 黑名单 + 权重排序 (语义向量可选) + 权重阈值 + 质量闸门
     from .merge import merge as _merge
     from .blocklist import filter_blocklist
     n_before = len(results)
@@ -113,17 +113,24 @@ def _do_search(args, cfg, filter_ad=True):
         n_low = len(results)
         results = [r for r in results if r['weight'] >= args.min_weight]
         n_low -= len(results)
-    elif args.no_weight_filter or args.min_weight > 0:
-        n_low = 0
+    elif not args.no_weight_filter:
+        # 默认兜底: 绝对阈值 0.15 (剔明显垃圾; 至少保留 3 条, 不至空手)
+        n_low = len(results)
+        kept = [r for r in results if r['weight'] >= 0.15]
+        if len(kept) < 3:
+            kept = sorted(results, key=lambda r: -r['weight'])[:3]
+        n_low -= len(kept)
+        results = kept
     else:
         n_low = 0
-        # 默认兜底: 剔除权重垫底的 15% (至少保留 3 条, 不至空手)
-        if results and len(results) > 4:
-            ws = sorted(r['weight'] for r in results)
-            floor = ws[int(len(ws) * 0.15) - 1] if len(ws) > 3 else ws[0]
-            kept = [r for r in results if r['weight'] > floor] or results[:max(3, len(results) - 2)]
-            n_low = len(results) - len(kept)
-            results = kept
+
+    # 质量诊断: 结果集与 query 整体脱节 → 输出 query 优化建议 (不自动改写,
+    # 自动改词可能引入歧义, 改写权在用户; 这里只做检测 + 提醒)
+    quality_hint = None
+    if not args.no_semantic and not args.no_retry \
+            and _low_quality(results, args.query):
+        from .qhint import build_hint
+        quality_hint = build_hint(args.query, results)
 
     if args.resolve_links:
         _resolve_sogou_links(results, cfg)
@@ -132,12 +139,59 @@ def _do_search(args, cfg, filter_ad=True):
            'cache': per_engine, 'total': len(results), 'results': results,
            'dedup_removed': dedup_removed,
            'sorted_by': 'weight(semantic)' if not args.no_semantic else 'weight'}
+    if quality_hint:
+        out['quality_hint'] = quality_hint
     out['_min_weight'] = args.min_weight
     if errors:
         out['errors'] = errors
     from .render import render
     render(out, args.format, 'search')
     return 0
+
+
+def _low_quality(results, query):
+    """质量诊断: sem_score 绝对值过低说明 query 与召回全脱节"""
+    from .qhint import need_retry
+    if len(results) < 3:
+        return False
+    return need_retry({i: r.get('sem_score', 0) for i, r in enumerate(results)})
+
+
+def _fetch_engines(args, cfg, engines, query, filter_ad):
+    """对指定 query 跑一轮多引擎抓取 (供 site/子命令复用, 返回原始结果)"""
+    rs_all, errs, ads = [], [], 0
+    for eng in engines:
+        fn = ENGINES.get(eng)
+        if not fn:
+            continue
+        ckey = f'{eng}|{query}|{args.max}|{args.market}'
+        cached = None if args.no_cache else cache.get(cfg, 'search', ckey)
+        if cached is not None:
+            rs = cached
+        else:
+            eproxy = (cfg.get('engine_proxy') or {}).get(eng)
+            hint = ENGINE_PROXY_HINT.get(eng)
+            if args.no_proxy:
+                proxy = None
+            elif eproxy is not None:
+                proxy = eproxy
+            elif hint == 'required' and not cfg.get('proxy'):
+                continue
+            else:
+                proxy = cfg.get('proxy')
+            try:
+                rs = fn(query, max_results=args.max, proxy=proxy,
+                        timeout=cfg.get('timeout', 15), market=args.market)
+                n_ad = sum(1 for r in rs if r.get('is_ad'))
+                if filter_ad:
+                    rs = [r for r in rs if not r.get('is_ad')]
+                    ads += n_ad
+                cache.put(cfg, 'search', ckey, rs)
+            except Exception as e:
+                errs.append({'engine': eng, 'error': f'retry: {str(e)[:180]}'})
+                continue
+        rs_all.extend([dict(r, engine=eng) for r in rs])
+    return rs_all, errs, ads
 
 
 def _resolve_sogou_links(results, cfg):

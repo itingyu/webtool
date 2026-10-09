@@ -31,17 +31,30 @@ pip install -e '.[tls]'
 
 ```bash
 webtool proxy set http://127.0.0.1:2080            # 配代理(可选, 断线自动直连)
-webtool config set default_engines bing,baidu      # 持久化默认配置
-webtool search "fastapi 教程" -n 5                 # 多引擎搜索(合并/去重/黑名单/语义排序)
+webtool config set default_engines bing,sogou      # 持久化默认配置
+webtool search "LLM 排行榜" -n 5                   # 精简 query 召回最好
 webtool fetch <url> -f markdown --max-chars 4000   # 提取正文
 webtool site github fastapi                        # 站内搜索
 ```
+
+## 写好 query（重要）
+
+中文引擎对长修饰 query 的分词很脆弱，**query 用「核心实体 + 意图词」的精简写法**：
+
+```bash
+webtool search "LLM 排行榜"            # ✅ 好
+webtool search "大模型 排行榜 GPT"      # ✅ 好 (英文实体单独成词)
+webtool search "2026年最新最强大语言模型排行榜 GPT Claude Gemini"   # ❌ 差: 修饰词带偏分词, 召回词典/百科噪声
+```
+
+- 中文技术词用引擎习惯叫法：`大模型` 而非 `大语言模型`（bing 对后者整串分词失败）
+- 召回质量低时输出会带 `💡` 提示（`quality_hint` 字段），按提示改词重搜即可——工具不改写你的 query，改词权在你
 
 ## 命令速查
 
 | 命令 | 说明 |
 |---|---|
-| `search <q>` | `-e` 引擎组合 `-n` 条数 `-f json/text/markdown` `--min-weight N` 权重阈值 `--block/--allow` 临时黑白名单 |
+| `search <q>` | `-e` 引擎组合 `-n` 条数 `-f json/text/markdown` `--min-weight N` 权重阈值 `--block/--allow` 临时黑白名单 `--no-retry` 关质量提示 |
 | `fetch <url>` | `-f markdown/text/json/html` `--max-chars` `--raw` `--url-file` 批量 |
 | `site <site> <q>` | 站内搜索（同支持三格式与过滤链）；`site list` 查全部，`docs/custom-sites.md` 自定义 |
 | `config list/get/set/unset` | 持久化配置：默认引擎/格式/权重阈值/各过滤开关/单引擎代理 |
@@ -49,7 +62,7 @@ webtool site github fastapi                        # 站内搜索
 | `blocklist show/add/remove/reset` | 黑名单管理 |
 | `engines --check` / `cache clear/info` | 健康检查 / 缓存 |
 
-过滤开关：`--no-blocklist` `--no-weight-filter`（默认剔权重垫底 15%）`--keep-ad` `--no-dedupe` `--no-semantic`。
+过滤开关：`--no-blocklist` `--no-weight-filter`（默认剔 weight<0.15）`--keep-ad` `--no-dedupe` `--no-semantic` `--no-retry`。
 
 **三格式与过滤回显**：search/site 的 json/text/markdown 信息量对齐，每层剔除量（广告/黑名单/权重/去重）三种格式都回显并附撤销参数——json `filters_applied` 字段、text 末尾 `—` 行、markdown `**过滤统计**` 块。
 
@@ -59,7 +72,7 @@ webtool site github fastapi                        # 站内搜索
 |---|---|---|
 | `default_engines` | 默认引擎组合 | `bing,baidu` |
 | `default_format` | 默认输出格式 | `markdown` |
-| `min_weight` | 默认权重阈值 | `0.5` |
+| `min_weight` | 默认权重阈值(0=用内置 0.15 兜底) | `0.3` |
 | `blocklist` / `ad_filter` / `weight_filter` / `dedupe` / `semantic` | 各过滤开关 | `on` / `off` |
 | `engine_proxy.<engine>` | 单引擎代理 | `engine_proxy.google http://...` |
 | `timeout` / `cache` | 超时秒数 / 缓存开关 | `25` / `off` |
@@ -70,7 +83,7 @@ webtool site github fastapi                        # 站内搜索
 |---|---|---|
 | 广告 | baidu result-op 卡片 + 广告词/域名识别 | `--keep-ad` 只标记 |
 | 黑名单 | 21 内置内容农场；`~/.webtool/blocklist.json` 可加 block/allow（allow 优先） | `--no-blocklist` |
-| 权重 | 默认剔垫底 ~15%（至少留 3 条）；`--min-weight 0.8` 显式阈值 | `--no-weight-filter` |
+| 权重 | 默认绝对阈值 **weight<0.15 剔除**（至少留 3 条）；`--min-weight 0.3` 显式阈值 | `--no-weight-filter` |
 
 ```bash
 webtool blocklist add csdn.net                  # 追加黑名单(持久)
@@ -78,7 +91,9 @@ webtool blocklist add blog.csdn.net/x --allow   # 白名单例外
 webtool search q --block jb51.net               # 临时追加(不落盘)
 ```
 
-权重公式：`引擎排名衰减(1/√rank) × 引擎可信度 × 多引擎确认加成 × 语义相关度`；每条结果带 `weight`/`sem_score` 字段。
+权重公式（v1.3）：`引擎基础分 × 名次衰减(1/log2(rank+1)) × 多引擎共识加成 × 语义乘区 × 实体命中(title 命中×1.6/仅摘要×1.15/零命中×0.45) × 域名先验(实体 query 下词典/百科×0.5)`；每条结果带 `weight`/`sem_score`(0-1 余弦)/`quality`(good/fair/poor) 字段。
+
+低质量召回不自动改写 query（避免引入歧义），输出 `quality_hint` 提醒优化 query 词；`--no-retry` 关闭。
 
 ## 引擎说明
 

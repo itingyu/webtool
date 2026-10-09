@@ -21,7 +21,7 @@ def _fmt_filters(out):
         parts.append(f"黑名单剔除 {out['blocked_by_blocklist']} 条(--no-blocklist 关闭)")
     if out.get('filtered_low_weight'):
         mw = out.get('_min_weight')
-        label = f"权重<{mw} 剔除" if mw else '权重垫底15% 剔除'
+        label = f"权重<{mw} 剔除" if mw else '权重<0.15 剔除'
         parts.append(f"{label} {out['filtered_low_weight']} 条(--min-weight 调阈值, --no-weight-filter 关闭)")
     if out.get('dedup_removed'):
         parts.append(f"跨引擎去重合并 {out['dedup_removed']} 条(--no-dedupe 关闭)")
@@ -31,8 +31,10 @@ def _fmt_filters(out):
 def render(out, fmt, kind):
     """kind: 'search' | 'site' | 'fetch'; fmt: 'json' | 'text' | 'markdown'"""
     filters = _fmt_filters(out)
-    if filters:
-        out['filters_applied'] = filters
+    # 无过滤动作时也回显一行, 保持三格式过滤统计始终在场 (0 过滤可查证)
+    if not filters:
+        filters = ['无过滤动作 (0 剔除)']
+    out['filters_applied'] = filters
     if fmt == 'json':
         print(json.dumps(out, ensure_ascii=False, indent=1))
         return
@@ -60,9 +62,10 @@ def _render_search(out, fmt, filters):
             w = f" `w={r['weight']:.2f}`" if r.get('weight') is not None else ''
             conf = f" ✕{r['confirmations']}" if r.get('confirmations', 1) > 1 else ''
             eng = ','.join(r['engines']) if r.get('engines') else r.get('engine', '')
+            qflag = {'poor': ' ⚠poor', 'good': ''}.get(r.get('quality'), '')
             print(f"\n### {r['rank']}. [{r['title']}]({r['url']})")
             sub = []
-            if eng: sub.append(f"引擎: {eng}{conf}{w}")
+            if eng: sub.append(f"引擎: {eng}{conf}{w}{qflag}")
             if r.get('is_ad'): sub.append('**广告**')
             if sub: print(f"\n*{'; '.join(sub)}*")
             if r.get('snippet'):
@@ -71,6 +74,8 @@ def _render_search(out, fmt, filters):
             print(f"\n---\n**过滤统计**: {'; '.join(filters)}")
         if out.get('errors'):
             print(f"\n⚠ 引擎错误: {json.dumps(out['errors'], ensure_ascii=False)}")
+        if out.get('quality_hint'):
+            print(f"\n> 💡 {out['quality_hint']}")
     else:  # text
         for r in results:
             eng = ','.join(r['engines']) if r.get('engines') else r.get('engine', '')
@@ -79,6 +84,7 @@ def _render_search(out, fmt, filters):
             if eng: flags.append(eng)
             if r.get('weight') is not None: flags.append(f"w={r['weight']:.2f}")
             if r.get('is_ad'): flags.append('AD')
+            if r.get('quality') == 'poor': flags.append('poor')
             if flags: line += f"  ({';'.join(flags)})"
             print(line)
             print(f"    {r['url']}")
@@ -88,6 +94,8 @@ def _render_search(out, fmt, filters):
             print('— ' + '; '.join(filters))
         if out.get('errors'):
             print('errors: ' + json.dumps(out['errors'], ensure_ascii=False), file=sys.stderr)
+        if out.get('quality_hint'):
+            print('hint: ' + out['quality_hint'], file=sys.stderr)
 
 
 # ---------- fetch ----------
