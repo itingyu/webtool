@@ -31,7 +31,27 @@ def do_search_raw(args, cfg):
 
 def _do_search(args, cfg, filter_ad=True):
     t0 = time.time()
-    engines = [e.strip() for e in args.engine.split(',') if e.strip()]
+    # 配置文件默认值 ← 命令行覆盖 (config set 的持久配置是底线, CLI 参数可临时改)
+    if args.min_weight <= 0 and cfg.get('min_weight') is not None:
+        args.min_weight = float(cfg['min_weight'])
+    if args.no_weight_filter and cfg.get('weight_filter') == 'off':
+        args.no_weight_filter = True     # config 已 off, CLI 也要求 off → off
+    if not args.no_weight_filter and cfg.get('weight_filter') == 'off' and args.min_weight <= 0:
+        args.no_weight_filter = True     # config off 且 CLI 未显式开 → off
+    if args.no_blocklist or cfg.get('blocklist') == 'off':
+        args.no_blocklist = True
+    if cfg.get('ad_filter') == 'off':
+        args.keep_ad = True
+    if args.no_dedupe or cfg.get('dedupe') == 'off':
+        args.no_dedupe = True
+    if args.no_semantic or cfg.get('semantic') == 'off':
+        args.no_semantic = True
+    engines = [e.strip() for e in (args.engine or cfg.get('default_engines') or 'bing,sogou').split(',') if e.strip()]
+    if args.format is None and cfg.get('default_format'):
+        args.format = cfg['default_format']
+    if cfg.get('cache') == 'off':
+        args.no_cache = True
+    errors = []
     results = []
     errors = []
     per_engine = {}
@@ -112,41 +132,12 @@ def _do_search(args, cfg, filter_ad=True):
            'cache': per_engine, 'total': len(results), 'results': results,
            'dedup_removed': dedup_removed,
            'sorted_by': 'weight(semantic)' if not args.no_semantic else 'weight'}
-    # 过滤说明行: 无论 json/text 都带, Agent 可感知剔除量
-    filters = []
-    if n_blocked:
-        filters.append(f'黑名单剔除 {n_blocked} 条 (--no-blocklist 关闭)')
-        out['blocked_by_blocklist'] = n_blocked
-    if n_low:
-        label = f'权重<{args.min_weight} 剔除' if args.min_weight > 0 else '权重垫底15% 剔除'
-        filters.append(f'{label} {n_low} 条 (--min-weight 调阈值, --no-weight-filter 关闭)')
-        out['filtered_low_weight'] = n_low
-    if ad_filtered:
-        filters.append(f'广告过滤 {ad_filtered} 条')
-        out['ad_filtered'] = ad_filtered
-    out['filters_applied'] = filters
+    out['_min_weight'] = args.min_weight
     if errors:
         out['errors'] = errors
-    if args.format == 'json':
-        print(json.dumps(out, ensure_ascii=False, indent=1))
-    else:
-        _print_text(out)
-        for f in filters:
-            print(f'[{f}]', file=sys.stderr)
+    from .render import render
+    render(out, args.format, 'search')
     return 0
-
-
-def _print_text(out):
-    for r in out['results']:
-        print(f"[{r.get('engine','?')}#{r.get('rank','?')}] {r['title']}")
-        print(f"    {r['url']}")
-        if r.get('snippet'):
-            print(f"    {r['snippet'][:150]}")
-    # 过滤说明行 (stdout, json/text 一致可见)
-    if out.get('filters_applied'):
-        print('— ' + '; '.join(out['filters_applied']))
-    if out.get('errors'):
-        print('errors: ' + json.dumps(out['errors'], ensure_ascii=False), file=sys.stderr)
 
 
 def _resolve_sogou_links(results, cfg):

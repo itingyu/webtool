@@ -20,7 +20,7 @@ def main(argv=None):
     ps.add_argument('query')
     ps.add_argument('-e', '--engine', default='bing,sogou', help='逗号分隔: bing,sogou,baidu,google')
     ps.add_argument('-n', '--max', type=int, default=8, help='每引擎结果数')
-    ps.add_argument('-f', '--format', choices=['json', 'text'], default='json')
+    ps.add_argument('-f', '--format', choices=['json', 'text', 'markdown'], default='json')
     ps.add_argument('--market', default='zh-CN', help='市场: zh-CN / en-US')
     ps.add_argument('--resolve-links', action='store_true', help='解析搜狗跳转链为真实 URL')
     ps.add_argument('--no-ad', action='store_true', help='过滤广告结果')
@@ -56,20 +56,28 @@ def main(argv=None):
     pcache = sub.add_parser('cache', help='缓存管理')
     pcache.add_argument('action', choices=['clear', 'info'])
 
+
     pbl = sub.add_parser('blocklist', help='黑名单管理 (低质量站点)')
     pbl.add_argument('action', choices=['show', 'add', 'remove', 'reset'])
     pbl.add_argument('domain', nargs='?', help='域名, 如 csdn.net')
     pbl.add_argument('--allow', action='store_true', help='add/remove 白名单例外')
 
+    pcf = sub.add_parser('config', help='配置管理: 代理/黑名单/权重阈值/默认引擎等')
+    pcf.add_argument('action', choices=['list', 'get', 'set', 'unset'])
+    pcf.add_argument('key', nargs='?')
+    pcf.add_argument('value', nargs='?')
+
     psite = sub.add_parser('site', help='站内搜索(知名站点官方接口, 与传统搜索引擎区分)')
     psite.add_argument('site', nargs='?', help='站点 key, `webtool site list` 查看全部')
     psite.add_argument('query', nargs='?', help='站内搜索词')
     psite.add_argument('-n', '--max', type=int, default=10)
-    psite.add_argument('-f', '--format', choices=['json', 'text'], default='json')
+    psite.add_argument('-f', '--format', choices=['json', 'text', 'markdown'], default='json')
     psite.add_argument('--lang', default='zh', help='wikipedia 语言版本')
     psite.add_argument('--no-proxy', action='store_true', help='本次不走代理')
     psite.add_argument('--block', action='append', default=[], help='临时追加黑名单域名')
     psite.add_argument('--no-blocklist', action='store_true', help='关闭黑名单过滤')
+    psite.add_argument('--no-weight-filter', action='store_true', help='关闭权重过滤')
+    psite.add_argument('--min-weight', type=float, default=0.0, help='权重阈值')
 
     args = p.parse_args(argv)
     cfg = _proxy.load_config()
@@ -100,6 +108,10 @@ def main(argv=None):
             out = do_site(args, cfg)
         elif args.cmd == 'blocklist':
             from .blocklist import handle_cli
+            return handle_cli(args)
+        elif args.cmd == 'config':
+            from .configcmd import handle
+            return handle(args)
             return handle_cli(args)
         return 0
     except BrokenPipeError:
