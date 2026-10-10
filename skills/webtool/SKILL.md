@@ -22,7 +22,8 @@ version: 1.5.1
 ## 常用示例
 
 ```sh
-webtool search "LLM 排行榜" -e bing,sogou -n 5      # 精简 query 优先!
+webtool search "LLM 排行榜" -n 5                    # 默认 bing,sogou; 精简 query 优先!
+webtool search "LLM leaderboard" -e bing,sogou,google -n 5   # 有代理时加 google (新闻覆盖)
 webtool search "大模型 排行榜" -f markdown           # 三格式任选
 webtool search "大模型 排行榜" --keep-ad             # 保留广告看全量
 webtool fetch <url> -f json --with-metadata          # 带元数据 json

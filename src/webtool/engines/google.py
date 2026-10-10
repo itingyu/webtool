@@ -20,24 +20,26 @@ from ..http import build_opener
 
 
 def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1):
-    """Web HTML 失败 (429/验证页) → 自动降级 news RSS, 结果标 channel"""
-    try:
-        return _web(query, max_results, proxy, timeout, market, page)
-    except FetchError as e:
-        # resilient.fetch 对 429 先试直连再抛聚合错误, 错误串含 'HTTP 429'
-        # 或 IP 级反爬特征时降级; captcha 冷却期直接走 news, 不浪费请求
-        s = str(e)
-        if not ('429' in s or 'unusual' in s or '/sorry/' in s):
-            raise
-    if captcha.suspended('google'):
-        pass  # 冷却期内不再试 web, 直接 news
-    else:
-        try:
-            return _web(query, max_results, proxy, timeout, market, page)
-        except FetchError as e:
-            s = str(e)
-            if not ('429' in s or 'unusual' in s or '/sorry/' in s):
-                raise
+    """Web HTML 失败 (429/验证页) → 自动降级 news RSS, 结果标 channel
+
+    代理优先级: 引擎级配置 > 全局 proxy > 无代理 (直连仅 news RSS 国内可达,
+    web 端点必被墙, 无代理时直接走 news 不浪费时间试 web)
+    """
+    if proxy:
+        if captcha.suspended('google'):
+            pass  # 冷却期内不再试 web, 直接 news
+        else:
+            try:
+                return _web(query, max_results, proxy, timeout, market, page)
+            except FetchError as e:
+                # resilient.fetch 对 429 先试直连再抛聚合错误, 错误串带
+                # [proxy_http_status=]; IP 级反爬特征时降级
+                s = str(e)
+                if not ('429' in s or 'unusual' in s or '/sorry/' in s
+                        or 'proxy_http_status=429' in s):
+                    raise
+    # 无代理或 web 被封: news RSS (国内直连可达性差但配了代理就能通,
+    # gnews 域名不在 /search 的限流范围内)
     return _news(query, max_results, proxy, timeout, market, page)
 
 
@@ -45,7 +47,7 @@ def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1
 
 def _web(query, max_results, proxy, timeout, market, page):
     if not proxy:
-        raise FetchError('google web 需要代理: webtool proxy set <url> 或 --proxy')
+        raise FetchError('google web 需要代理')
     q = urllib.parse.quote(query)
     num = min(max_results, 20)
     start = (page - 1) * 10 + 1

@@ -15,8 +15,12 @@ from .engines.baidu import search as baidu_search
 ENGINES = {'bing': bing_search, 'sogou': sogou_search,
            'google': google_search, 'baidu': baidu_search}
 # 各引擎代理建议: None=跟随全局; 'required'=必须代理; 'direct'=建议直连
+# google: 有代理时自动进 web; 无代理降级 news RSS (国内直连不可达, 会报错)
 ENGINE_PROXY_HINT = {'bing': 'direct', 'sogou': 'direct',
                      'google': 'required', 'baidu': 'direct'}
+# 默认引擎组合: google 需代理才稳定 (web 被反爬 / news 国内墙),
+# 所以默认不含; 有代理时推荐 bing,sogou,google
+DEFAULT_ENGINES = 'bing,sogou'
 
 
 def do_search(args, cfg):
@@ -40,7 +44,8 @@ def _do_search(args, cfg, filter_ad=True):
         args.no_dedupe = True
     if args.no_semantic or cfg.get('semantic') == 'off':
         args.no_semantic = True
-    engines = [e.strip() for e in (args.engine or cfg.get('default_engines') or 'bing,sogou').split(',') if e.strip()]
+    engines = [e.strip() for e in (args.engine or cfg.get('default_engines')
+                                   or DEFAULT_ENGINES).split(',') if e.strip()]
     if args.format is None and cfg.get('default_format'):
         args.format = cfg['default_format']
     if cfg.get('cache') == 'off':

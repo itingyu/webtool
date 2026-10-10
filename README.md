@@ -108,6 +108,8 @@ webtool search q --block jb51.net               # 临时追加(不落盘)
 
 跳转链解析：搜狗 link `--resolve-links` 自动解；google news 文章链走 `engines/gnews.py`（batchexecute 接口还原真实 URL，纯 HTTP，7 天缓存 + 连败熔断），实测可还原 36Kr/Business Wire/智源社区等原文页。
 
+**默认引擎组合 `bing,sogou`**（覆盖中文+英文 Web 检索主力，均免 key 直连）。google 未进默认组合的原因：DC 代理出口普遍被 IP 级 reCAPTCHA 拦截，实际仅 news 通道可用；无代理时 gnews 国内也不可达。有代理时推荐 `-e bing,sogou,google`（google 补新闻覆盖，web 可用则自动升级）。
+
 site 站内搜索通道与代理策略见 `docs/design.md`，自定义站点配置见 `docs/custom-sites.md`。
 
 ## 给 Agent 用（skill）
