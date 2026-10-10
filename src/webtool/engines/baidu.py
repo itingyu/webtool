@@ -31,6 +31,7 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, page=1):
            f'&ie=utf-8&rsv_dl=pc_search&rsv_enter=1')
     html, via = _get_html(url, proxy, timeout)
     out = []
+    seen = set()
     for m in re.finditer(
             r'<div[^>]*class="((?:result|result-op)[^"]*c-container[^"]*)"[^>]*>', html):
         cls = m.group(1)
@@ -45,8 +46,12 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, page=1):
         jump = t.group(1)
         mu = re.search(r'\smu="(https?://[^"]+)"', html[m.start():m.start() + 800])
         real = mu.group(1) if (mu and _is_real_url(mu.group(1))) else None
+        u = real or jump
+        if u in seen:
+            continue
+        seen.add(u)
         out.append({'rank': len(out) + 1, 'title': title,
-                    'url': real or jump, 'snippet': _snippet(seg),
+                    'url': u, 'snippet': _snippet(seg),
                     'is_ad': is_ad, 'resolved': bool(real)})
         if len(out) >= max_results:
             break
