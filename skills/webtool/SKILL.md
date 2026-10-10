@@ -45,7 +45,7 @@ webtool config set default_engines bing,sogou        # 持久化默认引擎
 | 过滤层 | 默认 | 关闭 |
 |---|---|---|
 | 广告 | 剔除 | `--keep-ad` 只标记 |
-| 黑名单 | 21 内容农场 | `--no-blocklist` |
+| 黑名单 | 23 内置（含 baike.baidu.com、zhihu.com） | `--no-blocklist` |
 | 权重 | **剔 quality=poor**（断层自适应：与批内头部断层即判噪声，至少留 1 条；全剔时退回权重最高 1 条） | `--no-weight-filter` |
 
 低质量召回（全体 sem 偏低）不自动改写 query——改写可能引歧义；输出 `quality_hint` 字段 + `💡` 行提醒优化 query 词。

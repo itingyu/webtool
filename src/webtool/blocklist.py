@@ -34,13 +34,20 @@ DEFAULT_BLOCKLIST = [
     'dazhuanlan.com', 'xiaoheiseo.com',
     # 资源站引流的假下载页
     'win7xzb.com', 'pc6.com', 'downxia.com', 'greenxiazai.com',
+    # 百科/词典: 技术与实体 query 下的高频噪声源 (泛匹配页)
+    'baike.baidu.com',
+    # 知乎: 正文 403 (需登录态), fetch 拿不到内容
+    'zhihu.com',
 ]
+
+# 用户自定义持久黑名单 (~/.webtool/blocklist.json)
+# 默认不带 zhihu: 如需屏蔽 run: webtool blocklist add zhihu.com
 
 # 域名规范化: 小写, 去 www. 前缀
 def _norm_host(host):
-    host = (host or '').lower()
+    host = (host or '').lower().strip()
     if host.startswith('www.'):
-        host = host[3:]
+        host = host[4:]
     return host
 
 
@@ -61,15 +68,21 @@ def load_blocklist():
 
 
 def is_blocked(url, block=None, allow=None, extra_block=(), extra_allow=()):
-    """URL 是否命中黑名单. allow 优先于 block."""
+    """URL 是否命中黑名单. allow 优先于 block.
+
+    block/allow 缺省时自动加载内置默认表 (不含用户自定义文件),
+    避免无参调用恒 False 的陷阱。
+    """
+    if block is None or allow is None:
+        _block, _allow = load_blocklist()
+        block = _block if block is None else block
+        allow = _allow if allow is None else allow
     host = _norm_host(urlparse(url or '').netloc)
     if not host:
         return False
-    allow = allow if allow is not None else set()
     for a in list(allow) + list(extra_allow):
         if host == a or host.endswith('.' + a):
             return False
-    block = block if block is not None else set()
     for d in list(block) + list(extra_block):
         if host == d or host.endswith('.' + d):
             return True

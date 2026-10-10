@@ -9,7 +9,7 @@
 | 🔍 多引擎搜索 | Bing RSS / 搜狗 / 百度（TLS 指纹突破风控）/ Google News，全部免 key |
 | 🌐 站内搜索 | 10 站点官方 API：GitHub、Stack Overflow、HN、Wikipedia、arXiv、CSDN、掘金、B站、少数派、npm；JSON 配置可自定义扩展 |
 | 📄 正文提取 | trafilatura 四级降级链，HTML→纯净 markdown/text/json(/html)，去广告/导航/页眉 |
-| 🧹 结果清洗 | 跨引擎去重、内容农场黑名单（21 内置可自定义）、广告识别、语义加权排序、权重阈值 |
+| 🧹 结果清洗 | 跨引擎去重、黑名单（23 内置：内容农场+百科词典+知乎）、广告识别、语义加权排序 |
 | 🛡️ 反反爬 | 浏览器 TLS 指纹、验证页识别+冷却、代理断线自动降级直连 |
 | ⚙️ 持久化配置 | `config` 子命令管理默认引擎/格式/过滤开关/单引擎代理，即时写盘 |
 | ⚡ Agent 友好 | json/text/markdown 三格式信息对齐、token 极省、错误带处置建议、结果缓存 |
@@ -83,7 +83,7 @@ webtool search "2026年最新最强大语言模型排行榜 GPT Claude Gemini"  
 | 层 | 说明 | 关闭 |
 |---|---|---|
 | 广告 | baidu result-op 卡片 + 广告词/域名识别 | `--keep-ad` 只标记 |
-| 黑名单 | 21 内置内容农场；`~/.webtool/blocklist.json` 可加 block/allow（allow 优先） | `--no-blocklist` |
+| 黑名单 | 23 内置（含 baike.baidu.com、zhihu.com）；`~/.webtool/blocklist.json` 可加 block/allow（allow 优先） | `--no-blocklist` |
 | 权重 | 默认剔 **quality=poor**（断层自适应，至少留 1 条；全 poor 时退回权重最高 1 条） | `--no-weight-filter` |
 
 ```bash

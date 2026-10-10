@@ -34,8 +34,6 @@ def main(argv=None):
     ps.add_argument('--allow', action='append', default=[],
                     help='临时白名单例外(优先于黑名单), 可多次')
     ps.add_argument('--no-blocklist', action='store_true', help='关闭黑名单过滤')
-    ps.add_argument('--no-weight-filter', action='store_true',
-                    help='关闭质量过滤(保留全部)')
 
     pf = sub.add_parser('fetch', help='抓取 URL 并提取正文')
     pf.add_argument('url', nargs='?', help='要抓取的 URL')
@@ -73,9 +71,6 @@ def main(argv=None):
     psite.add_argument('-f', '--format', choices=['json', 'text', 'markdown'], default='json')
     psite.add_argument('--lang', default='zh', help='wikipedia 语言版本')
     psite.add_argument('--no-proxy', action='store_true', help='本次不走代理')
-    psite.add_argument('--block', action='append', default=[], help='临时追加黑名单域名')
-    psite.add_argument('--no-blocklist', action='store_true', help='关闭黑名单过滤')
-    psite.add_argument('--no-weight-filter', action='store_true', help='关闭质量过滤')
 
     args = p.parse_args(argv)
     cfg = _proxy.load_config()

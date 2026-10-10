@@ -19,8 +19,6 @@ def _fmt_filters(out):
         parts.append(f"广告过滤 {out['ad_filtered']} 条(--keep-ad 保留)")
     if out.get('blocked_by_blocklist'):
         parts.append(f"黑名单剔除 {out['blocked_by_blocklist']} 条(--no-blocklist 关闭)")
-    if out.get('filtered_low_weight'):
-        parts.append(f"质量poor(断层) 剔除 {out['filtered_low_weight']} 条(--no-weight-filter 关闭)")
     if out.get('dedup_removed'):
         parts.append(f"跨引擎去重合并 {out['dedup_removed']} 条(--no-dedupe 关闭)")
     return parts

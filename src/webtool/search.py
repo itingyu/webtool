@@ -32,8 +32,6 @@ def do_search_raw(args, cfg):
 def _do_search(args, cfg, filter_ad=True):
     t0 = time.time()
     # 配置文件默认值 ← 命令行覆盖 (config set 的持久配置是底线, CLI 参数可临时改)
-    if args.no_weight_filter or cfg.get('weight_filter') == 'off':
-        args.no_weight_filter = True
     if args.no_blocklist or cfg.get('blocklist') == 'off':
         args.no_blocklist = True
     if cfg.get('ad_filter') == 'off':
@@ -105,18 +103,6 @@ def _do_search(args, cfg, filter_ad=True):
     else:
         results, n_blocked = filter_blocklist(
             results, extra_block=args.block or (), extra_allow=args.allow or ())
-    n_low = 0
-    if not args.no_semantic and not args.no_weight_filter:
-        # 默认: 按质量标签过滤 — quality=poor 即与批内头部断层的噪声页;
-        # 至少保留 1 条 (最优结果不丢), 全 poor 时退回权重最高 1 条
-        n_low = len(results)
-        kept = [r for r in results if r.get('quality') != 'poor']
-        if not kept:
-            kept = [max(results, key=lambda r: r['weight'])]
-        n_low -= len(kept)
-        results = kept
-    pre_filter_sem = [r.get('sem_score', 0) for r in results]
-    n_pre = len(results)
 
     # 质量诊断: 结果集与 query 整体脱节 → 输出 query 优化建议 (不自动改写,
     # 自动改词可能引入歧义, 改写权在用户; 这里只做检测 + 提醒)
@@ -131,7 +117,6 @@ def _do_search(args, cfg, filter_ad=True):
     out = {'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'cache': per_engine, 'total': len(results), 'results': results,
            'dedup_removed': dedup_removed,
-           'filtered_low_weight': n_low,
            'sorted_by': 'weight(semantic)' if not args.no_semantic else 'weight'}
     if quality_hint:
         out['quality_hint'] = quality_hint
@@ -143,9 +128,9 @@ def _do_search(args, cfg, filter_ad=True):
 
 
 def _low_quality(results, query=None):
-    """质量诊断: 过滤后剩余结果整体 sem 偏低 → query 与召回脱节
+    """质量诊断: 结果整体 sem 偏低 → query 与召回脱节
 
-    保底只留 1 条也要诊断 (那条往往就是 poor), 剩 1 条即判。
+    v1.4.2 起默认不过滤, 只标注 quality + hint; 剩余条数即全部结果。
     """
     from .qhint import need_retry
     if not results:
