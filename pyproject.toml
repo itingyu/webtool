@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "webtool"
-version = "0.1.0"
+version = "1.5.3"
 description = "Agent-friendly web search & content fetch CLI: clean markdown/text/json, ad-free, token-efficient, zero hard deps"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -18,10 +18,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-extract = ["trafilatura>=2.0", "readability-lxml", "html2text", "inscriptis"]
-socks = ["pysocks"]
-tls = ["curl_cffi>=0.16"]          # TLS/JA3 指纹模拟 (百度等强风控站推荐)
-full = ["webtool[extract,socks,tls]"]
+full = ["trafilatura>=2.0", "readability-lxml", "html2text", "inscriptis", "pysocks", "curl_cffi>=0.16"]
 
 [project.scripts]
 webtool = "webtool.cli:main"

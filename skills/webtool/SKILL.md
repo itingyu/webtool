@@ -58,5 +58,5 @@ webtool config set default_engines bing,sogou        # 持久化改成只用两�
 3. 输出看 `quality_hint`：有提示就按建议改词重搜，别硬解析 poor 结果
 4. **google 引擎结果可能是新闻**（`channel: news` 字段）：DC 代理出口普遍被 google /search 的 IP 级 reCAPTCHA 拦截，引擎自动降级 news RSS；无代理时 google 静默跳过。新闻的 news.google.com 跳转链加 `--resolve-links` 可还原原文 URL（再 fetch 正文）
 5. 字段以实际输出为准：`weight`/`sem_score`/`quality`/`filters_applied`/`errors`
-6. 报错自带处置建议（如引擎冷却→换引擎、被风控→装 curl_cffi），照做即可
+6. 报错自带处置建议（如引擎冷却→换引擎、被风控→补装 [full] extra），照做即可
 7. 优先 fetch 而非啃原始 HTML——省 token 的核心（实测压缩到原文 1.6%）

@@ -18,14 +18,14 @@
 
 ```bash
 # 从 GitHub（推荐）
-pip install 'git+https://github.com/itingyu/webtool#egg=webtool[tls]'
+pip install 'git+https://github.com/itingyu/webtool#egg=webtool[full]'
 
 # 或 clone 后本地装
 git clone git@github.com:itingyu/webtool.git && cd webtool
-pip install -e '.[tls]'
+pip install -e '.[full]'
 ```
 
-可选 extra：`tls`（curl_cffi，百度必需）、`extract`（trafilatura 最佳提取）、`socks`、`full`（全量）。
+唯一 extra：`full`（trafilatura 正文提取 + curl_cffi TLS 指纹 + pysocks 代理，建议必装——百度引擎和最佳正文提取都依赖它）。裸装（不带 extra）也能跑：搜索引擎 bing/sogou/google 全功能可用，正文提取降级为基础模式。
 
 ## 快速上手
 
@@ -103,7 +103,7 @@ webtool search q --block jb51.net               # 临时追加(不落盘)
 |---|---|---|
 | bing | RSS 优先（cn.bing.com 免key免JS）→ HTML 自动降级（www.bing.com，代理下走国外端点），支持 setmkt/翻页 | 直连（代理下切 www 域） |
 | sogou | 搜狗网页 HTML，link 跳转链自动解析 | 直连 |
-| baidu | `curl_cffi` TLS 指纹模拟（urllib 必被风控），302 解析真实链接 | 直连；需 `[tls]` extra |
+| baidu | `curl_cffi` TLS 指纹模拟（urllib 必被风控），302 解析真实链接 | 直连；`full` extra |
 | google | Web HTML（www.google.com/search）优先 → 429/reCAPTCHA 自动降级 news RSS（结果带 `channel: news`）。DC 代理出口 IP 对 /search 普遍触发 IP 级 reCAPTCHA（consent cookie/TLD 变体均无效），实际多为新闻检索 | 需代理 |
 
 跳转链解析：搜狗 link `--resolve-links` 自动解；google news 文章链走 `engines/gnews.py`（batchexecute 接口还原真实 URL，纯 HTTP，7 天缓存 + 连败熔断），实测可还原 36Kr/Business Wire/智源社区等原文页。
