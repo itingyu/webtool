@@ -166,8 +166,11 @@ def _unescape(s):
 
 
 def resolve_link(url, proxy=None, timeout=10):
-    """news.google.com/articles 跳转链: 2025+ 新版无法离线解码,
-    浏览器打开后会 JS 二跳. 这里只还原 /url?q= 老式内链, 其余原样返回"""
+    """跳转链还原: /url?q= 老式内链直接解; news.google.com/articles
+    走 gnews batchexecute 解码 (纯 HTTP, 带缓存+熔断); 失败原样返回"""
+    if 'news.google.com/rss/articles/' in url or 'news.google.com/articles/' in url:
+        from . import gnews
+        return gnews.decode(url, proxy=proxy, timeout=timeout) or url
     if 'google.com/url' not in url:
         return url
     m = _URL_RE.search(url)

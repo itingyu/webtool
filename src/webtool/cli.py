@@ -22,7 +22,8 @@ def main(argv=None):
     ps.add_argument('-n', '--max', type=int, default=8, help='每引擎结果数')
     ps.add_argument('-f', '--format', choices=['json', 'text', 'markdown'], default='json')
     ps.add_argument('--market', default='zh-CN', help='市场: zh-CN / en-US')
-    ps.add_argument('--resolve-links', action='store_true', help='解析搜狗跳转链为真实 URL')
+    ps.add_argument('--resolve-links', action='store_true',
+                    help='解析跳转链为真实 URL (搜狗 link / google news articles)')
     ps.add_argument('--no-ad', action='store_true', help='过滤广告结果')
     ps.add_argument('--no-proxy', action='store_true', help='本次不走代理(覆盖配置)')
     ps.add_argument('--keep-ad', action='store_true', help='保留广告结果并标记 is_ad (默认已过滤)')

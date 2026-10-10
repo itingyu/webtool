@@ -176,32 +176,44 @@ def _fetch_engines(args, cfg, engines, query, filter_ad):
 
 
 def _resolve_sogou_links(results, cfg):
-    """把搜狗 /link?url= 跳转链解析成真实 URL (带 cookie 状态)"""
+    """跳转链批量解析成真实 URL: 搜狗 /link + google news articles"""
     from urllib.parse import urlparse
     from .engines.sogou import resolve_link as _sogou_resolve
     from .engines.google import resolve_link as _google_resolve
     import concurrent.futures as cf
-    todo = [(i, r) for i, r in enumerate(results)
-            if 'sogou.com/link' in urlparse(r['url']).netloc + r['url']]
+
+    def _kind(u):
+        n = urlparse(u).netloc + u
+        if 'sogou.com/link' in n:
+            return 'sogou'
+        if 'news.google.com' in n and '/articles/' in n:
+            return 'gnews'
+        return None
+
+    todo = [(i, r, _kind(r['url'])) for i, r in enumerate(results)]
+    todo = [x for x in todo if x[2]]
     if not todo:
         return
-    proxy = (cfg.get('engine_proxy') or {}).get('sogou') or cfg.get('proxy')
     timeout = cfg.get('timeout', 15)
 
     def work(item):
-        i, r = item
-        real = None if args_no_cache else cache.get(cfg, 'resolve', r['url'])
+        i, r, kind = item
+        real = cache.get(cfg, 'resolve', r['url'])
         if not real:
-            real = _sogou_resolve(r['url'], proxy=proxy, timeout=timeout)
+            if kind == 'sogou':
+                proxy = (cfg.get('engine_proxy') or {}).get('sogou') or cfg.get('proxy')
+                real = _sogou_resolve(r['url'], proxy=proxy, timeout=timeout)
+            else:
+                proxy = (cfg.get('engine_proxy') or {}).get('google') or cfg.get('proxy')
+                real = _google_resolve(r['url'], proxy=proxy, timeout=timeout)
             if real:
                 cache.put(cfg, 'resolve', r['url'], real)
         return i, real
 
-    args_no_cache = False  # resolve 结果有独立 7d 缓存, 无需透传
     with cf.ThreadPoolExecutor(5) as ex:
         for i, real in ex.map(work, todo):
-            if real:
+            if real and real != results[i]['url']:
                 results[i]['url'] = real
                 results[i]['resolved'] = True
-            else:
+            elif not real:
                 results[i]['resolved'] = False

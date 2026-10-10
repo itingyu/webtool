@@ -106,6 +106,8 @@ webtool search q --block jb51.net               # 临时追加(不落盘)
 | baidu | `curl_cffi` TLS 指纹模拟（urllib 必被风控），302 解析真实链接 | 直连；需 `[tls]` extra |
 | google | Web HTML（www.google.com/search）优先 → 429/reCAPTCHA 自动降级 news RSS（结果带 `channel: news`）。DC 代理出口 IP 对 /search 普遍触发 IP 级 reCAPTCHA（consent cookie/TLD 变体均无效），实际多为新闻检索 | 需代理 |
 
+跳转链解析：搜狗 link `--resolve-links` 自动解；google news 文章链走 `engines/gnews.py`（batchexecute 接口还原真实 URL，纯 HTTP，7 天缓存 + 连败熔断），实测可还原 36Kr/Business Wire/智源社区等原文页。
+
 site 站内搜索通道与代理策略见 `docs/design.md`，自定义站点配置见 `docs/custom-sites.md`。
 
 ## 给 Agent 用（skill）

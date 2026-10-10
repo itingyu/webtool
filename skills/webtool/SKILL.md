@@ -1,7 +1,7 @@
 ---
 name: webtool
 description: Agent 友好的免费网页搜索与正文获取 CLI。多引擎搜索（Bing/搜狗/百度/Google Web+news 降级）+ 10 站点站内搜索（GitHub/SO/HN/arXiv 等）+ 正文提取转 markdown/text/json，去广告省 token 98%+，支持持久化配置。当用户提到「搜索网页 / 查资料 / 抓网页正文 / 网页转 markdown / 站内搜索 / webtool」时触发。
-version: 1.5.0
+version: 1.5.1
 ---
 
 # webtool
@@ -32,7 +32,7 @@ webtool config set default_engines bing,sogou        # 持久化默认引擎
 
 ## 关键参数
 
-- **search / site**：`-e` 引擎(site 无) `-n` 条数 `-f json/text/markdown` `--no-blocklist` `--no-retry`(关质量提示) `--keep-ad`(仅search) `--no-dedupe` `--no-semantic` `--block/--allow` 临时黑白名单 `--no-proxy`
+- **search / site**：`-e` 引擎(site 无) `-n` 条数 `-f json/text/markdown` `--no-blocklist` `--no-retry`(关质量提示) `--keep-ad`(仅search) `--no-dedupe` `--no-semantic` `--block/--allow` 临时黑白名单 `--no-proxy` `--resolve-links`(解跳转链: 搜狗 link + google news articles)
 - **fetch**：`-f markdown/text/json/html` `--max-chars` `--raw` `--url-file` 批量
 - **config**：`list` / `get <k>` / `set <k> <v>` / `unset <k>`，写 `~/.webtool/config.json`
   可配项：`proxy` `blocklist` `ad_filter` `dedupe` `semantic` `default_engines` `default_format` `timeout` `cache` `engine_proxy.<engine>`
@@ -55,7 +55,7 @@ webtool config set default_engines bing,sogou        # 持久化默认引擎
 1. **query 用精简写法**：「核心实体 + 意图词」，如 `LLM 排行榜`、`fastapi 部署`；别堆「2026年最新最强」修饰词——中文引擎分词会被带偏，召回词典/百科噪声
 2. **搜索词优先用英文**：`LLM leaderboard`、`FastAPI deployment`——英文按空格分词无歧义；中文技术词退而求其次用引擎习惯叫法：`大模型` 而非 `大语言模型`（bing 对后者整串分词失败）
 3. 输出看 `quality_hint`：有提示就按建议改词重搜，别硬解析 poor 结果
-4. **google 引擎结果可能是新闻**（`channel: news` 字段）：DC 代理出口普遍被 google /search 的 IP 级 reCAPTCHA 拦截，引擎自动降级 news RSS；要全 Web 结果用 bing/sogou，google 当新闻补充
+4. **google 引擎结果可能是新闻**（`channel: news` 字段）：DC 代理出口普遍被 google /search 的 IP 级 reCAPTCHA 拦截，引擎自动降级 news RSS；要全 Web 结果用 bing/sogou，google 当新闻补充。新闻的 news.google.com 跳转链加 `--resolve-links` 可还原原文 URL（再 fetch 正文）
 5. 字段以实际输出为准：`weight`/`sem_score`/`quality`/`filters_applied`/`errors`
 6. 报错自带处置建议（如引擎冷却→换引擎、被风控→装 curl_cffi），照做即可
 7. 优先 fetch 而非啃原始 HTML——省 token 的核心（实测压缩到原文 1.6%）
