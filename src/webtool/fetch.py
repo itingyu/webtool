@@ -59,6 +59,13 @@ def _fetch_one(url, args, cfg, proxy, timeout):
         return {'url': url, 'status': status, 'html': html, 'via': via,
                 'took_ms': int((time.time() - t0) * 1000)}
     content, meta = _extract(html, url)
+    if meta.pop('_js_shell', None):
+        return {'url': url, 'status': status, 'via': via,
+                'took_ms': int((time.time() - t0) * 1000), 'chars': 0,
+                'content': '',
+                'error': 'JS-only shell page: 内容由 JavaScript 渲染, 纯 HTTP 拿不到正文',
+                'hint': '需要 JS 渲染的页面; 可试: ①该站的 WWW 版而非 M 版 '
+                        '②搜索引擎快照 ③site 子命令站点适配器'}
     if args.max_chars and content and len(content) > args.max_chars:
         content = content[:args.max_chars] + '\n…[truncated]'
     out = {'url': url, 'status': status, 'via': via, 'took_ms': int((time.time() - t0) * 1000),
@@ -76,6 +83,27 @@ def _fetch_one(url, args, cfg, proxy, timeout):
 def _extract(html, url):
     """trafilatura -> readability-lxml -> html2text 三级提取"""
     meta = {}
+    # 0. JS-only 壳页预检: SPA 壳的提取产物是"您需要允许该网站执行 JavaScript"
+    #    一类提示词 + 极短文本, 会被误当正文返回 (status 200 + chars 115).
+    #    识别后提前短路, 返回空让上层走 hint (需要 JS 渲染), 不缓存垃圾.
+    try:
+        import re as _re
+        from html import unescape as _un
+        _text = _re.sub(r'<script[\s\S]*?</script>|<style[\s\S]*?</style>|<[^>]+>',
+                        ' ', html)
+        _text = _re.sub(r'\s+', ' ', _un(_text)).strip()
+        # 提示词须出现在开头 30 字符内 (壳页全文即提示词; 正文页偶提 JS 的
+        # 不会在开头) — 不用 ^ 锚, 容忍 title/站点名等前置噪声
+        _JS_SHELL_RE = _re.compile(
+            r'请开启|请启用|需要开启|需要启用|需要允许|允许.{0,6}执行|开启.{0,8}JavaScript'
+            r'|enable.{0,20}javascript|turn.{0,10}on.{0,10}javascript'
+            r'|requires?\s+javascript|浏览器不支持|请使用.{0,10}浏览器'
+            r'|您需要|你需要|需开启|需启用|需允许|需要.{0,6}浏览器'
+            r'|please\s+enable\s+javascript|enable\s+javascript', _re.I)
+        if len(_text) < 500 and _JS_SHELL_RE.search(_text[:30]):
+            return '', {'_js_shell': '1', 'title': meta.get('title', '')}
+    except Exception:
+        pass
     # 1. trafilatura
     try:
         import trafilatura
