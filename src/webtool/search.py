@@ -127,7 +127,7 @@ def _do_search(args, cfg, filter_ad=True):
 
     # 合并: 去重 + 黑名单 + 权重排序 (语义向量可选) + 权重阈值 + 质量闸门
     from .merge import merge as _merge
-    from .blocklist import filter_blocklist
+    from .blocklist import filter_blocklist, is_blocked
     n_before = len(results)
     results = _merge(results, args.query,
                      use_semantic=not args.no_semantic,
@@ -138,6 +138,58 @@ def _do_search(args, cfg, filter_ad=True):
     else:
         results, n_blocked = filter_blocklist(
             results, extra_block=args.block or (), extra_allow=args.allow or ())
+
+    # ---- 自动补量: 过滤后不足 requested 且有翻页能力 → 翻页补拉重过滤 ----
+    # 触发条件: 总数 < args.max 且未被 --no-dedupe/--no-blocklist 关掉主过滤
+    # (补拉翻页对反爬引擎是额外风险, 上限 2 页/引擎 + 页间随机延迟)
+    topup_fetched = 0
+    _want = args.max
+    if len(results) < _want and not args.no_dedupe:
+        from .topup import top_up
+        seen_urls = {r.get('url') for r in results} | \
+                    {r.get('url') for r in []}
+        for eng in engines:
+            fn = ENGINES.get(eng)
+            if not fn or len(results) >= _want:
+                break
+            eproxy = (cfg.get('engine_proxy') or {}).get(eng)
+            hint = ENGINE_PROXY_HINT.get(eng)
+            if args.no_proxy:
+                proxy = None
+            elif eproxy is not None:
+                proxy = eproxy
+            elif hint == 'required':
+                if not _proxy_alive(cfg):
+                    continue
+                proxy = cfg.get('proxy')
+            else:
+                proxy = cfg.get('proxy')
+            extra, fetched = top_up(
+                eng, fn, args.query, _want, min(_want, len(results)),
+                proxy, cfg.get('timeout', 15), args.market,
+                filter_ad=filter_ad,
+                is_blocked_fn=(None if args.no_blocklist
+                               else lambda u, _b=(), _a=(): is_blocked(
+                                   u, extra_block=_b, extra_allow=_a)))
+            topup_fetched += fetched
+            # 补来的进同一合并管线 (dedupe 会在下一轮统一做, 这里先粗去重)
+            for r in extra:
+                if r.get('url') not in seen_urls:
+                    seen_urls.add(r.get('url'))
+                    results.append(dict(r, engine=eng))
+        if topup_fetched:
+            # 补量后重新排序去重, 保持输出质量一致
+            n_before = len(results)
+            results = _merge(results, args.query,
+                             use_semantic=not args.no_semantic,
+                             dedupe=not args.no_dedupe)
+            dedup_removed += n_before - len(results)
+            if not args.no_blocklist:
+                results, nb2 = filter_blocklist(
+                    results, extra_block=args.block or (),
+                    extra_allow=args.allow or ())
+                n_blocked += nb2
+            results = results[:_want]
 
     # 质量诊断: 结果集与 query 整体脱节 → 输出 query 优化建议 (不自动改写,
     # 自动改词可能引入歧义, 改写权在用户; 这里只做检测 + 提醒)
@@ -155,6 +207,10 @@ def _do_search(args, cfg, filter_ad=True):
            'cache': per_engine, 'total': len(results), 'results': results,
            'dedup_removed': dedup_removed, 'blocked_by_blocklist': n_blocked,
            'sorted_by': 'weight(semantic)' if not args.no_semantic else 'weight'}
+    if topup_fetched:
+        out['topup'] = {'fetched': topup_fetched,
+                        'note': '翻页补拉(最多2页/引擎)'}
+        out['requested'] = _want
     if quality_hint:
         out['quality_hint'] = quality_hint
     if errors:
