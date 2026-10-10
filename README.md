@@ -6,7 +6,7 @@
 
 | 功能 | 说明 |
 |---|---|
-| 🔍 多引擎搜索 | Bing RSS / 搜狗 / 百度（TLS 指纹突破风控）/ Google News，全部免 key |
+| 🔍 多引擎搜索 | Bing（RSS→HTML 自动降级）/ 搜狗 / 百度（TLS 指纹突破风控）/ Google（Web→news RSS 降级），全部免 key |
 | 🌐 站内搜索 | 10 站点官方 API：GitHub、Stack Overflow、HN、Wikipedia、arXiv、CSDN、掘金、B站、少数派、npm；JSON 配置可自定义扩展 |
 | 📄 正文提取 | trafilatura 四级降级链，HTML→纯净 markdown/text/json(/html)，去广告/导航/页眉 |
 | 🧹 结果清洗 | 跨引擎去重、黑名单（23 内置：内容农场+百科词典+知乎）、广告识别、语义加权排序 |
@@ -55,15 +55,15 @@ webtool search "2026年最新最强大语言模型排行榜 GPT Claude Gemini"  
 
 | 命令 | 说明 |
 |---|---|
-| `search <q>` | `-e` 引擎组合 `-n` 条数 `-f json/text/markdown` `--block/--allow` 临时黑白名单 `--no-retry` 关质量提示 |
+| `search <q>` | `-e` 引擎组合 `-n` 条数 `-f json/text/markdown` `--block/--allow` 临时黑白名单 `--no-retry` 关质量提示；google 引擎可能返回 `channel: news` 结果 |
 | `fetch <url>` | `-f markdown/text/json/html` `--max-chars` `--raw` `--url-file` 批量 |
 | `site <site> <q>` | 站内搜索（同支持三格式与过滤链）；`site list` 查全部，`docs/custom-sites.md` 自定义 |
-| `config list/get/set/unset` | 持久化配置：默认引擎/格式/权重阈值/各过滤开关/单引擎代理 |
+| `config list/get/set/unset` | 持久化配置：默认引擎/格式/各过滤开关/单引擎代理 |
 | `proxy set/test/unset` | 代理配置（http/socks5） |
 | `blocklist show/add/remove/reset` | 黑名单管理 |
 | `engines --check` / `cache clear/info` | 健康检查 / 缓存 |
 
-过滤开关：`--no-blocklist` `--no-weight-filter`（默认剔 quality=poor，断层自适应）`--keep-ad` `--no-dedupe` `--no-semantic` `--no-retry`。
+过滤开关：`--no-blocklist` `--keep-ad` `--no-dedupe` `--no-semantic` `--no-retry`。质量默认不过滤，quality 仅标注（v1.4.2 起）。
 
 **三格式与过滤回显**：search/site 的 json/text/markdown 信息量对齐，每层剔除量（广告/黑名单/权重/去重）三种格式都回显并附撤销参数——json `filters_applied` 字段、text 末尾 `—` 行、markdown `**过滤统计**` 块。
 
@@ -71,10 +71,9 @@ webtool search "2026年最新最强大语言模型排行榜 GPT Claude Gemini"  
 
 | key | 说明 | 示例 |
 |---|---|---|
-| `default_engines` | 默认引擎组合 | `bing,baidu` |
+| `default_engines` | 默认引擎组合 | `bing,sogou` |
 | `default_format` | 默认输出格式 | `markdown` |
-| `weight_filter` | 质量过滤开关(断层自适应) | `on` / `off` |
-| `blocklist` / `ad_filter` / `weight_filter` / `dedupe` / `semantic` | 各过滤开关 | `on` / `off` |
+| `blocklist` / `ad_filter` / `dedupe` / `semantic` | 各过滤开关 | `on` / `off` |
 | `engine_proxy.<engine>` | 单引擎代理 | `engine_proxy.google http://...` |
 | `timeout` / `cache` | 超时秒数 / 缓存开关 | `25` / `off` |
 
@@ -84,7 +83,7 @@ webtool search "2026年最新最强大语言模型排行榜 GPT Claude Gemini"  
 |---|---|---|
 | 广告 | baidu result-op 卡片 + 广告词/域名识别 | `--keep-ad` 只标记 |
 | 黑名单 | 23 内置（含 baike.baidu.com、zhihu.com）；`~/.webtool/blocklist.json` 可加 block/allow（allow 优先） | `--no-blocklist` |
-| 权重 | 默认剔 **quality=poor**（断层自适应，至少留 1 条；全 poor 时退回权重最高 1 条） | `--no-weight-filter` |
+| 质量 | **默认不过滤**：quality 仅标注 + `quality_hint` 提醒（v1.4.2 起） | — |
 
 ```bash
 webtool blocklist add csdn.net                  # 追加黑名单(持久)
@@ -92,9 +91,9 @@ webtool blocklist add blog.csdn.net/x --allow   # 白名单例外
 webtool search q --block jb51.net               # 临时追加(不落盘)
 ```
 
-权重公式（v1.3）：`引擎基础分 × 名次衰减(1/log2(rank+1)) × 多引擎共识加成 × 语义乘区 × 实体命中(title 命中×1.6/仅摘要×1.15/零命中×0.45) × 域名先验(实体 query 下词典/百科×0.5)`；每条结果带 `weight`/`sem_score`(0-1 余弦)/`quality` 字段。
+权重公式（v1.3）：`引擎基础分 × 名次衰减(1/log2(rank+1)) × 多引擎共识加成 × 语义乘区 × 实体命中(title 命中×1.6/仅摘要×1.15/零命中×0.45) × 域名先验(实体 query 下词典/百科×0.5)`；每条结果带 `weight`/`sem_score`/`quality` 字段。
 
-`quality` 断层自适应标签（v1.4）：cut = max(0.12, top×0.35)，**poor** = sem<cut（与批内头部断层 → 噪声）；**good** = sem≥top×0.5；其余 fair。0.12 下限防全垃圾批互相抬轿，相对线自动贴合每批分布，英文页/短 query 低重叠好结果不误伤。sem_score 为 BM25 归一化分（v1.4 起替代 TF-IDF 余弦：跨批稳定、长度归一、词频饱和）。
+`quality` 断层自适应标签（v1.4）：cut = max(0.12, top×0.35)，**poor** = sem<cut（与批内头部断层 → 噪声）；**good** = sem≥top×0.5；其余 fair。0.12 下限防全垃圾批互相抬轿，相对线自动贴合每批分布，英文页/短 query 低重叠好结果不误伤。sem_score 为 BM25 归一化分（v1.4 起替代 TF-IDF：跨批稳定、长度归一、词频饱和）。
 
 低质量召回不自动改写 query（避免引入歧义），输出 `quality_hint` 提醒优化 query 词；`--no-retry` 关闭。
 
@@ -102,10 +101,10 @@ webtool search q --block jb51.net               # 临时追加(不落盘)
 
 | 引擎 | 通道 | 代理需求 |
 |---|---|---|
-| bing | cn.bing.com RSS（免key免JS，支持 setmkt/翻页） | 直连 |
+| bing | RSS 优先（cn.bing.com 免key免JS）→ HTML 自动降级（www.bing.com，代理下走国外端点），支持 setmkt/翻页 | 直连（代理下切 www 域） |
 | sogou | 搜狗网页 HTML，link 跳转链自动解析 | 直连 |
 | baidu | `curl_cffi` TLS 指纹模拟（urllib 必被风控），302 解析真实链接 | 直连；需 `[tls]` extra |
-| google | Google News RSS（100 条/次，web 搜索不可纯 HTTP） | 需代理 |
+| google | Web HTML（www.google.com/search）优先 → 429/reCAPTCHA 自动降级 news RSS（结果带 `channel: news`）。DC 代理出口 IP 对 /search 普遍触发 IP 级 reCAPTCHA（consent cookie/TLD 变体均无效），实际多为新闻检索 | 需代理 |
 
 site 站内搜索通道与代理策略见 `docs/design.md`，自定义站点配置见 `docs/custom-sites.md`。
 

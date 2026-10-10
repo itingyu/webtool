@@ -47,7 +47,7 @@ CAPTCHA_SIGNS = {
 }
 
 # 引擎冷却秒数: 触发验证页后, 该引擎静默期
-COOLDOWN = {'baidu': 90, 'sogou': 30, 'google': 60, 'bing': 30, 'generic': 30}
+COOLDOWN = {'baidu': 90, 'sogou': 30, 'google': 300, 'bing': 30, 'generic': 30}
 
 _state = {}          # engine -> {'until': ts, 'hits': n}
 _lock = threading.Lock()

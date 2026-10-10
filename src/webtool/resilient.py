@@ -56,6 +56,7 @@ def fetch(url, proxy=None, timeout=15, headers=None, opener=None,
         order = [('direct', None)]
 
     last_err = None
+    proxy_http_status = None          # 记录代理通道的真实 HTTP 状态码
     for mode, p in order:
         try:
             text, status = http_get(url, proxy=p, timeout=timeout,
@@ -64,6 +65,8 @@ def fetch(url, proxy=None, timeout=15, headers=None, opener=None,
                 attempts.append(f'{mode}:HTTP{status}')
                 _note(False, True)
                 last_err = f'{mode} HTTP {status}'
+                if status in (429, 403):
+                    proxy_http_status = status   # 供上层识别反爬/限流
                 continue
             _note(True, mode == 'proxy')
             return text, status, mode
@@ -73,4 +76,7 @@ def fetch(url, proxy=None, timeout=15, headers=None, opener=None,
             last_err = f'{mode}: {e}'
             continue
 
-    raise FetchError(f'{url} failed [{", ".join(attempts)}] last={last_err}')
+    err = f'{url} failed [{", ".join(attempts)}] last={last_err}'
+    if proxy_http_status:
+        err += f' [proxy_http_status={proxy_http_status}]'
+    raise FetchError(err)

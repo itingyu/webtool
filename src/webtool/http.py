@@ -64,7 +64,16 @@ def http_get(url, proxy=None, timeout=15, headers=None, opener=None, max_bytes=8
         h.update(headers)
     req = urllib.request.Request(url, headers=h)
     op = opener or build_opener(proxy)
-    r = op.open(req, timeout=timeout)
+    try:
+        r = op.open(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        # 4xx/5xx 也把响应体读出来: 上层 (captcha/google) 需要状态码+特征做识别
+        try:
+            data = e.read(max_bytes)
+            text = data.decode('utf-8', errors='replace')
+        except Exception:
+            text = ''
+        return text, e.code
     data = r.read(max_bytes)
     if r.headers.get('Content-Encoding') == 'gzip':
         try:

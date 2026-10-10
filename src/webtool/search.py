@@ -178,7 +178,8 @@ def _fetch_engines(args, cfg, engines, query, filter_ad):
 def _resolve_sogou_links(results, cfg):
     """把搜狗 /link?url= 跳转链解析成真实 URL (带 cookie 状态)"""
     from urllib.parse import urlparse
-    from .engines.sogou import resolve_link
+    from .engines.sogou import resolve_link as _sogou_resolve
+    from .engines.google import resolve_link as _google_resolve
     import concurrent.futures as cf
     todo = [(i, r) for i, r in enumerate(results)
             if 'sogou.com/link' in urlparse(r['url']).netloc + r['url']]
@@ -191,7 +192,7 @@ def _resolve_sogou_links(results, cfg):
         i, r = item
         real = None if args_no_cache else cache.get(cfg, 'resolve', r['url'])
         if not real:
-            real = resolve_link(r['url'], proxy=proxy, timeout=timeout)
+            real = _sogou_resolve(r['url'], proxy=proxy, timeout=timeout)
             if real:
                 cache.put(cfg, 'resolve', r['url'], real)
         return i, real
