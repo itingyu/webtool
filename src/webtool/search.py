@@ -153,7 +153,7 @@ def _do_search(args, cfg, filter_ad=True):
 
     out = {'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'cache': per_engine, 'total': len(results), 'results': results,
-           'dedup_removed': dedup_removed,
+           'dedup_removed': dedup_removed, 'blocked_by_blocklist': n_blocked,
            'sorted_by': 'weight(semantic)' if not args.no_semantic else 'weight'}
     if quality_hint:
         out['quality_hint'] = quality_hint
