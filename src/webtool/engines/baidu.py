@@ -124,9 +124,19 @@ def _resolve_links(results, proxy, timeout):
 def _resolve_one(link, proxy, timeout):
     real = transport.resolve_redirect(link, referer=BAIDU + '/',
                                       proxy=proxy, timeout=timeout)
-    if real and 'baidu.com' not in urllib.parse.urlparse(real).netloc:
-        return real
-    return None
+    if not real:
+        return None
+    n = urllib.parse.urlparse(real).netloc.lower()
+    # 真目标在百度系子域 (百家号/贴吧/知道/百科) 是合法解出结果 — 不能按
+    # 'baidu.com in netloc' 误杀; 只有「还停在 www.baidu.com/link」= 没跳走 = 失败
+    if n == 'www.baidu.com' and '/link' in urllib.parse.urlparse(real).path:
+        return None
+    # 302 Location 出现非 ASCII 乱码 = token 过期/风控假响应, 当失败处理
+    try:
+        real.encode('ascii')
+    except UnicodeEncodeError:
+        return None
+    return real
 
 
 def _unescape(s):
