@@ -18,9 +18,10 @@ ENGINES = {'bing': bing_search, 'sogou': sogou_search,
 # google: 有代理时自动进 web; 无代理降级 news RSS (国内直连不可达, 会报错)
 ENGINE_PROXY_HINT = {'bing': 'direct', 'sogou': 'direct',
                      'google': 'required', 'baidu': 'direct'}
-# 默认引擎组合: 四引擎全开 — bing/sogou/baidu 免 key 直连主力,
-# google 有代理时自动升级 web, 无代理降级 news (失败静默, errors 可见, 不影响其它引擎)
-DEFAULT_ENGINES = 'bing,sogou,google,baidu'
+# 默认引擎组合: bing/sogou/baidu 三引擎 (免 key 直连, Web 检索主力);
+# google 不进默认: DC 代理出口普遍被 IP 级 reCAPTCHA 拦截只剩新闻通道,
+# 需要时显式 -e 加或 config set default_engines
+DEFAULT_ENGINES = 'bing,sogou,baidu'
 
 
 def do_search(args, cfg):
@@ -118,7 +119,9 @@ def _do_search(args, cfg, filter_ad=True):
         from .qhint import build_hint
         quality_hint = build_hint(args.query, results)
 
-    if args.resolve_links:
+    # 跳转链解码: 默认开启 — 搜狗 link / baidu link / gnews articles 一律
+    # 还原为原始 URL 再返回 (带并发+缓存+熔断); --no-resolve 关闭
+    if not getattr(args, 'no_resolve', False):
         _resolve_sogou_links(results, cfg)
 
     out = {'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
@@ -183,9 +186,10 @@ def _fetch_engines(args, cfg, engines, query, filter_ad):
 
 
 def _resolve_sogou_links(results, cfg):
-    """跳转链批量解析成真实 URL: 搜狗 /link + google news articles"""
+    """跳转链批量解码成原始 URL: 搜狗 /link + baidu /link + gnews articles"""
     from urllib.parse import urlparse
     from .engines.sogou import resolve_link as _sogou_resolve
+    from .engines.baidu import _resolve_one as _baidu_resolve
     from .engines.google import resolve_link as _google_resolve
     import concurrent.futures as cf
 
@@ -193,6 +197,8 @@ def _resolve_sogou_links(results, cfg):
         n = urlparse(u).netloc + u
         if 'sogou.com/link' in n:
             return 'sogou'
+        if 'baidu.com/link?' in n:
+            return 'baidu'
         if 'news.google.com' in n and '/articles/' in n:
             return 'gnews'
         return None
@@ -207,11 +213,13 @@ def _resolve_sogou_links(results, cfg):
         i, r, kind = item
         real = cache.get(cfg, 'resolve', r['url'])
         if not real:
+            eproxy = (cfg.get('engine_proxy') or {}).get(kind)
+            proxy = eproxy if eproxy is not None else cfg.get('proxy')
             if kind == 'sogou':
-                proxy = (cfg.get('engine_proxy') or {}).get('sogou') or cfg.get('proxy')
                 real = _sogou_resolve(r['url'], proxy=proxy, timeout=timeout)
+            elif kind == 'baidu':
+                real = _baidu_resolve(r['url'], proxy=proxy, timeout=timeout)
             else:
-                proxy = (cfg.get('engine_proxy') or {}).get('google') or cfg.get('proxy')
                 real = _google_resolve(r['url'], proxy=proxy, timeout=timeout)
             if real:
                 cache.put(cfg, 'resolve', r['url'], real)

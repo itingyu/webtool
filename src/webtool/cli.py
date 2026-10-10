@@ -19,12 +19,14 @@ def main(argv=None):
     ps = sub.add_parser('search', help='多引擎网页搜索')
     ps.add_argument('query')
     ps.add_argument('-e', '--engine', default=None,
-                    help='逗号分隔: bing,sogou,baidu,google (默认 bing,sogou,google,baidu)')
+                    help='逗号分隔: bing,sogou,baidu,google (默认 bing,sogou,baidu)')
     ps.add_argument('-n', '--max', type=int, default=8, help='每引擎结果数')
     ps.add_argument('-f', '--format', choices=['json', 'text', 'markdown'], default='json')
     ps.add_argument('--market', default='zh-CN', help='市场: zh-CN / en-US')
     ps.add_argument('--resolve-links', action='store_true',
-                    help='解析跳转链为真实 URL (搜狗 link / google news articles)')
+                    help='(已默认开启) 解析跳转链为真实 URL')
+    ps.add_argument('--no-resolve', action='store_true',
+                    help='关闭跳转链解码 (sogou/baidu link, gnews articles)')
     ps.add_argument('--no-ad', action='store_true', help='过滤广告结果')
     ps.add_argument('--no-proxy', action='store_true', help='本次不走代理(覆盖配置)')
     ps.add_argument('--keep-ad', action='store_true', help='保留广告结果并标记 is_ad (默认已过滤)')

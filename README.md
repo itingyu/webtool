@@ -31,7 +31,7 @@ pip install -e '.[full]'
 
 ```bash
 webtool proxy set http://127.0.0.1:2080            # 配代理(可选, 断线自动直连)
-webtool config set default_engines bing,sogou      # 持久化: 只用两引擎 (默认四引擎全开)
+webtool config set default_engines bing,sogou      # 持久化: 只用两引擎 (默认三引擎 bing,sogou,baidu)
 webtool search "LLM 排行榜" -n 5                   # 精简 query 召回最好
 webtool fetch <url> -f markdown --max-chars 4000   # 提取正文
 webtool site github fastapi                        # 站内搜索
@@ -71,7 +71,7 @@ webtool search "2026年最新最强大语言模型排行榜 GPT Claude Gemini"  
 
 | key | 说明 | 示例 |
 |---|---|---|
-| `default_engines` | 默认引擎组合（默认 `bing,sogou,google,baidu`） | `bing,sogou` |
+| `default_engines` | 默认引擎组合（默认 `bing,sogou,baidu`，google 需显式加） | `bing,sogou` |
 | `default_format` | 默认输出格式 | `markdown` |
 | `blocklist` / `ad_filter` / `dedupe` / `semantic` | 各过滤开关 | `on` / `off` |
 | `engine_proxy.<engine>` | 单引擎代理 | `engine_proxy.google http://...` |
@@ -106,9 +106,11 @@ webtool search q --block jb51.net               # 临时追加(不落盘)
 | baidu | `curl_cffi` TLS 指纹模拟（urllib 必被风控），302 解析真实链接 | 直连；`full` extra |
 | google | Web HTML（www.google.com/search）优先 → 429/reCAPTCHA 自动降级 news RSS（结果带 `channel: news`）。DC 代理出口 IP 对 /search 普遍触发 IP 级 reCAPTCHA（consent cookie/TLD 变体均无效），实际多为新闻检索 | 需代理 |
 
-跳转链解析：搜狗 link `--resolve-links` 自动解；google news 文章链走 `engines/gnews.py`（batchexecute 接口还原真实 URL，纯 HTTP，7 天缓存 + 连败熔断），实测可还原 36Kr/Business Wire/智源社区等原文页。
+跳转链解码：搜狗 link、百度 link、google news 文章链（`engines/gnews.py`，batchexecute 接口还原真实 URL，纯 HTTP）默认自动解，7 天缓存 + 连败熔断，实测可还原 36Kr/Business Wire/智源社区等原文页。
 
-**默认引擎组合 `bing,sogou,google,baidu`**（四引擎全开，逐引擎容错）：bing/sogou/baidu 免 key 直连出 Web 结果，google 有代理时自动升级（web 可用则 Web 结果，否则 news RSS 补新闻覆盖）。无代理时 google 静默跳过（news 国内直连必超时，不拖慢整体也不报假错）；任一引擎被反爬冷却自动跳过，其余继续。只想用部分引擎：`-e bing,baidu` 或持久化 `config set default_engines bing,sogou`。
+**默认引擎组合 `bing,sogou,baidu`**（逐引擎容错，免 key 直连出 Web 结果）；google 不在默认里——DC 代理出口普遍被 IP 级 reCAPTCHA 拦截只剩新闻通道，需要时显式 `-e bing,sogou,google` 或 `config set default_engines`。任一引擎被反爬冷却自动跳过，其余继续。
+
+**跳转链自动解码**（默认开）：搜狗 `/link`、百度 `/link`、google news `/rss/articles/` 一律并发还原为原始 URL 再返回（`resolved: true/false` 标注，7 天缓存 + 连败熔断），`--no-resolve` 关闭。
 
 site 站内搜索通道与代理策略见 `docs/design.md`，自定义站点配置见 `docs/custom-sites.md`。
 
