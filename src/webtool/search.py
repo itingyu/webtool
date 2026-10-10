@@ -128,6 +128,13 @@ def _do_search(args, cfg, filter_ad=True):
                 continue
         results.extend([dict(r, engine=eng) for r in rs])
 
+    # 跳转链解码: 默认开启 — 搜狗 link / baidu link / gnews articles 一律
+    # 还原为原始 URL 再返回 (带并发+缓存+熔断); --no-resolve 关闭
+    # 解码在黑名单/补量之前完成: ①link 包装链的真实域名只有解码后才知道,
+    # 黑名单按真域判定才不漏 ②补量的粗去重按真 URL, 不重复计数
+    if not getattr(args, 'no_resolve', False):
+        _resolve_sogou_links(results, cfg)
+
     # 合并: 去重 + 黑名单 + 权重排序 (语义向量可选) + 权重阈值 + 质量闸门
     from .merge import merge as _merge
     from .blocklist import filter_blocklist, is_blocked
