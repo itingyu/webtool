@@ -135,19 +135,25 @@ def _do_search(args, cfg, filter_ad=True):
     if not getattr(args, 'no_resolve', False):
         _resolve_sogou_links(results, cfg)
 
-    # 合并: 去重 + 黑名单 + 权重排序 (语义向量可选) + 权重阈值 + 质量闸门
+    # 黑名单先行 (按真域拦截), 再 merge 去重排序:
+    # ① 排序只算有资格留下的条目 (不白算被拦的)
+    # ② quality 批内断层阈值 (cut=max(0.12, top*0.35)) 基于真实保留批,
+    #    不再被即将拉黑的高 sem 头部抬高 → 标签更真实
+    # 注: BM25 的 IDF 基于传入批自身, 黑名单先行会让 sem 数值随黑名单配置
+    # 漂移 — 本就批内自适应, 跨配置不可比, 非回归
     from .merge import merge as _merge
     from .blocklist import filter_blocklist, is_blocked
+    if args.no_blocklist:
+        n_blocked = 0
+    else:
+        n_before_bl = len(results)
+        results, n_blocked = filter_blocklist(
+            results, extra_block=args.block or (), extra_allow=args.allow or ())
     n_before = len(results)
     results = _merge(results, args.query,
                      use_semantic=not args.no_semantic,
                      dedupe=not args.no_dedupe)
     dedup_removed = n_before - len(results)
-    if args.no_blocklist:
-        n_blocked = 0
-    else:
-        results, n_blocked = filter_blocklist(
-            results, extra_block=args.block or (), extra_allow=args.allow or ())
 
     # ---- 自动补量: 过滤后不足 requested 且有翻页能力 → 翻页补拉重过滤 ----
     # 触发条件: 总数 < args.max 且未被 --no-dedupe/--no-blocklist 关掉主过滤
@@ -192,17 +198,13 @@ def _do_search(args, cfg, filter_ad=True):
                     seen_urls.add(r.get('url'))
                     results.append(dict(r, engine=eng))
         if topup_fetched:
-            # 补量后重新排序去重, 保持输出质量一致
+            # 补量后重过滤+重排序: 补来的已在 top_up 内过广告+黑名单(按真域,
+            # 补前已解码), 这里再整体 merge 去重排序即可
             n_before = len(results)
             results = _merge(results, args.query,
                              use_semantic=not args.no_semantic,
                              dedupe=not args.no_dedupe)
             dedup_removed += n_before - len(results)
-            if not args.no_blocklist:
-                results, nb2 = filter_blocklist(
-                    results, extra_block=args.block or (),
-                    extra_allow=args.allow or ())
-                n_blocked += nb2
 
     # 最终截断: 排序后取质量最高的 n 条 (多引擎大池 → top n, 硬上限语义)
     if len(results) > args.max:
