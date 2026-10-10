@@ -1,7 +1,7 @@
 ---
 name: webtool
 description: Agent 友好的免费网页搜索与正文获取 CLI。多引擎搜索（Bing/搜狗/百度/Google Web+news 降级）+ 10 站点站内搜索（GitHub/SO/HN/arXiv 等）+ 正文提取转 markdown/text/json，去广告省 token 98%+，支持持久化配置。当用户提到「搜索网页 / 查资料 / 抓网页正文 / 网页转 markdown / 站内搜索 / webtool」时触发。
-version: 1.5.1
+version: 1.5.3
 ---
 
 # webtool
@@ -22,13 +22,13 @@ version: 1.5.1
 ## 常用示例
 
 ```sh
-webtool search "LLM 排行榜" -n 5                    # 默认 bing,sogou; 精简 query 优先!
-webtool search "LLM leaderboard" -e bing,sogou,google -n 5   # 有代理时加 google (新闻覆盖)
+webtool search "LLM 排行榜" -n 5                    # 默认四引擎全开 (bing,sogou,google,baidu)
+webtool search "LLM 排行榜" -e bing,baidu -n 5      # 只用指定引擎; 精简 query 优先!
 webtool search "大模型 排行榜" -f markdown           # 三格式任选
 webtool search "大模型 排行榜" --keep-ad             # 保留广告看全量
 webtool fetch <url> -f json --with-metadata          # 带元数据 json
 webtool site github fastapi                          # GitHub 仓库搜索
-webtool config set default_engines bing,sogou        # 持久化默认引擎
+webtool config set default_engines bing,sogou        # 持久化改成只用两引擎
 ```
 
 ## 关键参数
@@ -56,7 +56,7 @@ webtool config set default_engines bing,sogou        # 持久化默认引擎
 1. **query 用精简写法**：「核心实体 + 意图词」，如 `LLM 排行榜`、`fastapi 部署`；别堆「2026年最新最强」修饰词——中文引擎分词会被带偏，召回词典/百科噪声
 2. **搜索词优先用英文**：`LLM leaderboard`、`FastAPI deployment`——英文按空格分词无歧义；中文技术词退而求其次用引擎习惯叫法：`大模型` 而非 `大语言模型`（bing 对后者整串分词失败）
 3. 输出看 `quality_hint`：有提示就按建议改词重搜，别硬解析 poor 结果
-4. **google 引擎结果可能是新闻**（`channel: news` 字段）：DC 代理出口普遍被 google /search 的 IP 级 reCAPTCHA 拦截，引擎自动降级 news RSS；要全 Web 结果用 bing/sogou，google 当新闻补充。新闻的 news.google.com 跳转链加 `--resolve-links` 可还原原文 URL（再 fetch 正文）
+4. **google 引擎结果可能是新闻**（`channel: news` 字段）：DC 代理出口普遍被 google /search 的 IP 级 reCAPTCHA 拦截，引擎自动降级 news RSS；无代理时 google 静默跳过。新闻的 news.google.com 跳转链加 `--resolve-links` 可还原原文 URL（再 fetch 正文）
 5. 字段以实际输出为准：`weight`/`sem_score`/`quality`/`filters_applied`/`errors`
 6. 报错自带处置建议（如引擎冷却→换引擎、被风控→装 curl_cffi），照做即可
 7. 优先 fetch 而非啃原始 HTML——省 token 的核心（实测压缩到原文 1.6%）

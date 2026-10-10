@@ -18,7 +18,8 @@ def main(argv=None):
 
     ps = sub.add_parser('search', help='多引擎网页搜索')
     ps.add_argument('query')
-    ps.add_argument('-e', '--engine', default='bing,sogou', help='逗号分隔: bing,sogou,baidu,google')
+    ps.add_argument('-e', '--engine', default=None,
+                    help='逗号分隔: bing,sogou,baidu,google (默认 bing,sogou,google,baidu)')
     ps.add_argument('-n', '--max', type=int, default=8, help='每引擎结果数')
     ps.add_argument('-f', '--format', choices=['json', 'text', 'markdown'], default='json')
     ps.add_argument('--market', default='zh-CN', help='市场: zh-CN / en-US')

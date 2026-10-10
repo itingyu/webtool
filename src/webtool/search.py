@@ -18,9 +18,9 @@ ENGINES = {'bing': bing_search, 'sogou': sogou_search,
 # google: 有代理时自动进 web; 无代理降级 news RSS (国内直连不可达, 会报错)
 ENGINE_PROXY_HINT = {'bing': 'direct', 'sogou': 'direct',
                      'google': 'required', 'baidu': 'direct'}
-# 默认引擎组合: google 需代理才稳定 (web 被反爬 / news 国内墙),
-# 所以默认不含; 有代理时推荐 bing,sogou,google
-DEFAULT_ENGINES = 'bing,sogou'
+# 默认引擎组合: 四引擎全开 — bing/sogou/baidu 免 key 直连主力,
+# google 有代理时自动升级 web, 无代理降级 news (失败静默, errors 可见, 不影响其它引擎)
+DEFAULT_ENGINES = 'bing,sogou,google,baidu'
 
 
 def do_search(args, cfg):
@@ -69,12 +69,14 @@ def _do_search(args, cfg, filter_ad=True):
             eproxy = (cfg.get('engine_proxy') or {}).get(eng)
             hint = ENGINE_PROXY_HINT.get(eng)
             if args.no_proxy:
+                if hint == 'required':
+                    continue            # --no-proxy 时 required 引擎直接跳过
                 proxy = None            # 命令行指定不走代理, 最高优先
             elif eproxy is not None:
                 proxy = eproxy          # 引擎级配置次之
             elif hint == 'required' and not cfg.get('proxy'):
-                errors.append({'engine': eng,
-                               'error': f'{eng} 需要代理: webtool proxy set <proxy> 或 --proxy'})
+                # google: 无全局代理时 news 国内直连必超时, 静默跳过 (不算 error,
+                # 否则默认四引擎组合在无代理环境每次都挂一条假错误)
                 continue
             else:
                 proxy = cfg.get('proxy')
