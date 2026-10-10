@@ -1,7 +1,7 @@
 ---
 name: webtool
 description: Agent 友好的免费网页搜索与正文获取 CLI。多引擎搜索（Bing/搜狗/百度/Google Web+news 降级）+ 10 站点站内搜索（GitHub/SO/HN/arXiv 等）+ 正文提取转 markdown/text/json，去广告省 token 98%+，支持持久化配置。当用户提到「搜索网页 / 查资料 / 抓网页正文 / 网页转 markdown / 站内搜索 / webtool」时触发。
-version: 1.5.4
+version: 1.5.5
 ---
 
 # webtool

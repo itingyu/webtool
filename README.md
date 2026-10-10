@@ -104,7 +104,7 @@ webtool search q --block jb51.net               # 临时追加(不落盘)
 | bing | RSS 优先（cn.bing.com 免key免JS）→ HTML 自动降级（www.bing.com，代理下走国外端点），支持 setmkt/翻页 | 直连（代理下切 www 域） |
 | sogou | 搜狗网页 HTML，link 跳转链自动解析 | 直连 |
 | baidu | `curl_cffi` TLS 指纹模拟（urllib 必被风控），302 解析真实链接 | 直连；`full` extra |
-| google | Web HTML（www.google.com/search）优先 → 429/reCAPTCHA 自动降级 news RSS（结果带 `channel: news`）。DC 代理出口 IP 对 /search 普遍触发 IP 级 reCAPTCHA（consent cookie/TLD 变体均无效），实际多为新闻检索 | 需代理 |
+| google | **必须代理**：代理未配置或探活失败（1.5s TCP，60s 缓存）时静默跳过不报错。可用时 Web HTML 优先 → 429/reCAPTCHA 自动降级 news RSS（结果带 `channel: news`） | 需代理（硬性，探活校验） |
 
 跳转链解码：搜狗 link、百度 link、google news 文章链（`engines/gnews.py`，batchexecute 接口还原真实 URL，纯 HTTP）默认自动解，7 天缓存 + 连败熔断，实测可还原 36Kr/Business Wire/智源社区等原文页。
 

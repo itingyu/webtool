@@ -2,6 +2,7 @@
 """多引擎搜索调度"""
 import json
 import re
+import socket
 import sys
 import time
 
@@ -14,8 +15,29 @@ from .engines.baidu import search as baidu_search
 
 ENGINES = {'bing': bing_search, 'sogou': sogou_search,
            'google': google_search, 'baidu': baidu_search}
+_PROBE_CACHE = None
+def _proxy_alive(cfg, ttl=60):
+    """全局代理 TCP 探活, 结果缓存 ttl 秒. 代理未配置返回 False."""
+    global _PROBE_CACHE
+    if not cfg.get('proxy'):
+        return False
+    now = time.time()
+    if _PROBE_CACHE and now - _PROBE_CACHE[0] < ttl:
+        return _PROBE_CACHE[1]
+    from urllib.parse import urlparse
+    p = urlparse(cfg['proxy'])
+    try:
+        s = socket.create_connection((p.hostname, p.port or 8080), timeout=1.5)
+        s.close()
+        ok = True
+    except OSError:
+        ok = False
+    _PROBE_CACHE = (now, ok)
+    return ok
+
+
 # 各引擎代理建议: None=跟随全局; 'required'=必须代理; 'direct'=建议直连
-# google: 有代理时自动进 web; 无代理降级 news RSS (国内直连不可达, 会报错)
+# google: 必须代理 — 代理未配置或探活失败(进程挂/端口不通)都静默跳过, 不搜谷歌
 ENGINE_PROXY_HINT = {'bing': 'direct', 'sogou': 'direct',
                      'google': 'required', 'baidu': 'direct'}
 # 默认引擎组合: bing/sogou/baidu 三引擎 (免 key 直连, Web 检索主力);
@@ -75,10 +97,12 @@ def _do_search(args, cfg, filter_ad=True):
                 proxy = None            # 命令行指定不走代理, 最高优先
             elif eproxy is not None:
                 proxy = eproxy          # 引擎级配置次之
-            elif hint == 'required' and not cfg.get('proxy'):
-                # google: 无全局代理时 news 国内直连必超时, 静默跳过 (不算 error,
-                # 否则默认四引擎组合在无代理环境每次都挂一条假错误)
-                continue
+            elif hint == 'required':
+                # google: 代理未配置或探活失败 → 静默跳过 (不算 error,
+                # 代理挂了不挂假错误, bing/sogou/baidu 直连照常)
+                if not _proxy_alive(cfg):
+                    continue
+                proxy = cfg.get('proxy')
             else:
                 proxy = cfg.get('proxy')
             try:
@@ -166,7 +190,7 @@ def _fetch_engines(args, cfg, engines, query, filter_ad):
                 proxy = None
             elif eproxy is not None:
                 proxy = eproxy
-            elif hint == 'required' and not cfg.get('proxy'):
+            elif hint == 'required' and not _proxy_alive(cfg):
                 continue
             else:
                 proxy = cfg.get('proxy')
