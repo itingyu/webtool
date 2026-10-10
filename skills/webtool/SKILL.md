@@ -1,63 +1,44 @@
 ---
 name: webtool
-description: Agent 友好的免费网页搜索与正文获取 CLI。多引擎搜索（Bing/搜狗/百度/Google Web+news 降级）+ 10 站点站内搜索（GitHub/SO/HN/arXiv 等）+ 正文提取转 markdown/text/json，去广告省 token 98%+，支持持久化配置。当用户提到「搜索网页 / 查资料 / 抓网页正文 / 网页转 markdown / 站内搜索 / webtool」时触发。
+description: Agent 友好的免费网页搜索与正文获取 CLI。多引擎搜索（Bing/搜狗/百度/Google）+ 10 站点站内搜索（GitHub/SO/HN/arXiv 等）+ 正文提取转 markdown/text/json。当用户提到「搜索网页 / 查资料 / 抓网页正文 / 网页转 markdown / 站内搜索 / webtool」时触发。
 version: 1.5.5
 ---
 
 # webtool
 
-免费、免 key、零浏览器依赖（百度走 curl_cffi TLS 指纹）。结果为 LLM 优化格式，token 开销极低。
+免费、免 key、零浏览器依赖。正文提取省 token（压缩到原文 ~2%）。
 
-## 功能
-
-| 命令 | 功能 |
-|---|---|
-| `webtool search <q>` | 多引擎搜索：Bing RSS→HTML/搜狗/百度/Google Web→news 降级；跨引擎去重、黑名单、广告过滤、实体加权语义排序 |
-| `webtool fetch <url>` | 正文提取：HTML→纯净 markdown/text/json(/html)，去广告导航，`--max-chars` 截断，批量并发 |
-| `webtool site <site> <q>` | 站内搜索（官方 API）：github/so/hn/wikipedia/arxiv/csdn/juejin/bilibili/sspai/npm；JSON 配置可扩展 |
-| `webtool config` | 持久化配置：默认引擎/格式/各过滤开关/单引擎代理 |
-| `webtool proxy` | 代理配置；断线自动降级直连 |
-| `webtool blocklist` | 黑名单管理（内置 21 个内容农场） |
-
-## 常用示例
+## 命令
 
 ```sh
-webtool search "LLM 排行榜" -n 5                    # 默认三引擎 bing,sogou,baidu; 精简 query 优先!
-webtool search "AI 新闻" -e bing,sogou,google -n 5  # 显式加 google (需代理, 新闻覆盖)
-webtool search "LLM 排行榜" --no-resolve -n 5       # 关闭跳转链解码 (默认开)
-webtool search "大模型 排行榜" -f markdown           # 三格式任选
-webtool search "大模型 排行榜" --keep-ad             # 保留广告看全量
-webtool fetch <url> -f json --with-metadata          # 带元数据 json
-webtool site github fastapi                          # GitHub 仓库搜索
-webtool config set default_engines bing,sogou        # 持久化改成只用两引擎
+webtool search "LLM leaderboard" -n 5      # 多引擎搜索, 默认 bing,sogou,baidu
+webtool search "AI 新闻" -e google          # 加 google (必须代理, 可能降级新闻)
+webtool fetch <url>                         # 正文提取 → markdown (-f text/json/html)
+webtool fetch <url> --max-chars 3000        # 截断; --url-file 批量
+webtool site github fastapi                 # 站内搜索: github/so/hn/arxiv/wikipedia/csdn/juejin/bilibili/sspai/npm
+webtool config set default_engines bing,sogou   # 持久化配置
 ```
 
 ## 关键参数
 
-- **search / site**：`-e` 引擎(site 无) `-n` 条数 `-f json/text/markdown` `--no-blocklist` `--no-retry`(关质量提示) `--keep-ad`(仅search) `--no-dedupe` `--no-semantic` `--block/--allow` 临时黑白名单 `--no-proxy` `--no-resolve`(关跳转链解码，默认开：sogou/baidu link + gnews articles)
-- **fetch**：`-f markdown/text/json/html` `--max-chars` `--raw` `--url-file` 批量
-- **config**：`list` / `get <k>` / `set <k> <v>` / `unset <k>`，写 `~/.webtool/config.json`
-  可配项：`proxy` `blocklist` `ad_filter` `dedupe` `semantic` `default_engines` `default_format` `timeout` `cache` `engine_proxy.<engine>`
-- **全局**：`--proxy` `--no-cache`（须放子命令前）
+- 通用：`-n` 条数 `-f json/text/markdown` `--no-cache`（放子命令前）`--no-proxy` `--proxy URL`
+- search：`-e` 引擎 `--keep-ad` `--no-resolve`（关跳转链解码，默认开）`--no-dedupe` `--no-semantic` `--no-blocklist`
+- config：`list/get/set/unset`，可配 `proxy` `default_engines` `default_format` `timeout` `engine_proxy.<engine>` 等
 
-## 权重与过滤 (v1.5)
+## 引擎与代理
 
-每条结果：`weight = 引擎基础分 × 名次衰减 × 多引擎共识 × 语义乘区 × 实体命中 × 域名先验`，字段 `weight`/`sem_score`(BM25 归一 0-1)/`quality`(good/fair/poor)。
-
-| 过滤层 | 默认 | 关闭 |
+| 引擎 | 通道 | 代理 |
 |---|---|---|
-| 广告 | 剔除 | `--keep-ad` 只标记 |
-| 黑名单 | 23 内置（含 baike.baidu.com、zhihu.com） | `--no-blocklist` |
-| 质量 | **默认不过滤**：quality 仅标注 + hint 提醒（v1.4.2 起） | — |
-
-低质量召回（全体 sem 偏低）不自动改写 query——改写可能引歧义；输出 `quality_hint` 字段 + `💡` 行提醒优化 query 词。
+| bing | HTML（cn 直连，浏览器一致排序）→ RSS 降级 | 直连 |
+| sogou | 网页 HTML，会话预热 | 直连 |
+| baidu | curl_cffi TLS 指纹 | 直连，需 `full` extra |
+| google | Web → 429 自动降级 news RSS | **必须**：未配置或探活失败（1.5s TCP）即静默跳过 |
 
 ## Agent 使用要点
 
-1. **query 用精简写法**：「核心实体 + 意图词」，如 `LLM 排行榜`、`fastapi 部署`；别堆「2026年最新最强」修饰词——中文引擎分词会被带偏，召回词典/百科噪声
-2. **搜索词优先用英文**：`LLM leaderboard`、`FastAPI deployment`——英文按空格分词无歧义；中文技术词退而求其次用引擎习惯叫法：`大模型` 而非 `大语言模型`（bing 对后者整串分词失败）
-3. 输出看 `quality_hint`：有提示就按建议改词重搜，别硬解析 poor 结果
-4. **google 引擎结果可能是新闻**（`channel: news` 字段）：DC 代理出口普遍被 google /search 的 IP 级 reCAPTCHA 拦截，引擎自动降级 news RSS；无代理时 google 静默跳过。新闻的 news.google.com 跳转链默认自动解码为原文 URL（再 fetch 正文）
-5. 字段以实际输出为准：`weight`/`sem_score`/`quality`/`filters_applied`/`errors`
-6. 报错自带处置建议（如引擎冷却→换引擎、被风控→补装 [full] extra），照做即可
-7. 优先 fetch 而非啃原始 HTML——省 token 的核心（实测压缩到原文 1.6%）
+1. **query 精简**：核心实体 + 意图词（`LLM 排行榜`、`fastapi 部署`），别堆修饰词
+2. **优先英文**：`LLM leaderboard`；中文用引擎习惯叫法（`大模型` 而非 `大语言模型`）
+3. 低质量批会带 `💡` 提示（`quality_hint` 字段，json 模式同样输出）——按建议改词重搜，别硬解析 poor 结果
+4. google 结果带 `channel: news` 时是新闻，news.google.com 跳转链已默认解成原文 URL，直接 fetch 正文
+5. 报错自带处置建议（换引擎、补装 `[full]` extra），照做即可
+6. 优先 fetch 而非啃原始 HTML——这是省 token 的核心
