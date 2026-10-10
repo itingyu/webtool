@@ -182,6 +182,10 @@ def _do_search(args, cfg, filter_ad=True):
                                else lambda u, _b=(), _a=(): is_blocked(
                                    u, extra_block=_b, extra_allow=_a)))
             topup_fetched += fetched
+            # 补来的先解码: 引擎翻页给的是 link 包装链 (baidu/sogou),
+            # 不解码则黑名单按包装域误判、粗去重按包装 URL 重复计数
+            if extra and not getattr(args, 'no_resolve', False):
+                _resolve_sogou_links(extra, cfg)
             # 补来的进同一合并管线 (dedupe 会在下一轮统一做, 这里先粗去重)
             for r in extra:
                 if r.get('url') not in seen_urls:
