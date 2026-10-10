@@ -210,17 +210,17 @@ def _do_search(args, cfg, filter_ad=True):
     if len(results) > args.max:
         results = results[:args.max]
 
+    # 跳转链解码: 默认开启 — 搜狗 link / baidu link / gnews articles 一律
+    # 还原为原始 URL 再返回 (带并发+缓存+熔断); --no-resolve 关闭
+    if not getattr(args, 'no_resolve', False):
+        _resolve_sogou_links(results, cfg)
+
     # 质量诊断: 结果集与 query 整体脱节 → 输出 query 优化建议 (不自动改写,
     # 自动改词可能引入歧义, 改写权在用户; 这里只做检测 + 提醒)
     quality_hint = None
     if not args.no_semantic and not args.no_retry and _low_quality(results):
         from .qhint import build_hint
         quality_hint = build_hint(args.query, results)
-
-    # 跳转链解码: 默认开启 — 搜狗 link / baidu link / gnews articles 一律
-    # 还原为原始 URL 再返回 (带并发+缓存+熔断); --no-resolve 关闭
-    if not getattr(args, 'no_resolve', False):
-        _resolve_sogou_links(results, cfg)
 
     out = {'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'cache': per_engine, 'total': len(results), 'results': results,
