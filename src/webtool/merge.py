@@ -199,6 +199,15 @@ def _dedupe(results):
             tgt = out[dup_idx]
             if r.get('engine') and r.get('engine') not in tgt['engines']:
                 tgt['engines'].append(r['engine'])
+            # 位置分/引擎基础分取最优: 哪个引擎把它排得越靠前越可信 (RRG 本意),
+            # 引擎基础分随之取最优引擎 (高的引擎把它排前面 = 该引擎更认可它)
+            if r.get('rank') and (not tgt.get('rank') or r['rank'] < tgt['rank']):
+                tgt['rank'] = r['rank']
+                if r.get('engine'):
+                    tgt['engine'] = r['engine']
+                for k in ('date',):
+                    if r.get(k):
+                        tgt[k] = r[k]
             # 补充更全的字段
             if len(r.get('snippet') or '') > len(tgt.get('snippet') or ''):
                 tgt['snippet'] = r['snippet']
