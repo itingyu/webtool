@@ -1,7 +1,7 @@
 # webtool 设计文档（V1）
 
 > 目标：给 Agent 用的免费网页搜索 + 内容获取 CLI，输出 markdown/text/json，去广告留正文，省 token。
-> 仓库：github.com/itingyu/webtool（已克隆到 ~/webtool）
+> 仓库：github.com/itingyu/webtool
 
 ## 1. 业界调研结论（实测）
 
@@ -12,17 +12,19 @@
 | Firecrawl | 爬取 SaaS + 开源自托管 | 免费 key 500 次 | .llms.txt 约定、scrape/crawl/search 三动词 |
 | crawl4ai | 开源 Python 库 | 免费 | CLI `crwl`、fit_markdown（修剪噪声正文）、BM25 过滤、proxy 配置 |
 | trafilatura | 开源 Python 库 | 免费 | **正文提取基准第一名**（F1 0.926，见官方 benchmark），自研 markdown 输出 |
-| SearXNG | 自托管元搜索 | 免费 | 分桶缓存 TTL（结果 1800s / 内容 1d / 前缀 7d）、JSON API 需启用 format |
+| SearXNG | 自托管元搜索 | 免费 | 分桶缓存 TTL 思路（webtool 实配：结果 60s / 正文 10s / 跳转解析 10min，v1.5.6 收紧）、JSON API 需启用 format |
 | curl-github 模式 | 命令行直用 | — | 子命令 + flag + 管道友好 |
 
 关键实测数据（本沙盒）：
 - ddgs 库 7 个后端全部超时/被墙（free 代理 IP 被 DDG 风控 202 anomaly 拦截，cookie/POST/完整浏览器头均绕不过）
-- Google Web 搜索：需 JS 渲染（noscript 拦截壳页面），403/429 风控，纯 HTTP 不可行 → 降级用 Jina/AI 前缀引擎
-- **Bing RSS 接口（format=rss）：免费、免 key、免 JS、国内外直连、支持 setmkt/setlang/翻页（first=）、可解析 10 条/页** → 主力引擎
+- Google Web 搜索：需 JS 渲染（noscript 拦截壳页面），403/429 风控，纯 HTTP 不可行 → 降级 news RSS 通道
+- **Bing HTML（cn.bing.com，chrome 指纹直连）：与浏览器主页排序一致，0.5s 间隔 5 连打零风控 → 主力；RSS 留作兜底**
 - **搜狗 web：直连可解析（vr-title 节点 5-11 条/页），link 跳转链带 cookie+Referer 请求后 302→window.location.replace 拿真实 URL** → 中文补充引擎
-- 百度：PC/移动 UA 均直接弹「百度安全验证」且无 JS 可算 → 放弃
+- 百度：urllib 的 JA3 指纹必弹「百度安全验证」；curl_cffi impersonate=chrome 后 5/5 成功 → 需 `full` extra
 - Qwant API：403 Cloudflare 盾 → 放弃
 - 360 搜索：可抓但结构复杂，作为备选不进 V1
+
+> 注：本文档为 V1 设计时的架构与决策记录，部分模块名（extract.py/fallback.py/output.py/duckduckgo/jina 引擎）在现行代码中已演进为 render.py/fetch.py 内置降级链/marginalia 引擎等，以 `src/webtool/` 实际结构为准。
 
 ## 2. webtool 设计
 
@@ -58,7 +60,7 @@ webtool/
 │   ├── extract.py  # trafilatura 正文提取, markdown/text/json 三格式
 │   └── fallback.py # readability-lxml + html2text + inscriptis 三级兜底
 ├── proxy.py        # 代理配置 ~/.webtool/config.json
-├── cache.py        # 磁盘缓存, 分桶 TTL: 搜索1800s/正文86400s/跳转解析604800s
+├── cache.py        # 磁盘缓存, 分桶 TTL: 搜索60s/正文10s/跳转解析600s
 └── output.py       # json / markdown / text 三格式渲染
 ```
 
@@ -73,7 +75,7 @@ webtool/
 2. `--max-chars N`：截断到指定字符数，Agent 可控上下文
 3. `--format json`：结构化字段，Agent 直接解析不猜
 4. 搜索结果默认只给 `title + url + snippet`（不含正文），Agent 需要再 fetch
-5. 缓存命中不重复抓取：搜索 30min / 正文 24h / 跳转解析 7d
+5. 缓存命中不重复抓取：搜索 60s / 正文 10s / 跳转解析 10min
 6. 输出去噪：连续空行合并、去 cookie 提示条、去 "扫码登录" 等中文站点常见噪声文本
 
 ### 2.5 代理设计
@@ -148,4 +150,3 @@ webtool/
 4. `extract.py`（trafilatura 主 + readability/html2text 兜底）
 5. `output.py`（json/markdown/text）+ CLI 打磨（--max-chars/--format/--engine）
 6. 实测 5+ 个中文/英文站点调优，写 README + 发布 v0.1.0 tag
-```

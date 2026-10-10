@@ -12,9 +12,11 @@ from .engines.bing import search as bing_search
 from .engines.sogou import search as sogou_search
 from .engines.google import search as google_search
 from .engines.baidu import search as baidu_search
+from .engines.marginalia import search as marginalia_search
 
 ENGINES = {'bing': bing_search, 'sogou': sogou_search,
-           'google': google_search, 'baidu': baidu_search}
+           'google': google_search, 'baidu': baidu_search,
+           'marginalia': marginalia_search}
 _PROBE_CACHE = None
 def _proxy_alive(cfg, ttl=60):
     """全局代理 TCP 探活, 结果缓存 ttl 秒. 代理未配置返回 False."""
@@ -39,10 +41,11 @@ def _proxy_alive(cfg, ttl=60):
 # 各引擎代理建议: None=跟随全局; 'required'=必须代理; 'direct'=建议直连
 # google: 必须代理 — 代理未配置或探活失败(进程挂/端口不通)都静默跳过, 不搜谷歌
 ENGINE_PROXY_HINT = {'bing': 'direct', 'sogou': 'direct',
-                     'google': 'required', 'baidu': 'direct'}
+                     'google': 'required', 'baidu': 'direct',
+                     'marginalia': 'direct'}
 # 默认引擎组合: bing/sogou/baidu 三引擎 (免 key 直连, Web 检索主力);
 # google 不进默认: DC 代理出口普遍被 IP 级 reCAPTCHA 拦截只剩新闻通道,
-# 需要时显式 -e 加或 config set default_engines
+# marginalia 不进默认: 独立索引, 中文覆盖弱, 长尾补充源 (-e marginalia 显式加)
 DEFAULT_ENGINES = 'bing,sogou,baidu'
 
 

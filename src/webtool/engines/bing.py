@@ -15,28 +15,23 @@ RSS 通道保留为兜底 (curl_cffi 被限流时), 但 RSS 是独立索引, 排
 import re
 import urllib.parse
 
-from ..resilient import fetch as rfetch, FetchError
-from ..http import UAS
+from .. import captcha, transport
 
-try:
-    from curl_cffi import requests as _cr
-    _HAS_CFFI = True
-except ImportError:
-    _HAS_CFFI = False
+_ENDPOINT = 'https://cn.bing.com'
 
 
 def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1):
     """返回 [{title,url,snippet}]; chrome指纹 HTML → urllib HTML → RSS 三级降级"""
-    err1 = err2 = None
-    if _HAS_CFFI:
-        try:
-            return _cffi_html(query, max_results, proxy, timeout, market, page)
-        except Exception as e:
-            err1 = e
+    try:
+        return _cffi_html(query, max_results, proxy, timeout, market, page)
+    except transport.CooldownError:
+        raise
+    except Exception:
+        pass
     try:
         return _urllib_html(query, max_results, proxy, timeout, market, page)
-    except Exception as e:
-        err2 = e
+    except Exception:
+        pass
     return _rss(query, max_results, proxy, timeout, market, page)
 
 
@@ -47,38 +42,62 @@ def _host(proxy):
 def _cffi_html(query, max_results, proxy, timeout, market, page):
     """curl_cffi chrome 指纹: 浏览器级 TLS/HTTP2, bing 无感"""
     q = urllib.parse.quote(query)
-    url = (f'https://cn.bing.com/search?q={q}&count={min(max_results, 30)}'
+    first = (page - 1) * max_results + 1
+    count = min(max_results, 30)
+    url = (f'{_ENDPOINT}/search?q={q}&count={count}&first={first}'
            f'&setmkt={urllib.parse.quote(market)}')
     # bing 国内可用: 恒直连, 代理出口反而触发国外版重排
-    s = _cr.Session(impersonate='chrome', timeout=timeout)
-    s.get('https://cn.bing.com/', timeout=timeout)
+    s, p = transport._new_session('chrome131_win', None, 'bing')
+    # 首页预热: 领会话 cookie + 让服务端看到导航行为
+    try:
+        s.get(_ENDPOINT + '/', timeout=timeout)
+    except Exception:
+        pass
     r = s.get(url, timeout=timeout,
-              headers={'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'})
+              headers=transport.headers_for('nav', url, referer=_ENDPOINT + '/',
+                                            profile=p))
     if r.status_code in (429, 403) or 'challenge-form' in r.text:
-        raise FetchError(f'bing cffi 被风控 ({r.status_code})')
+        captcha.mark_blocked('bing')
+        raise RuntimeError(f'bing cffi 被风控 ({r.status_code})')
+    transport._persist_cookies(s, 'bing')
     out = _parse_html(r.text, max_results)
     if not out:
-        raise FetchError(f'bing cffi 解析 0 条 (len={len(r.text)})')
+        raise RuntimeError(f'bing cffi 解析 0 条 (len={len(r.text)})')
+    captcha.mark_ok('bing')
     return out
 
 
 def _urllib_html(query, max_results, proxy, timeout, market, page):
-    """urllib HTML 兜底 (无 curl_cffi 时)"""
+    """urllib HTML 兜底"""
     q = urllib.parse.quote(query)
     first = (page - 1) * max_results + 1
     count = max_results if max_results <= 30 else 30
     mkt = f'&mkt={urllib.parse.quote(market)}' if market else ''
     url = (f'https://{_host(proxy)}/search?q={q}&count={count}&first={first}'
            f'&setlang={market.split("-")[0]}{mkt}')
-    html, status, _via = rfetch(url, proxy=proxy, timeout=timeout,
-                                fallback_direct=True,
-                                headers={'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'})
-    if 'b_algo' not in html:
-        raise FetchError(f'bing urllib HTML 异常页 (status={status})')
-    out = _parse_html(html, max_results)
+    h = transport.headers_for('nav', url, referer=f'https://{_host(proxy)}/',
+                              full=True)
+    text, status, _via = _resilient(url, proxy=proxy, timeout=timeout,
+                                    headers=h)
+    if 'b_algo' not in text:
+        raise RuntimeError(f'bing urllib HTML 异常页 (status={status})')
+    out = _parse_html(text, max_results)
     if not out:
-        raise FetchError(f'bing urllib 解析 0 条 (status={status})')
+        raise RuntimeError(f'bing urllib 解析 0 条 (status={status})')
     return out
+
+
+def _resilient(url, proxy=None, timeout=15, headers=None):
+    """代理失败自动直连重试 (fetch 等非引擎通道复用)"""
+    from ..http import http_get
+    last = None
+    for p in ([proxy, None] if proxy else [None]):
+        try:
+            text, status = http_get(url, proxy=p, timeout=timeout, headers=headers)
+            return text, status, 'proxy' if p else 'direct'
+        except Exception as e:
+            last = e
+    raise RuntimeError(f'{url} failed: {last}')
 
 
 def _parse_html(html, max_results):
@@ -118,8 +137,7 @@ def _rss(query, max_results, proxy, timeout, market, page):
     first = (page - 1) * max_results + 1
     url = (f'https://{_host(proxy)}/search?q={q}&format=rss&count={max_results}'
            f'&first={first}&setmkt={urllib.parse.quote(market)}')
-    xml, status, _via = rfetch(url, proxy=proxy, timeout=timeout,
-                               fallback_direct=True)
+    xml, status, _via = _resilient(url, proxy=proxy, timeout=timeout)
     items = re.findall(r'<item>(.*?)</item>', xml, re.S)
     out = []
     for it in items:
@@ -136,7 +154,7 @@ def _rss(query, max_results, proxy, timeout, market, page):
         if len(out) >= max_results:
             break
     if not out:
-        raise FetchError(f'bing RSS 0 条 (status={status})')
+        raise RuntimeError(f'bing RSS 0 条 (status={status})')
     return out
 
 

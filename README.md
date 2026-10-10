@@ -6,13 +6,13 @@
 
 | 功能 | 说明 |
 |---|---|
-| 🔍 多引擎搜索 | Bing（RSS→HTML 自动降级）/ 搜狗 / 百度（TLS 指纹突破风控）/ Google（Web→news RSS 降级），全部免 key |
+| 🔍 多引擎搜索 | Bing（chrome 指纹）/ 搜狗（PC 优先→移动端兜底）/ 百度（TLS 指纹+多步预热）/ Google（web 需代理→news RSS 降级，文章链自动还原真实 URL）/ Marginalia（独立索引长尾，sst 挑战自动解），全部免 key |
 | 🌐 站内搜索 | 10 站点官方 API：GitHub、Stack Overflow、HN、Wikipedia、arXiv、CSDN、掘金、B站、少数派、npm；JSON 配置可自定义扩展 |
 | 📄 正文提取 | trafilatura 四级降级链，HTML→纯净 markdown/text/json(/html)，去广告/导航/页眉 |
 | 🧹 结果清洗 | 跨引擎去重、黑名单（23 内置：内容农场+百科词典+知乎）、广告识别、语义加权排序 |
 | 🛡️ 反反爬 | 浏览器 TLS 指纹、验证页识别+冷却、代理断线自动降级直连 |
 | ⚙️ 持久化配置 | `config` 子命令管理默认引擎/格式/过滤开关/单引擎代理，即时写盘 |
-| ⚡ Agent 友好 | json/text/markdown 三格式信息对齐、token 极省、错误带处置建议、结果缓存 |
+| ⚡ Agent 友好 | json/text/markdown 三格式信息对齐、token 极省、错误带处置建议、结果缓存（search 60s / fetch 10s / resolve 10min） |
 
 ## 安装
 
@@ -106,11 +106,11 @@ webtool search q --block jb51.net               # 临时追加(不落盘)
 | baidu | `curl_cffi` TLS 指纹模拟（urllib 必被风控），302 解析真实链接 | 直连；`full` extra |
 | google | **必须代理**：代理未配置或探活失败（1.5s TCP，60s 缓存）时静默跳过不报错。可用时 Web HTML 优先 → 429/reCAPTCHA 自动降级 news RSS（结果带 `channel: news`） | 需代理（硬性，探活校验） |
 
-跳转链解码：搜狗 link、百度 link、google news 文章链（`engines/gnews.py`，batchexecute 接口还原真实 URL，纯 HTTP）默认自动解，7 天缓存 + 连败熔断，实测可还原 36Kr/Business Wire/智源社区等原文页。
+跳转链解码：搜狗 link、百度 link、google news 文章链（`engines/gnews.py`，batchexecute 接口还原真实 URL，纯 HTTP）默认自动解，gnews 去重缓存 7 天（独立机制）+ 连败熔断，实测可还原 36Kr/Business Wire/智源社区等原文页。
 
 **默认引擎组合 `bing,sogou,baidu`**（逐引擎容错，免 key 直连出 Web 结果）；google 不在默认里——DC 代理出口普遍被 IP 级 reCAPTCHA 拦截只剩新闻通道，需要时显式 `-e bing,sogou,google` 或 `config set default_engines`。任一引擎被反爬冷却自动跳过，其余继续。
 
-**跳转链自动解码**（默认开）：搜狗 `/link`、百度 `/link`、google news `/rss/articles/` 一律并发还原为原始 URL 再返回（`resolved: true/false` 标注，7 天缓存 + 连败熔断），`--no-resolve` 关闭。
+**跳转链自动解码**（默认开）：搜狗 `/link`、百度 `/link`、google news `/rss/articles/` 一律并发还原为原始 URL 再返回（`resolved: true/false` 标注，gnews 去重缓存 7 天 + 连败熔断；跳转解析本身的 cache 桶为 10min），`--no-resolve` 关闭。
 
 site 站内搜索通道与代理策略见 `docs/design.md`，自定义站点配置见 `docs/custom-sites.md`。
 

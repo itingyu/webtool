@@ -1,7 +1,7 @@
 ---
 name: webtool
-description: Agent 友好的免费网页搜索与正文获取 CLI。多引擎搜索（Bing/搜狗/百度/Google）+ 10 站点站内搜索（GitHub/SO/HN/arXiv 等）+ 正文提取转 markdown/text/json。当用户提到「搜索网页 / 查资料 / 抓网页正文 / 网页转 markdown / 站内搜索 / webtool」时触发。
-version: 1.5.5
+description: Agent 友好的免费网页搜索与正文获取 CLI。多引擎搜索（Bing/搜狗/百度/Google/Marginalia）+ 10 站点站内搜索（GitHub/SO/HN/arXiv 等）+ 正文提取转 markdown/text/json。当用户提到「搜索网页 / 查资料 / 抓网页正文 / 网页转 markdown / 站内搜索 / webtool」时触发。
+version: 1.5.6
 ---
 
 # webtool
@@ -12,6 +12,7 @@ version: 1.5.5
 
 ```sh
 webtool search "LLM leaderboard" -n 5      # 多引擎搜索, 默认 bing,sogou,baidu
+webtool search "query" -e marginalia        # 长尾独立索引 (小站/老网页, 中文覆盖弱)
 webtool search "AI 新闻" -e google          # 加 google (必须代理, 可能降级新闻)
 webtool fetch <url>                         # 正文提取 → markdown (-f text/json/html)
 webtool fetch <url> --max-chars 3000        # 截断; --url-file 批量
@@ -33,6 +34,10 @@ webtool config set default_engines bing,sogou   # 持久化配置
 | sogou | 网页 HTML，会话预热 | 直连 |
 | baidu | curl_cffi TLS 指纹 | 直连，需 `full` extra |
 | google | Web → 429 自动降级 news RSS | **必须**：未配置或探活失败（1.5s TCP）即静默跳过 |
+
+## 缓存 TTL（v1.5.6 起收紧）
+
+search 60s / fetch 10s / resolve 10min——防短窗口重复查询暴露行为模式，数据新鲜度优先。缓存命中标注 `"cache": "<engine>"`，未命中为 `fresh`。重复搜同一词 60s 内直接秒回；跨任务重抓会真实请求。
 
 ## Agent 使用要点
 

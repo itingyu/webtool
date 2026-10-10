@@ -6,52 +6,48 @@
 2. 只收录有稳定公开 JSON/XML 接口的站点; 纯 HTML 爬站的不进
 3. 与 search 子命令分开: webtool site <site> <query>
 4. 失败信息带 hint, 代理策略继承全局配置
-5. 请求头模拟真实浏览器: 每个 site 带自己的 Origin/Referer/Sec-Fetch/Accept,
-   JSON API 用 XHR 指纹 (sec-fetch-mode: cors + accept: application/json),
+5. 请求头走 transport 统一指纹: 浏览器站点用 XHR 指纹 (sec-fetch-mode: cors
+   + accept: application/json + origin/referer 推导), 开放 API 用 API 惯例头,
    避免 header 与人行为不一致触发反爬
+
+UA 策略 (A/B 实测 2026-10-09):
+- 裸 UA 打 bilibili 直接 412, 浏览器 UA 全部 200; 开放 API 对浏览器 UA 同样接受
+- 全部经 transport: UA/TLS/sec-ch-ua 同源一致, 不手工拼装
 """
 import json
 import re
 import urllib.parse
 
-from ..resilient import fetch as rfetch
+from .. import transport
 
-# UA 策略 (A/B 实测 2026-10-09):
-# - 所有站点统一用浏览器 UA (Chrome 131)。实测: 裸 UA 打 bilibili 直接 412,
-#   Chrome UA 全部 200; 开放 API (github/so/hn/wikipedia/arxiv/npm) 对浏览器
-#   UA 同样接受。Sec-Ch-Ua/Sec-Fetch 指纹当前未强校验, 但与真人一致成本为零。
-# - 不使用带项目联系方式的 tool UA。
-_SEC_CH_UA = '"Chromium";v="131", "Not_A Brand";v="24", "Google Chrome";v="131"'
-_UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-       '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
-_TOOL_UA = _UA  # 统一浏览器 UA
+# 浏览器站点 (XHR 指纹) 与开放 API (API 惯例头) 共用的 UA 常量 (文档/兼容用)
+_UA = transport.PROFILES['chrome131_win']['ua']
+_TOOL_UA = _UA
 
 
 def _headers(site_url, kind='api', extra=None):
-    """构造与真人浏览器一致的请求头
+    """构造与真人浏览器一致的请求头 (transport.headers_for 的站点适配包装)
 
     kind: 'api'  = 页面 JS 发起的 XHR/fetch 请求 (cors 模式)
           'nav'  = 直接导航打开 (document 模式)
-    site_url: 请求目标 URL, 用于推导 Origin/Referer
+          'rest' = 开放 REST API (github/arxiv...): 惯例头, 不带浏览器指纹
+    site_url: 请求目标 URL, 用于推导 Origin/Referer/sec-fetch-site
     """
     p = urllib.parse.urlparse(site_url)
     origin = f'{p.scheme}://{p.netloc}'
-    h = {
-        'User-Agent': _UA,
-        'Accept': 'application/json, text/plain, */*' if kind == 'api'
-                  else 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        'Referer': origin + '/',
-        'Origin': origin,
-        'Sec-Ch-Ua': _SEC_CH_UA,
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': '"Windows"',
-        'Sec-Fetch-Dest': 'empty' if kind == 'api' else 'document',
-        'Sec-Fetch-Mode': 'cors' if kind == 'api' else 'navigate',
-        'Sec-Fetch-Site': 'same-origin',
-    }
+    if kind == 'rest':
+        return {'Accept': 'application/json', 'User-Agent': _TOOL_UA,
+                **(extra or {})}
+    h = transport.headers_for('xhr' if kind == 'api' else 'nav', site_url,
+                              referer=origin + '/')
+    if kind == 'api':
+        h.setdefault('Origin', origin)
     if extra:
-        h.update(extra)
+        for k, v in extra.items():
+            if v is None:
+                h.pop(k, None)
+            else:
+                h[k] = v
     return h
 
 
@@ -83,10 +79,8 @@ def github(q, limit=10, proxy=None, timeout=15):
     """GitHub 仓库搜索 (api.github.com, 匿名 10 req/min)"""
     url = (f'https://api.github.com/search/repositories?q={urllib.parse.quote(q)}'
            f'&per_page={min(limit, 50)}&sort=best-match')
-    # GitHub API 是给开发者的公开 REST 接口, 用 API 惯例头而非浏览器指纹
-    txt, st, _ = rfetch(url, proxy=proxy, timeout=timeout,
-                        headers={'Accept': 'application/vnd.github+json',
-                                 'User-Agent': _TOOL_UA})
+    txt, st, _ = _fetch(url, proxy, timeout, _headers(url, 'rest', {
+        'Accept': 'application/vnd.github+json'}))
     d = json.loads(txt)
     out = []
     for it in d.get('items', []):
@@ -101,10 +95,7 @@ def stackoverflow(q, limit=10, proxy=None, timeout=15):
     """Stack Overflow (api.stackexchange, 免key 300 req/day; gzip 强制)"""
     url = (f'https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance'
            f'&q={urllib.parse.quote(q)}&site=stackoverflow&pagesize={min(limit, 100)}')
-    # SE API 响应强制 gzip, http_get 已处理; 带 API 惯例 UA
-    txt, st, _ = rfetch(url, proxy=proxy, timeout=timeout,
-                        headers={'User-Agent': _TOOL_UA,
-                                 'Accept': 'application/json'})
+    txt, st, _ = _fetch(url, proxy, timeout, _headers(url, 'rest'))
     d = json.loads(txt)
     out = []
     for it in d.get('items', []):
@@ -121,9 +112,7 @@ def hackernews(q, limit=10, proxy=None, timeout=15):
     """Hacker News (Algolia 官方 API, 免key无限制)"""
     url = (f'https://hn.algolia.com/api/v1/search?query={urllib.parse.quote(q)}'
            f'&tags=story&hitsPerPage={min(limit, 50)}')
-    txt, st, _ = rfetch(url, proxy=proxy, timeout=timeout,
-                        headers={'Accept': 'application/json',
-                                 'User-Agent': _TOOL_UA})
+    txt, st, _ = _fetch(url, proxy, timeout, _headers(url, 'rest'))
     d = json.loads(txt)
     out = []
     for it in d.get('hits', []):
@@ -140,13 +129,10 @@ def hackernews(q, limit=10, proxy=None, timeout=15):
 
 
 def wikipedia(q, limit=10, proxy=None, timeout=15, lang='zh'):
-    """维基百科 (官方 API, 要求可联系的 UA 字符串; 国内直连不稳定, 建议走代理)"""
+    """维基百科 (官方 API; 国内直连不稳定, 建议走代理)"""
     url = (f'https://{lang}.wikipedia.org/w/api.php?action=query&list=search'
            f'&srsearch={urllib.parse.quote(q)}&srlimit={min(limit, 50)}&format=json')
-    # MediaWiki API 规范: UA 需含联系方式; 不带浏览器指纹(它是 API 不是页面)
-    txt, st, _ = rfetch(url, proxy=proxy, timeout=timeout,
-                        headers={'User-Agent': _TOOL_UA,
-                                 'Accept': 'application/json'})
+    txt, st, _ = _fetch(url, proxy, timeout, _headers(url, 'rest'))
     d = json.loads(txt)
     out = []
     for it in d.get('query', {}).get('search', []):
@@ -160,9 +146,7 @@ def arxiv(q, limit=10, proxy=None, timeout=15):
     """arXiv 论文 (官方 API, Atom XML)"""
     url = (f'https://export.arxiv.org/api/query?search_query=all:{urllib.parse.quote(q)}'
            f'&max_results={min(limit, 50)}&sortBy=relevance')
-    # arXiv API 要求礼貌 UA
-    txt, st, _ = rfetch(url, proxy=proxy, timeout=timeout,
-                        headers={'User-Agent': _TOOL_UA})
+    txt, st, _ = _fetch(url, proxy, timeout, _headers(url, 'rest'))
     entries = re.findall(r'<entry>(.*?)</entry>', txt, re.S)
     out = []
     for e in entries:
@@ -182,11 +166,10 @@ def csdn(q, limit=10, proxy=None, timeout=15):
     """CSDN 博客搜索 (站内 API)"""
     url = (f'https://so.csdn.net/api/v3/search?q={urllib.parse.quote(q)}'
            f'&t=blog&p=1&size={min(limit, 50)}')
-    txt, st, _ = rfetch(url, proxy=proxy, timeout=timeout,
-                        headers=_headers(url, 'api', {
-                            # CSDN 前端从 so.csdn.net 页面发起搜索
-                            'Referer': 'https://so.csdn.net/so/search?q=' + urllib.parse.quote(q),
-                        }))
+    txt, st, _ = _fetch(url, proxy, timeout, _headers(url, 'api', {
+        # CSDN 前端从 so.csdn.net 页面发起搜索
+        'Referer': 'https://so.csdn.net/so/search?q=' + urllib.parse.quote(q),
+    }))
     d = json.loads(txt)
     out = []
     for it in d.get('result_vos', []):
@@ -202,11 +185,10 @@ def juejin(q, limit=10, proxy=None, timeout=15):
     """掘金 (稀土掘金社区文章)"""
     url = (f'https://api.juejin.cn/search_api/v1/search?query={urllib.parse.quote(q)}'
            f'&id_type=0&limit={min(limit, 50)}')
-    txt, st, _ = rfetch(url, proxy=proxy, timeout=timeout,
-                        headers=_headers(url, 'api', {
-                            # 掘金前端从 juejin.cn 搜索页发 XHR
-                            'Referer': 'https://juejin.cn/search?query=' + urllib.parse.quote(q),
-                        }))
+    txt, st, _ = _fetch(url, proxy, timeout, _headers(url, 'api', {
+        # 掘金前端从 juejin.cn 搜索页发 XHR
+        'Referer': 'https://juejin.cn/search?query=' + urllib.parse.quote(q),
+    }))
     d = json.loads(txt)
     out = []
     for item in d.get('data') or []:
@@ -229,13 +211,12 @@ def bilibili(q, limit=10, proxy=None, timeout=15):
     url = (f'https://api.bilibili.com/x/web-interface/search/all/v2'
            f'?keyword={urllib.parse.quote(q)}')
     # B站跨域: 页面在 www, API 在 api, 前端 XHR 是 cors 跨站请求
-    txt, st, _ = rfetch(url, proxy=proxy, timeout=timeout,
-                        headers=_headers(url, 'api', {
-                            'Referer': 'https://www.bilibili.com/search?keyword=' + urllib.parse.quote(q),
-                            'Origin': 'https://www.bilibili.com',
-                            'Sec-Fetch-Site': 'same-site',
-                            'Cookie': 'buvid3=injected; b_nut=1719999999',  # 简单匿名指纹, 降低风控
-                        }))
+    txt, st, _ = _fetch(url, proxy, timeout, _headers(url, 'api', {
+        'Referer': 'https://www.bilibili.com/search?keyword=' + urllib.parse.quote(q),
+        'Origin': 'https://www.bilibili.com',
+        'Sec-Fetch-Site': 'same-site',
+        'Cookie': 'buvid3=injected; b_nut=1719999999',  # 简单匿名指纹, 降低风控
+    }))
     d = json.loads(txt)
     if d.get('code') == -412:
         raise RuntimeError('bilibili 风控(412), 建议降低频率或走代理')
@@ -260,10 +241,9 @@ def sspai(q, limit=10, proxy=None, timeout=15):
     """少数派文章"""
     url = (f'https://sspai.com/api/v1/search/article/page/get'
            f'?title={urllib.parse.quote(q)}&limit={min(limit, 50)}')
-    txt, st, _ = rfetch(url, proxy=proxy, timeout=timeout,
-                        headers=_headers(url, 'api', {
-                            'Referer': 'https://sspai.com/search/article?q=' + urllib.parse.quote(q),
-                        }))
+    txt, st, _ = _fetch(url, proxy, timeout, _headers(url, 'api', {
+        'Referer': 'https://sspai.com/search/article?q=' + urllib.parse.quote(q),
+    }))
     d = json.loads(txt)
     out = []
     for a in (d.get('data') or [])[:limit]:
@@ -279,10 +259,7 @@ def npm(q, limit=10, proxy=None, timeout=15):
     """npm 包搜索"""
     url = (f'https://registry.npmjs.org/-/v1/search?text={urllib.parse.quote(q)}'
            f'&size={min(limit, 50)}')
-    txt, st, _ = rfetch(url, proxy=proxy, timeout=timeout,
-                        headers={'Accept': 'application/json',
-                                 'User-Agent': _TOOL_UA,
-                                 'Accept-Encoding': 'gzip'})
+    txt, st, _ = _fetch(url, proxy, timeout, _headers(url, 'rest'))
     d = json.loads(txt)
     out = []
     for o in d.get('objects', []):
@@ -294,6 +271,14 @@ def npm(q, limit=10, proxy=None, timeout=15):
                               'publisher': (p.get('publisher') or {}).get('username'),
                               'date': (p.get('date') or '')[:10]}))
     return out
+
+
+def _fetch(url, proxy, timeout, headers):
+    """站点请求统一走 transport (浏览器指纹), engine=None 不做验证码处置"""
+    text, status, _via = transport.get(url, kind='plain', proxy=proxy,
+                                       timeout=timeout, headers=headers,
+                                       engine=None)
+    return text, status, _via
 
 
 def _ts2date(ts):

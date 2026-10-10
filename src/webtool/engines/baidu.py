@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
-"""百度搜索引擎: TLS 指纹模拟 (curl_cffi) + 验证页识别冷却
+"""百度搜索引擎: TLS 指纹模拟 (curl_cffi) + 多步预热 + 验证页处置
 
 核心突破 (2026-10-09 实测): python-urllib 的 TLS 握手指纹(JA3)被百度识别,
 即使完整 cookie+Referer 也会弹安全验证页 (1438B)。用 curl_cffi 的
 impersonate='chrome' 模拟 Chrome 完整 TLS/JA3/HTTP2 指纹后:
 - Session 首页领 cookie 后搜索: 5/5 成功率 (多 query 连续验证)
-失败自动降级链: curl_cffi session → curl_cffi 直搜 → urllib+退避 → captcha 冷却
+
+多步预热 (浏览器形态, transport 层统一管理指纹/cookie/节奏/降级梯):
+1. GET 首页领 BAIDUID/BAIDUID_BFESS (+ state 持久化, 回头客会话是信任信号)
+2. GET sugrec 联想词接口 — 浏览器输入时真实调用的 XHR, 让服务端看到
+   "输入→联想→搜索" 的完整行为链
+3. 带 Referer/完整导航头 GET /s
 
 链接解析: <h3 title><a href="baidu.com/link?url=.."> → 302 Location
 广告: result-op 聚合卡片 → is_ad=True
@@ -14,25 +19,16 @@ import re
 import time
 import urllib.parse
 
-from ..http import UAS
-from .. import captcha
+from .. import captcha, transport
 
 BAIDU = 'https://www.baidu.com'
 
-# curl_cffi 可选: 装了用 TLS 指纹模拟(推荐), 没装退化 urllib
-try:
-    from curl_cffi import requests as _cr
-    _HAS_CFFI = True
-except ImportError:
-    _HAS_CFFI = False
-
 
 def search(query, max_results=10, proxy=None, timeout=15, market=None, page=1):
-    if captcha.suspended('baidu'):
-        raise RuntimeError(f"baidu 冷却中({captcha.cooldown_left('baidu')}s, 此前触发人机验证), 请换引擎: -e bing,sogou")
     q = urllib.parse.quote(query)
     first = (page - 1) * max_results + 1
-    url = f'{BAIDU}/s?wd={q}&rn={max_results}&pn={first - 1}'
+    url = (f'{BAIDU}/s?wd={q}&rn={max_results}&pn={first - 1}'
+           f'&ie=utf-8&rsv_dl=pc_search&rsv_enter=1')
     html, via = _get_html(url, proxy, timeout)
     out = []
     for m in re.finditer(
@@ -60,76 +56,45 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, page=1):
 
 
 def _get_html(url, proxy, timeout):
-    """三级通道: curl_cffi session → curl_cffi 直搜 → urllib 退避。返回 (html, via)"""
-    # 通道1: curl_cffi TLS 指纹 + 会话 (实测 5/5)
-    if _HAS_CFFI:
-        try:
-            s = _cr.Session(impersonate='chrome',
-                            proxy=proxy or None,
-                            timeout=timeout)
-            s.get(BAIDU + '/', timeout=timeout)
-            r = s.get(url, timeout=timeout,
-                      headers={'Referer': BAIDU + '/',
-                               'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'})
-            blocked, sign = captcha.detect('baidu', r.text)
-            if not blocked:
-                return r.text, 'curl_cffi+session'
-        except Exception:
-            pass
-        # 通道2: curl_cffi 直搜 (无 cookie 偶尔也放行)
-        try:
-            r = _cr.get(url, impersonate='chrome', proxy=proxy or None,
-                        timeout=timeout,
-                        headers={'Referer': BAIDU + '/'})
-            blocked, sign = captcha.detect('baidu', r.text)
-            if not blocked:
-                return r.text, 'curl_cffi'
-        except Exception:
-            pass
-    # 通道3: urllib + 退避重试 (原逻辑)
-    return _urllib_fallback(url, proxy, timeout), 'urllib'
-
-
-def _urllib_fallback(url, proxy, timeout, retries=3):
-    import urllib.request
-    import http.cookiejar
-    from ..http import build_opener
-    last_verdict = None
-    proxy_options = [proxy, None] if proxy else [None]
-    for p in proxy_options:
-        for attempt in range(retries):
-            ua = UAS[attempt % 2]
-            cj = http.cookiejar.CookieJar()
-            opener = build_opener(p, cj)
-            try:
-                opener.open(urllib.request.Request(BAIDU + '/', headers={'User-Agent': ua}),
-                            timeout=timeout)
-            except Exception:
-                pass
-            req = urllib.request.Request(url, headers={
-                'User-Agent': ua, 'Referer': BAIDU + '/',
-                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'})
-            try:
-                r = opener.open(req, timeout=timeout)
-                html = r.read().decode('utf-8', errors='ignore')
-            except Exception as e:
-                last_verdict = f'network: {str(e)[:120]}'
-                time.sleep(2.0 * (attempt + 1))
-                continue
-            blocked, sign = captcha.detect('baidu', html)
-            if not blocked:
-                return html
-            last_verdict = f'captcha({sign})'
-            time.sleep(2.0 * (attempt + 1))
-    captcha.mark_blocked('baidu')
-    raise RuntimeError(f"baidu 人机验证拦截: {last_verdict}; "
-                       f"建议 pip install curl_cffi (TLS指纹) 或换 -e bing,sogou")
+    """多步预热 → 搜索 (验证码检测/降级梯/节奏全在 transport.get)"""
+    # 步骤1+2: 首页领 cookie + sugrec 行为链预热 (失败不致命, 继续搜)
+    try:
+        warm = transport._cr.Session(
+            impersonate=transport.PROFILES['chrome131_win']['impersonate'],
+            proxy=proxy or None)
+        warm.get(BAIDU + '/', timeout=timeout)
+        warm.get(f'{BAIDU}/sugrec?prod=pc&wd={urllib.parse.quote("百")}',
+                 timeout=timeout)
+        # 步骤3: 带着会话 cookie 搜索
+        text, status = transport.session_get(
+            url, warm, kind='nav', referer=BAIDU + '/', timeout=timeout)
+        blocked, _ = captcha.detect('baidu', text)
+        if not blocked:
+            captcha.mark_ok('baidu')
+            transport._persist_cookies(warm, 'baidu')
+            return text, 'cffi+session'
+        captcha.mark_blocked('baidu')
+    except Exception:
+        pass
+    # 兜底: transport 统一通道 (含降级梯)
+    text, _status, via = transport.get(url, kind='nav', referer=BAIDU + '/',
+                                       proxy=proxy, timeout=timeout,
+                                       engine='baidu')
+    return text, via
 
 
 def _snippet(seg):
+    """摘要: 新版 cosc 卡片 (2026) 直接捞长文本节点; 兼容老 c-abstract"""
+    seg = re.sub(r'<script[^>]*>.*?</script>', '', seg, flags=re.S)
     ab = (re.search(r'class="c-abstract[^"]*"[^>]*>(.*?)</div>', seg, re.S)
           or re.search(r'class="[^"]*content-right[^"]*"[^>]*>(.*?)</(?:div|span)>', seg, re.S))
-    return _unescape(re.sub(r'<[^>]+>', '', ab.group(1))).strip()[:300] if ab else ''
+    if ab:
+        return _unescape(re.sub(r'<[^>]+>', '', ab.group(1))).strip()[:300]
+    # 新版: 块内最长纯文本节点即摘要 (标题/来源都在 40 字以内, 摘要更长)
+    cands = re.findall(r'>([^<>{}]{40,200})<', seg)
+    if cands:
+        return _unescape(max(cands, key=len)).strip()[:300]
+    return ''
 
 
 def _is_real_url(u):
@@ -157,33 +122,10 @@ def _resolve_links(results, proxy, timeout):
 
 
 def _resolve_one(link, proxy, timeout):
-    if _HAS_CFFI:
-        try:
-            r = _cr.get(link, impersonate='chrome', proxy=proxy or None,
-                        timeout=timeout, allow_redirects=False,
-                        headers={'Referer': BAIDU + '/'})
-            loc = r.headers.get('Location', '') or ''
-            if loc.startswith('http') and 'baidu.com' not in loc:
-                return loc
-        except Exception:
-            pass
-    import urllib.request
-
-    class NR(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, *a, **k):
-            return None
-
-    op = urllib.request.build_opener(NR())
-    try:
-        req = urllib.request.Request(link, headers={
-            'User-Agent': UAS[0], 'Referer': BAIDU + '/'})
-        op.open(req, timeout=timeout)
-    except urllib.error.HTTPError as e:
-        loc = e.headers.get('Location', '')
-        if loc.startswith('http') and 'baidu.com' not in loc:
-            return loc
-    except Exception:
-        pass
+    real = transport.resolve_redirect(link, referer=BAIDU + '/',
+                                      proxy=proxy, timeout=timeout)
+    if real and 'baidu.com' not in urllib.parse.urlparse(real).netloc:
+        return real
     return None
 
 

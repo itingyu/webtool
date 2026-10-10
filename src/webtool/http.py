@@ -1,24 +1,15 @@
 # -*- coding: utf-8 -*-
-"""HTTP 底层: opener 构建 / 抓取 / gzip / UA"""
+"""HTTP 底层: urllib 兜底通道 (transport 的降级备胎)
+
+主力通道在 transport.py (curl_cffi 浏览器指纹)。本模块仅服务:
+1. transport 的 urllib 兜底 (cffi 自身崩溃时)
+2. 老式 socks 代理 (pysocks)
+不再承担搜索引擎主路径。
+"""
 import gzip
 import io
-import random
 import urllib.request
 import urllib.error
-
-UAS = [
-    # 统一浏览器 UA 池 (Chrome 131 为主, 少量 Firefox 轮换)
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0',
-]
-
-BASE_HEADERS = {
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-    'Accept-Encoding': 'gzip',
-}
 
 
 def build_opener(proxy=None, cookie_jar=None):
@@ -56,12 +47,13 @@ def _parse_auth(auth):
     return {'username': user, 'passwd': pwd}
 
 
-def http_get(url, proxy=None, timeout=15, headers=None, opener=None, max_bytes=8 * 1024 * 1024):
+def http_get(url, proxy=None, timeout=15, headers=None, opener=None,
+             max_bytes=8 * 1024 * 1024):
     """GET 页面, 返回 (text, status). 自动 gzip 解码."""
-    h = dict(BASE_HEADERS)
-    h['User-Agent'] = random.choice(UAS)
-    if headers:
-        h.update(headers)
+    h = dict(headers or {})
+    if not h.get('User-Agent'):
+        from .transport import PROFILES
+        h['User-Agent'] = PROFILES['chrome131_win']['ua']
     req = urllib.request.Request(url, headers=h)
     op = opener or build_opener(proxy)
     try:

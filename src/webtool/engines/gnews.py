@@ -13,15 +13,32 @@ import json
 import re
 import time
 import urllib.parse
-import urllib.request
 
+from .. import state
 from ..http import build_opener
 
-_CACHE = {}          # gnews_id -> (real_url, ts)
 _TTL = 7 * 86400
-_STATE = {'fails': 0, 'skip_until': 0}   # 连续失败熔断, 防止烧时间
 
 _BATCH_URL = 'https://news.google.com/_/DotsSplashUi/data/batchexecute'
+
+
+def _cache_get(gid):
+    hit = state.get_breaker('gnews_cache').get(gid)
+    if hit:
+        url, ts = hit
+        if time.time() - ts < _TTL:
+            return url
+    return None
+
+
+def _cache_put(gid, url):
+    b = dict(state.get_breaker('gnews_cache'))
+    b[gid] = [url, time.time()]
+    # 上限保护: 只留最近 500 条
+    if len(b) > 500:
+        for k in sorted(b, key=lambda k: b[k][1])[:len(b) - 500]:
+            b.pop(k, None)
+    state.set_breaker('gnews_cache', **b)
 
 
 def decode(link, proxy=None, timeout=15):
@@ -33,10 +50,11 @@ def decode(link, proxy=None, timeout=15):
             and 'news.google.com/articles/' not in link:
         return link
     gid = link.rstrip('/').rsplit('/', 1)[-1]
-    hit = _CACHE.get(gid)
-    if hit and time.time() - hit[1] < _TTL:
-        return hit[0]
-    if time.time() < _STATE['skip_until']:
+    hit = _cache_get(gid)
+    if hit:
+        return hit
+    br = state.get_breaker('gnews')
+    if time.time() < float(br.get('skip_until', 0)):
         return None
 
     op = build_opener(proxy)
@@ -55,8 +73,8 @@ def decode(link, proxy=None, timeout=15):
         real = _batchexecute(gid_p.group(1), int(ts_p.group(1)),
                              sg_p.group(1), op, ua, timeout)
         if real:
-            _STATE['fails'] = 0
-            _CACHE[gid] = (real, time.time())
+            state.set_breaker('gnews', fails=0)
+            _cache_put(gid, real)
             return real
         _fail()
         return None
@@ -86,12 +104,18 @@ def _batchexecute(gid, ts, sg, op, ua, timeout):
 
 
 def _fail():
-    _STATE['fails'] += 1
-    if _STATE['fails'] >= 3:
-        _STATE['skip_until'] = time.time() + 600   # 熔断 10 分钟
+    br = state.get_breaker('gnews')
+    fails = int(br.get('fails', 0)) + 1
+    if fails >= 3:
+        state.set_breaker('gnews', fails=fails,
+                          skip_until=time.time() + 600)   # 熔断 10 分钟
+    else:
+        state.set_breaker('gnews', fails=fails)
 
 
 def cache_info():
-    return {'entries': len(_CACHE),
-            'fails': _STATE['fails'],
-            'skip': max(0, int(_STATE['skip_until'] - time.time()))}
+    b = state.get_breaker('gnews_cache')
+    br = state.get_breaker('gnews')
+    return {'entries': len(b),
+            'fails': br.get('fails', 0),
+            'skip': max(0, int(float(br.get('skip_until', 0)) - time.time()))}
