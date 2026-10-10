@@ -39,6 +39,12 @@ webtool config set default_engines bing,sogou   # 持久化配置
 
 search 60s / fetch 10s / resolve 10min——防短窗口重复查询暴露行为模式，数据新鲜度优先。缓存命中标注 `"cache": "<engine>"`，未命中为 `fresh`。重复搜同一词 60s 内直接秒回；跨任务重抓会真实请求。
 
+## 排序与补量（v1.5.6）
+
+- **排序**：`weight = 引擎基础分(google .95/bing .90/baidu .80/sogou .75) × 位置分(RRG) × 多引擎共识(×1.35/额外引擎) × BM25 语义分 × 实体命中 × 词典域名先验`，广告 ×0.2。BM25 本地分词（英文按词、中文 2-gram），无外部 API。`quality: good/fair/poor` 按批内断层自适应（poor = sem < max(0.12, top×0.35)）
+- **返回条数**：`-n` 是硬上限。引擎首轮拉 max(n,15) 进大池 → 去重/黑名单过滤 → 不足翻页补拉（每引擎最多 2 页）→ 排序后截取**质量最高的 n 条**
+- 补量触发时输出 `topup: {fetched}`（json）/ "翻页补拉 X 条"（text/md）；补不足则诚实短返回，不硬凑
+
 ## Agent 使用要点
 
 1. **query 精简**：核心实体 + 意图词（`LLM 排行榜`、`fastapi 部署`），别堆修饰词

@@ -81,12 +81,15 @@ def _do_search(args, cfg, filter_ad=True):
     errors = []
     per_engine = {}
     ad_filtered = 0
+    # 首轮拉取量与 -n 解耦: 多拉进池 (top n 从大池里选, 质量更高);
+    # 引擎端各自有单页天花板 (bing 10 / baidu 20 / sogou 10), 超出白传无害
+    _pull = max(args.max, 15)
     for eng in engines:
         fn = ENGINES.get(eng)
         if not fn:
             errors.append({'engine': eng, 'error': f'unknown engine, available: {",".join(ENGINES)}'})
             continue
-        ckey = f'{eng}|{args.query}|{args.max}|{args.market}'
+        ckey = f'{eng}|{args.query}|{_pull}|{args.market}'
         cached = None if args.no_cache else cache.get(cfg, 'search', ckey)
         if cached is not None:
             rs = cached
@@ -109,7 +112,7 @@ def _do_search(args, cfg, filter_ad=True):
             else:
                 proxy = cfg.get('proxy')
             try:
-                rs = fn(args.query, max_results=args.max, proxy=proxy,
+                rs = fn(args.query, max_results=_pull, proxy=proxy,
                         timeout=cfg.get('timeout', 15), market=args.market)
                 n_ad = sum(1 for r in rs if r.get('is_ad'))
                 if filter_ad:
@@ -189,7 +192,10 @@ def _do_search(args, cfg, filter_ad=True):
                     results, extra_block=args.block or (),
                     extra_allow=args.allow or ())
                 n_blocked += nb2
-            results = results[:_want]
+
+    # 最终截断: 排序后取质量最高的 n 条 (多引擎大池 → top n, 硬上限语义)
+    if len(results) > args.max:
+        results = results[:args.max]
 
     # 质量诊断: 结果集与 query 整体脱节 → 输出 query 优化建议 (不自动改写,
     # 自动改词可能引入歧义, 改写权在用户; 这里只做检测 + 提醒)
