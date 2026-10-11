@@ -280,8 +280,12 @@ def _print_route_cards(cards, kw, args, cfg):
         # 目标栏目时才值得付实例可用性的代价 (探测有 7 天缓存)
         offs = _radar.official_feeds([c['domain'] for c in cards],
                                      proxy=cfg.get('proxy'))
+        cov = _radar.official_coverage(offs.get(cards[0]['domain']), cards,
+                                       from_url=getattr(args, 'from_url', None)) \
+            if cards else {}
         for i, c in enumerate(cards, 1):
-            _print_card(c, idx=i, base=base, official=offs.get(c['domain']))
+            _print_card(c, idx=i, base=base, official=offs.get(c['domain']),
+                        coverage=cov.get(c['template']))
             need = [nm for nm, o, _ in _radar.parse_params(c['template']) if not o]
             tail = f' --param {need[0]}=...' if need else ' (无需填参)'
             _out(f'  取数  --pick {i}{tail}')
@@ -376,7 +380,7 @@ def _print_route_cards(cards, kw, args, cfg):
     return 0
 
 
-def _print_card(c, idx=None, base=None, official=None):
+def _print_card(c, idx=None, base=None, official=None, coverage=None):
     """单条路由卡片。模板行永远是原始模板 —— 填参不改写它。
 
     base 非空时附 URL 行: 模板形态 (占位符原样, 看得出还要填什么) + example
@@ -412,10 +416,22 @@ def _print_card(c, idx=None, base=None, official=None):
     if c.get('guessed'):
         _out('  反推  ' + ', '.join(f'{k}={v}' for k, v in c['guessed'].items()))
     if official:
-        # 官网 feed 与 RSSHub 路由不冲突: 前者稳、无限流但栏目少,
-        # 后者能按路由切栏目但要借公共实例 (会 503)。两个都给, 让用户选。
-        url, items = official
-        _out(f"  官网  {url}  ({items} 条, 不依赖 RSSHub 实例)")
+        # 官网 feed 与 RSSHub 路由不是替代关系, 关键是"官网给不给得了这个栏目":
+        # 官网稳、无限流、不依赖实例, 但只含它自己的栏目。判据 = 官网 feed 条目
+        # 链接的栏目分布 vs 该路由的目标栏目 (36氪官网 feed 含 newsflashes 20 条,
+        # 所以快讯不必借 RSSHub; 反之 /p 栏目它就不含)。
+        url, items, buckets = official
+        secs = ' / '.join(f'{k} {v}' for k, v in
+                          sorted(buckets.items(), key=lambda kv: -kv[1])[:3])
+        _out(f"  官网  {url}  ({items} 条 · {secs})")
+        if coverage is not None:
+            hit, cnt = coverage
+            if hit == '(root)':
+                _out(f"        ~ 官网 feed 是全站流 ({cnt} 条), 含该栏目但没有它自己的排序")
+            elif hit:
+                _out(f"        ✓ 官网 feed 含该栏目 /{hit} ({cnt} 条) —— 走官网即可, 不用借实例")
+            else:
+                _out(f"        ✗ 官网 feed 不含该栏目 —— 需 RSSHub 路由 (借实例, 可能 503)")
     if base:
         b = base.rstrip('/')
         _out(f"  URL   {b}{c['template']}")

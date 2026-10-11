@@ -430,8 +430,29 @@ def _looks_like_feed(text):
             or '<rdf:RDF' in head)
 
 
+def _section_buckets(text, cap=40):
+    """统计 feed 条目链接的一级栏目分布 → {栏目: 条数}
+
+    这是判断"官方 feed 给不给得了目标栏目"的依据: 36氪官网 feed 里
+    /newsflashes 20 条、/p 10 条, 所以快讯走官方就够, 不必借 RSSHub。
+    只看"有没有 feed"会把"有但不含该栏目"和"正好有该栏目"混为一谈。
+    """
+    links = re.findall(r'<link>\s*(?:<!\[CDATA\[)?(https?://[^<\]]+)',
+                       text or '')
+    out = {}
+    for l in links:
+        rest = re.sub(r'^https?://[^/]+/?', '', l.split('?')[0])
+        if not rest or '/' not in rest:
+            continue          # channel 级 <link>http://36kr.com</link>, 不是条目
+        sec = rest.split('/')[0]
+        out[sec] = out.get(sec, 0) + 1
+        if len(out) > cap:
+            break
+    return out
+
+
 def probe_official(domain, proxy=None, timeout=8):
-    """探测某站是否有官方 feed, 返回 (url, items) 或 (None, 0)
+    """探测某站是否有官方 feed, 返回 (url, items, 栏目分布) 或 (None, 0, {})
 
     www 与裸域都试 —— 实测 36kr.com/feed 是 HTML, www.36kr.com/feed 才是 feed,
     只试一种必然漏一半。
@@ -455,8 +476,37 @@ def probe_official(domain, proxy=None, timeout=8):
                 continue
             if st != 200 or not _looks_like_feed(text):
                 continue
-            return url, len(re.findall(r'<(?:item|entry)[\s>]', text))
-    return None, 0
+            items = re.findall(r'<(?:item|entry)[\s>]', text)
+            return url, len(items), _section_buckets(text)
+    return None, 0, {}
+
+
+def official_coverage(official, cards, from_url=None):
+    """判断官网 feed 覆盖不覆盖这些路由的目标栏目。
+
+    目标栏目从 topFeeds[].siteUrl (该路由的真实源页面) 或 --from-url 取路径
+    前缀, 再看官网 feed 的栏目分布里有没有它。
+    返回 {template: (命中栏目 or None, 条数)}。
+    """
+    if not official:
+        return {}
+    _, _, buckets = official
+    out = {}
+    for c in cards:
+        targets = ([from_url] if from_url else []) + [
+            tf['site_url'] for tf in c.get('top_feeds') or [] if tf.get('site_url')]
+        hit, cnt = None, 0
+        for t in targets:
+            rest = re.sub(r'^https?://[^/]+/?', '', t.split('?')[0])
+            sec = rest.split('/')[0]
+            if not sec:                     # 站点根: 官网 feed 全站都算覆盖
+                hit, cnt = '(root)', sum(buckets.values())
+                break
+            if buckets.get(sec):
+                hit, cnt = sec, buckets[sec]
+                break
+        out[c['template']] = (hit, cnt)
+    return out
 
 
 def official_feeds(domains, proxy=None, refresh=False, max_sites=6):
@@ -482,7 +532,7 @@ def official_feeds(domains, proxy=None, refresh=False, max_sites=6):
         if d in cache:
             v = cache[d]
             if v:
-                out[d] = (v['url'], v.get('items', 0))
+                out[d] = (v['url'], v.get('items', 0), v.get('buckets') or {})
         else:
             todo.append(d)
     if todo:
@@ -490,10 +540,11 @@ def official_feeds(domains, proxy=None, refresh=False, max_sites=6):
         with ThreadPoolExecutor(max_workers=min(len(todo), 6)) as ex:
             for dom, res in zip(todo, ex.map(
                     lambda d: probe_official(d, proxy=proxy), todo)):
-                url, items = res
-                cache[dom] = {'url': url, 'items': items} if url else {}
+                url, items, buckets = res
+                cache[dom] = ({'url': url, 'items': items, 'buckets': buckets}
+                              if url else {})
                 if url:
-                    out[dom] = (url, items)
+                    out[dom] = (url, items, buckets)
                 changed = True
     if changed:
         try:

@@ -2,6 +2,16 @@
 
 原则：能用官方 feed 用官方（稳定、无限流）；官方被墙/挂 JS 壳/需 cookie 的，走 RSSHub 公共实例（有 429 限流）或自建。
 
+**"官方优先"的判据不是"有没有 feed"，而是"这个 feed 含不含你要的栏目"。**
+`webtool feed radar` 会统计官网 feed 条目链接的栏目分布，与路由的目标栏目对照：
+
+- 命中 → `✓ 官网 feed 含该栏目 /xxx (N 条) —— 走官网即可`，不必借实例
+- 未命中 → `✗ 官网 feed 不含该栏目 —— 需 RSSHub 路由`（要付 503/超时的代价）
+- 目标是站点根 → `~ 官网 feed 是全站流，含该栏目但没有它自己的排序`
+
+实测：36氪官网 feed 含 `/newsflashes` 20 条，与 `hub.slarker.me/36kr/newsflashes`
+拉回来的条目同源 —— 借实例纯属白付可用性风险。
+
 ## 📦 随包精选源（`src/webtool/data/feeds.seed.json`）
 
 精选 **103 个** 源（分类：AI 专题 / 技术社区 / 大厂技术博客 / 前端设计 / 编程语言官方博客 / 安全资讯 / 科技媒体 / 技术周刊 / 学术论文 / 开发工具版本追踪 / RSS 工具更新）。清单来自 [JackyST0/awesome-rsshub-routes](https://github.com/JackyST0/awesome-rsshub-routes)，2026-10-12 双通道（直连 + 代理）逐条实测。
@@ -22,7 +32,7 @@ webtool feed arXivAI uvReleases Nature -n 5 # 按名字直接拉
 ### 中文新闻
 | 名字 | URL | 说明 |
 |---|---|---|
-| kr36 | https://www.36kr.com/feed | 36氪主站 + 8点1氪，30 条（**必须带 www**，裸域 `36kr.com/feed` 返 text/html） |
+| kr36 | https://www.36kr.com/feed | 36氪，30 条 = `/p` 主站文章 10 + `/newsflashes` 快讯 20（**必须带 www**，裸域 `36kr.com/feed` 返 text/html）。快讯与 RSSHub 路由同源，优先用官网 |
 
 ### 国际科技/AI
 | 名字 | URL | 说明 |
@@ -55,7 +65,7 @@ webtool feed arXivAI uvReleases Nature -n 5 # 按名字直接拉
 | 站点 | 官方状态 | 可用路由（rssforever/ktachibana 实测） |
 |---|---|---|
 | 36氪**主站文章** | ✅ **有官方 feed**（见下） | 直接用 `https://www.36kr.com/feed` |
-| 36氪**快讯** newsflashes | 官方 feed 不含快讯，只能借渲染器 | `hub.slarker.me/36kr/newsflashes` ✅20条 |
+| 36氪**快讯** newsflashes | ✅ **官网 feed 也含**（`/newsflashes` 20 条，与 RSSHub 路由同源） | 优先官网 `www.36kr.com/feed` |
 | B站综合热门 | 无官方 feed | https://rsshub.rssforever.com/bilibili/popular/all ✅ |
 | 知乎热榜 | webtool rank zhihu 更好 | RSSHub /zhihu/hotlist 公共实例 429 |
 | 微博热搜 | webtool rank weibo 更好 | RSSHub 需微博 cookie，公共实例挂 |

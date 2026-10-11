@@ -413,6 +413,6 @@
   },
   "36氪官网": {
     "url": "https://www.36kr.com/feed",
-    "desc": "📰 新闻资讯 · 官方 feed (主站文章 + 8点1氪, 不含快讯)"
+    "desc": "📰 新闻资讯 · 官方 feed (主站文章 /p 10 + 快讯 /newsflashes 20, 两种都有, 不必借 RSSHub)"
   }
 }
