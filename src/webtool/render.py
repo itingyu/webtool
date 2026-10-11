@@ -26,6 +26,12 @@ def _fmt_filters(out):
     return parts
 
 
+def _fmt_degraded(out):
+    """引擎降级说明 -> 单行字符串 (降级是静默的, 必须显式回显否则无从判断)"""
+    dg = out.get('degraded')
+    return '引擎降级: ' + '; '.join(dg) if dg else None
+
+
 def render(out, fmt, kind):
     """kind: 'search' | 'site' | 'fetch'; fmt: 'json' | 'text' | 'markdown'"""
     filters = _fmt_filters(out)
@@ -33,18 +39,19 @@ def render(out, fmt, kind):
     if not filters:
         filters = ['无过滤动作 (0 剔除)']
     out['filters_applied'] = filters
+    degraded = _fmt_degraded(out)
     if fmt == 'json':
         print(json.dumps(out, ensure_ascii=False, indent=1))
         return
     if kind == 'fetch':
         _render_fetch(out, fmt, filters)
     else:
-        _render_search(out, fmt, filters)
+        _render_search(out, fmt, filters, degraded)
 
 
 # ---------- search / site ----------
 
-def _render_search(out, fmt, filters):
+def _render_search(out, fmt, filters, degraded=None):
     results = out.get('results') or []
     if fmt == 'markdown':
         print(f"## 搜索: {out['query']}")
@@ -55,7 +62,12 @@ def _render_search(out, fmt, filters):
             meta.append(f"排序: {out['sorted_by']}")
         if out.get('source'):
             meta.append(f"缓存: {out['source']}")
+        if out.get('engine_channels'):
+            meta.append('通道: ' + ', '.join(f"{k}={v}"
+                                             for k, v in out['engine_channels'].items()))
         print(f"\n> {' | '.join(meta)}")
+        if degraded:
+            print(f"\n⚠ {degraded} (覆盖范围可能小于全 Web 搜索)")
         for r in results:
             w = f" `w={r['weight']:.2f}`" if r.get('weight') is not None else ''
             conf = f" ✕{r['confirmations']}" if r.get('confirmations', 1) > 1 else ''
@@ -75,6 +87,8 @@ def _render_search(out, fmt, filters):
         if out.get('quality_hint'):
             print(f"\n> 💡 {out['quality_hint']}")
     else:  # text
+        if degraded:
+            print(f'⚠ {degraded}', file=sys.stderr)
         for r in results:
             eng = ','.join(r['engines']) if r.get('engines') else r.get('engine', '')
             line = f"[{r['rank']}] {r['title']}"

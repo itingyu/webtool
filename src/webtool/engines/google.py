@@ -22,6 +22,16 @@ from .. import captcha, transport
 
 _BATCH_URL = 'https://news.google.com/_/DotsSplashUi/data/batchexecute'
 
+# 上一次 search 实际走的通道 (web / news) + 降级原因。
+# 降级是静默的 (429 被 catch 后直接换通道, 不进 errors), 消费方无法从结果反推
+# "这批到底是全 Web 搜索还是新闻检索" —— 这里如实上报, 由 search 汇总输出。
+_LAST = {'channel': None, 'degraded_from': None, 'reason': None}
+
+
+def last_channel():
+    """返回上一次 search 的通道信息 (副本): {'channel','degraded_from','reason'}"""
+    return dict(_LAST)
+
 
 def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1):
     """google 通道: 有代理 → web(常被IP级reCAPTCHA拦)→news RSS 自动降级;
@@ -32,17 +42,22 @@ def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1
     IP 级, 纯HTTP无解) — news RSS 通道是主力, 结果标 channel=news,
     news.google.com 文章链经 batchexecute 自动还原真实 URL.
     """
+    _LAST.update(channel=None, degraded_from=None, reason=None)
     if proxy:
         if captcha.suspended('google'):
-            pass  # 冷却期内不再试 web, 直接 news (news 不受 /search 风控影响)
+            # 冷却期内不再试 web, 直接 news
+            _LAST.update(channel='news', degraded_from='web',
+                         reason=f"web 端点反爬冷却中({captcha.cooldown_left('google')}s), 跳过")
         else:
             try:
-                return _web(query, max_results, proxy, timeout, market, page)
-            except transport.BlockedError:
+                out = _web(query, max_results, proxy, timeout, market, page)
+                _LAST.update(channel='web')
+                return out
+            except transport.BlockedError as e:
                 # transport 降级梯 3 跳全撞 reCAPTCHA (IP 级, 指纹无解) → news
                 # (冷却门不再 raise: web 与 news 共挂 'google' 名, web 被拦
                 #  不该把 news 也锁死 — 直接降级, news 自己的请求不受 /search 风控)
-                return _news(query, max_results, proxy, timeout, market, page)
+                _LAST.update(channel='news', degraded_from='web', reason=str(e)[:120])
             except RuntimeError as e:
                 # IP 级反爬特征时降级 news (错误串含状态码/unusual/sorry);
                 # enablejs 壳页 (200 但要求 JS) 同样是风控信号, 一并降级
@@ -50,8 +65,12 @@ def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1
                 if not ('429' in s or 'unusual' in s or '/sorry/' in s
                         or '403' in s or 'enablejs' in s):
                     raise
+                _LAST.update(channel='news', degraded_from='web', reason=s[:120])
     # 无代理或 web 被封: news RSS (国内直连可达性差但配了代理就能通,
     # gnews 域名不在 /search 的限流范围内)
+    if _LAST['channel'] is None:
+        _LAST.update(channel='news', degraded_from='web',
+                     reason='未配代理, web 端点不可达' if not proxy else None)
     return _news(query, max_results, proxy, timeout, market, page)
 
 
@@ -172,11 +191,9 @@ def _news(query, max_results, proxy, timeout, market, page):
     text = None
     try:
         s, p = transport._new_session('chrome131_win', proxy, 'google')
-        try:
-            transport.session_get('https://news.google.com/', s, kind='nav',
-                                  timeout=timeout, profile=p)
-        except Exception:
-            pass                                  # 预热失败不致命, RSS 照打
+        # 预热失败不致命, RSS 照打
+        transport.warm_session(s, 'https://news.google.com/', timeout=timeout,
+                               profile=p)
         rss_url = url
         text, status = transport.session_get(rss_url, s, kind='plain',
                                              timeout=timeout, profile=p)
@@ -225,13 +242,17 @@ def _unescape(s):
 
 def resolve_link(url, proxy=None, timeout=10):
     """跳转链还原: /url?q= 老式内链直接解; news.google.com/articles
-    走 gnews batchexecute 解码 (纯 HTTP, 带缓存+熔断); 失败原样返回"""
+    走 gnews batchexecute 解码 (纯 HTTP, 带缓存+熔断)
+
+    解不出来返回 None (**不返回原链**): 调用方据此判定"没解出来"。返回原链会被
+    上层当成解码成功写进缓存, 一次失败即永久失败。
+    """
     if 'news.google.com/rss/articles/' in url or 'news.google.com/articles/' in url:
         from . import gnews
-        return gnews.decode(url, proxy=proxy, timeout=timeout) or url
+        return gnews.decode(url, proxy=proxy, timeout=timeout)
     if 'google.com/url' not in url:
-        return url
+        return None                     # 非跳转链, 无需解码
     m = _URL_RE.search(url)
     if m:
         return urllib.parse.unquote(m.group(1))
-    return url
+    return None

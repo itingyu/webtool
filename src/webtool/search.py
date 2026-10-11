@@ -84,12 +84,31 @@ def _do_search(args, cfg, filter_ad=True):
     # 首轮拉取量与 -n 解耦: 多拉进池 (top n 从大池里选, 质量更高);
     # 引擎端各自有单页天花板 (bing 10 / baidu 20 / sogou 10), 超出白传无害
     _pull = max(args.max, 15)
+
+    # 高级操作符路由: 每个引擎按各自支持面拿到自己的查询串 (默认 passthrough
+    # = 原样透传, 与旧行为一致)。qmap 参与 cache key, 改写后不会串缓存。
+    from .query_ops import apply as _apply_ops
+    qmap, unsupported = _apply_ops(
+        args.query, engines, getattr(args, 'operators', 'passthrough'))
+    if qmap is None:                                   # --operators strict 报错
+        lines = ['error: --operators strict: 以下引擎不支持查询里的操作符:']
+        for name, bad in unsupported.items():
+            lines.append(f'  {name}: ' + ', '.join(f'{op}:{val}' for op, val in bad))
+        lines += ['', '用 --operators strip 静默剔除不支持的操作符, '
+                       '或去掉这些操作符重试。']
+        print('\n'.join(lines), file=sys.stderr)
+        return 2
+    for name, bad in unsupported.items():
+        print(f'info: {name} 已剔除不支持的操作符: '
+              + ', '.join(f'{op}:{val}' for op, val in bad)
+              + f' → {qmap[name]!r}', file=sys.stderr)
+
     for eng in engines:
         fn = ENGINES.get(eng)
         if not fn:
             errors.append({'engine': eng, 'error': f'unknown engine, available: {",".join(ENGINES)}'})
             continue
-        ckey = f'{eng}|{args.query}|{_pull}|{args.market}'
+        ckey = f'{eng}|{qmap[eng]}|{_pull}|{args.market}'
         cached = None if args.no_cache else cache.get(cfg, 'search', ckey)
         if cached is not None:
             rs = cached
@@ -112,7 +131,7 @@ def _do_search(args, cfg, filter_ad=True):
             else:
                 proxy = cfg.get('proxy')
             try:
-                rs = fn(args.query, max_results=_pull, proxy=proxy,
+                rs = fn(qmap[eng], max_results=_pull, proxy=proxy,
                         timeout=cfg.get('timeout', 15), market=args.market)
                 n_ad = sum(1 for r in rs if r.get('is_ad'))
                 if filter_ad:
@@ -181,7 +200,7 @@ def _do_search(args, cfg, filter_ad=True):
             else:
                 proxy = cfg.get('proxy')
             extra, fetched = top_up(
-                eng, fn, args.query, _want, min(_want, len(results)),
+                eng, fn, qmap[eng], _want, min(_want, len(results)),
                 proxy, cfg.get('timeout', 15), args.market,
                 filter_ad=filter_ad,
                 is_blocked_fn=(None if args.no_blocklist
@@ -232,6 +251,38 @@ def _do_search(args, cfg, filter_ad=True):
         out['requested'] = _want
     if quality_hint:
         out['quality_hint'] = quality_hint
+
+    # 引擎通道自报 + 结果证据: 降级是静默的 (429 被引擎内部 catch 换通道,
+    # 不进 errors), 消费方无法从结果反推"这批是全 Web 搜索还是新闻检索"。
+    # 两个来源互补: 引擎实跑时用自报 (带降级原因); 命中缓存时引擎压根没被调用,
+    # 只能靠结果里的 channel 字段判定。
+    ch, reasons = {}, {}
+    for r in results:
+        if r.get('channel'):
+            for e in (r.get('engines') or [r.get('engine')]):
+                if e:
+                    ch.setdefault(e, r['channel'])
+    if 'google' in per_engine:
+        from .engines.google import last_channel as _gch
+        info = _gch()
+        if info.get('channel'):
+            ch['google'] = info['channel']          # 自报优先 (更权威)
+            if info.get('reason'):
+                reasons['google'] = info['reason']
+    if ch:
+        out['engine_channels'] = ch
+        # news 通道 = 新闻检索而非全 Web 搜索, 覆盖范围可能明显小于预期
+        degraded = [f"{e} 实际走 {c} 通道(新闻检索, 非全 Web 搜索)"
+                    + (f": {reasons[e]}" if reasons.get(e) else '')
+                    for e, c in ch.items() if c == 'news']
+        if degraded:
+            out['degraded'] = degraded
+    from .query_ops import describe as _describe_ops, parse as _parse_ops
+    if _parse_ops(args.query).has_operators:
+        out['query_operators'] = {'used': _describe_ops(args.query),
+                                  'stripped': {k: [f'{op}:{v}' for op, v in vs]
+                                               for k, vs in unsupported.items()},
+                                  'engine_query': qmap}
     if errors:
         out['errors'] = errors
     from .render import render
@@ -323,7 +374,10 @@ def _resolve_sogou_links(results, cfg):
                 real = _baidu_resolve(r['url'], proxy=proxy, timeout=timeout)
             else:
                 real = _google_resolve(r['url'], proxy=proxy, timeout=timeout)
-            if real:
+            # 只有"真的解出了另一个 URL"才写缓存: 解码失败时各引擎 resolve_link
+            # 会把原链原样返回, 若照单全收就会把跳转链本身当成解码结果缓存起来,
+            # 之后每次都在这里短路命中 → 一次失败变成永久失败
+            if real and real != r['url']:
                 cache.put(cfg, 'resolve', r['url'], real)
         return i, real
 

@@ -9,15 +9,44 @@ Fbv4je+"garturlreq") 即返回真实 URL — 无需浏览器, 无需 JS 引擎,
 article 页本身 600KB, 此模块负责整条解析链:
 article link → 抓页面提参数 → batchexecute → 原文 URL
 """
+import gzip
+import io
 import json
+import logging
 import re
 import time
 import urllib.parse
+import urllib.request
 
-from .. import state
+from .. import state, transport as _t
 from ..http import build_opener
 
+log = logging.getLogger(__name__)
+
 _TTL = 7 * 86400
+
+
+def _read_body(r, max_bytes=2 * 1024 * 1024):
+    """读响应体并按 Content-Encoding 解压。
+
+    必须走这里而不是裸 r.read(): 本模块走 urllib 通道, urllib **不会**自动解
+    gzip —— 早期直接 decode('utf-8','ignore') 会把压缩字节当 utf-8 硬解, 得到
+    一堆垃圾, 于是 data-n-a-* 三参数永远匹配不上, 解码 100% 静默失败 (且因异常
+    被吞, 表现为"链接原样返回", 看起来像引擎不支持)。
+    """
+    raw = r.read(max_bytes)
+    if r.headers.get('Content-Encoding') == 'gzip':
+        try:
+            raw = gzip.GzipFile(fileobj=io.BytesIO(raw)).read()
+        except Exception:
+            pass
+    elif r.headers.get('Content-Encoding') == 'deflate':
+        try:
+            import zlib
+            raw = zlib.decompress(raw, -zlib.MAX_WBITS)
+        except Exception:
+            pass
+    return raw.decode('utf-8', 'ignore')
 
 _BATCH_URL = 'https://news.google.com/_/DotsSplashUi/data/batchexecute'
 
@@ -59,7 +88,6 @@ def decode(link, proxy=None, timeout=15):
 
     op = build_opener(proxy)
     # 反探测: urllib 通道也用 transport 指纹档案头 (UA 与全局轮换同源)
-    from .. import transport as _t
     _prof = _t.PROFILES[_t._pick_profile('gnews')]
     ua = _prof['ua']
     try:
@@ -67,11 +95,13 @@ def decode(link, proxy=None, timeout=15):
         req = urllib.request.Request(link, headers=_t.headers_for(
             'nav', link, full=True, profile=_prof))
         with op.open(req, timeout=timeout) as r:
-            page = r.read(2 * 1024 * 1024).decode('utf-8', 'ignore')
+            page = _read_body(r)
         gid_p = re.search(r'data-n-a-id="([^"]*)"', page)
         ts_p = re.search(r'data-n-a-ts="([^"]*)"', page)
         sg_p = re.search(r'data-n-a-sg="([^"]*)"', page)
         if not (gid_p and ts_p and sg_p):
+            log.debug('gnews: article 页无 c-wiz 三参数 (len=%d), 判为改版',
+                      len(page))
             _fail()
             return None
         real = _batchexecute(gid_p.group(1), int(ts_p.group(1)),
@@ -80,9 +110,12 @@ def decode(link, proxy=None, timeout=15):
             state.set_breaker('gnews', fails=0)
             _cache_put(gid, real)
             return real
+        log.debug('gnews: batchexecute 未返回非 google 域名')
         _fail()
         return None
-    except Exception:
+    except Exception as e:
+        # 不再静默: 解码失败是 google news 通道的核心故障, 必须留痕
+        log.debug('gnews: 解码异常 %s: %s', type(e).__name__, e)
         _fail()
         return None
 
@@ -102,10 +135,11 @@ def _batchexecute(gid, ts, sg, op, prof, timeout):
                  'Accept-Language': _t.LANG_EN,
                  'Referer': 'https://news.google.com/'})
     with op.open(req, timeout=timeout) as r:
-        body = r.read().decode('utf-8', 'ignore')
+        body = _read_body(r)
     m = re.search(r'https?://[^\s"\\]+', body)
     if m and 'news.google.com' not in m.group(0):
         return m.group(0)
+    log.debug('gnews: batchexecute 响应里没有非 google 域名 (len=%d)', len(body))
     return None
 
 
