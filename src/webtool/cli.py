@@ -62,6 +62,12 @@ def main(argv=None):
     ps.add_argument('--no-dedupe', action='store_true', help='关闭跨引擎去重')
     ps.add_argument('--no-semantic', action='store_true', help='关闭语义向量排序(纯位置权重)')
     ps.add_argument('--no-retry', action='store_true', help='关闭低召回自动重试(默认开启)')
+    ps.add_argument('--operators', default='passthrough',
+                    choices=['passthrough', 'strip', 'strict'],
+                    help='高级操作符路由: passthrough=原样透传(默认) / '
+                         'strip=静默剔除该引擎不支持的操作符 / '
+                         'strict=有引擎不支持就报错。'
+                         '支持 site: intitle: inurl: -词')
     ps.add_argument('--block', action='append', default=[],
                     help='临时追加黑名单域名, 可多次')
     ps.add_argument('--allow', action='append', default=[],
@@ -85,8 +91,16 @@ def main(argv=None):
     pp.add_argument('action', choices=['get', 'set', 'unset', 'test'])
     pp.add_argument('value', nargs='?', help='代理地址, 如 http://127.0.0.1:2080 或 socks5://...')
 
-    pe = sub.add_parser('engines', help='查看搜索引擎状态')
-    pe.add_argument('--check', action='store_true', help='实际发一次测试请求')
+    pe = sub.add_parser('engines', help='搜索引擎状态: list(默认,只读本地) / test(实发请求)')
+    pe.add_argument('action', nargs='?', default='list',
+                    choices=['list', 'test'],
+                    help='list=列引擎清单+冷却状态(不发请求); test=实发一次搜索体检 (默认 list)')
+    pe.add_argument('name', nargs='?',
+                    help='test 时的引擎名 (bing/sogou/baidu/google/marginalia); 省略=全部引擎')
+    pe.add_argument('--check', action='store_true',
+                    help='实发一次测试请求 (等价 `engines test`)')
+    pe.add_argument('--query', default='python',
+                    help='test 用的测试词 (默认 python)')
 
     pcache = sub.add_parser('cache', help='缓存管理')
     pcache.add_argument('action', choices=['clear', 'info'])
