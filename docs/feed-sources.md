@@ -19,6 +19,11 @@ webtool feed arXivAI uvReleases Nature -n 5 # 按名字直接拉
 
 ## ✅ 官方 feed（全部 webtool 通道实测出数据）
 
+### 中文新闻
+| 名字 | URL | 说明 |
+|---|---|---|
+| kr36 | https://www.36kr.com/feed | 36氪主站 + 8点1氪，30 条（**必须带 www**，裸域 `36kr.com/feed` 返 text/html） |
+
 ### 国际科技/AI
 | 名字 | URL | 说明 |
 |---|---|---|
@@ -49,7 +54,8 @@ webtool feed arXivAI uvReleases Nature -n 5 # 按名字直接拉
 
 | 站点 | 官方状态 | 可用路由（rssforever/ktachibana 实测） |
 |---|---|---|
-| 36氪快讯 | /feed 返 JS 壳（火山引擎挑战） | https://rsshub.rssforever.com/36kr/newsflashes ✅20条 |
+| 36氪**主站文章** | ✅ **有官方 feed**（见下） | 直接用 `https://www.36kr.com/feed` |
+| 36氪**快讯** newsflashes | 官方 feed 不含快讯，只能借渲染器 | `hub.slarker.me/36kr/newsflashes` ✅20条 |
 | B站综合热门 | 无官方 feed | https://rsshub.rssforever.com/bilibili/popular/all ✅ |
 | 知乎热榜 | webtool rank zhihu 更好 | RSSHub /zhihu/hotlist 公共实例 429 |
 | 微博热搜 | webtool rank weibo 更好 | RSSHub 需微博 cookie，公共实例挂 |
@@ -76,6 +82,7 @@ webtool feed arXivAI uvReleases Nature -n 5 # 按名字直接拉
 ## ❌ 放弃（实测不可用）
 - engadget（403 cffi）、bleepingcomputer（403）、solidot（403）
 - ~~qbitai 量子位~~ → 复测已通! curl 裸 UA 403, webtool 反探测指纹通道 200 (v1.8.0 价值实证)
+- ~~36氪 /feed 返 JS 壳~~ → **2026-10-12 复测已通**，`https://www.36kr.com/feed` 官方 feed 直接出 30 条。先前判定为 JS 壳应是裸请求没带对指纹头。教训: "官方 feed 不可用"的结论有时效，webtool 每次换实例/换指纹都要复测
 - techcrunch/theverge 部分 CDN 对数据中心 IP 抖动 → techcrunch 直连超时
 - cnbeta（DNS 挂）、dongqiudi（567）、infzm（404）、thn feedburner（超时）
 

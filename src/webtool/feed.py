@@ -276,8 +276,12 @@ def _print_route_cards(cards, kw, args, cfg):
         base = _radar.best_instance(proxy=cfg.get('proxy'))
         _out(f'"{kw}" 命中 {len(cards)} 条路由  (按 heat 排序, --cat 可过滤分类)')
         _out(f'实例 {base}  (webtool feed instances 可看全部)\n')
+        # 顺带探一下这些站有没有官方 feed: 官方优先, RSSHub 只在官方给不了
+        # 目标栏目时才值得付实例可用性的代价 (探测有 7 天缓存)
+        offs = _radar.official_feeds([c['domain'] for c in cards],
+                                     proxy=cfg.get('proxy'))
         for i, c in enumerate(cards, 1):
-            _print_card(c, idx=i, base=base)
+            _print_card(c, idx=i, base=base, official=offs.get(c['domain']))
             need = [nm for nm, o, _ in _radar.parse_params(c['template']) if not o]
             tail = f' --param {need[0]}=...' if need else ' (无需填参)'
             _out(f'  取数  --pick {i}{tail}')
@@ -372,7 +376,7 @@ def _print_route_cards(cards, kw, args, cfg):
     return 0
 
 
-def _print_card(c, idx=None, base=None):
+def _print_card(c, idx=None, base=None, official=None):
     """单条路由卡片。模板行永远是原始模板 —— 填参不改写它。
 
     base 非空时附 URL 行: 模板形态 (占位符原样, 看得出还要填什么) + example
@@ -407,6 +411,11 @@ def _print_card(c, idx=None, base=None):
         _out(f"  样例{i} {tf['title'][:38]:40s} {tf['site_url'][:52]}")
     if c.get('guessed'):
         _out('  反推  ' + ', '.join(f'{k}={v}' for k, v in c['guessed'].items()))
+    if official:
+        # 官网 feed 与 RSSHub 路由不冲突: 前者稳、无限流但栏目少,
+        # 后者能按路由切栏目但要借公共实例 (会 503)。两个都给, 让用户选。
+        url, items = official
+        _out(f"  官网  {url}  ({items} 条, 不依赖 RSSHub 实例)")
     if base:
         b = base.rstrip('/')
         _out(f"  URL   {b}{c['template']}")

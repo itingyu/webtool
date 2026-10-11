@@ -407,6 +407,104 @@ def instances(proxy=None, refresh=False):
     return out
 
 
+# ---------------------------------------------------------------- 官方 feed 探测
+
+OFFICIAL_FILE = Path.home() / '.webtool' / 'cache' / 'official_feeds.json'
+OFFICIAL_TTL = 7 * 86400
+
+# 常见的官方 feed 路径。顺序即优先级 —— /feed 最常见。
+_FEED_PATHS = ['/feed', '/rss', '/feed.xml', '/rss.xml', '/atom.xml',
+               '/index.xml', '/rss/index.xml', '/blog/atom.xml']
+_FEED_CT = ('rss', 'atom', 'xml')
+
+
+def _looks_like_feed(text):
+    """是不是真 feed —— 只认 body, 不看 content-type。
+
+    不少站把 XML 挂成 text/html (实测 www.36kr.com/feed 才是 feed、
+    36kr.com/feed 返回 text/html), 而 SPA 壳页也是 text/html; 所以唯一的
+    可靠判据是开头有没有 feed 结构标记。
+    """
+    head = (text or '')[:2000].lstrip()
+    return (head.startswith('<?xml') or '<rss' in head or '<feed' in head
+            or '<rdf:RDF' in head)
+
+
+def probe_official(domain, proxy=None, timeout=8):
+    """探测某站是否有官方 feed, 返回 (url, items) 或 (None, 0)
+
+    www 与裸域都试 —— 实测 36kr.com/feed 是 HTML, www.36kr.com/feed 才是 feed,
+    只试一种必然漏一半。
+    """
+    from . import transport
+    domain = domain.strip().strip('/')
+    if not domain or '://' in domain:
+        domain = domain.replace('https://', '').replace('http://', '').split('/')[0]
+    hosts = [domain] if domain.startswith('www.') else \
+        [domain, 'www.' + domain]
+    if domain.startswith('www.'):
+        hosts.append(domain[4:])
+    for host in hosts:
+        for path in _FEED_PATHS:
+            url = f'https://{host}{path}'
+            try:
+                # transport.get 第三返回值是 via 不是 headers, 所以只嗅探 body
+                text, st, _ = transport.get(url, kind='plain', timeout=timeout,
+                                            proxy=proxy, allow_fallback=False)
+            except Exception:
+                continue
+            if st != 200 or not _looks_like_feed(text):
+                continue
+            return url, len(re.findall(r'<(?:item|entry)[\s>]', text))
+    return None, 0
+
+
+def official_feeds(domains, proxy=None, refresh=False, max_sites=6):
+    """批量探测官方 feed, 返回 {domain: (url, items)}; 结果缓存 7 天
+
+    只探命中路由的前几个站 —— 一个 RSSHub 站配一次 10 个请求, 全量 2069 站
+    不现实也没必要。
+    """
+    domains = [d for d in dict.fromkeys(domains or []) if d][:max_sites]
+    if not domains:
+        return {}
+    cache = {}
+    if not refresh and OFFICIAL_FILE.exists():
+        try:
+            o = json.loads(OFFICIAL_FILE.read_text())
+            if time.time() - o.get('ts', 0) < OFFICIAL_TTL:
+                cache = o.get('map') or {}
+        except Exception:
+            cache = {}
+    out, changed = {}, False
+    todo = []
+    for d in domains:
+        if d in cache:
+            v = cache[d]
+            if v:
+                out[d] = (v['url'], v.get('items', 0))
+        else:
+            todo.append(d)
+    if todo:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(len(todo), 6)) as ex:
+            for dom, res in zip(todo, ex.map(
+                    lambda d: probe_official(d, proxy=proxy), todo)):
+                url, items = res
+                cache[dom] = {'url': url, 'items': items} if url else {}
+                if url:
+                    out[dom] = (url, items)
+                changed = True
+    if changed:
+        try:
+            OFFICIAL_FILE.parent.mkdir(parents=True, exist_ok=True)
+            OFFICIAL_FILE.write_text(json.dumps(
+                {'ts': time.time(), 'map': cache}, ensure_ascii=False))
+        except Exception:
+            pass
+    return out
+
+
 def best_instance(proxy=None, refresh=False, default=None):
     """返回当前可用的实例前缀 (探活延迟最低的), 全挂则用内置兜底
 

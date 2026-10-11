@@ -410,5 +410,9 @@
   "uvReleases": {
     "url": "https://github.com/astral-sh/uv/releases.atom",
     "desc": "🧰 开发工具版本追踪 · valid"
+  },
+  "36氪官网": {
+    "url": "https://www.36kr.com/feed",
+    "desc": "📰 新闻资讯 · 官方 feed (主站文章 + 8点1氪, 不含快讯)"
   }
 }

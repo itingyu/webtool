@@ -19,7 +19,7 @@ webtool rank                                  # 榜单清单 (18 源热榜: 知�
 webtool rank zhihu weibo -q "汽车"            # 语义筛选 + 跨源重排 (-t 阈值, 默认 0.15)
 webtool feed                                  # RSS 清单 (7 预设 + 103 随包精选源 + 任意 feed URL)
 webtool feed sspai ithome --new-only          # 增量: 只出上次之后的新条目
-webtool feed radar 36kr                       # 查 RSSHub 官方路由库 (2069 站 / 3947 路由, 带参数说明与真实样例)
+webtool feed radar 36kr                       # 查 RSSHub 官方路由库 (2069 站 / 3947 路由, 带参数说明/真实样例/官网 feed)
 webtool feed radar 36kr --pick 2 --param category=newsflashes   # 选第2条路由, 填参, 直接拉数据输出
 webtool feed instances                         # 公共实例探活 (哪几个今天还活着)
 webtool site github fastapi                   # 站内搜索 (18 站点)
