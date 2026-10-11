@@ -48,11 +48,8 @@ def _cffi_html(query, max_results, proxy, timeout, market, page):
            f'&setmkt={urllib.parse.quote(market)}')
     # bing 国内可用: 恒直连, 代理出口反而触发国外版重排
     s, p = transport._new_session('chrome131_win', None, 'bing')
-    # 首页预热: 领会话 cookie + 让服务端看到导航行为
-    try:
-        s.get(_ENDPOINT + '/', timeout=timeout)
-    except Exception:
-        pass
+    # 首页预热: 领会话 cookie + 让服务端看到导航行为 (公共通道, 指纹与搜索请求同源)
+    transport.warm_session(s, _ENDPOINT + '/', timeout=timeout, profile=p)
     r = s.get(url, timeout=timeout,
               headers=transport.headers_for('nav', url, referer=_ENDPOINT + '/',
                                             profile=p))

@@ -65,8 +65,7 @@ def _get_html(url, proxy, timeout):
     # 步骤1+2: 首页领 cookie + sugrec 行为链预热 (失败不致命, 继续搜)
     try:
         warm, wprof = transport._new_session('chrome131_win', proxy, 'baidu')
-        transport.session_get(BAIDU + '/', warm, kind='nav',
-                              profile=wprof, timeout=timeout)
+        transport.warm_session(warm, BAIDU + '/', profile=wprof, timeout=timeout)
         transport.session_get(f'{BAIDU}/sugrec?prod=pc&wd={urllib.parse.quote("百")}',
                               warm, kind='xhr', referer=BAIDU + '/',
                               profile=wprof, timeout=timeout)

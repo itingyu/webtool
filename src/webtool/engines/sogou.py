@@ -74,8 +74,7 @@ def _pc_cffi(q, proxy, timeout):
     s, p = transport._new_session('chrome131_win', proxy, 'sogou')
     try:
         # 导航预热: 领/刷新 SUID/SNUID (state 预载, 像回头客)
-        transport.session_get(SOUGOU + '/', s, kind='nav', timeout=timeout,
-                              profile=p)
+        transport.warm_session(s, SOUGOU + '/', timeout=timeout, profile=p)
         text, status = transport.session_get(f'{ENDPOINT}?query={q}', s,
                                              kind='nav', referer=SOUGOU + '/',
                                              timeout=timeout, profile=p)
@@ -137,7 +136,7 @@ def _mobile_search(q, max_results, proxy, timeout, _inner=False):
             # TLS 指纹 (桌面 chrome131 TLS + Android UA 是自曝组合)
             s = transport._cr.Session(impersonate='chrome131_android',
                                       proxy=proxy or None)
-            s.get(M_HOME, timeout=timeout, headers=dict(base))
+            transport.warm_session(s, M_HOME, timeout=timeout, profile=prof)
             if attempt:
                 time.sleep(1.2)          # 被拦后换会话稍微喘口气
             r = s.get(f'{M_ENDPOINT}?keyword={q}', timeout=timeout,

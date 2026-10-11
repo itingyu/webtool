@@ -399,3 +399,24 @@ def session_get(url, session, *, kind='nav', referer=None, timeout=15,
                     extra=headers)
     r = session.get(url, headers=h, timeout=timeout)
     return r.text[:max_bytes], r.status_code
+
+
+def warm_session(session, home, *, kind='nav', referer=None, timeout=10,
+                 profile=None, max_bytes=512 * 1024):
+    """公共首页预热: 领会话 cookie + 让服务端看到一次落地导航
+
+    搜索引擎普遍要求"先落地首页再搜": SUID/SNUID (搜狗) / NID (google news) /
+    sugrec 行为链 (百度) 这类 cookie 只在首页响应里下发, 裸打搜索端点会被判成
+    "无来源的机器人查询"。各引擎的差异只在首页之后还要预热哪几个端点, 首个
+    首页预热统一走这里 — 指纹头由 headers_for 按 profile 生成, 与后续搜索
+    请求同源 (避免 UA/sec-fetch 跨请求漂移)。
+
+    返回是否成功, **不抛异常**: 预热是尽力而为, 拿不到 cookie 也要继续打搜索
+    (state 里已有持久 cookie 时, 预热失败反而是常态)。
+    """
+    try:
+        session_get(home, session, kind=kind, referer=referer,
+                    timeout=timeout, profile=profile, max_bytes=max_bytes)
+        return True
+    except Exception:
+        return False
