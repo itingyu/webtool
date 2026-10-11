@@ -152,6 +152,22 @@ def main(argv=None):
                        help='人工登记坏源: --mark KEY [URL] "原因备注" (存健康登记表)')
     pfeed.add_argument('--retest', metavar='KEY', default=None,
                        help='复查坏源是否恢复: --retest KEY 或 --retest all; 恢复即移除')
+    _rg = pfeed.add_argument_group(
+        'feed radar 专用 (查 RSSHub 路由 / 填参数)')
+    _rg.add_argument('--param', action='append', default=[], metavar='K=V',
+                     help='填路由占位符, 可重复: --param category=newsflashes')
+    _rg.add_argument('--example', action='store_true',
+                     help='用官方 example 路径填参出订阅 URL')
+    _rg.add_argument('--top', type=int, metavar='N', default=None,
+                     help='用第 N 条真实实例样例 (topFeeds, 1 起) 填参')
+    _rg.add_argument('--from-url', metavar='URL', default=None,
+                     help='给定网页 URL, 用 radar.source 模式反推路由')
+    _rg.add_argument('--instance', metavar='PREFIX', default=None,
+                     help='指定实例前缀 (默认自动挑最快可用的)')
+    _rg.add_argument('--cat', metavar='CAT', default=None,
+                     help='按分类过滤路由 (new-media/programming/finance/...)')
+    _rg.add_argument('--radar-refresh', action='store_true',
+                     help='强制刷新路由库缓存 (默认 7 天)')
     _add_common_output(pfeed)
     _add_common_net(pfeed)
 

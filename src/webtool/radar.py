@@ -1,27 +1,291 @@
 # -*- coding: utf-8 -*-
-"""radar: RSSHub Radar 规则库查询 (1310 站点 / 5284 条可订阅路由)
+"""radar: RSSHub 路由查询与参数填充
 
-数据源: 任意公共实例 GET /api/radar/rules (官方 rsshub.app 有 CF 挑战, 用社区实例),
-缓存 ~/.webtool/cache/radar_rules.json (TTL 7 天, rules 更新不频繁)。
+两个数据源, 主备关系:
 
-结构: {域名: {'_name': 站名, web路径: [{title, source, target, docs?}]}}
-target 即 RSSHub 路由模板 (:param 为参数), 实例前缀 + target + 实参 = 订阅 URL。
+  1. 官方路由目录 docs.rsshub.app/routes.json (2069 站 / 3947 路由, 2026-10 实测)
+     每条路由带 parameters(参数枚举说明) / example(官方填好的路径) /
+     topFeeds(真实实例 + 标题 + 源页面 URL) / features(踩坑标记) / heat(热度)。
+     这是唯一能"照着填参"的数据源 —— radar 规则库没有这些字段。
+     缓存 ~/.webtool/cache/rsshub_routes.json (TTL 7 天, 8.7MB)。
+
+  2. Radar 规则库 (任意公共实例 GET /api/radar/rules)
+     只有 source(网页 URL 模式) → target(路由模板), 用于 --from-url 反推;
+     以及主源拉取失败时的降级查询路径。
+
+路径模板语法 (RSSHub):
+    /:name            必填参数
+    /:name?           可选参数, 不填则整段消失
+    /:name{regex}?    带正则约束的可选参数, 如 /81rc/:category{.+}?
+模板 = 实例前缀 + 模板 + 实参, 即最终订阅 URL。
 """
 
 import json
 import re
 import time
-import urllib.parse
 from pathlib import Path
+
+ROUTES_URL = 'https://docs.rsshub.app/routes.json'
+ROUTES_FILE = Path.home() / '.webtool' / 'cache' / 'rsshub_routes.json'
+ROUTES_TTL = 7 * 86400
 
 RADAR_FILE = Path.home() / '.webtool' / 'cache' / 'radar_rules.json'
 RADAR_TTL = 7 * 86400
+
+# 公共实例 (顺序即默认优先级)。实测每天都在变, 别当常量信 —— 用 instances() 探活。
 _DEFAULT_INSTANCES = [
     'https://rsshub.rssforever.com',
     'https://hub.slarker.me',
     'https://rss.wudifeixue.com',
     'https://rsshub.isrss.com',
 ]
+# 实例探活用的廉价路由, 任意一个出条目即视为实例活着
+_PROBE_ROUTE = '/36kr/newsflashes'
+INSTANCES_FILE = Path.home() / '.webtool' / 'cache' / 'rsshub_instances.json'
+INSTANCES_TTL = 3600
+
+# :name / :name? / :name{regex}? / :name{regex}
+_PARAM_RE = re.compile(r':([A-Za-z_]\w*)(\{[^}]*\})?(\?)?')
+
+
+class MissingParams(Exception):
+    """必填参数没给全"""
+
+    def __init__(self, missing):
+        self.missing = missing
+        super().__init__(', '.join('%s' % m[0] for m in missing))
+
+
+# ---------------------------------------------------------------- 模板解析
+
+
+def parse_params(template):
+    """模板 → [(参数名, 是否可选, 正则约束或 None)]
+
+    >>> parse_params('/163/ds/:id')
+    [('id', False, None)]
+    >>> parse_params('/36kr/:category/:subCategory?')
+    [('category', False, None), ('subCategory', True, None)]
+    >>> parse_params('/81rc/:category{.+}?')
+    [('category', True, '.+')]
+    """
+    out = []
+    for m in _PARAM_RE.finditer(template):
+        name, rex, opt = m.group(1), m.group(2), m.group(3)
+        out.append((name, bool(opt), rex[1:-1] if rex else None))
+    return out
+
+
+def fill_path(template, params, strict=True):
+    """模板 + 实参 → 填好的路径 (缺可选段自动剔除)
+
+    params 键可带 path 里的正则后缀, 如 {'category{.+}?': 'x'} 与 {'category': 'x'}
+    等价 —— 先按裸名试, 再按原文试。
+
+    strict=True 时必填参数缺失抛 MissingParams; strict=False 时原样保留 :name
+    (交给 RSSHub 自己报错, 适合只想看 URL 的时候)。
+    """
+    specs = parse_params(template)
+    out, missing = template, []
+    for name, optional, rex in specs:
+        val = params.get(name)
+        if val is None:
+            for k, v in params.items():          # 容忍 'category{.+}?' 这类键
+                if k.split('{')[0].rstrip('?') == name:
+                    val = v
+                    break
+        if val is None:
+            if optional:
+                # 剔掉整个参数段: ':name{regex}?' 连同前导 '/'
+                out = re.sub(r'/:' + re.escape(name) + r'(\{[^}]*\})?\?', '', out)
+            else:
+                missing.append((name, rex))
+            continue
+        out = out.replace(f':{name}{{{rex}}}?' if rex else f':{name}?',
+                          str(val))
+        out = out.replace(f':{name}{{{rex}}}' if rex else f':{name}',
+                          str(val))
+    if missing and strict:
+        raise MissingParams(missing)
+    return out.rstrip('/') or '/'
+
+
+def render_url(instance, template, params=None, strict=True):
+    """实例前缀 + 模板 + 实参 → 完整订阅 URL"""
+    return instance.rstrip('/') + fill_path(template, params or {}, strict)
+
+
+# ---------------------------------------------------------------- 官方路由目录
+
+
+def load_routes(proxy=None, refresh=False, timeout=60):
+    """载入官方 routes.json (缓存优先), 返回 {站点key: 站点dict}; 失败抛异常"""
+    if not refresh and ROUTES_FILE.exists():
+        try:
+            o = json.loads(ROUTES_FILE.read_text())
+            if time.time() - o.get('ts', 0) < ROUTES_TTL and o.get('routes'):
+                return o['routes']
+        except Exception:
+            pass
+    from . import transport
+    text, st, _ = transport.get(ROUTES_URL, kind='plain', timeout=timeout,
+                                proxy=proxy, allow_fallback=False)
+    if st != 200:
+        raise RuntimeError(f'routes.json HTTP {st}')
+    routes = json.loads(text)
+    if not isinstance(routes, dict) or not routes:
+        raise RuntimeError('routes.json 结构异常')
+    ROUTES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ROUTES_FILE.write_text(json.dumps({'ts': time.time(), 'routes': routes},
+                                      ensure_ascii=False))
+    return routes
+
+
+def _iter_routes(routes):
+    """展平成 (站点, 站点key, 路由key, 路由dict)"""
+    for site_key, site in (routes or {}).items():
+        if not isinstance(site, dict):
+            continue
+        for rk, r in (site.get('routes') or {}).items():
+            if isinstance(r, dict):
+                yield site, site_key, rk, r
+
+
+def search_routes(routes, kw, limit=20, cat=None, skip_config=True):
+    """按关键词搜路由, 返回路由卡片列表 (按 heat 降序)
+
+    匹配面: 站点名 / 域名 / 路由名 / 路由模板 / 参数名 / 参数说明 / 分类。
+    skip_config=True 跳过"需必填配置"的路由 —— 公共实例上没有那个 cookie 必然空。
+    """
+    kw_l = (kw or '').lower().strip()
+    scored = []
+    for site, site_key, rk, r in _iter_routes(routes):
+        tmpl = '/' + rk.lstrip('/')
+        site_name = site.get('name') or ''
+        domain = site.get('url') or ''
+        rname = r.get('name') or ''
+        params = r.get('parameters') or {}
+        ptext = ' '.join(f'{k} {v}' for k, v in params.items())
+        cats = r.get('categories') or site.get('categories') or []
+        if cat and cat not in cats:
+            continue
+        feat = r.get('features') if isinstance(r.get('features'), dict) else {}
+        need_cfg = feat.get('requireConfig')
+        if skip_config and need_cfg:
+            if isinstance(need_cfg, list) and any(
+                    not c.get('optional') for c in need_cfg):
+                continue
+        hay = f'{site_name} {domain} {rname} {tmpl} {ptext} {" ".join(cats)}'.lower()
+        if kw_l and kw_l not in hay:
+            continue
+        # 排序: 域名/站名/路由名精确命中 > heat
+        if kw_l:
+            exact = any(kw_l == x.lower().strip() for x in
+                        (site_name, domain, rname))
+            rank = 0 if exact else 1
+        else:
+            rank = 1
+        scored.append((rank, -(r.get('heat') or 0), {
+            'site': site_name, 'domain': domain, 'template': tmpl,
+            'name': rname, 'heat': r.get('heat') or 0, 'params': params,
+            'example': r.get('example') or '', 'categories': cats,
+            'features': feat, 'top_feeds': _usable_top_feeds(r),
+            'desc': r.get('description') or '',
+        }))
+    scored.sort(key=lambda x: (x[0], x[1]))
+    return [c for _, _, c in scored[:limit]]
+
+
+def _usable_top_feeds(r, cap=5):
+    """真实实例样例: 只留有 url 且无 errorMessage 的"""
+    out = []
+    for f in (r.get('topFeeds') or []):
+        if not isinstance(f, dict) or f.get('errorMessage'):
+            continue
+        u = (f.get('url') or '').replace('rsshub://', '').lstrip('/')
+        if not u:
+            continue
+        out.append({'title': f.get('title') or '', 'site_url': f.get('siteUrl') or '',
+                    'path': u})
+        if len(out) >= cap:
+            break
+    return out
+
+
+def routes_stats(routes):
+    n_sites = sum(1 for v in (routes or {}).values() if isinstance(v, dict))
+    n_routes = sum(1 for _ in _iter_routes(routes))
+    n_free = sum(1 for _, _, rk, _ in _iter_routes(routes) if ':' not in rk)
+    return n_sites, n_routes, n_free
+
+
+def _source_to_regex(src):
+    """radar.source (urlpattern 风格) → 正则
+
+    :name / :name? 是参数段, * 是通配段 —— 两者都吃一段不含 / 的字符。
+    顺序要紧: 先按 :name 切, 再整体转义, 最后把占位符换回捕获组。
+    """
+    parts = re.split(r'(:[A-Za-z_]\w*\??|\*)', src.rstrip('/'))
+    out = []
+    for seg in parts:
+        if re.fullmatch(r':[A-Za-z_]\w*\??|\*', seg):
+            out.append(r'([^/]+)')
+        else:
+            out.append(re.escape(seg))
+    return ''.join(out)
+
+
+def from_url(routes, url):
+    """给定网页 URL, 用官方路由的 radar.source 模式反推候选路由
+
+    source 形如 ['space.bilibili.com/:uid', 'bilibili.com/user/video'],
+    是 urlpattern 风格的通配。逐条正则匹配。
+
+    注意 radar.target 是**相对 namespace** 的 (/user/dynamic/:uid, 不是全路径),
+    要拼上路由 key 的第一段 (namespace) 才是完整模板; 没有 target 的条目
+    (如 /bilibili/user/article/:uid 只有 source) 则由路由 key 去掉 namespace 反推。
+    """
+    if not url:
+        return []
+    u = re.sub(r'^https?://', '', url).split('#')[0].rstrip('/')
+    # www. 前缀在 urlpattern 里各家写法不一, 两种形态都试一遍
+    variants = [u] + ([u[4:] if u.startswith('www.') else 'www.' + u]
+                      if re.match(r'^(www\.)?[^/]+(/|$)', u) else [])
+    out = []
+    for site, site_key, rk, r in _iter_routes(routes):
+        for rd in (r.get('radar') or []):
+            target = rd.get('target')
+            for src in (rd.get('source') or []):
+                pat = _source_to_regex(src)
+                m = next((mm for mm in (re.fullmatch(pat, v) for v in variants)
+                          if mm), None)
+                if not m:
+                    continue
+                # 一律用完整路由 key 而不是 radar.target: target 是它的有损投影
+                # (丢掉可选尾参, 如 /bilibili/user/video/:uid/:embed? → /bilibili/user/video/:uid),
+                # 而 key 的必填段在前, 从 URL 回填后剩下的可选段自然可以留空
+                tmpl = '/' + rk.lstrip('/')
+                _ = target
+                groups = [g for g in m.groups() if g is not None]
+                params = {}
+                names = [n for n, _, _ in parse_params(tmpl)]
+                for n, g in zip(names, groups):
+                    params[n] = g
+                out.append({
+                    'site': site.get('name') or '', 'domain': site.get('url') or '',
+                    'template': tmpl, 'name': r.get('name') or '',
+                    'heat': r.get('heat') or 0, 'params': r.get('parameters') or {},
+                    'example': r.get('example') or '',
+                    'categories': r.get('categories') or [],
+                    'features': r.get('features') or {}, 'top_feeds': [],
+                    'desc': r.get('description') or '',
+                    'guessed': params,
+                })
+    out.sort(key=lambda c: -c['heat'])
+    return out[:10]
+
+
+# ---------------------------------------------------------------- Radar 规则库 (降级/反推)
 
 
 def load_rules(proxy=None, refresh=False, timeout=20):
@@ -57,7 +321,7 @@ def load_rules(proxy=None, refresh=False, timeout=20):
 
 
 def search(rules, kw, limit=30):
-    """按关键词查站点/路由 (域名、站名、标题、target 模糊匹配)
+    """按关键词查 radar 规则 (域名、站名、标题、target 模糊匹配)
 
     返回 [(domain, site_name, title, target)] — target 保留 :param 模板
     """
@@ -81,18 +345,9 @@ def search(rules, kw, limit=30):
     return out[:limit]
 
 
-def render_url(instance, target, **params):
-    """实例前缀 + 路由模板 + 参数 → 订阅 URL
-
-    params 按 target 中 :name 出现顺序填入; 未提供的可选参数 (:name?) 剔除该段。
-    简化处理: 按顺序替换, 缺参留 :name (让 RSSHub 自己报错提示)。
-    """
-    url = target
-    for name, val in params.items():
-        url = url.replace(f':{name}', str(val))
-    url = re.sub(r'/:[a-zA-Z_]+\??(?=/|$)', '', url)   # 未提供的可选段剔除
-    url = url.rstrip('/')
-    return instance.rstrip('/') + url
+def render(instance, target, **params):
+    """兼容旧接口: 实例前缀 + radar target + 关键字参数 → 订阅 URL"""
+    return render_url(instance, target, params)
 
 
 def stats(rules):
@@ -101,3 +356,65 @@ def stats(rules):
     n = sum(len([r for p, rs in v.items() if isinstance(rs, list) for r in rs])
             for v in rules.values() if isinstance(v, dict))
     return sites, n
+
+
+# ---------------------------------------------------------------- 实例探活
+
+
+def instances(proxy=None, refresh=False):
+    """实例列表 + 探活结果 [{instance, ok, ms, items, err}], 缓存 1 小时
+
+    公共实例的可用性逐日变化 (实测 rssforever 从可用变超时, isrss 变 403),
+    所以默认探测而不是信文档。
+    """
+    if not refresh and INSTANCES_FILE.exists():
+        try:
+            o = json.loads(INSTANCES_FILE.read_text())
+            if time.time() - o.get('ts', 0) < INSTANCES_TTL and o.get('list'):
+                return o['list']
+        except Exception:
+            pass
+    from concurrent.futures import ThreadPoolExecutor
+    from . import transport
+    out = [None] * len(_DEFAULT_INSTANCES)
+
+    def probe(i, base):
+        t0 = time.time()
+        attempts = [None] + ([proxy] if proxy else [])
+        last = 'no route'
+        for px in attempts:
+            try:
+                text, st, _ = transport.get(base + _PROBE_ROUTE, kind='plain',
+                                            timeout=25, proxy=px,
+                                            allow_fallback=False)
+                n = len(re.findall(r'<(?:item|entry)[\s>]', text or ''))
+                if st == 200 and n:
+                    return {'instance': base, 'ok': True, 'items': n,
+                            'ms': int((time.time() - t0) * 1000), 'err': ''}
+                last = f'HTTP {st}' + (f' 0 items' if st == 200 else '')
+            except Exception as e:
+                last = str(e)[:50]
+        return {'instance': base, 'ok': False, 'items': 0,
+                'ms': int((time.time() - t0) * 1000), 'err': last}
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futs = {ex.submit(probe, i, b): i for i, b in enumerate(_DEFAULT_INSTANCES)}
+        for fu, i in futs.items():
+            out[i] = fu.result()
+    INSTANCES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    INSTANCES_FILE.write_text(json.dumps({'ts': time.time(), 'list': out},
+                                         ensure_ascii=False))
+    return out
+
+
+def best_instance(proxy=None, refresh=False, default=None):
+    """返回当前可用的实例前缀 (探活延迟最低的), 全挂则用内置兜底
+
+    延迟低的实例优先 —— 公共实例限流是按并发/频次算的, 顺手用快的那个。
+    """
+    if default:
+        return default.rstrip('/')
+    alive = [it for it in instances(proxy=proxy, refresh=refresh) if it['ok']]
+    if not alive:
+        return _DEFAULT_INSTANCES[1].rstrip('/')
+    return min(alive, key=lambda it: it['ms'])['instance'].rstrip('/')

@@ -192,6 +192,108 @@ def _resolve_proxy(cfg, no_proxy):
     return once
 
 
+def _print_route_cards(cards, kw, args, cfg):
+    """渲染 feed radar 的路由卡片 + 填参出的订阅 URL"""
+    from . import radar as _radar
+
+    params = {}
+    for kv in (getattr(args, 'param', None) or []):
+        if '=' not in kv:
+            print(f'--param 需要 K=V 形式, 收到 "{kv}"', file=sys.stderr)
+            raise SystemExit(2)
+        k, v = kv.split('=', 1)
+        params[k.strip()] = v.strip()
+
+    use_example = getattr(args, 'example', False)
+    top_idx = getattr(args, 'top', None)
+    adding = bool(getattr(args, 'add', None))
+
+    # 需要出订阅 URL 才探实例 (纯搜索不付这个等待)
+    want_url = bool(params) or use_example or top_idx is not None or adding
+    base = None
+    if want_url:
+        base = (getattr(args, 'instance', None)
+                or _radar.best_instance(proxy=cfg.get('proxy'))).rstrip('/')
+
+    print(f'"{kw}" 命中 {len(cards)} 条路由'
+          f'  (实例 {base})\n' if base else
+          f'"{kw}" 命中 {len(cards)} 条路由\n')
+
+    added = 0
+    for c in cards:
+        feat = c.get('features') or {}
+        warn = []
+        if feat.get('antiCrawler'):
+            warn.append('反爬')
+        if feat.get('requirePuppeteer'):
+            warn.append('需 Puppeteer')
+        if feat.get('requireConfig'):
+            warn.append('需配置')
+
+        print(f"{c['site']} · {c['name'] or '(未命名)'}"
+              f"  heat={c['heat']}  {'⚠ ' + '/'.join(warn) if warn else ''}")
+        print(f"  模板  {c['template']}")
+        if c['params']:
+            # parameters 的键是裸名, 可选性只能从模板解析 (path 里 ':name?' 才算选填)
+            opt_map = {n: o for n, o, _ in _radar.parse_params(c['template'])}
+            for pk, pv in c['params'].items():
+                name = pk.split('{')[0].rstrip('?')
+                desc = pv.get('description') if isinstance(pv, dict) else str(pv)
+                default = pv.get('default') if isinstance(pv, dict) else None
+                tail = f" (默认 {default})" if default else ''
+                print(f"  参数  {name}{'(选填)' if opt_map.get(name) else '(必填)'}"
+                      f" — {(desc or '')[:66]}{tail}")
+        if c['example']:
+            print(f"  示例  {c['example']}")
+        for i, tf in enumerate(c['top_feeds'][:3], 1):
+            print(f"  样例{i} {tf['title'][:38]:40s} {tf['site_url'][:52]}")
+        if c.get('guessed'):
+            g = ', '.join(f'{k}={v}' for k, v in c['guessed'].items())
+            print(f'  反推  {g}')
+
+        # ---- 填参出订阅 URL ----
+        p2 = dict(c.get('guessed') or {})
+        p2.update(params)
+        src = None
+        if top_idx is not None:
+            tfs = c['top_feeds']
+            if 1 <= top_idx <= len(tfs):
+                src = f'topFeeds #{top_idx}'
+                filled = tfs[top_idx - 1]['path']
+            else:
+                continue
+        elif use_example and c['example']:
+            src = 'example'
+            filled = c['example']
+        elif params or adding:
+            try:
+                filled = _radar.fill_path(c['template'], p2, strict=True)
+                src = '参数'
+            except _radar.MissingParams as e:
+                miss = ', '.join(f'{n}' for n, _ in e.missing)
+                print(f'  ⚠ 还缺必填参数: {miss}   '
+                      f'(--example 或 --top N 可直接借现成路径)')
+                print()
+                continue
+        else:
+            print()
+            continue
+
+        url = base + '/' + filled.lstrip('/')   # topFeeds 的 url 不保证带前导 /
+        print(f'  订阅  {url}   ({src})')
+        if adding:
+            name = getattr(args, 'add')[0]
+            user = _load_user_feeds()
+            user[name] = {'url': url,
+                          'desc': f"{c['site']} · {c['name']} (RSSHub)"}
+            _save_user_feeds(user)
+            print(f'        ✓ 已落 ~/.webtool/feeds.json: {name}')
+            added += 1
+        print()
+    if added:
+        print(f'-- 已添加 {added} 个源; webtool feed {getattr(args, "add")[0]} -n 5 直接看')
+
+
 def do_feed(args, cfg):
     t0 = time.time()
     # ---- feed --add NAME URL [desc] / --del NAME ----
@@ -274,38 +376,69 @@ def do_feed(args, cfg):
     if len(args.sources) == 1 and args.sources[0] == 'health':
         print(feedhealth.render_text())
         return 0
-    # ---- feed radar <关键词>: RSSHub Radar 规则库查可订阅路由 ----
+    # ---- feed instances: 公共实例探活 ----
+    if len(args.sources) == 1 and args.sources[0] == 'instances':
+        from . import radar as _radar
+        print('公共实例探活 (探测路由 %s, 缓存 1h):\n'
+              % _radar._PROBE_ROUTE)
+        for it in _radar.instances(proxy=cfg.get('proxy'),
+                                   refresh=getattr(args, 'radar_refresh', False)):
+            mark = '✓' if it['ok'] else '✗'
+            detail = (f"{it['items']} 条 {it['ms']}ms" if it['ok']
+                      else (it['err'] or 'unreachable'))
+            print(f"  {mark} {it['instance']:34s} {detail}")
+        print('\n--instance https://xxx 可指定; 默认自动挑响应最快的可用实例')
+        return 0
+    # ---- feed radar [--from-url URL | <关键词>]: 查 RSSHub 路由库, 填参出订阅 URL ----
     if len(args.sources) >= 1 and args.sources[0] == 'radar':
         from . import radar as _radar
         kw = args.sources[1] if len(args.sources) > 1 else ''
-        if not kw:
-            try:
-                rules = _radar.load_rules(proxy=cfg.get('proxy'))
-            except Exception as e:
-                print(f'radar rules 载入失败: {str(e)[:160]}', file=sys.stderr)
-                return 2
-            sites, n = _radar.stats(rules)
-            print(f'RSSHub Radar 规则库: {sites} 站点 / {n} 条可订阅路由\n')
-            print('用法: webtool feed radar <关键词>  (域名/站名/路由标题模糊匹配)')
-            print('示例: webtool feed radar 36kr | feed radar bilibili | feed radar 微博')
-            return 0
+        from_url = getattr(args, 'from_url', None)
         try:
-            rules = _radar.load_rules(proxy=cfg.get('proxy'),
-                                      refresh=getattr(args, 'radar_refresh', False))
+            routes = _radar.load_routes(proxy=cfg.get('proxy'),
+                                        refresh=getattr(args, 'radar_refresh', False))
         except Exception as e:
-            print(f'radar rules 载入失败: {str(e)[:160]}', file=sys.stderr)
-            return 2
-        rows = _radar.search(rules, kw, limit=max(getattr(args, 'max', 10), 20))
-        if not rows:
-            print(f'radar 无 "{kw}" 命中; 试英文域名 (36kr/bilibili/weibo/ithome) 或站名',
+            print(f'路由库载入失败: {str(e)[:200]}\n'
+                  f'  (docs.rsshub.app 直连超时, 需配代理: webtool proxy set http://127.0.0.1:2080)',
                   file=sys.stderr)
             return 2
-        for dom, site, title, target in rows:
-            print(f'[{dom}] {site} | {title}')
-            print(f'    {target}')
-        print(f'\n-- 共 {len(rows)} 条; 实例前缀 + target 填实参即订阅 URL, 例:\n'
-              f'   webtool feed --add rkw https://rsshub.rssforever.com'
-              f'{rows[0][3].replace(":category", "all")}')
+        if from_url:
+            cards = _radar.from_url(routes, from_url)
+            if not cards:
+                # radar.source 没覆盖这个页面 (只有部分路由声明了反推规则),
+                # 退回按域名/站名搜, 至少给出该站有哪些路由
+                dom = re.sub(r'^https?://', '', from_url).split('/')[0]
+                dom = dom[4:] if dom.startswith('www.') else dom   # 去掉 www. 再匹配
+                cards = _radar.search_routes(routes, dom, limit=10)
+                if not cards:
+                    print(f'无路由能反推 {from_url}, 也没有 {dom} 相关路由; '
+                          f'试 webtool feed radar <站名或域名>', file=sys.stderr)
+                    return 2
+                print(f'⚠ {from_url} 没有 radar 反推规则, 改为按域名 "{dom}" 搜索\n')
+            kw = from_url
+        elif not kw and not getattr(args, 'cat', None):
+            sites, n_routes, n_free = _radar.routes_stats(routes)
+            print(f'RSSHub 官方路由库: {sites} 站点 / {n_routes} 路由 '
+                  f'({n_free} 条无需填参)\n')
+            print('用法:')
+            print('  webtool feed radar 36kr                    搜路由 (站名/域名/路由/参数/分类)')
+            print('  webtool feed radar bilibili --param uid=946974   填占位符 → 订阅 URL')
+            print('  webtool feed radar 36kr --example          用官方示例路径出 URL')
+            print('  webtool feed radar 36kr --top 2            用第 2 条真实实例样例出 URL')
+            print('  webtool feed radar --from-url https://space.bilibili.com/946974  反推路由')
+            print('  webtool feed radar 36kr --param category=newsflashes --add r36kr  落地成订阅源')
+            print('  webtool feed instances                      看公共实例今天哪些活着')
+            print('  webtool feed radar --cat finance           按分类过滤')
+            return 0
+        else:
+            cards = _radar.search_routes(
+                routes, kw, limit=max(getattr(args, 'max', 10) or 10, 10),
+                cat=getattr(args, 'cat', None))
+            if not cards:
+                print(f'路由库无 "{kw}" 命中; 试英文域名 (36kr/bilibili/weibo/ithome)、'
+                      f'站名, 或 --cat <分类>', file=sys.stderr)
+                return 2
+        _print_route_cards(cards, kw, args, cfg)
         return 0
     # ---- feed 无参/list: 清单+用法 (与 rank 同约定) ----
     user = _load_user_feeds()
@@ -327,7 +460,8 @@ def do_feed(args, cfg):
         print('  webtool feed health              查看坏源登记表 (官网挂了的站)')
         print('  webtool feed --retest KEY|all    复查坏源, 恢复即移除登记')
         print('  webtool feed --mark KEY "备注"   人工登记坏源原因 (如改走 RSSHub)')
-        print('  webtool feed radar <关键词>      查 RSSHub Radar 规则库 (1310 站点可订阅路由)')
+        print('  webtool feed radar <关键词>      查 RSSHub 路由库 (2069 站 / 3947 路由, 带参数说明)')
+        print('  webtool feed instances             探活公共实例 (哪几个今天还活着)')
         print('  通用: -n 每源条数 -f json/text/markdown -o 文件 --no-cache --no-proxy')
         print('\n* = 默认源; feed 与 rank 的分工: rank 看热度榜, feed 看时序新内容')
         return 0
