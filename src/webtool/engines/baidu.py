@@ -64,12 +64,12 @@ def _get_html(url, proxy, timeout):
     """多步预热 → 搜索 (验证码检测/降级梯/节奏全在 transport.get)"""
     # 步骤1+2: 首页领 cookie + sugrec 行为链预热 (失败不致命, 继续搜)
     try:
-        warm = transport._cr.Session(
-            impersonate=transport.PROFILES['chrome131_win']['impersonate'],
-            proxy=proxy or None)
-        warm.get(BAIDU + '/', timeout=timeout)
-        warm.get(f'{BAIDU}/sugrec?prod=pc&wd={urllib.parse.quote("百")}',
-                 timeout=timeout)
+        warm, wprof = transport._new_session('chrome131_win', proxy, 'baidu')
+        transport.session_get(BAIDU + '/', warm, kind='nav',
+                              profile=wprof, timeout=timeout)
+        transport.session_get(f'{BAIDU}/sugrec?prod=pc&wd={urllib.parse.quote("百")}',
+                              warm, kind='xhr', referer=BAIDU + '/',
+                              profile=wprof, timeout=timeout)
         # 步骤3: 带着会话 cookie 搜索
         text, status = transport.session_get(
             url, warm, kind='nav', referer=BAIDU + '/', timeout=timeout)

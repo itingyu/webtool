@@ -78,8 +78,11 @@ def handle(args, cfg):
                     return 2
             opener = _http.build_opener(val)
             t0 = time.time()
-            r = opener.open(urllib.request.Request('https://www.bing.com/robots.txt',
-                              headers={'User-Agent': 'Mozilla/5.0'}), timeout=10)
+            from .transport import headers_for as _hf
+            r = opener.open(urllib.request.Request(
+                'https://www.bing.com/robots.txt',
+                headers=_hf('nav', 'https://www.bing.com/robots.txt',
+                            full=True)), timeout=10)
             body = r.read(64)
             print(f'OK {r.status} {len(body)}B in {time.time()-t0:.1f}s via {val}')
         except Exception as e:

@@ -30,6 +30,7 @@ dukpy 补充实验 (2026-10-10, 见 /var/minis/workspace/BOTGUARD_NOTES.md):
 如果未来 google 把 nojs 流程的评分放宽 (或用户配置了住宅代理), solve()
 会自动生效 — 对上层透明.
 """
+import base64
 import re
 import time
 import urllib.parse

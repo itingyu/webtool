@@ -10,9 +10,11 @@
    + accept: application/json + origin/referer 推导), 开放 API 用 API 惯例头,
    避免 header 与人行为不一致触发反爬
 
-UA 策略 (A/B 实测 2026-10-09):
-- 裸 UA 打 bilibili 直接 412, 浏览器 UA 全部 200; 开放 API 对浏览器 UA 同样接受
-- 全部经 transport: UA/TLS/sec-ch-ua 同源一致, 不手工拼装
+UA 策略 (v1.8 反探测统一):
+- 全部出网走 transport 指纹档案 (curl_cffi impersonate + 同源 UA), 轮换池
+  chrome131 win/mac/linux + safari18_4_ios, 同引擎同进程固定档案;
+- 开放 REST API (github/so/hn...) 同样用浏览器 UA — Python 默认 UA 是
+  一级机器人特征; Accept-Language 按站点语言 (EN 站 API 用 en-US)
 """
 import json
 import re
@@ -20,24 +22,31 @@ import urllib.parse
 
 from .. import transport
 
-# 浏览器站点 (XHR 指纹) 与开放 API (API 惯例头) 共用的 UA 常量 (文档/兼容用)
+# 浏览器 UA 常量 (文档/兼容用; 实际 header 全部经 transport._headers 动态构造)
 _UA = transport.PROFILES['chrome131_win']['ua']
 _TOOL_UA = _UA
 
 
 def _headers(site_url, kind='api', extra=None):
-    """构造与真人浏览器一致的请求头 (transport.headers_for 的站点适配包装)
+    """按站点形态构造请求头 (全部经 transport 指纹档案, 与 TLS 同源)
 
     kind: 'api'  = 页面 JS 发起的 XHR/fetch 请求 (cors 模式)
           'nav'  = 直接导航打开 (document 模式)
-          'rest' = 开放 REST API (github/arxiv...): 惯例头, 不带浏览器指纹
+          'rest' = 开放 REST API (github/arxiv...): 浏览器 UA + JSON Accept,
+                   不带 sec-fetch 浏览器专属头 (脚本直接调 API 的真实形态)
     site_url: 请求目标 URL, 用于推导 Origin/Referer/sec-fetch-site
     """
+    # urllib 兜底与 cffi 不同: 无 impersonate, UA 必须显式给 — 用档案 UA
+    # (与全局轮换同源), rest 通道同理; cffi 通道 UA 一律交给 impersonate
+    h = {}
     p = urllib.parse.urlparse(site_url)
     origin = f'{p.scheme}://{p.netloc}'
     if kind == 'rest':
-        return {'Accept': 'application/json', 'User-Agent': _TOOL_UA,
-                **(extra or {})}
+        h = {'Accept': 'application/json',
+             'User-Agent': transport.PROFILES[transport._pick_profile(None)]['ua'],
+             'Accept-Language': transport.LANG_EN,
+             **(extra or {})}
+        return h
     h = transport.headers_for('xhr' if kind == 'api' else 'nav', site_url,
                               referer=origin + '/')
     if kind == 'api':
@@ -50,9 +59,6 @@ def _headers(site_url, kind='api', extra=None):
                 h[k] = v
     return h
 
-
-# ---------------------------------------------------------------- 注册表
-# site_key -> {desc, fn, proxy_hint: 'direct'|'proxy'|None(auto)}
 
 def _clean_html(s):
     return re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', s or '')).strip()
@@ -273,12 +279,24 @@ def npm(q, limit=10, proxy=None, timeout=15):
     return out
 
 
-def _fetch(url, proxy, timeout, headers):
-    """站点请求统一走 transport (浏览器指纹), engine=None 不做验证码处置"""
+def _fetch(url, proxy, timeout, headers, profile=None, engine=None):
+    """站点请求统一走 transport (浏览器指纹), engine=None 不做验证码处置
+
+    profile: 传输指纹档案名 (chrome131_win/mac/linux/android, safari18_4_ios...);
+    None 时由 transport 按引擎轮换 (_ROTATION 池, 同引擎同进程固定)。
+    engine 非 None 时启用反爬全套: 验证码检测/冷却/cookie 持久化/节奏控制。
+    """
+    p = transport.PROFILES.get(profile) if isinstance(profile, str) else profile
     text, status, _via = transport.get(url, kind='plain', proxy=proxy,
                                        timeout=timeout, headers=headers,
-                                       engine=None)
+                                       engine=engine, profile=p)
+    if status != 200:
+        raise RuntimeError(f'HTTP {status} (via {_via})')
     return text, status, _via
+
+
+# ---------------------------------------------------------------- 注册表
+# site_key -> {desc, fn, proxy_hint: 'direct'|'proxy'|None(auto)}
 
 
 def _ts2date(ts):
@@ -301,3 +319,18 @@ SITES = {
     'sspai':        {'fn': sspai, 'desc': '少数派', 'proxy': 'direct'},
     'npm':          {'fn': npm, 'desc': 'npm 包', 'proxy': 'direct'},
 }
+
+
+def _lazy_extend():
+    """moresites/oversites/moresites2 扩展站点延迟注入 (防御循环导入)"""
+    for mod, attr in (('moresites', 'NEW_SITES'), ('oversites', 'OVER_SITES'),
+                      ('moresites2', 'NEW2_SITES')):
+        try:
+            m = __import__(f'webtool.engines.{mod}', fromlist=[attr])
+            SITES.update(getattr(m, attr))
+        except AttributeError:
+            pass
+
+
+if __name__ != '__main__':
+    _lazy_extend()

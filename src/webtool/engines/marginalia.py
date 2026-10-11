@@ -35,12 +35,15 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, page=1):
 
 def _fetch_result_main(url, proxy, timeout):
     """挑战握手: GET → sst 链接 → 等待 → 带 cookie 重放, 直到 main 区出结果"""
-    s = transport._cr.Session(impersonate='chrome131', proxy=proxy or None)
+    prof_name = transport._pick_profile('marginalia')
+    s, prof = transport._new_session(prof_name, proxy, None)
     main = ''
     for _hop in range(_MAX_HOPS):
         try:
             r = s.get(url, timeout=timeout,
-                      headers=transport.headers_for('nav', url, referer=_BASE + '/'))
+                      headers=transport.headers_for('nav', url,
+                                                    referer=_BASE + '/',
+                                                    profile=prof))
             t = r.text
         except Exception:
             raise RuntimeError('marginalia 网络错误')

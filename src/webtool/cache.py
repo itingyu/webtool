@@ -3,14 +3,15 @@
 
 TTL 语义 (2026-10-11 调整): 缓存主要防「短窗口内重复查询/重复抓取」——
 1) 省时 2) 避免对反爬引擎暴露重复行为模式. 数据新鲜度优先于流量节省:
-search/fetch 档位短, 数据基本实时; resolve 是永久事实映射, 仍给 10min.
+search/fetch 档位短, 数据基本实时; resolve 是永久事实映射, 仍给 10min;
+hot (rank 榜单) 120s, 平衡多源并行拉取成本与榜单新鲜度.
 """
 import hashlib
 import json
 import os
 import time
 
-TTL = {'search': 60, 'fetch': 10, 'resolve': 600}
+TTL = {'search': 60, 'fetch': 10, 'resolve': 600, 'hot': 120}
 
 def _path(cfg, bucket, key):
     d = os.path.join(cfg.get('cache_dir') or os.path.expanduser('~/.webtool/cache'), bucket)

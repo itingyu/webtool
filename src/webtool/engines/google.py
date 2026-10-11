@@ -44,10 +44,11 @@ def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1
                 #  不该把 news 也锁死 — 直接降级, news 自己的请求不受 /search 风控)
                 return _news(query, max_results, proxy, timeout, market, page)
             except RuntimeError as e:
-                # IP 级反爬特征时降级 news (错误串含状态码/unusual/sorry)
+                # IP 级反爬特征时降级 news (错误串含状态码/unusual/sorry);
+                # enablejs 壳页 (200 但要求 JS) 同样是风控信号, 一并降级
                 s = str(e)
                 if not ('429' in s or 'unusual' in s or '/sorry/' in s
-                        or '403' in s):
+                        or '403' in s or 'enablejs' in s):
                     raise
     # 无代理或 web 被封: news RSS (国内直连可达性差但配了代理就能通,
     # gnews 域名不在 /search 的限流范围内)
@@ -78,7 +79,14 @@ def _web(query, max_results, proxy, timeout, market, page):
         try:
             from . import gcaptcha as _gc
             if _gc.is_challenge(text, status=status) or '/sorry/' in text:
-                ok2, text2, how = _gc.solve(session, text, str(session.baseurl if hasattr(session, 'baseurl') else 'https://www.google.com/sorry/'), timeout=timeout)
+                gs, gp = transport._new_session('chrome131_win', proxy, 'google')
+                try:
+                    ok2, text2, how = _gc.solve(gs, text, 'https://www.google.com/sorry/', timeout=timeout)
+                finally:
+                    try:
+                        gs.close()
+                    except Exception:
+                        pass
                 if ok2:
                     captcha.mark_ok('google')
                     return text2, status
@@ -108,7 +116,8 @@ def _web(query, max_results, proxy, timeout, market, page):
     for i, r in enumerate(out):
         r['rank'] = i + 1
     if not out:
-        raise RuntimeError(f'google web 解析 0 条 (status={status}, 可能改版)')
+        raise RuntimeError(f'google web 解析 0 条 (status={status}, '
+                           f'{"enablejs壳页" if "enablejs" in text[:2000] else "可能改版"})')
     captcha.mark_ok('google')
     return out
 

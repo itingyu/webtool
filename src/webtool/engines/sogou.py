@@ -123,22 +123,19 @@ def _pc_urllib(q, timeout):
 
 # ---------------- 移动端 (Android 指纹) ----------------
 
-def _mh(profile):
-    """移动端基础头: UA + client hints (impersonate 内置的是桌面 UA, 需显式覆盖)"""
-    return {'User-Agent': profile['ua'],
-            'sec-ch-ua': profile['sec_ch_ua'],
-            'sec-ch-ua-mobile': profile['mobile'],
-            'sec-ch-ua-platform': profile['platform']}
-
 
 def _mobile_search(q, max_results, proxy, timeout, _inner=False):
     """m.sogou Android 指纹: 首页预热 → searchList.jsp, url= 参数直出真实地址"""
     prof = transport.PROFILES['chrome131_android']
-    base = _mh(prof)
+    # 导航头与 Android impersonate 会话同源 (sec-ch-ua 交给 impersonate,
+    # 只补 sec-fetch/priority 等浏览器导航头)
+    base = transport.headers_for('nav', M_HOME, profile=prof)
     html = None
     for attempt in range(2):
         try:
-            s = transport._cr.Session(impersonate='chrome131',
+            # impersonate 与 UA 档案同源: Android UA 必须配 chrome131_android
+            # TLS 指纹 (桌面 chrome131 TLS + Android UA 是自曝组合)
+            s = transport._cr.Session(impersonate='chrome131_android',
                                       proxy=proxy or None)
             s.get(M_HOME, timeout=timeout, headers=dict(base))
             if attempt:
@@ -250,8 +247,10 @@ def resolve_link(link_url, proxy=None, timeout=15):
         pass
     req = urllib.request.Request(
         link_url if link_url.startswith('http') else 'https://www.sogou.com' + link_url,
-        headers={'User-Agent': transport.PROFILES['chrome131_win']['ua'],
-                 'Referer': f'{SOUGOU}/web'})
+        headers=transport.headers_for(
+            'nav', link_url if link_url.startswith('http')
+            else 'https://www.sogou.com' + link_url,
+            referer=f'{SOUGOU}/web', full=True))
     body = opener.open(req, timeout=timeout).read().decode('utf-8', 'ignore')
     m = (re.search(r'window\.location\.replace\("([^"]+)"\)', body)
          or re.search(r"URL='([^']+)'", body)

@@ -23,9 +23,8 @@ def do_site(args, cfg):
                              'source': 'custom(~/.webtool/sites)'})
         print(json.dumps(rows, ensure_ascii=False, indent=1))
         return 0
-    if not args.query:
-        print('usage: webtool site <site> <query>', file=sys.stderr)
-        return 2
+    if args.query is None:
+        args.query = ''          # 热榜类适配器允许空 query (weibo/baidu/toutiao/lobsters/github_trend...)
 
     # 自定义站点优先查 (允许覆盖内置)
     from .customsites import load_custom_sites, search_custom

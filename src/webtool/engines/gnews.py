@@ -58,10 +58,14 @@ def decode(link, proxy=None, timeout=15):
         return None
 
     op = build_opener(proxy)
-    ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+    # 反探测: urllib 通道也用 transport 指纹档案头 (UA 与全局轮换同源)
+    from .. import transport as _t
+    _prof = _t.PROFILES[_t._pick_profile('gnews')]
+    ua = _prof['ua']
     try:
         # 1) article 页 → 三参数 (c-wiz data-n-a-*)
-        req = urllib.request.Request(link, headers={'User-Agent': ua})
+        req = urllib.request.Request(link, headers=_t.headers_for(
+            'nav', link, full=True, profile=_prof))
         with op.open(req, timeout=timeout) as r:
             page = r.read(2 * 1024 * 1024).decode('utf-8', 'ignore')
         gid_p = re.search(r'data-n-a-id="([^"]*)"', page)
@@ -71,7 +75,7 @@ def decode(link, proxy=None, timeout=15):
             _fail()
             return None
         real = _batchexecute(gid_p.group(1), int(ts_p.group(1)),
-                             sg_p.group(1), op, ua, timeout)
+                             sg_p.group(1), op, _prof, timeout)
         if real:
             state.set_breaker('gnews', fails=0)
             _cache_put(gid, real)
@@ -83,7 +87,7 @@ def decode(link, proxy=None, timeout=15):
         return None
 
 
-def _batchexecute(gid, ts, sg, op, ua, timeout):
+def _batchexecute(gid, ts, sg, op, prof, timeout):
     payload = json.dumps(["garturlreq",
         [["X", "X", ["X", "X"], None, None, 1, 1, "US:en", None, 1,
           None, None, None, None, 0, 1],
@@ -94,7 +98,9 @@ def _batchexecute(gid, ts, sg, op, ua, timeout):
         _BATCH_URL,
         data=f'f.req={urllib.parse.quote(freq)}'.encode(),
         headers={'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-                 'User-Agent': ua, 'Referer': 'https://news.google.com/'})
+                 'User-Agent': prof['ua'],
+                 'Accept-Language': _t.LANG_EN,
+                 'Referer': 'https://news.google.com/'})
     with op.open(req, timeout=timeout) as r:
         body = r.read().decode('utf-8', 'ignore')
     m = re.search(r'https?://[^\s"\\]+', body)

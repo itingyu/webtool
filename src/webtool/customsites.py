@@ -10,20 +10,22 @@
     "desc": "V2EX 主题",
     "url": "https://www.sov2ex.com/api/search?q={query}&size={limit}",
     "proxy": "direct",                      // direct | proxy | auto (默认 auto)
-    "headers": {"User-Agent": "Mozilla/5.0"},  // 可选, 覆盖默认头
-    "results_path": "data",                 // 结果数组所在 JSON 路径, / 分层
+    "headers": {"Referer": "https://example.com/"},  // 可选, 覆盖默认头 (UA 默认已是
+                                                     // transport 指纹档案 UA, 勿手写)
+    "results_path": "hits/*/_source",       // 结果数组所在 JSON 路径, / 分层;
+                                            // "*" = 通配: 对数组每项继续下钻 (ES hits 结构)
     "fields": {                             // 结果字段映射, {xx} 引用 + |strip_html
       "title": "title",
       "url": "https://www.v2ex.com/t/{id}",
       "snippet": "content|strip_html",
-      "score": "score"
+      "score": "{_score}"
     }
   }
 }
 
 url 模板变量: {query}(URL编码后的搜索词), {limit}, {page}(从1起)
 字段值支持:
-- "path/to/field"       结果对象的 JSON 路径
+- "path/to/field"       结果对象的 JSON 路径 (支持嵌套 "hits/*/x" 与模板 "{id}")
 - "https://xx/t/{id}"   模板拼接 (引用结果字段)
 - "content|strip_html"  管道后处理: strip_html / trunc200 / date_ts / date_iso
 """
@@ -74,7 +76,11 @@ def search_custom(name, spec, query, limit=10, proxy=None, timeout=15):
     data = json.loads(txt)
     arr = _dig(data, spec['results_path'])
     if arr is None:
-        raise RuntimeError(f'results_path "{spec["results_path"]}" not found in response')
+        msg = data.get('message') or data.get('error') if isinstance(data, dict) else None
+        raise RuntimeError(f'results_path "{spec["results_path"]}" not found in response'
+                           + (f' (server: {msg})' if msg else ''))
+    if arr and not isinstance(arr, list):   # 单对象结果包成数组
+        arr = [arr]
     out = []
     for item in arr[:limit * 2]:
         if not isinstance(item, dict):
@@ -93,26 +99,40 @@ def search_custom(name, spec, query, limit=10, proxy=None, timeout=15):
 
 
 def _dig(obj, path):
-    cur = obj
-    for part in path.split('/'):
-        if isinstance(cur, dict) and part in cur:
-            cur = cur[part]
-        elif isinstance(cur, list):
+    parts = path.split('/')
+
+    def walk(cur, i):
+        if i == len(parts):
+            return cur
+        part = parts[i]
+        if isinstance(cur, dict):
+            return walk(cur[part], i + 1) if part in cur else None
+        if isinstance(cur, list):
+            if part == '*':                # 通配: 对数组每项继续下钻
+                out = []
+                for it in cur:
+                    r = walk(it, i + 1)
+                    if r is not None:
+                        out.append(r)
+                return out
             try:
-                cur = cur[int(part)]
+                return walk(cur[int(part)], i + 1)
             except (ValueError, IndexError):
                 return None
-        else:
-            return None
-    return cur
+        return None
+    return walk(obj, 0)
 
 
 def _render(tpl, item):
     # 管道后处理: "path|strip_html|trunc200"
     parts = tpl.split('|')
     path, pipes = parts[0].strip(), parts[1:]
-    if path.startswith('http'):            # 静态模板 URL
-        val = path
+
+    def sub(m):
+        return str(_dig(item, m.group(1)) or '')
+
+    if path.startswith('http'):            # 模板 URL (可引用结果字段 {id})
+        val = re.sub(r'\{([\w/]+)\}', sub, path)
         for p in pipes:
             val = _pipe(val, p)
         return val
@@ -120,9 +140,7 @@ def _render(tpl, item):
     if val is None:
         return None
     val = str(val)
-    # 模板变量 {field}
-    def sub(m):
-        return str(_dig(item, m.group(1)) or '')
+    # 模板变量 {field} (支持嵌套路径 {_source/id})
     val = re.sub(r'\{([\w/]+)\}', sub, val)
     for p in pipes:
         val = _pipe(val, p)

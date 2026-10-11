@@ -52,20 +52,67 @@ def _fetch_one(url, args, cfg, proxy, timeout):
         return cached
     try:
         from .resilient import fetch as rfetch
-        html, status, via = rfetch(url, proxy=proxy, timeout=timeout)
+        profile = getattr(args, 'profile', None)
+        html, status, via = rfetch(url, proxy=proxy, timeout=timeout,
+                                   profile=profile)
+        if not getattr(args, 'profile', None):
+            # 桌面指纹拿到的像壳页/过薄, 自动切移动指纹再试一次 (按 UA 分流站点)
+            thin = len(html or '') < 6000 or not _spa_marker(html)
+            if thin:
+                try:
+                    h2, s2, v2 = rfetch(url, proxy=proxy, timeout=timeout,
+                                        profile='chrome131_android')
+                    if len(h2) > len(html) * 1.5:
+                        html, status, via = h2, s2, f'{v2}+mobile-fallback'
+                except Exception:
+                    pass
     except Exception as e:
         return {'url': url, 'error': str(e)[:300], 'took_ms': int((time.time() - t0) * 1000)}
     if args.raw:
         return {'url': url, 'status': status, 'html': html, 'via': via,
                 'took_ms': int((time.time() - t0) * 1000)}
     content, meta = _extract(html, url)
-    if meta.pop('_js_shell', None):
+    js_shell = meta.pop('_js_shell', None)
+    thin = not content or len(content) < 150 or _is_nav_shell(content)
+    if js_shell or thin or _looks_spa(html):
+        # SPA 页: 收割内嵌 state (SSR JSON); 采用条件是明显优于现有产出
+        # (>= 2x 且 >= 300 字), 防止用列表/配置噪声盖掉正常正文
+        try:
+            from . import spa
+            md, note = spa.harvest(html, url)
+        except Exception:
+            md, note = '', None
+        if md and len(md) >= max(300, 2 * len(content or '')):
+            content = md
+            if args.max_chars and len(content) > args.max_chars:
+                content = content[:args.max_chars] + '\n…[truncated]'
+            out = {'url': url, 'status': status, 'via': via,
+                   'took_ms': int((time.time() - t0) * 1000),
+                   'chars': len(content), 'content': content,
+                   'extract': 'embedded-state'}
+            if note:
+                out['spa_note'] = note
+            if args.with_metadata and args.format == 'json':
+                out['metadata'] = meta
+            cache.put(cfg, 'fetch', ckey, out)
+            out['cache'] = 'miss'
+            return out
+    if js_shell:
         return {'url': url, 'status': status, 'via': via,
                 'took_ms': int((time.time() - t0) * 1000), 'chars': 0,
                 'content': '',
                 'error': 'JS-only shell page: 内容由 JavaScript 渲染, 纯 HTTP 拿不到正文',
                 'hint': '需要 JS 渲染的页面; 可试: ①该站的 WWW 版而非 M 版 '
-                        '②搜索引擎快照 ③site 子命令站点适配器'}
+                        '②移动端 UA: --profile chrome131_android '
+                        '③site 子命令站点适配器'}
+    if _looks_spa(html) and _is_nav_shell(content or ''):
+        # SPA 页提取产物只是导航/页脚噪声 (下载引导页/登录墙等), 诚实报错
+        return {'url': url, 'status': status, 'via': via,
+                'took_ms': int((time.time() - t0) * 1000), 'chars': 0,
+                'content': '',
+                'error': '导航壳页: 该 URL 只有导航/下载引导, 无正文数据',
+                'hint': '可试: ①该站的正式内容页而非首页壳 ②--profile chrome131_android '
+                        '换移动指纹 ③搜索引擎搜标题拿正文页 URL'}
     if args.max_chars and content and len(content) > args.max_chars:
         content = content[:args.max_chars] + '\n…[truncated]'
     out = {'url': url, 'status': status, 'via': via, 'took_ms': int((time.time() - t0) * 1000),
@@ -78,6 +125,38 @@ def _fetch_one(url, args, cfg, proxy, timeout):
         out['hint'] = 'extract empty: try --format html --raw or site needs JS'
     out['cache'] = 'miss'
     return out
+
+
+def _spa_marker(html):
+    """内嵌 SSR state 特征 (供自动降级判断)"""
+    return bool(re.search(
+        r'id="RENDER_DATA"|__NEXT_DATA__|__NUXT__|__INITIAL_STATE__'
+        r'|__PRELOADED_STATE__|>(?:%7B|%7b|%5B|%5b)[^<]{2000,}',
+        html[:200000]))
+
+
+def _looks_spa(html):
+    """是否带内嵌 SSR state 的 SPA 页 (供空正文时决定要不要收割)"""
+    return bool(re.search(
+        r'id="RENDER_DATA"|window\.(__NEXT_DATA__|__NUXT__|__INITIAL_STATE__'
+        r'|__INITIAL_DATA__|__PRELOADED_STATE__)|>(?:%7B|%7b|%5B|%5b)[^<]{2000,}',
+        html[:400000]))
+
+
+# 导航壳页特征: 提取出的是导航栏/页脚级噪声 (app 下载页, 登录墙等),
+# 不是正文 —— 极短 + 模板词. 用于收紧 thin 判定.
+_NAV_SHELL_RE = re.compile(
+    r'打开APP|APP内打开|下载.{0,4}APP|打开.{0,4}应用|登录.{0,4}后.{0,6}(查看|继续)'
+    r'|产品功能|隐私政策|权限列表|ICP备|粤ICP|京ICP', re.I)
+
+
+def _is_nav_shell(content):
+    """提取产物是否导航壳噪声: 极短文本 + 模板词, 或 < 90 字符"""
+    body = re.sub(r'^---[\s\S]*?---', '', content or '').strip()  # 去 YAML 头
+    body = re.sub(r'\s+', '', body)
+    if len(body) < 90:
+        return True
+    return len(body) < 260 and bool(_NAV_SHELL_RE.search(body))
 
 
 def _extract(html, url):

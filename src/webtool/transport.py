@@ -67,15 +67,26 @@ PROFILES = {
     },
     # 移动端档案 (m.sogou 等移动站): UA 与 platform/mobile 全套对齐
     'chrome131_android': {
-        'impersonate': 'chrome131',
+        'impersonate': 'chrome131_android',   # 真移动指纹 (TLS 层面)
         'ua': ('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 '
                '(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36'),
         'sec_ch_ua': _SCU131, 'platform': '"Android"', 'mobile': '?1',
         'accept_nav': _ACCEPT_NAV,
     },
+    # iOS Safari 档案: Safari 不发 sec-ch-ua client hints (Chromium 专属),
+    # headers_for(full=True) 按空值跳过 — 补齐此前被引用却缺失的档案
+    'safari18_4_ios': {
+        'impersonate': 'safari184_ios',
+        'ua': ('Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) '
+               'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 '
+               'Mobile/15E148 Safari/604.1'),
+        'sec_ch_ua': '', 'platform': '', 'mobile': '',
+        'accept_nav': _ACCEPT_NAV,
+    },
 }
 
-_ROTATION = ['chrome131_win', 'chrome131_win', 'chrome131_mac', 'chrome131_linux']
+_ROTATION = ['chrome131_win', 'chrome131_win', 'chrome131_mac',
+             'chrome131_linux', 'safari18_4_ios']
 
 ACCEPT_XHR = 'application/json, text/plain, */*'
 LANG_ZH = 'zh-CN,zh;q=0.9,en;q=0.8'
@@ -139,17 +150,24 @@ def headers_for(kind, url, referer=None, lang=LANG_ZH, profile=None,
     upgrade-insecure-requests/referer/origin)。UA/sec-ch-ua/accept-encoding 交给
     impersonate 保证与 TLS 指纹同版本 — 手动传反而可能错位。
     full=True  (urllib 兜底): 显式全套, 包括 UA/sec-ch-ua/accept-encoding(gzip)。
+
+    注意: curl_cffi 的 impersonate 自带 UA/指纹头 (与 impersonate 版本对齐,
+    如 chrome131_android 自带 Android UA), 本函数 full=False 时**不会**设置
+    UA — 传给 cffi 会话的 header 集不该含 User-Agent (传了反而把 impersonate
+    的对齐 UA 覆盖成档案字符串, 出现 "UA 与 TLS 指纹不同源" 的自曝组合)。
     """
     p = profile or PROFILES['chrome131_win']
     h = {}
     if full:
-        h.update({
-            'User-Agent': p['ua'],
-            'Accept-Encoding': 'gzip, deflate',
-            'sec-ch-ua': p['sec_ch_ua'],
-            'sec-ch-ua-mobile': p['mobile'],
-            'sec-ch-ua-platform': p['platform'],
-        })
+        if p.get('ua'):
+            h['User-Agent'] = p['ua']
+        h['Accept-Encoding'] = 'gzip, deflate'
+        if p.get('sec_ch_ua'):
+            h['sec-ch-ua'] = p['sec_ch_ua']
+        if p.get('mobile'):
+            h['sec-ch-ua-mobile'] = p['mobile']
+        if p.get('platform'):
+            h['sec-ch-ua-platform'] = p['platform']
     if kind == 'nav':
         h.update({
             'Accept': p['accept_nav'],
@@ -201,8 +219,11 @@ def _export_cookies(session):
 
 
 def _new_session(profile_name, proxy=None, engine=None):
-    """新会话: 指纹档案 + state 里的持久 cookie 预载"""
-    p = PROFILES[profile_name]
+    """新会话: 指纹档案 (名或 dict) + state 里的持久 cookie 预载"""
+    if isinstance(profile_name, dict):
+        p = profile_name
+    else:
+        p = PROFILES[profile_name]
     s = _cr.Session(impersonate=p['impersonate'], proxy=proxy or None)
     if engine:
         for c in state.load_cookies(engine):
@@ -303,8 +324,14 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
             s = session
             p = profile or PROFILES['chrome131_win']
         else:
-            prof = profile or _pick_profile(engine)
-            s, p = _new_session(prof, proxy_arg, engine)
+            # profile 可传档案名 (str) 或档案 dict; dict 时直接用
+            if isinstance(profile, dict):
+                prof = profile
+                p = profile
+            else:
+                prof = profile or _pick_profile(engine)
+                p = PROFILES[prof]
+            s = _new_session(prof, proxy_arg, engine)[0]
         h = headers_for(kind, url, referer=referer, lang=lang, profile=p,
                         extra=headers)
         r = s.get(url, headers=h, timeout=timeout, allow_redirects=True)

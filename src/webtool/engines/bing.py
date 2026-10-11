@@ -137,7 +137,9 @@ def _rss(query, max_results, proxy, timeout, market, page):
     first = (page - 1) * max_results + 1
     url = (f'https://{_host(proxy)}/search?q={q}&format=rss&count={max_results}'
            f'&first={first}&setmkt={urllib.parse.quote(market)}')
-    xml, status, _via = _resilient(url, proxy=proxy, timeout=timeout)
+    h = transport.headers_for('nav', url, referer=f'https://{_host(proxy)}/',
+                              full=True)
+    xml, status, _via = _resilient(url, proxy=proxy, timeout=timeout, headers=h)
     items = re.findall(r'<item>(.*?)</item>', xml, re.S)
     out = []
     for it in items:

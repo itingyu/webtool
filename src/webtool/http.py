@@ -5,6 +5,9 @@
 1. transport 的 urllib 兜底 (cffi 自身崩溃时)
 2. 老式 socks 代理 (pysocks)
 不再承担搜索引擎主路径。
+
+反探测: http_get 未显式给 UA 时自动套 transport 指纹档案的浏览器 UA
+(含 Accept-Language), 禁止裸 Python-urllib 指纹出网。
 """
 import gzip
 import io
@@ -49,11 +52,17 @@ def _parse_auth(auth):
 
 def http_get(url, proxy=None, timeout=15, headers=None, opener=None,
              max_bytes=8 * 1024 * 1024):
-    """GET 页面, 返回 (text, status). 自动 gzip 解码."""
+    """GET 页面, 返回 (text, status). 自动 gzip 解码.
+
+    默认头反探测: UA/Accept-Language 自动取 transport 指纹档案 (调用方
+    未给时), 与 curl_cffi 通道同源 — 裸 Python-urllib 指纹一律不出网。
+    """
     h = dict(headers or {})
     if not h.get('User-Agent'):
-        from .transport import PROFILES
-        h['User-Agent'] = PROFILES['chrome131_win']['ua']
+        from . import transport as _t
+        p = _t.PROFILES[_t._pick_profile(None)]
+        h.setdefault('User-Agent', p['ua'])
+        h.setdefault('Accept-Language', _t.LANG_ZH)
     req = urllib.request.Request(url, headers=h)
     op = opener or build_opener(proxy)
     try:
