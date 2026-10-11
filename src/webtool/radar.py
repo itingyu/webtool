@@ -36,20 +36,23 @@ def load_rules(proxy=None, refresh=False, timeout=20):
     from . import transport
     errs = []
     for base in _DEFAULT_INSTANCES:
-        try:
-            text, st, _ = transport.get(base + '/api/radar/rules', kind='plain',
-                                        timeout=timeout, proxy=proxy,
-                                        allow_fallback=False)
-            if st == 200 and text.lstrip().startswith('{'):
-                rules = json.loads(text)
-                RADAR_FILE.parent.mkdir(parents=True, exist_ok=True)
-                RADAR_FILE.write_text(json.dumps(
-                    {'ts': time.time(), 'base': base, 'rules': rules},
-                    ensure_ascii=False))
-                return rules
-            errs.append(f'{base}: HTTP {st}')
-        except Exception as e:
-            errs.append(f'{base}: {str(e)[:60]}')
+        # 直连优先 (CF 对代理出口更敏感), 失败再试代理
+        attempts = [None] + ([proxy] if proxy else [])
+        for px in attempts:
+            try:
+                text, st, _ = transport.get(base + '/api/radar/rules', kind='plain',
+                                            timeout=timeout, proxy=px,
+                                            allow_fallback=False)
+                if st == 200 and text.lstrip().startswith('{'):
+                    rules = json.loads(text)
+                    RADAR_FILE.parent.mkdir(parents=True, exist_ok=True)
+                    RADAR_FILE.write_text(json.dumps(
+                        {'ts': time.time(), 'base': base, 'rules': rules},
+                        ensure_ascii=False))
+                    return rules
+                errs.append(f'{base}: HTTP {st}')
+            except Exception as e:
+                errs.append(f'{base}: {str(e)[:60]}')
     raise RuntimeError('radar rules 拉取失败 (全实例): ' + '; '.join(errs))
 
 
