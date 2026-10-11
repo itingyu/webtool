@@ -17,7 +17,7 @@ webtool search "LLM 排行榜" -n 5              # 多引擎: bing,sogou,baidu (
 webtool fetch <url> --max-chars 4000          # 正文提取 → markdown (text/json/html)
 webtool rank                                  # 榜单清单 (18 源热榜: 知乎/微博/抖音/B站/HN/GitHub Trending...)
 webtool rank zhihu weibo -q "汽车"            # 语义筛选 + 跨源重排 (-t 阈值, 默认 0.15)
-webtool feed                                  # RSS 清单 (7 预设 + 任意 feed URL)
+webtool feed                                  # RSS 清单 (7 预设 + 103 随包精选源 + 任意 feed URL)
 webtool feed sspai ithome --new-only          # 增量: 只出上次之后的新条目
 webtool feed radar 36kr                       # 查 RSSHub Radar 规则库 (1310 站点可订阅路由)
 webtool site github fastapi                   # 站内搜索 (18 站点)

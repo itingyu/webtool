@@ -50,15 +50,49 @@ DEFAULT_FEED_SOURCES = ['sspai', 'ithome', 'ifanr', 'ruanyifeng', 'github_blog']
 FEEDS_FILE = os.path.expanduser('~/.webtool/feeds.json')
 FEED_STATE_FILE = os.path.expanduser('~/.webtool/feed_state.json')
 
+# 随包分发的精选源种子 (~/.webtool/feeds.json 不存在时自动落盘)
+SEED_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         'data', 'feeds.seed.json')
+
+
+def _load_seed_feeds():
+    """随包精选源: data/feeds.seed.json {name: {url, desc}}"""
+    try:
+        with open(SEED_FILE, 'r', encoding='utf-8') as f:
+            d = json.load(f) or {}
+    except Exception:
+        return {}
+    return {k: (v if isinstance(v, dict) else {'url': v}) for k, v in d.items()}
+
+
+def _seed_user_feeds(user):
+    """把 seed 里用户还没有的源并入 ~/.webtool/feeds.json。
+
+    只增不覆盖: 用户 --add/--del 过的同名项以用户版本为准, seed 更新也不会
+    抹掉本地改动。写盘失败一律静默 —— 种子只是便利, 挂了不该让命令报错。
+    """
+    seed = _load_seed_feeds()
+    added = [k for k in seed if k not in user]
+    if not added:
+        return user
+    merged = dict(seed)
+    merged.update(user)          # 用户同名项优先
+    try:
+        _save_user_feeds(merged)
+    except Exception:
+        return user
+    return merged
+
 
 def _load_user_feeds():
     """用户自定义源: ~/.webtool/feeds.json {name: {url, desc}}"""
     try:
         with open(FEEDS_FILE, 'r', encoding='utf-8') as f:
             d = json.load(f) or {}
-        return {k: (v if isinstance(v, dict) else {'url': v}) for k, v in d.items()}
+        user = {k: (v if isinstance(v, dict) else {'url': v}) for k, v in d.items()}
     except Exception:
-        return {}
+        user = {}
+    return _seed_user_feeds(user)
 
 
 def _save_user_feeds(d):

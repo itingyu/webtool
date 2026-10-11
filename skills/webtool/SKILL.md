@@ -18,7 +18,7 @@ webtool fetch <url>                         # 正文提取 → markdown (-f text
 webtool fetch <url> --max-chars 3000        # 截断; --url-file 批量
 webtool rank                                # 榜单清单+用法 (18 源)
 webtool rank zhihu weibo -q "汽车"          # 语义筛选: 纯榜源 BM25 本地筛 + 跨源重排; -t 0 只列清单不重排
-webtool feed                                # RSS 清单+用法 (7 预设; 支持任意 feed URL)
+webtool feed                                # RSS 清单+用法 (7 预设 + 103 随包精选源; 支持任意 feed URL)
 webtool feed sspai ithome --new-only        # 抓 feed; --new-only 增量只看新条目
 webtool feed radar 36kr                     # 查 RSSHub Radar 规则库: 域名/站名/路由模糊匹配 → 路由模板
 webtool feed health                         # 坏源登记表 (失败自动记录, 恢复自动移除)
@@ -29,7 +29,7 @@ webtool config set default_engines bing,sogou   # 持久化配置
 ## rank / feed / site 分工
 
 - **rank**：榜单/趋势型源（18 源：zhihu/weibo/baidu/tieba/douyin×2/toutiao/bili×3/sina_hot/douban_movie/netease_music/ithome/hn_official/github_trend/lobsters/reddit）。无参数/`list` = 清单+用法；指定源按源分组**原序**输出（位次=真实热度）；`-q` 语义筛选：支持搜索的源透传站内过滤，纯榜源拉榜后 BM25 阈值筛选（`-t` 默认 0.15）+ 跨源重排；每条带 `source` 字段
-- **feed**：RSS/Atom 时序订阅。7 预设官方 feed + 任意 URL；`--add NAME URL [desc]` / `--del NAME` 自定义管理（~/.webtool/feeds.json，预设不可删）；`--new-only` 增量（状态 ~/.webtool/feed_state.json）；`-q/-t` 语义筛选同 rank。**坏源登记**：失败自动入 `~/.webtool/feed_health.json`；`feed health` 查看（403/timeout/shell/parse 分类）；`--retest KEY|all` 复查（恢复即移除）；`--mark KEY [URL] "备注"` 人工登记
+- **feed**：RSS/Atom 时序订阅。7 预设官方 feed + 103 随包精选源（`src/webtool/data/feeds.seed.json`，安装时自动并入 `~/.webtool/feeds.json`，只增不覆盖本地改动）+ 任意 URL；`--add NAME URL [desc]` / `--del NAME` 自定义管理（~/.webtool/feeds.json，预设不可删）；`--new-only` 增量（状态 ~/.webtool/feed_state.json）；`-q/-t` 语义筛选同 rank。**坏源登记**：失败自动入 `~/.webtool/feed_health.json`；`feed health` 查看（403/timeout/shell/parse 分类）；`--retest KEY|all` 复查（恢复即移除）；`--mark KEY [URL] "备注"` 人工登记
 - **feed radar**：RSSHub Radar 规则库查询（1310 站点 / 5284 条可订阅路由，缓存 ~/.webtool/cache/radar_rules.json TTL 7 天）。`feed radar <关键词>` 按域名/站名/路由标题模糊匹配，输出 `[域名] 站名 | 标题` + target 路由模板（如 `/36kr/hot-list/:category`）；实例前缀 + target 填实参 = 订阅 URL，配 `--add` 落源
 - **RSSHub 兼容**：路由就是普通 URL，直接喂或 `--add`。可用公共实例实测 4 个（rsshub.rssforever.com / hub.slarker.me / rss.wudifeixue.com / rsshub.isrss.com，详见 docs/feed-sources.md）；429 时轮换实例前缀而非换源；官方 rsshub.app 有 CF 挑战不可直用
 - **site**：关键词站内搜索型源，见 `webtool site list`
