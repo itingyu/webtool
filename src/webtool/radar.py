@@ -481,6 +481,32 @@ def probe_official(domain, proxy=None, timeout=8):
     return None, 0, {}
 
 
+def official_section_url(card, filled=None):
+    """由 RSSHub 路由反推官网栏目页 URL。
+
+    做法与用户直觉一致: 把 https://<实例>/<namespace>/<rest> 里的
+    "实例/<namespace>/" 整段换成官网域名, 后面部分原样保留 ——
+    /36kr/newsflashes → https://www.36kr.com/newsflashes。
+
+    优先信 topFeeds[].site_url (那是官方自己给的真实源页面); 没有样例时才
+    退回 namespace 换域名那条启发式。注意启发式并不总成立: RSSHub 的
+    namespace 是路由命名空间, 不总是对应官网路径, 所以它只是兜底。
+    """
+    dom = (card.get('domain') or '').strip()
+    for tf in card.get('top_feeds') or []:
+        if tf.get('site_url'):
+            return tf['site_url']
+    if not dom:
+        return None
+    filled = (filled or card.get('template') or '').strip()
+    if not filled:
+        return f'https://{dom}'
+    ns = filled.strip('/').split('/')[0]
+    rest = filled.strip('/').split('/', 1)
+    rest = rest[1] if len(rest) > 1 else ''
+    return f'https://{dom}/{rest}' if rest else f'https://{dom}'
+
+
 def official_coverage(official, cards, from_url=None):
     """判断官网 feed 覆盖不覆盖这些路由的目标栏目。
 

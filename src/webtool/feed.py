@@ -245,6 +245,99 @@ def _pick_card(cards, pick):
     return hits[0], f'--pick {s}'
 
 
+def _norm_u(u):
+    """归一化 URL 用于比对: 去 query/fragment、去 www.、统一小写主机"""
+    u = (u or '').strip()
+    u = u.split('#')[0].split('?')[0].rstrip('/')
+    return re.sub(r'^https?://(www\.)?', '', u, flags=re.I).lower()
+
+
+def _sec_of(u):
+    rest = re.sub(r'^https?://[^/]+/?', '', (u or '').split('?')[0])
+    return rest.split('/')[0] if rest else ''
+
+
+def _crosscheck(official, rss_url, section, n, cfg, timeout=None,
+                instances=None, base=None):
+    """同时拉官网 feed 与 RSSHub 路由, 交叉校验"官网给不给得了这个栏目"
+
+    官网侧一条请求, RSSHub 侧把候选实例全并发打一遍取先到的 —— 串行轮换实例
+    在实例挂掉时每个都要等满超时, 4 个实例就是 4 倍等待。
+
+    比对只取 URL 集合不比正文: RSSHub 的 link 常带 utm 之类尾参, _norm_u 已
+    剥掉; 标题改写比链接常见, URL 更稳。
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    off_url, _off_n, _buckets = official
+    tmo = timeout or cfg.get('timeout', 20)
+    # 取数条数要比展示的 n 多, 否则两边窗口对不齐, 重叠率会被小样本放大
+    want = max(n, 10) * 3
+
+    def pull(url, tag):
+        for px in ([None] + ([cfg.get('proxy')] if cfg.get('proxy') else [])):
+            try:
+                got = pull_one(tag, url, want, px, tmo)
+                if got:
+                    return got
+            except Exception:
+                continue
+        return []
+
+    cands = list(instances or [None]) or [None]
+    results = {}
+    with ThreadPoolExecutor(max_workers=1 + len(cands)) as ex:
+        f_off = ex.submit(pull, off_url, '_off')
+        # 多实例并发: 每个实例拼自己的前缀, 同一份路径
+        path = rss_path(rss_url)
+        f_rss = {ex.submit(pull, c.rstrip('/') + path, '_rss'): c
+                 for c in cands if c}
+        off_items = f_off.result()
+        rss_items, rss_from = [], None
+        for fu in as_completed(f_rss):
+            got = fu.result()
+            if got and len(got) > len(rss_items):
+                rss_items, rss_from = got, f_rss[fu]
+
+    hit = ([i for i in off_items if _sec_of(i.get('url')) == section]
+           if section else off_items)
+    off_set = {_norm_u(i.get('url')) for i in hit if i.get('url')}
+    rss_set = {_norm_u(i.get('url')) for i in rss_items if i.get('url')}
+    overlap = len(off_set & rss_set)
+    # 一致率以 RSSHub 侧为分母: 它才是"这个栏目"的权威定义
+    consist = (overlap / len(rss_set)) if rss_set else 0.0
+
+    if not off_items:
+        verdict, use = '官网 feed 拉不到 (或无该栏目条目), 只能用 RSSHub 路由', False
+    elif not section:
+        verdict, use = ('官网 feed 是全站流, 无法判定是否等价于该路由, 保守用 RSSHub',
+                        False)
+    elif not hit:
+        verdict, use = (f'官网 feed 里没有 /{section} 的条目, 必须用 RSSHub 路由',
+                        False)
+    elif not rss_set:
+        # RSSHub 侧挂了就没法比对, 但官网侧已经确认含该栏目 —— 官网更稳, 用它
+        verdict, use = (f'RSSHub 路由没拉到条目 (实例侧问题), 但官网 feed 确认含 '
+                        f'/{section} ({len(hit)} 条) —— 用官网', True)
+    elif consist >= 0.6:
+        verdict, use = (f'官网 feed 的 /{section} 与 RSSHub 路由 {overlap}/{len(rss_set)} '
+                        f'一致, 用官网 (免实例依赖)', True)
+    else:
+        verdict, use = (f'官网 feed 的 /{section} 与 RSSHub 路由 只有 {overlap}/'
+                        f'{len(rss_set)} 一致 (官网给的是时序, 路由给的可能是热榜'
+                        f'排序), 建议用 RSSHub 路由', False)
+    return {'ok': True, 'official_url': off_url, 'official_items': len(off_items),
+            'official_hit': len(hit), 'section': section,
+            'rss_items': len(rss_items), 'rss_instance': rss_from,
+            'overlap': overlap, 'consistency': round(consist, 2),
+            'verdict': verdict, 'use_official': use}
+
+
+def rss_path(full_url, base=None):
+    """从完整 RSSHub URL 里剥出路径部分 (多实例并发时要各自拼前缀)"""
+    u = re.sub(r'^https?://[^/]+', '', full_url or '')
+    return u or '/'
+
+
 def _print_route_cards(cards, kw, args, cfg):
     """渲染 feed radar 的路由卡片。
 
@@ -285,7 +378,8 @@ def _print_route_cards(cards, kw, args, cfg):
             if cards else {}
         for i, c in enumerate(cards, 1):
             _print_card(c, idx=i, base=base, official=offs.get(c['domain']),
-                        coverage=cov.get(c['template']))
+                        coverage=cov.get(c['template']),
+                        section_url=_radar.official_section_url(c))
             need = [nm for nm, o, _ in _radar.parse_params(c['template']) if not o]
             tail = f' --param {need[0]}=...' if need else ' (无需填参)'
             _out(f'  取数  --pick {i}{tail}')
@@ -330,7 +424,44 @@ def _print_route_cards(cards, kw, args, cfg):
     url = base + '/' + filled.lstrip('/')   # topFeeds 的 url 不保证带前导 /
     _out(f'  实参  {url}   ({src})\n')
 
-    if adding:
+    # ---- 交叉校验: 官网 feed 和 RSSHub 路由都拉一遍, 比"给不给得了这个栏目" ----
+    fetch_url, fetch_note, xc = url, '', None
+    off = _radar.official_feeds([c['domain']],
+                                proxy=cfg.get('proxy')).get(c['domain'])
+    if off and not getattr(args, 'no_xcheck', False):
+        sec_url = _radar.official_section_url(c, filled)
+        section = _sec_of(sec_url) if sec_url else ''
+        if not section:
+            section = filled.strip('/').split('/')[-1]
+        xc = _crosscheck(off, url, section, n, cfg,
+                         instances=_instance_candidates(
+                             base, getattr(args, 'instance', None), cfg))
+        if sec_url:
+            _out(f"  官网  {sec_url}   (栏目页, 非 feed)")
+        _out(f"  feed  {off[0]}  ({xc['official_items']} 条"
+             + (f", 其中 /{section} {xc['official_hit']} 条" if section else "")
+             + ')')
+        _out(f"  校验  RSSHub {xc['rss_items']} 条"
+             + (f" ({xc['rss_instance']})" if xc.get('rss_instance') else '')
+             + f" · 重叠 {xc['overlap']} 条 (一致率 {xc['consistency']:.0%})")
+        _out(f"        {xc['verdict']}")
+        if xc['use_official']:
+            fetch_url, fetch_note = off[0], '官网 feed'
+        _out()
+    elif off:
+        _out(f"  官网  {_radar.official_section_url(c, filled)}   (栏目页, 非 feed)")
+        _out(f"  feed  {off[0]}  ({off[1]} 条)  --no-xcheck 跳过校验, "
+             f'固定走 RSSHub 路由\n')
+
+    if adding and fetch_note == '官网 feed':
+        # 校验后决定用官网, 落地也存官网地址 (免得下次又被实例可用性卡住)
+        name = getattr(args, 'add')[0]
+        user = _load_user_feeds()
+        user[name] = {'url': fetch_url,
+                      'desc': f"{c['site']} · {c['name']} (官方 feed)"}
+        _save_user_feeds(user)
+        _out(f'✓ 已落 ~/.webtool/feeds.json: {name} → 官网 feed\n')
+    elif adding:
         name = getattr(args, 'add')[0]
         user = _load_user_feeds()
         user[name] = {'url': url, 'desc': f"{c['site']} · {c['name']} (RSSHub)"}
@@ -343,17 +474,23 @@ def _print_route_cards(cards, kw, args, cfg):
     # 路由名常是一长串 ("资讯, 快讯, 用户文章, ..."), 拿来当源名没法看
     label = f"{c['site']}·{c['name']}".split(',')[0].split('、')[0].strip()
     src_name = re.sub(r'[^\w.\u4e00-\u9fff-]+', '_', label)[:28] or 'radar'
-    tried, last_err = [], None
-    for cand in _instance_candidates(base, getattr(args, 'instance', None), cfg):
-        tried.append(cand)
+    if fetch_note:
+        _out(f'-- 取数源: {fetch_note} {fetch_url}\n')
+    tried, last_err, items = [], None, None
+    cands = ([None] if fetch_note else
+             _instance_candidates(base, getattr(args, 'instance', None), cfg))
+    for cand in cands:
+        if cand:
+            tried.append(cand)
         for px in ([None] + ([cfg.get('proxy')] if cfg.get('proxy') else [])):
             try:
-                items = pull_one(src_name, url, n, px, cfg.get('timeout', 20))
+                items = pull_one(src_name, fetch_url, n, px,
+                                 cfg.get('timeout', 20))
             except Exception as e:
                 last_err = str(e)[:120]
                 continue
             if items:
-                if cand != base:
+                if cand and cand != base:
                     _out(f'  (主实例 {base} 拉不到, 换 {cand} 成功)', file=sys.stderr)
                 break
             last_err = '可达但 0 条'
@@ -361,26 +498,33 @@ def _print_route_cards(cards, kw, args, cfg):
             continue
         break
     else:
-        _out(f'拉取失败 ({last_err or "未知"}); 已试 {len(tried)} 个实例: '
-             f'{", ".join(tried)}', file=sys.stderr)
-        _out('  用 --instance https://xxx 指定其他公共实例, 或换路由 --pick N',
+        _out(f'拉取失败 ({last_err or "未知"})'
+             + (f'; 已试 {len(tried)} 个实例: {", ".join(tried)}' if tried else ''),
              file=sys.stderr)
+        if not fetch_note:
+            _out('  用 --instance https://xxx 指定其他公共实例, 或换路由 --pick N',
+                 file=sys.stderr)
         return 1
     if not items:
-        _out(f'{src_name}: 可达但 0 条 (实例可能不支持该路由, 试 --instance 换)',
+        _out(f'{src_name}: {fetch_note or base} 可达但 0 条'
+             + ('' if fetch_note else ' (实例可能不支持该路由, 试 --instance 换)'),
               file=sys.stderr)
         return 1
     out = {'cmd': 'feed', 'sources': [src_name], 'requested': n, 'took_ms': 0,
            'ok': [src_name], 'failed': [],
            'sources_data': {src_name: items}, 'errors': {}, 'filtered_out': 0,
            'total': len(items), 'route': {'template': c['template'],
-                                          'url': url, 'params': p2, 'via': src}}
+                                          'url': url, 'params': p2, 'via': src,
+                                          'fetched_from': fetch_url,
+                                          'source': fetch_note or 'RSSHub',
+                                          'crosscheck': xc}}
     from .hotrender import render_hot
     render_hot(out, args.format)
     return 0
 
 
-def _print_card(c, idx=None, base=None, official=None, coverage=None):
+def _print_card(c, idx=None, base=None, official=None, coverage=None,
+                section_url=None):
     """单条路由卡片。模板行永远是原始模板 —— 填参不改写它。
 
     base 非空时附 URL 行: 模板形态 (占位符原样, 看得出还要填什么) + example
@@ -415,15 +559,17 @@ def _print_card(c, idx=None, base=None, official=None, coverage=None):
         _out(f"  样例{i} {tf['title'][:38]:40s} {tf['site_url'][:52]}")
     if c.get('guessed'):
         _out('  反推  ' + ', '.join(f'{k}={v}' for k, v in c['guessed'].items()))
+    if section_url:
+        # 官网栏目页: RSSHub 路径把"实例/<namespace>/"换成官网域名, 后段原样保留
+        # (/36kr/newsflashes → https://www.36kr.com/newsflashes)。
+        # 这是 HTML 栏目页, 不是 feed —— 两者别混, feed 另起一行标 feed。
+        _out(f"  官网  {section_url}   (栏目页, 非 feed)")
     if official:
-        # 官网 feed 与 RSSHub 路由不是替代关系, 关键是"官网给不给得了这个栏目":
-        # 官网稳、无限流、不依赖实例, 但只含它自己的栏目。判据 = 官网 feed 条目
-        # 链接的栏目分布 vs 该路由的目标栏目 (36氪官网 feed 含 newsflashes 20 条,
-        # 所以快讯不必借 RSSHub; 反之 /p 栏目它就不含)。
+        # 官方 feed 存在不等于给得了这个栏目; 判据是条目链接的栏目分布
         url, items, buckets = official
         secs = ' / '.join(f'{k} {v}' for k, v in
                           sorted(buckets.items(), key=lambda kv: -kv[1])[:3])
-        _out(f"  官网  {url}  ({items} 条 · {secs})")
+        _out(f"  feed  {url}  ({items} 条 · {secs})")
         if coverage is not None:
             hit, cnt = coverage
             if hit == '(root)':

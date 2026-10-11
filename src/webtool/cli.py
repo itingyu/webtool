@@ -171,6 +171,8 @@ def main(argv=None):
                      help='按分类过滤路由 (new-media/programming/finance/...)')
     _rg.add_argument('--radar-refresh', action='store_true',
                      help='强制刷新路由库缓存 (默认 7 天)')
+    _rg.add_argument('--no-xcheck', action='store_true',
+                     help='不与官网 feed 交叉校验 (默认校验并据此决定取数源)')
     _add_common_output(pfeed)
     _add_common_net(pfeed)
 
