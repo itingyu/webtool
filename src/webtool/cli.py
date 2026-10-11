@@ -173,6 +173,9 @@ def main(argv=None):
                      help='强制刷新路由库缓存 (默认 7 天)')
     _rg.add_argument('--no-xcheck', action='store_true',
                      help='不与官网 feed 交叉校验 (默认校验并据此决定取数源)')
+    _rg.add_argument('--items', action='store_true',
+                     help='校验后把选定源的条目完整输出 (-f 生效); '
+                          '默认只报校验结论与耗时, 不重复打印条目')
     _add_common_output(pfeed)
     _add_common_net(pfeed)
 

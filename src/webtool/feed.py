@@ -199,10 +199,16 @@ def _instance_candidates(preferred, explicit, cfg):
     /36kr/newsflashes 正常但 /36kr/hot-list 503), 所以要多备几个。
     """
     from . import radar as _radar
-    alive = [it['instance'].rstrip('/') for it in
-             _radar.instances(proxy=cfg.get('proxy')) if it['ok']]
+    # 探到有一个能用的就够: 全量探活要为每个挂掉的实例付一遍双轮超时
+    # (实测 slarker 单个 61s), 而紧接着的校验本来就是并发挨个试
+    lst = _radar.instances(proxy=cfg.get('proxy'), need=1)
+    alive = [it['instance'].rstrip('/') for it in lst if it['ok']]
+    # 没探到的也留着当候选 —— 未探测不等于不可用
+    unknown = [it['instance'].rstrip('/') for it in lst
+               if not it['ok'] and it.get('err') == '未探测']
     out = []
-    for x in (explicit.rstrip('/') if explicit else None, preferred, *alive):
+    for x in (explicit.rstrip('/') if explicit else None, preferred,
+              *alive, *unknown):
         if x and x not in out:
             out.append(x)
     return out
@@ -267,36 +273,50 @@ def _crosscheck(official, rss_url, section, n, cfg, timeout=None,
     比对只取 URL 集合不比正文: RSSHub 的 link 常带 utm 之类尾参, _norm_u 已
     剥掉; 标题改写比链接常见, URL 更稳。
     """
-    from concurrent.futures import ThreadPoolExecutor
+    from . import radar as _radar
     off_url, _off_n, _buckets = official
     tmo = timeout or cfg.get('timeout', 20)
     # 取数条数要比展示的 n 多, 否则两边窗口对不齐, 重叠率会被小样本放大
     want = max(n, 10) * 3
 
     def pull(url, tag):
+        """返回 (items, ms)。直连优先再代理, 记的是成功那次的耗时。"""
+        t0 = time.perf_counter()
         for px in ([None] + ([cfg.get('proxy')] if cfg.get('proxy') else [])):
             try:
                 got = pull_one(tag, url, want, px, tmo)
                 if got:
-                    return got
+                    return got, int((time.perf_counter() - t0) * 1000)
             except Exception:
                 continue
-        return []
+        return [], int((time.perf_counter() - t0) * 1000)
 
-    cands = list(instances or [None]) or [None]
-    results = {}
-    with ThreadPoolExecutor(max_workers=1 + len(cands)) as ex:
-        f_off = ex.submit(pull, off_url, '_off')
-        # 多实例并发: 每个实例拼自己的前缀, 同一份路径
-        path = rss_path(rss_url)
-        f_rss = {ex.submit(pull, c.rstrip('/') + path, '_rss'): c
-                 for c in cands if c}
-        off_items = f_off.result()
-        rss_items, rss_from = [], None
-        for fu in as_completed(f_rss):
-            got = fu.result()
-            if got and len(got) > len(rss_items):
-                rss_items, rss_from = got, f_rss[fu]
+    cands = [c for c in (instances or []) if c] or [None]
+    t_all = time.perf_counter()
+    # 多实例并发: 每个实例拼自己的前缀, 同一份路径。race() 收第一个成功的,
+    # 剩下那些挂的随进程退出, 不 join —— 否则要白等它们跑满双轮超时。
+    path = rss_path(rss_url)
+    jobs = {c: (lambda c=c: pull(c.rstrip('/') + path, '_rss')) for c in cands}
+    # 官网和 RSSHub 各自是"一路", 竞争只在 RSSHub 的多个实例之间 —— 官网那条
+    # 几乎必然成功, 把它塞进同一个 race 会让它一马当先, RSSHub 根本来不及发
+    # (实测并发 4 个实例最后全被判 0 条)。所以官网单起一个线程, RSSHub 内部
+    # 才 race。
+    import threading
+    box = {}
+
+    def run_off():
+        box['r'] = pull(off_url, '_off')
+    th_off = threading.Thread(target=run_off, daemon=True)
+    th_off.start()
+    got_all = _radar.race(jobs, ok=lambda r: bool(r and r[0]), timeout=None)
+    th_off.join()                        # 官网这一路必须拿到结果才能比对
+    off_items, off_ms = box.get('r', ([], 0))
+    rss_hits = [(k, v) for k, v in got_all.items() if v and v[0]]
+    if rss_hits:
+        rss_from, (rss_items, rss_ms) = max(rss_hits, key=lambda kv: len(kv[1][0]))
+    else:
+        rss_from, rss_items, rss_ms = None, [], 0
+    wall_ms = int((time.perf_counter() - t_all) * 1000)
 
     hit = ([i for i in off_items if _sec_of(i.get('url')) == section]
            if section else off_items)
@@ -328,8 +348,13 @@ def _crosscheck(official, rss_url, section, n, cfg, timeout=None,
     return {'ok': True, 'official_url': off_url, 'official_items': len(off_items),
             'official_hit': len(hit), 'section': section,
             'rss_items': len(rss_items), 'rss_instance': rss_from,
+            'official_ms': off_ms, 'rss_ms': rss_ms, 'wall_ms': wall_ms,
+            'instances_tried': len(cands), 'rss_hits': len(rss_hits),
             'overlap': overlap, 'consistency': round(consist, 2),
-            'verdict': verdict, 'use_official': use}
+            'verdict': verdict, 'use_official': use,
+            # 条目一并带回: 校验已经把两边都拉下来了, 取数直接复用不必再拉
+            'official_items_data': hit or off_items,
+            'rss_items_data': rss_items}
 
 
 def rss_path(full_url, base=None):
@@ -438,13 +463,17 @@ def _print_route_cards(cards, kw, args, cfg):
                              base, getattr(args, 'instance', None), cfg))
         if sec_url:
             _out(f"  官网  {sec_url}   (栏目页, 非 feed)")
-        _out(f"  feed  {off[0]}  ({xc['official_items']} 条"
-             + (f", 其中 /{section} {xc['official_hit']} 条" if section else "")
-             + ')')
-        _out(f"  校验  RSSHub {xc['rss_items']} 条"
-             + (f" ({xc['rss_instance']})" if xc.get('rss_instance') else '')
-             + f" · 重叠 {xc['overlap']} 条 (一致率 {xc['consistency']:.0%})")
-        _out(f"        {xc['verdict']}")
+        # 两边并发拉, 所以各自耗时接近、墙钟约等于其中之一 —— 这正是并发的
+        # 收益; 串行轮换 4 个实例要叠加 4 倍超时
+        _out(f"  feed    {off[0]}")
+        _out(f"          {xc['official_items']} 条"
+             + (f" (其中 /{section} {xc['official_hit']} 条)" if section else "")
+             + f"  ·  {xc['official_ms']}ms")
+        _out(f"  RSSHub  {xc['rss_instance'] or '全部实例都没出'}")
+        _out(f"          {xc['rss_items']} 条  ·  {xc['rss_ms']}ms"
+             f"   (并发 {xc['instances_tried']} 个实例, 墙钟 {xc['wall_ms']}ms)")
+        _out(f"  校验    重叠 {xc['overlap']} 条 (一致率 {xc['consistency']:.0%})")
+        _out(f"          {xc['verdict']}")
         if xc['use_official']:
             fetch_url, fetch_note = off[0], '官网 feed'
         _out()
@@ -474,6 +503,29 @@ def _print_route_cards(cards, kw, args, cfg):
     # 路由名常是一长串 ("资讯, 快讯, 用户文章, ..."), 拿来当源名没法看
     label = f"{c['site']}·{c['name']}".split(',')[0].split('、')[0].strip()
     src_name = re.sub(r'[^\w.\u4e00-\u9fff-]+', '_', label)[:28] or 'radar'
+    route = {'template': c['template'], 'url': url, 'params': p2, 'via': src,
+             'fetched_from': fetch_url, 'source': fetch_note or 'RSSHub',
+             'crosscheck': xc, 'title': c['name'], 'site': c['site']}
+
+    # 校验已经把选中源拉下来了 —— 复用, 别为了取数再打一遍网络
+    reuse = ((xc or {}).get('official_items_data')
+             if (xc or {}).get('use_official')
+             else (xc or {}).get('rss_items_data'))
+    if reuse:
+        _out(f"  取数    {fetch_note or 'RSSHub'} → {fetch_url}")
+        _out(f"          复用校验结果 {len(reuse)} 条 (零额外请求);"
+             f"要条目加 --items\n")
+        if not getattr(args, 'items', False):
+            return 0
+        items = reuse[:max(getattr(args, 'max', 10) or 10, 1)]
+        from .hotrender import render_hot
+        render_hot({'cmd': 'feed', 'sources': [src_name],
+                    'requested': len(items), 'took_ms': (xc or {}).get('wall_ms', 0),
+                    'ok': [src_name], 'failed': [], 'sources_data': {src_name: items},
+                    'errors': {}, 'filtered_out': 0, 'total': len(items),
+                    'route': route}, args.format)
+        return 0
+
     if fetch_note:
         _out(f'-- 取数源: {fetch_note} {fetch_url}\n')
     tried, last_err, items = [], None, None

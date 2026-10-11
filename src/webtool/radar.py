@@ -29,6 +29,51 @@ ROUTES_URL = 'https://docs.rsshub.app/routes.json'
 ROUTES_FILE = Path.home() / '.webtool' / 'cache' / 'rsshub_routes.json'
 ROUTES_TTL = 7 * 86400
 
+def race(jobs, ok=None, timeout=None, need=None):
+    """并发跑 {key: callable}
+
+    need=None: 等到第一个满足 ok 的就返回 (results 只含已完成的 key)。
+    need=N  : 等 N 个满足 ok 的 (实例探活用: 只想找一个能用的, 或者要全量清单)。
+    need=-1 : 等全部跑完 (要完整清单时必须显式要, 否则早退会把没回来的记成未知)。
+
+    用 daemon 线程而不是 ThreadPoolExecutor: 后者在解释器退出时会把所有
+    worker join 掉, 而我们恰恰是要放弃那些还没回来的慢/挂请求 —— 实测
+    放弃两个探活失败的实例, 进程仍被拖住 40s 等它们跑满双轮超时。
+    daemon 线程不阻塞退出, 慢的那几个直接随进程一起结束。
+    """
+    import threading
+    ok = ok or (lambda r: bool(r))
+    results, lock, done = {}, threading.Lock(), threading.Event()
+    left = [len(jobs)]
+    hits = [0]
+
+    def run(key, fn):
+        try:
+            r = fn()
+        except Exception:
+            r = None
+        with lock:
+            results[key] = r
+            left[0] -= 1
+            if ok(r):
+                hits[0] += 1
+            if need == -1:
+                finished_enough = left[0] <= 0        # 等全部
+            elif need:
+                finished_enough = hits[0] >= need      # 等够 N 个
+            else:
+                finished_enough = True                 # 等第一个
+        if finished_enough or left[0] <= 0:
+            done.set()
+
+    threads = [threading.Thread(target=run, args=(k, fn), daemon=True)
+               for k, fn in jobs.items()]
+    for t in threads:
+        t.start()
+    done.wait(timeout)
+    return results
+
+
 RADAR_FILE = Path.home() / '.webtool' / 'cache' / 'radar_rules.json'
 RADAR_TTL = 7 * 86400
 
@@ -361,49 +406,70 @@ def stats(rules):
 # ---------------------------------------------------------------- 实例探活
 
 
-def instances(proxy=None, refresh=False):
+def instances(proxy=None, refresh=False, need=None, timeout=10):
     """实例列表 + 探活结果 [{instance, ok, ms, items, err}], 缓存 1 小时
 
     公共实例的可用性逐日变化 (实测 rssforever 从可用变超时, isrss 变 403),
     所以默认探测而不是信文档。
+
+    need=N 时凑够 N 个可用实例就返回 —— 全量探活要等每个挂掉的实例跑满
+    直连+代理两轮超时 (单实例 2×timeout), best_instance 只是想找一个能用的,
+    没必要为这个等全场。
     """
     if not refresh and INSTANCES_FILE.exists():
         try:
             o = json.loads(INSTANCES_FILE.read_text())
-            if time.time() - o.get('ts', 0) < INSTANCES_TTL and o.get('list'):
-                return o['list']
+            lst = o.get('list') or []
+            fresh = time.time() - o.get('ts', 0) < INSTANCES_TTL
+            if fresh and lst:
+                got = [i for i in lst if i.get('ok')]
+                # partial 缓存 (有实例没探到) 只在"只需要够 N 个"时可信;
+                # 要全量清单就得真探完, 否则会把 '未探测' 当结论用
+                if need is not None and len(got) >= need:
+                    return lst
+                if o.get('complete'):
+                    return lst
         except Exception:
             pass
-    from concurrent.futures import ThreadPoolExecutor
     from . import transport
-    out = [None] * len(_DEFAULT_INSTANCES)
 
-    def probe(i, base):
+    def probe(base):
         t0 = time.time()
         attempts = [None] + ([proxy] if proxy else [])
         last = 'no route'
         for px in attempts:
             try:
                 text, st, _ = transport.get(base + _PROBE_ROUTE, kind='plain',
-                                            timeout=25, proxy=px,
+                                            timeout=timeout, proxy=px,
                                             allow_fallback=False)
                 n = len(re.findall(r'<(?:item|entry)[\s>]', text or ''))
                 if st == 200 and n:
                     return {'instance': base, 'ok': True, 'items': n,
                             'ms': int((time.time() - t0) * 1000), 'err': ''}
-                last = f'HTTP {st}' + (f' 0 items' if st == 200 else '')
+                last = f'HTTP {st}' + (' 0 items' if st == 200 else '')
             except Exception as e:
                 last = str(e)[:50]
         return {'instance': base, 'ok': False, 'items': 0,
                 'ms': int((time.time() - t0) * 1000), 'err': last}
 
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        futs = {ex.submit(probe, i, b): i for i, b in enumerate(_DEFAULT_INSTANCES)}
-        for fu, i in futs.items():
-            out[i] = fu.result()
+    jobs = {b: (lambda b=b: probe(b)) for b in _DEFAULT_INSTANCES}
+    if need is None:
+        # 要全量清单 (`feed instances` 就是这个用法), 必须等全部回来, 否则
+        # 早退会把没探到的显示成 '未探测' —— 看着像挂了, 其实没问过
+        found = race(jobs, ok=lambda r: False, timeout=timeout * 3, need=-1)
+    else:
+        found = race(jobs, ok=lambda r: bool(r and r['ok']),
+                     timeout=timeout * 3, need=need)
+    out = [found.get(b, {'instance': b, 'ok': False, 'items': 0, 'ms': 0,
+                          'err': '未探测'})
+           for b in _DEFAULT_INSTANCES]
+    complete = all(x['err'] != '未探测' for x in out)
+    # 早退的部分结果也要落盘, 否则紧接着的一次全量调用会把刚省下的等待又付
+    # 一遍 (实测 best_instance 只要一个, 紧接着 _instance_candidates 要全部)
     INSTANCES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    INSTANCES_FILE.write_text(json.dumps({'ts': time.time(), 'list': out},
-                                         ensure_ascii=False))
+    INSTANCES_FILE.write_text(json.dumps(
+        {'ts': time.time(), 'list': out, 'complete': complete},
+        ensure_ascii=False))
     return out
 
 
@@ -589,7 +655,9 @@ def best_instance(proxy=None, refresh=False, default=None):
     """
     if default:
         return default.rstrip('/')
-    alive = [it for it in instances(proxy=proxy, refresh=refresh) if it['ok']]
+    # 只探到有一个能用就够: 全量探活要为每个挂掉的实例付一遍双轮超时
+    alive = [it for it in instances(proxy=proxy, refresh=refresh, need=1)
+             if it['ok']]
     if not alive:
         return _DEFAULT_INSTANCES[1].rstrip('/')
     return min(alive, key=lambda it: it['ms'])['instance'].rstrip('/')
