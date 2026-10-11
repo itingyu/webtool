@@ -192,14 +192,75 @@ def _resolve_proxy(cfg, no_proxy):
     return once
 
 
+def _instance_candidates(preferred, explicit, cfg):
+    """拉数用的实例候选顺序: 显式指定 > 当前最快可用 > 其余可用。
+
+    探活只验了一条路由, 不代表该实例支持所有路由 (实测 hub.slanker 跑
+    /36kr/newsflashes 正常但 /36kr/hot-list 503), 所以要多备几个。
+    """
+    from . import radar as _radar
+    alive = [it['instance'].rstrip('/') for it in
+             _radar.instances(proxy=cfg.get('proxy')) if it['ok']]
+    out = []
+    for x in (explicit.rstrip('/') if explicit else None, preferred, *alive):
+        if x and x not in out:
+            out.append(x)
+    return out
+
+
+def _out(*a, **kw):
+    """路由卡片的说明性输出走 stderr。
+
+    cli 对 feed 走 redirect_stdout + emit, rc 非 0 时 emit 被跳过 —— 卡片若走
+    stdout 就会在出错时整段消失。真正的数据输出仍由 render_hot 写 stdout。
+    """
+    kw.setdefault('file', sys.stderr)
+    print(*a, **kw)
+
+
+def _pick_card(cards, pick):
+    """按 --pick 选路由: 纯数字=列表序号(1起), 其它=模板/站名/路由名子串匹配"""
+    if not pick:
+        if len(cards) == 1:
+            return 0, '唯一命中'
+        # 多条命中且没指定: 取 heat 最高的, 并说明其余怎么换
+        best = max(range(len(cards)), key=lambda i: cards[i]['heat'])
+        others = [str(i + 1) for i in range(len(cards)) if i != best]
+        return best, (f'未指定 --pick, 自动选 #{best + 1} (heat 最高); '
+                      f'换别的用 --pick <{" / ".join(others)}>')
+    s = str(pick).strip()
+    if s.isdigit():
+        i = int(s) - 1
+        if not (0 <= i < len(cards)):
+            raise SystemExit(f'--pick {s} 越界 (共 {len(cards)} 条)')
+        return i, f'--pick {s}'
+    hits = [i for i, c in enumerate(cards)
+            if s.lower() in c['template'].lower()
+            or s.lower() in (c['name'] or '').lower()]
+    if not hits:
+        raise SystemExit(f'--pick "{s}" 没匹配到任何路由')
+    if len(hits) > 1:
+        raise SystemExit(f'--pick "{s}" 命中多条 (#{" / ".join(str(i + 1) for i in hits)}), '
+                         f'给序号更明确')
+    return hits[0], f'--pick {s}'
+
+
 def _print_route_cards(cards, kw, args, cfg):
-    """渲染 feed radar 的路由卡片 + 填参出的订阅 URL"""
+    """渲染 feed radar 的路由卡片。
+
+    两种模式:
+      纯搜索 (无 --param/--example/--top/--pick/--add): 只列卡片, 模板原样,
+        带序号, 提示下一步怎么填参。
+      填参 (有上述任一): --pick 选定**一条**路由 → 卡片模板照原样打印 →
+        实参只灌进那一条 → 给出订阅 URL → 直接把该 URL 的数据拉出来渲染。
+        参数只作用于选中项, 不会改写模板, 也不影响其它候选路由。
+    """
     from . import radar as _radar
 
     params = {}
     for kv in (getattr(args, 'param', None) or []):
         if '=' not in kv:
-            print(f'--param 需要 K=V 形式, 收到 "{kv}"', file=sys.stderr)
+            _out(f'--param 需要 K=V 形式, 收到 "{kv}"', file=sys.stderr)
             raise SystemExit(2)
         k, v = kv.split('=', 1)
         params[k.strip()] = v.strip()
@@ -207,91 +268,151 @@ def _print_route_cards(cards, kw, args, cfg):
     use_example = getattr(args, 'example', False)
     top_idx = getattr(args, 'top', None)
     adding = bool(getattr(args, 'add', None))
+    pick = getattr(args, 'pick', None)
+    acting = bool(params) or use_example or top_idx is not None or adding or pick
 
-    # 需要出订阅 URL 才探实例 (纯搜索不付这个等待)
-    want_url = bool(params) or use_example or top_idx is not None or adding
-    base = None
-    if want_url:
-        base = (getattr(args, 'instance', None)
-                or _radar.best_instance(proxy=cfg.get('proxy'))).rstrip('/')
+    # ---- 纯搜索: 只列卡片 ----
+    if not acting:
+        base = _radar.best_instance(proxy=cfg.get('proxy'))
+        _out(f'"{kw}" 命中 {len(cards)} 条路由  (按 heat 排序, --cat 可过滤分类)')
+        _out(f'实例 {base}  (webtool feed instances 可看全部)\n')
+        for i, c in enumerate(cards, 1):
+            _print_card(c, idx=i, base=base)
+            need = [nm for nm, o, _ in _radar.parse_params(c['template']) if not o]
+            tail = f' --param {need[0]}=...' if need else ' (无需填参)'
+            _out(f'  取数  --pick {i}{tail}')
+        _out('\n-- --pick <序号|模板子串> 选定一条后填参取数;'
+              ' --example / --top N 可直接借现成路径')
+        return
 
-    print(f'"{kw}" 命中 {len(cards)} 条路由'
-          f'  (实例 {base})\n' if base else
-          f'"{kw}" 命中 {len(cards)} 条路由\n')
+    # ---- 填参: 选定一条 ----
+    idx, why = _pick_card(cards, pick)
+    c = cards[idx]
+    base = (getattr(args, 'instance', None)
+            or _radar.best_instance(proxy=cfg.get('proxy'))).rstrip('/')
+    n = max(getattr(args, 'max', 10) or 10, 3)
 
-    added = 0
-    for c in cards:
-        feat = c.get('features') or {}
-        warn = []
-        if feat.get('antiCrawler'):
-            warn.append('反爬')
-        if feat.get('requirePuppeteer'):
-            warn.append('需 Puppeteer')
-        if feat.get('requireConfig'):
-            warn.append('需配置')
+    _out(f'"{kw}" 命中 {len(cards)} 条路由 → 选 #{idx + 1}  ({why})')
+    _out(f'实例 {base}\n')
+    _print_card(c, idx=idx + 1, base=base)
 
-        print(f"{c['site']} · {c['name'] or '(未命名)'}"
-              f"  heat={c['heat']}  {'⚠ ' + '/'.join(warn) if warn else ''}")
-        print(f"  模板  {c['template']}")
-        if c['params']:
-            # parameters 的键是裸名, 可选性只能从模板解析 (path 里 ':name?' 才算选填)
-            opt_map = {n: o for n, o, _ in _radar.parse_params(c['template'])}
-            for pk, pv in c['params'].items():
-                name = pk.split('{')[0].rstrip('?')
-                desc = pv.get('description') if isinstance(pv, dict) else str(pv)
-                default = pv.get('default') if isinstance(pv, dict) else None
-                tail = f" (默认 {default})" if default else ''
-                print(f"  参数  {name}{'(选填)' if opt_map.get(name) else '(必填)'}"
-                      f" — {(desc or '')[:66]}{tail}")
-        if c['example']:
-            print(f"  示例  {c['example']}")
-        for i, tf in enumerate(c['top_feeds'][:3], 1):
-            print(f"  样例{i} {tf['title'][:38]:40s} {tf['site_url'][:52]}")
-        if c.get('guessed'):
-            g = ', '.join(f'{k}={v}' for k, v in c['guessed'].items())
-            print(f'  反推  {g}')
+    # 实参: --from-url 反推值 < --param 显式值; 模板本身不动
+    p2 = dict(c.get('guessed') or {})
+    p2.update(params)
+    if top_idx is not None:
+        tfs = c['top_feeds']
+        if not (1 <= top_idx <= len(tfs)):
+            _out(f'\n⚠ --top {top_idx} 越界 (该路由只有 {len(tfs)} 条真实样例)',
+                  file=sys.stderr)
+            raise SystemExit(2)
+        filled, src = tfs[top_idx - 1]['path'], f'topFeeds #{top_idx}'
+    elif use_example and c['example']:
+        filled, src = c['example'], '官方 example'
+    else:
+        try:
+            filled = _radar.fill_path(c['template'], p2, strict=True)
+            src = '参数'
+        except _radar.MissingParams as e:
+            miss = ' '.join(nm for nm, _ in e.missing)
+            _out(f'\n⚠ 还缺必填参数: {miss}', file=sys.stderr)
+            _out(f'  补上: --param {miss.split()[0]}=... '
+                  f'  或借现成路径: --example / --top N', file=sys.stderr)
+            return 2
 
-        # ---- 填参出订阅 URL ----
-        p2 = dict(c.get('guessed') or {})
-        p2.update(params)
-        src = None
-        if top_idx is not None:
-            tfs = c['top_feeds']
-            if 1 <= top_idx <= len(tfs):
-                src = f'topFeeds #{top_idx}'
-                filled = tfs[top_idx - 1]['path']
-            else:
-                continue
-        elif use_example and c['example']:
-            src = 'example'
-            filled = c['example']
-        elif params or adding:
+    url = base + '/' + filled.lstrip('/')   # topFeeds 的 url 不保证带前导 /
+    _out(f'  实参  {url}   ({src})\n')
+
+    if adding:
+        name = getattr(args, 'add')[0]
+        user = _load_user_feeds()
+        user[name] = {'url': url, 'desc': f"{c['site']} · {c['name']} (RSSHub)"}
+        _save_user_feeds(user)
+        _out(f'✓ 已落 ~/.webtool/feeds.json: {name}\n')
+
+    # ---- 直接把填好参的数据拉出来 (参数只是用来取数, 不改模板) ----
+    # 公共实例是逐路由挑活的 (探活只验 /36kr/newsflashes, 别的路由可能 503),
+    # 所以这里不只试一个实例: 依次换未试过的可用实例, 直到出数据
+    # 路由名常是一长串 ("资讯, 快讯, 用户文章, ..."), 拿来当源名没法看
+    label = f"{c['site']}·{c['name']}".split(',')[0].split('、')[0].strip()
+    src_name = re.sub(r'[^\w.\u4e00-\u9fff-]+', '_', label)[:28] or 'radar'
+    tried, last_err = [], None
+    for cand in _instance_candidates(base, getattr(args, 'instance', None), cfg):
+        tried.append(cand)
+        for px in ([None] + ([cfg.get('proxy')] if cfg.get('proxy') else [])):
             try:
-                filled = _radar.fill_path(c['template'], p2, strict=True)
-                src = '参数'
-            except _radar.MissingParams as e:
-                miss = ', '.join(f'{n}' for n, _ in e.missing)
-                print(f'  ⚠ 还缺必填参数: {miss}   '
-                      f'(--example 或 --top N 可直接借现成路径)')
-                print()
+                items = pull_one(src_name, url, n, px, cfg.get('timeout', 20))
+            except Exception as e:
+                last_err = str(e)[:120]
                 continue
+            if items:
+                if cand != base:
+                    _out(f'  (主实例 {base} 拉不到, 换 {cand} 成功)', file=sys.stderr)
+                break
+            last_err = '可达但 0 条'
         else:
-            print()
             continue
+        break
+    else:
+        _out(f'拉取失败 ({last_err or "未知"}); 已试 {len(tried)} 个实例: '
+             f'{", ".join(tried)}', file=sys.stderr)
+        _out('  用 --instance https://xxx 指定其他公共实例, 或换路由 --pick N',
+             file=sys.stderr)
+        return 1
+    if not items:
+        _out(f'{src_name}: 可达但 0 条 (实例可能不支持该路由, 试 --instance 换)',
+              file=sys.stderr)
+        return 1
+    out = {'cmd': 'feed', 'sources': [src_name], 'requested': n, 'took_ms': 0,
+           'ok': [src_name], 'failed': [],
+           'sources_data': {src_name: items}, 'errors': {}, 'filtered_out': 0,
+           'total': len(items), 'route': {'template': c['template'],
+                                          'url': url, 'params': p2, 'via': src}}
+    from .hotrender import render_hot
+    render_hot(out, args.format)
+    return 0
 
-        url = base + '/' + filled.lstrip('/')   # topFeeds 的 url 不保证带前导 /
-        print(f'  订阅  {url}   ({src})')
-        if adding:
-            name = getattr(args, 'add')[0]
-            user = _load_user_feeds()
-            user[name] = {'url': url,
-                          'desc': f"{c['site']} · {c['name']} (RSSHub)"}
-            _save_user_feeds(user)
-            print(f'        ✓ 已落 ~/.webtool/feeds.json: {name}')
-            added += 1
-        print()
-    if added:
-        print(f'-- 已添加 {added} 个源; webtool feed {getattr(args, "add")[0]} -n 5 直接看')
+
+def _print_card(c, idx=None, base=None):
+    """单条路由卡片。模板行永远是原始模板 —— 填参不改写它。
+
+    base 非空时附 URL 行: 模板形态 (占位符原样, 看得出还要填什么) + example
+    形态 (可直接用), 各一行。
+    """
+    from . import radar as _radar
+    feat = c.get('features') or {}
+    warn = []
+    if feat.get('antiCrawler'):
+        warn.append('反爬')
+    if feat.get('requirePuppeteer'):
+        warn.append('需 Puppeteer')
+    if feat.get('requireConfig'):
+        warn.append('需配置')
+    head = f"#{idx} " if idx else ''
+    _out(f"{head}{c['site']} · {c['name'] or '(未命名)'}"
+          f"  heat={c['heat']}  {'⚠ ' + '/'.join(warn) if warn else ''}")
+    _out(f"  模板  {c['template']}")
+    if c['params']:
+        # parameters 的键是裸名, 可选性只能从模板解析 (path 里 ':name?' 才算选填)
+        opt_map = {n: o for n, o, _ in _radar.parse_params(c['template'])}
+        for pk, pv in c['params'].items():
+            name = pk.split('{')[0].rstrip('?')
+            desc = pv.get('description') if isinstance(pv, dict) else str(pv)
+            default = pv.get('default') if isinstance(pv, dict) else None
+            tail = f" (默认 {default})" if default else ''
+            _out(f"  参数  {name}{'(选填)' if opt_map.get(name) else '(必填)'}"
+                  f" — {(desc or '').strip()[:66]}{tail}")
+    if c['example']:
+        _out(f"  示例  {c['example']}")
+    for i, tf in enumerate(c['top_feeds'][:3], 1):
+        _out(f"  样例{i} {tf['title'][:38]:40s} {tf['site_url'][:52]}")
+    if c.get('guessed'):
+        _out('  反推  ' + ', '.join(f'{k}={v}' for k, v in c['guessed'].items()))
+    if base:
+        b = base.rstrip('/')
+        _out(f"  URL   {b}{c['template']}")
+        if c['example']:
+            _out(f"  直连  {b}/{c['example'].lstrip('/')}")
+    _out()
 
 
 def do_feed(args, cfg):
@@ -422,13 +543,15 @@ def do_feed(args, cfg):
                   f'({n_free} 条无需填参)\n')
             print('用法:')
             print('  webtool feed radar 36kr                    搜路由 (站名/域名/路由/参数/分类)')
-            print('  webtool feed radar bilibili --param uid=946974   填占位符 → 订阅 URL')
-            print('  webtool feed radar 36kr --example          用官方示例路径出 URL')
-            print('  webtool feed radar 36kr --top 2            用第 2 条真实实例样例出 URL')
+            print('  webtool feed radar 36kr --pick 2           选定第 2 条 (或 --pick <模板子串>)')
+            print('  webtool feed radar 36kr --pick 2 --param category=newsflashes   填参并直接拉数据')
+            print('  webtool feed radar 36kr --pick 2 --example 用官方示例路径取数 (免填参)')
+            print('  webtool feed radar 36kr --pick 2 --top 2   用第 2 条真实样例取数 (免填参)')
             print('  webtool feed radar --from-url https://space.bilibili.com/946974  反推路由')
-            print('  webtool feed radar 36kr --param category=newsflashes --add r36kr  落地成订阅源')
+            print('  webtool feed radar 36kr --pick 2 --example --add r36kr   落地成订阅源')
             print('  webtool feed instances                      看公共实例今天哪些活着')
             print('  webtool feed radar --cat finance           按分类过滤')
+            print('\n填参只作用于 --pick 选中的那一条, 模板保持原样, 数据直接输出 (-f/-n 通用)')
             return 0
         else:
             cards = _radar.search_routes(
@@ -438,8 +561,7 @@ def do_feed(args, cfg):
                 print(f'路由库无 "{kw}" 命中; 试英文域名 (36kr/bilibili/weibo/ithome)、'
                       f'站名, 或 --cat <分类>', file=sys.stderr)
                 return 2
-        _print_route_cards(cards, kw, args, cfg)
-        return 0
+        return _print_route_cards(cards, kw, args, cfg)
     # ---- feed 无参/list: 清单+用法 (与 rank 同约定) ----
     user = _load_user_feeds()
     if (not args.sources) or \

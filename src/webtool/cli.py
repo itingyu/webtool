@@ -154,8 +154,11 @@ def main(argv=None):
                        help='复查坏源是否恢复: --retest KEY 或 --retest all; 恢复即移除')
     _rg = pfeed.add_argument_group(
         'feed radar 专用 (查 RSSHub 路由 / 填参数)')
+    _rg.add_argument('--pick', metavar='N|TEMPLATE', default=None,
+                     help='选定命中的第几条路由 (列表序号 1 起) 或按模板子串匹配; '
+                          '不给则自动取 heat 最高的一条')
     _rg.add_argument('--param', action='append', default=[], metavar='K=V',
-                     help='填路由占位符, 可重复: --param category=newsflashes')
+                     help='给选中的那条路由填占位符, 可重复: --param category=newsflashes')
     _rg.add_argument('--example', action='store_true',
                      help='用官方 example 路径填参出订阅 URL')
     _rg.add_argument('--top', type=int, metavar='N', default=None,
