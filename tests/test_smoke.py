@@ -124,19 +124,27 @@ def _mk(title, rank, engines, ranks=None):
 _rr = _merge([_mk('alpha 教程', 1, ['bing']), _mk('beta 教程', 5, ['bing'])],
              'query', dedupe=False)
 check(_rr[0]['weight'] > _rr[1]['weight'], f'pos 靠前权重高 ({_rr[0]["weight"]} > {_rr[1]["weight"]})')
-# 可信度加权: 同为 rank1, 可信引擎 (google base=0.95) 应压过低可信引擎 (sogou 0.75)
-_m = _merge([_mk('alpha 教程', 1, ['google']), _mk('beta 教程', 1, ['sogou'])],
+# 可信度加权平均: 同样是 google+sogou 双命中, 让高可信引擎排更前
+# (google#1+sogou#2) 应优于排名反过来的 (google#2+sogou#1)。
+_m = _merge([_mk('alpha 教程', 1, ['google', 'sogou'], {'google': 1, 'sogou': 2}),
+             _mk('beta 教程', 1, ['google', 'sogou'], {'sogou': 1, 'google': 2})],
             '', use_semantic=False, dedupe=False)
 _by_e = {r['title']: r['weight'] for r in _m}
 check(_by_e['alpha 教程'] > _by_e['beta 教程'],
-      f'引擎可信度加权 ({_by_e["alpha 教程"]} > {_by_e["beta 教程"]})')
-# 多引擎取均值: bing第1 + sogou第10 的均值应低于 bing第1 单独命中
+      f'可信度加权平均 ({_by_e["alpha 教程"]} > {_by_e["beta 教程"]})')
+# 单引擎时 base 被约掉, 同 rank 应等权 (不分引擎可信度)
+_m0 = _merge([_mk('gamma 教程', 1, ['google']), _mk('delta 教程', 1, ['sogou'])],
+             '', use_semantic=False, dedupe=False)
+_by_0 = {r['title']: r['weight'] for r in _m0}
+check(_by_0['gamma 教程'] == _by_0['delta 教程'],
+      f'单引擎 base 约掉 ({_by_0["gamma 教程"]} == {_by_0["delta 教程"]})')
+# 多引擎取加权平均而非累加: bing第1 + sogou第10 应低于 bing第1 单独命中
 _m2 = _merge([_mk('alpha 教程', 1, ['bing'], {'bing': 1, 'sogou': 10}),
               _mk('beta 教程', 1, ['bing'], {'bing': 1})],
              '', use_semantic=False, dedupe=False)
 _by_t = {r['title']: r['weight'] for r in _m2}
 check(_by_t['beta 教程'] > _by_t['alpha 教程'],
-      f'多引擎取均值非累加 ({_by_t["beta 教程"]} > {_by_t["alpha 教程"]})')
+      f'多引擎加权平均非累加 ({_by_t["beta 教程"]} > {_by_t["alpha 教程"]})')
 # sem 直接用 BM25 归一化分: 相关文档权重高于无关文档 (多文档才有区分度)
 _docs = [_mk('alpha 相关页', 1, ['bing']), _mk('zeta 无关页', 1, ['bing'])]
 _docs[0]['snippet'] = 'query 命中 snippet'
