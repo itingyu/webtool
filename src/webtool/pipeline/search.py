@@ -6,7 +6,7 @@ import time
 from webtool.core import cache
 from webtool.core.plugins import table as _plugin_table
 from webtool.net.transport import _proxy_alive, proxy_hint  # noqa: F401 — 旧名再导出
-from webtool.filters.blocklist import load_blocklist
+from webtool.filters.blocklist import filter_blocklist
 
 
 def _engines():
@@ -132,21 +132,27 @@ def _do_search(args, cfg, filter_ad=True):
     # 漂移 — 本就批内自适应, 跨配置不可比, 非回归
     from webtool.pipeline.merge import merge as _merge
     from webtool.core.plugins import table as _pt
-    # 过滤器走插件表, 顺序即优先级。
-    # blocklist 不在其中预剔除 —— 它由 merge 内的 prior=0 处理, 算完权重
-    # 再统一过滤。这样黑名单条目仍参与去重, 多引擎命中的同一页能完整合并
-    # engines 而不留半条结果。计数在 merge 之后统计。
+    # 过滤器走插件表, 顺序即优先级; blocklist 先行硬过滤。
+    # 硬过滤放在计算之前: 黑名单站 (克隆官网/洗稿/需登录) 无论位置分与相关性
+    # 多高都不该占 top n 名额, 没必要让它们参与去重与打分 —— 那样只会稀释
+    # BM25 的 IDF 统计并让权重分布失真。
+    n_blocked = 0
     for fname, spec in _pt('filter').items():
-        if fname != 'blocklist':
+        if fname == 'blocklist':
+            if not args.no_blocklist:
+                kept, nb = filter_blocklist(
+                    results, extra_block=args.block or (),
+                    extra_allow=args.allow or ())
+                n_blocked += nb
+                results = kept
+        else:
             results = spec['fn'](results, {'args': args, 'cfg': cfg})
-    _blk = blocklist_for(args)
-    stats = {}
+    stats = {'blocked': n_blocked}
     n_before = len(results)
     results = _merge(results, args.query,
                      use_semantic=not args.no_semantic,
                      dedupe=not args.no_dedupe,
-                     apply_blocklist=not args.no_blocklist,
-                     blocklist=_blk, stats=stats)
+                     apply_blocklist=False, stats=stats)
     # dedup_removed 只算去重掉的; merge 里的剔除另由 stats 分项计数,
     # 混在一起会把 "黑名单过滤" 误报成 "重复合并"。
     dedup_removed = stats.get('dedup_removed', 0)
@@ -200,8 +206,7 @@ def _do_search(args, cfg, filter_ad=True):
             results = _merge(results, args.query,
                              use_semantic=not args.no_semantic,
                              dedupe=not args.no_dedupe,
-                             apply_blocklist=not args.no_blocklist,
-                             blocklist=_blk, stats=stats)
+                             apply_blocklist=False, stats=stats)
             dedup_removed += stats.get('dedup_removed', 0)
 
     n_blocked = stats.get('blocked', 0)
@@ -287,17 +292,6 @@ def _low_quality(results, query=None):
     if not results:
         return False
     return need_retry({i: r.get('_sem', 0) for i, r in enumerate(results)})
-
-
-def blocklist_for(args):
-    """命令行 --block/--allow 追加项 → (block, allow); 无参时用内置表
-
-    传给 merge 供 prior 判定用, 使黑名单条目在计算权重时才被判 0。
-    """
-    blk, allow = load_blocklist()
-    blk = set(blk) | {d.lower().strip() for d in (getattr(args, 'block', None) or ())}
-    allow = set(allow) | {d.lower().strip() for d in (getattr(args, 'allow', None) or ())}
-    return blk, allow
 
 
 def _fetch_engines(args, cfg, engines, query, filter_ad):
