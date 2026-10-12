@@ -116,32 +116,21 @@ def search_cmd(query: str = typer.Argument(..., help='搜索词'),
                fmt: str = Fmt, output: str = Output,
                no_proxy: bool = NoProxy, no_cache: bool = NoCache,
                market: str = typer.Option('zh-CN', help='市场: zh-CN / en-US'),
-               no_resolve: bool = typer.Option(False, '--no-resolve',
-                                               help='关闭跳转链解码 (sogou/baidu link, gnews articles)'),
-               keep_ad: bool = typer.Option(False, '--keep-ad',
-                                            help='保留广告结果并标记 is_ad (默认已过滤)'),
-               no_dedupe: bool = typer.Option(False, '--no-dedupe', help='关闭跨引擎去重'),
-               no_semantic: bool = typer.Option(False, '--no-semantic',
-                                                help='关闭语义向量排序(纯位置权重)'),
                operators: str = typer.Option('passthrough', '--operators',
                                              help='高级操作符路由: passthrough/strip/strict '
                                                   '(支持 site: intitle: inurl: -词)'),
-               block: list[str] = typer.Option([], '--block', help='临时追加黑名单域名, 可多次'),
-               allow: list[str] = typer.Option([], '--allow', help='临时白名单例外(优先于黑名单), 可多次'),
-               no_blocklist: bool = typer.Option(False, '--no-blocklist', help='关闭黑名单过滤')):
+               blocklist: str = typer.Option('',
+                                            help='黑名单覆盖: 逗号分隔域名, 前缀 ! 表白名单例外, '
+                                                 '传 off 关闭黑名单')):
     """多引擎网页搜索"""
     a = _CTX['args']
     a.update = None
     a.query, a.engine, a.max = query, engine, max
-    a.market, a.no_resolve, a.keep_ad = market, no_resolve, keep_ad
-    a.no_dedupe, a.no_semantic = no_dedupe, no_semantic
-    a.operators, a.block, a.allow, a.no_blocklist = operators, block, allow, no_blocklist
-    a.no_ad = not keep_ad
+    a.market = market
+    a.operators, a.blocklist = operators, blocklist
+    a.no_ad = True
 
     def fn(args, cfg):
-        if keep_ad:
-            from webtool.pipeline.search import do_search_raw
-            return do_search_raw(args, cfg)
         from webtool.pipeline.search import do_search
         return do_search(args, cfg)
     return _run('data', fn, fmt, output, no_cache, no_proxy)

@@ -21,27 +21,41 @@ def default_engines():
     return ','.join(on) if on else 'bing,sogou,baidu'
 
 
+def parse_blocklist(spec):
+    """--blocklist 参数 → (off, block, allow)
+
+    语法: 逗号分隔域名; 前缀 ! 表白名单例外 (优先于黑名单); 值为 off 时
+    完全关闭黑名单。替代原先的 --block/--allow/--no-blocklist 三个开关。
+    """
+    spec = (spec or '').strip()
+    # 只在整串恰为 off 时关闭 —— 逐项小写化会让 "a.com,OFF" 里的 off
+    # 变成一个黑名单域名。
+    if spec.lower() in ('off', '0', 'false', 'none'):
+        return True, (), ()
+    blk, alw = [], []
+    for part in spec.split(','):
+        d = part.strip().lower()
+        if not d:
+            continue
+        (alw if d.startswith('!') else blk).append(d.lstrip('!'))
+    return False, tuple(blk), tuple(alw)
+
+
 def do_search(args, cfg):
-    """默认入口: 广告已过滤 (--no-ad 恒真, cli 层控制)"""
-    return _do_search(args, cfg, filter_ad=args.no_ad)
+    """默认入口: 广告恒过滤, 无 --keep-ad 开关"""
+    return _do_search(args, cfg, filter_ad=True)
 
 
-def do_search_raw(args, cfg):
-    """--keep-ad: 保留广告并标 is_ad 字段"""
-    return _do_search(args, cfg, filter_ad=False)
 
 
 def _do_search(args, cfg, filter_ad=True):
     t0 = time.time()
     # 配置文件默认值 ← 命令行覆盖 (config set 的持久配置是底线, CLI 参数可临时改)
-    if args.no_blocklist or cfg.get('blocklist') == 'off':
-        args.no_blocklist = True
-    if cfg.get('ad_filter') == 'off':
-        args.keep_ad = True
-    if args.no_dedupe or cfg.get('dedupe') == 'off':
-        args.no_dedupe = True
-    if args.no_semantic or cfg.get('semantic') == 'off':
-        args.no_semantic = True
+    # 配置里的开关只保留仍存在的三项; 去重/BM25/广告过滤已无开关,
+    # 不再受 config 影响 (行为固定)。
+    _bl_cfg = cfg.get('blocklist') or ''
+    if not args.blocklist and _bl_cfg:
+        args.blocklist = _bl_cfg
     engines = [e.strip() for e in (args.engine or cfg.get('default_engines')
                                    or default_engines()).split(',') if e.strip()]
     if args.format is None and cfg.get('default_format'):
@@ -117,12 +131,12 @@ def _do_search(args, cfg, filter_ad=True):
                 continue
         results.extend([dict(r, engine=eng) for r in rs])
 
-    # 跳转链解码: 默认开启 — 搜狗 link / baidu link / gnews articles 一律
-    # 还原为原始 URL 再返回 (带并发+缓存+熔断); --no-resolve 关闭
-    # 解码在黑名单/补量之前完成: ①link 包装链的真实域名只有解码后才知道,
-    # 黑名单按真域判定才不漏 ②补量的粗去重按真 URL, 不重复计数
-    if not getattr(args, 'no_resolve', False):
-        _resolve_sogou_links(results, cfg)
+    # 跳转链解码: 无条件执行 — 搜狗 link / baidu link / gnews articles 一律
+    # 还原为原始 URL (带并发+缓存+熔断)。解码必须在黑名单/补量之前完成:
+    # ①link 包装链的真实域名只有解码后才知道, 黑名单按真域判定才不漏
+    # ②补量的粗去重按真 URL, 不重复计数。不解码则 URL 全是 /link?url=,
+    # 去重与黑名单均失效, 故不提供开关。
+    _resolve_sogou_links(results, cfg)
 
     # 黑名单先行 (按真域拦截), 再 merge 去重排序:
     # ① 排序只算有资格留下的条目 (不白算被拦的)
@@ -137,12 +151,12 @@ def _do_search(args, cfg, filter_ad=True):
     # 多高都不该占 top n 名额, 没必要让它们参与去重与打分 —— 那样只会稀释
     # BM25 的 IDF 统计并让权重分布失真。
     n_blocked = 0
+    _off, _blk, _alw = parse_blocklist(getattr(args, 'blocklist', ''))
     for fname, spec in _pt('filter').items():
         if fname == 'blocklist':
-            if not args.no_blocklist:
-                kept, nb = filter_blocklist(
-                    results, extra_block=args.block or (),
-                    extra_allow=args.allow or ())
+            if not _off:
+                kept, nb = filter_blocklist(results,
+                                            extra_block=_blk, extra_allow=_alw)
                 n_blocked += nb
                 results = kept
         else:
@@ -150,8 +164,7 @@ def _do_search(args, cfg, filter_ad=True):
     stats = {'blocked': n_blocked}
     n_before = len(results)
     results = _merge(results, args.query,
-                     use_semantic=not args.no_semantic,
-                     dedupe=not args.no_dedupe,
+                     use_semantic=True, dedupe=True,
                      apply_blocklist=False, stats=stats,
                      max_n=getattr(args, 'max', None))
     # dedup_removed 只算去重掉的; merge 里的剔除另由 stats 分项计数,
@@ -163,7 +176,7 @@ def _do_search(args, cfg, filter_ad=True):
     # (补拉翻页对反爬引擎是额外风险, 上限 2 页/引擎 + 页间随机延迟)
     topup_fetched = 0
     _want = args.max
-    if len(results) < _want and not args.no_dedupe:
+    if len(results) < _want:
         from webtool.pipeline.topup import top_up
         seen_urls = {r.get('url') for r in results}
         for eng in engines:
@@ -187,13 +200,13 @@ def _do_search(args, cfg, filter_ad=True):
                 eng, fn, qmap[eng], _want, min(_want, len(results)),
                 proxy, cfg.get('timeout', 15), args.market,
                 filter_ad=filter_ad,
-                is_blocked_fn=(None if args.no_blocklist
+                is_blocked_fn=(None if _off
                                else lambda u, _b=(), _a=(): is_blocked(
                                    u, extra_block=_b, extra_allow=_a)))
             topup_fetched += fetched
             # 补来的先解码: 引擎翻页给的是 link 包装链 (baidu/sogou),
             # 不解码则黑名单按包装域误判、粗去重按包装 URL 重复计数
-            if extra and not getattr(args, 'no_resolve', False):
+            if extra:
                 _resolve_sogou_links(extra, cfg)
             # 补来的进同一合并管线 (dedupe 会在下一轮统一做, 这里先粗去重)
             for r in extra:
@@ -205,8 +218,7 @@ def _do_search(args, cfg, filter_ad=True):
             # 补前已解码), 这里再整体 merge 去重排序即可
             n_before = len(results)
             results = _merge(results, args.query,
-                             use_semantic=not args.no_semantic,
-                             dedupe=not args.no_dedupe,
+                             use_semantic=True, dedupe=True,
                              apply_blocklist=False, stats=stats,
                              max_n=getattr(args, 'max', None))
             dedup_removed += stats.get('dedup_removed', 0)
@@ -218,11 +230,6 @@ def _do_search(args, cfg, filter_ad=True):
     if len(results) > args.max:
         results = results[:args.max]
 
-    # 跳转链解码: 默认开启 — 搜狗 link / baidu link / gnews articles 一律
-    # 还原为原始 URL 再返回 (带并发+缓存+熔断); --no-resolve 关闭
-    if not getattr(args, 'no_resolve', False):
-        _resolve_sogou_links(results, cfg)
-
     # transformer 插件: 解码完成后逐条改写 (补字段/规范化/重写 url), 顺序即优先级
     from webtool.core.plugins import table as _pt
     for tname, tspec in _pt('transformer').items():
@@ -233,7 +240,7 @@ def _do_search(args, cfg, filter_ad=True):
            'dedup_removed': dedup_removed, 'blocked_by_blocklist': n_blocked,
            'dropped_by_floor': n_floor,
            'weight_floor': stats.get('weight_floor', 0),
-           'sorted_by': 'weight(semantic)' if not args.no_semantic else 'weight'}
+           'sorted_by': 'weight'}
     if topup_fetched:
         out['topup'] = {'fetched': topup_fetched,
                         'note': '翻页补拉(最多2页/引擎)'}

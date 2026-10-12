@@ -103,8 +103,7 @@ def do_site(args, cfg):
     for r in results:
         if not r.get('engine'):
             r['engine'] = args.site
-    results = _merge(results, args.query, use_semantic=cfg.get('semantic') != 'off',
-                     dedupe=cfg.get('dedupe') != 'off')
+    results = _merge(results, args.query, use_semantic=True, dedupe=True)
     dedup_removed = n_before - len(results)
 
     filters = []
