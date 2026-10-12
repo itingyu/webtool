@@ -23,12 +23,13 @@ ZEN_MODELS_URL = "https://opencode.ai/zen/v1/models"
 
 
 def _endpoints():
-    """zen 端点可被用户配置覆盖 (config.json 的 zen_base_url), 便于换网关/自建反代"""
-    from .configcmd import load_config
-    base = (load_config().get('zen_base_url') or '').rstrip('/')
-    if not base:
-        return ZEN_URL, ZEN_MODELS_URL
-    return base + '/chat/completions', base + '/models'
+    """zen 端点: data/zen.json (包内) + ~/.webtool/zen.json (用户覆盖) 同构叠加,
+    mtime 热生效; 文件缺失/无值回落内置常量"""
+    from .config_data import load as _cfg_load
+    d = _cfg_load('zen', 'zen.json') or {}
+    chat = d.get('chat_url') or ZEN_URL
+    models = d.get('models_url') or ZEN_MODELS_URL
+    return chat, models
 
 # 指纹 UA: 免费层分类器认这个串
 UA = "opencode/1.18.15 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14"
