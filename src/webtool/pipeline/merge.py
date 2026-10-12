@@ -2,11 +2,11 @@
 
 去重: URL 归一化 (去 utm/跟踪参数, 尾斜杠, http/https) + 标题指纹,
 多引擎命中时保留信息最全的一条, 其余引擎名并入 engines 数组。
-weight = √(pos(1/log2(rank+1)) × agree(1+0.15×(引擎数-1))) ×
-sem((1+√BM25归一化分)/2, ∈[0.5,1]) × (0.2 if is_ad)
+位置分 pos = mean over engines( base(引擎可信度) / log2(该引擎的 rank+1) )
+weight = √pos × sem((1+√BM25归一化分)/2, ∈[0.5,1]) × (0.2 if is_ad)
 
-三因子。原先还有 base(引擎权重)/entity(英文实体)/prior(词典域名降权),
-实测对排序几乎无影响已撤除 —— 少三个不可解释的常数。
+两因子。原先 agree=1+0.15×(引擎数-1) 按引擎个数线性加成, 把"命中引擎多"
+与"引擎可信"混为一谈, 已由 pos 内的 base 加权取代。
 """
 import math
 import re
@@ -14,12 +14,22 @@ from urllib.parse import urlparse, parse_qsl, urlencode
 
 from webtool.core import urls
 from webtool.core.config_data import load as _cfg_load
+from webtool.core.plugins import table as _plugin_table
 from webtool.filters.adfilter import is_ad
 
 
 def _merge_cfg():
     """merge 段配置 (ref_hosts/track_params/short_entities); mtime 热生效"""
     return _cfg_load('merge', 'filters.json')
+
+
+def _engine_cred():
+    """引擎可信度表 name -> base (plugins.json 声明, 缺省 0.8)"""
+    try:
+        t = _plugin_table('engine')
+        return {n: float(s.get('base') or 0.8) for n, s in t.items()}
+    except Exception:
+        return {}
 
 
 def normalize_url(u):
@@ -58,33 +68,43 @@ def rerank(results, query, use_semantic=True):
     for r in results:
         if not r.get('engines'):
             r['engines'] = [r.get('engine')] if r.get('engine') else []
+        if '_ranks' not in r:                # dedupe 直通路径 (--no-dedupe) 补齐
+            e, rk = r.get('engine'), r.get('rank')
+            r['_ranks'] = {e: rk} if e and rk else {}
 
     if use_semantic:
         sem_scores = _semantic_scores(query, results)
     else:
         sem_scores = {i: 1.0 for i in range(len(results))}
 
+    cred = _engine_cred()
     for i, r in enumerate(results):
-        # 三因子: 引擎内排名位置 × 交叉验证 × 语义相关性
-        # 曾有 base(引擎权重)/ent(英文实体)/prior(词典域名降权) 三项, 实测
-        # 前者与后两者对排序几乎无影响 (prior 的 ref_hosts 全是国内词典, 英文
-        # query 基本不命中), 已撤除 —— 少三个拍脑袋的常数, 少三处误导。
+        # 两因子: 引擎可信度加权排名位置 × 语义相关性。
+        # 曾有 ent(英文实体)/prior(词典域名降权) 两项, 实测对排序几乎无影响
+        # (prior 的 ref_hosts 全是国内词典, 英文 query 基本不命中), 已撤除。
+        # 曾撤除的 base 现在回来了 —— 不是当独立因子, 而是作为位置分的权重。
         rank = r.get('rank', 10)
-        pos = 1.0 / math.log2(rank + 1)
-        agree = 1.0 + 0.15 * (len(r['engines']) - 1)
-        # sem 直接用 BM25 归一化分 (0-1), 不再做 0.4+0.9×x 的映射。
-        # 下限 0.1: 完全零命中的结果不该被乘成 0 提前出局 —— 引擎把它排在
-        # 前几位说明它认为相关, 让 pos/agree 去决定它该落哪。
+        # 位置分 = 各引擎 (可信度 × 自身 pos) 的均值, 再开根号。
+        # 原式 pos(全局最优 rank) × agree(1+0.15×(引擎数-1)) 有两处失真:
+        #   1) 只用最优 rank, 丢掉其余引擎的排名信息;
+        #   2) agree 按引擎个数线性加成, 把"多"和"可信"混为一谈 ——
+        #      搜狗+百度 双命中拿 1.15 倍加成, 不如 google 单命中, 但
+        #      后者反而没有任何加成。改按 base 加权后两者自然分出高下。
+        eranks = r.get('_ranks') or {}
+        if not eranks and r.get('engine') and rank:
+            eranks = {r['engine']: rank}
+        acc = sum(cred.get(en, 0.8) / math.log2(rk + 1) for en, rk in eranks.items())
+        pos = acc / len(eranks) if eranks else 1.0 / math.log2(rank + 1)
         raw = sem_scores[i]
         # (1+√sem)/2 : 把 BM25 分压到 [0.5, 1.0]。直接用 raw 时零命中结果被
         # 乘到 0.1 以下几乎出局, 而 BM25 分档又极粗 (要么满分要么触底),
         # 乘性放大会把噪声一起放大。压到 0.5~1 后 sem 从"一票否决"变"温和调节",
         # 位置与交叉验证主导排序, 相关性只在同档内微调。
         sem = (1.0 + math.sqrt(max(0.0, raw))) / 2 if use_semantic else 1.0
-        # pos×agree 先开根号再乘 sem: 直接连乘时 pos 的对数衰减会被二次放大
-        # (rank1→rank10 差 3.4 倍), 且 agree 几乎压不动; 开根号把两者压回
-        # 接近加性的量级, sem 得以在同等权重上参与排序。
-        w = math.sqrt(pos * agree) * sem
+        # pos 先开根号再乘 sem: pos 的对数衰减 (rank1→rank10 差 3.4 倍)
+        # 直接进权重会把长尾压死, 开根号压回接近加性的量级, sem 才得以
+        # 在同等权重上参与排序。
+        w = math.sqrt(pos) * sem
         if is_ad(r):
             w *= 0.2
         r['_sem'] = round(raw, 3)      # 中间量, 排完即删
@@ -95,6 +115,7 @@ def rerank(results, query, use_semantic=True):
     # (单引擎也是单元素数组 —— 形状一致, 消费方无需分支判断)
     for i, r in enumerate(results):
         r.pop('_sem', None)
+        r.pop('_ranks', None)
         r.pop('engine', None)
         r['rank'] = i + 1
     return results
@@ -130,6 +151,10 @@ def _dedupe(results):
             tgt = out[dup_idx]
             if r.get('engine') and r.get('engine') not in tgt['engines']:
                 tgt['engines'].append(r['engine'])
+            # 记下每个引擎各自的 rank: 重排要按引擎可信度分别算 pos 再取均值,
+            # 只留全局最优 rank 会丢信息 (bing 第1 与 sogou 第2 的可信度不同)
+            if r.get('engine') and r.get('rank'):
+                tgt['_ranks'][r['engine']] = r['rank']
             # 位置分取最优: 排得越靠前的引擎越可信
             if r.get('rank') and (not tgt.get('rank') or r['rank'] < tgt['rank']):
                 tgt['rank'] = r['rank']
@@ -146,6 +171,8 @@ def _dedupe(results):
         else:
             r = dict(r)
             r['engines'] = [r.get('engine')] if r.get('engine') else []
+            r['_ranks'] = ({r['engine']: r['rank']}
+                           if r.get('engine') and r.get('rank') else {})
             r['_key_u'] = key_u
             r['_key_t'] = key_t
             if key_u:
