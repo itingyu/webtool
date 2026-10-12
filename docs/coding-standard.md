@@ -67,6 +67,8 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 
 约定：
 
+- **默认 txt**（`_run` 的 `fmt_default='text'`）：命令的主要消费者是人，直接可读。
+  要给程序/Agent 消费时显式 `-f json`。原先默认 json（fetch 除外）
 - **非法值直接退出码 2**，不静默回落 text（`cli/app.py::_norm_fmt`）。回落会让 Agent
   拿到人类可读文本却毫无提示，解析阶段才炸
 - 数据命令自己按 `args.format` 渲染（`render.render` / `render.hotrender` /

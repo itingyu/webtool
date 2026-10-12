@@ -79,6 +79,7 @@ def handle(args):
 
     if args.action == 'list':
         fmt = getattr(args, 'format', None)
+        # 只有显式给了非 json 的 -f 才交结构化数据 (默认 txt 走人类表格)
         rows = []
         for k, (desc, hint, _t) in CONFIG_KEYS.items():
             base = k.split('.')[0]

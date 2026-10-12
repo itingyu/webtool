@@ -5,7 +5,7 @@
   支持 -f/-o 落盘; 管理命令 (proxy/engines/cache/blocklist/config/plugins) 也支持
   -f/-o, 由 cli/adminfmt.py 把它们吐出的 JSON 转成目标格式
 - -f 大小写不敏感, md=markdown, txt=text; 非法值直接报错退出 (不静默回落);
-  默认 json (fetch/zen 例外)
+  默认 txt (主要消费者是人; 程序/Agent 消费请显式 -f json)
 - 退出码: 0 成功 / 2 用法错误 / 130 Ctrl-C
 """
 import io
@@ -52,7 +52,7 @@ def _norm_fmt(v, default):
 from types import SimpleNamespace
 
 
-def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='json'):
+def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='text'):
     """执行 do_* 并按数据命令约定处理输出; 返回 exit code
 
     data_cmd 非空 = 数据命令, 内部自己按 args.format 渲染, 这里只接住落盘;
@@ -78,16 +78,21 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='json'):
         if rc not in (0, None):
             return rc
         return emit(buf.getvalue(), args.format, output)
-    # 管理命令: 未指定 -f 时保持直出 (不套一层), 给了 -f 才转
+    # 管理命令: 未指定 -f 时按 txt 渲染 (与数据命令默认一致)。
+    # 但把 args.format 交回 None, 让 config list 这类内部会按 format 分支的
+    # 命令走它自己的人类可读默认, 而不是看到 'text' 就交结构化数据。
     if not fmt and not output:
-        return fn(args, cfg) or 0
+        args.format = None
+        out_fmt = 'text'
+    else:
+        out_fmt = args.format
     buf = io.StringIO()
     with redirect_stdout(buf):
         rc = fn(args, cfg)
     if rc not in (0, None):
         return rc
     from webtool.cli.adminfmt import adapt
-    return emit(adapt(buf.getvalue(), args.format), args.format, output)
+    return emit(adapt(buf.getvalue(), out_fmt), out_fmt, output)
 
 
 _CTX = {}
@@ -162,7 +167,7 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
     a = _CTX['args']
     a.url, a.url_file = url, url_file
     a.max_chars, a.raw, a.with_metadata, a.profile = max_chars, raw, with_metadata, profile
-    return _run('data', _do('fetch'), fmt, output, no_cache, no_proxy, 'markdown')
+    return _run('data', _do('fetch'), fmt, output, no_cache, no_proxy)
 
 
 def _do(name):
@@ -208,7 +213,7 @@ def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空
     a.list_models, a.list_free, a.check, a.refresh = list_models, list_free, check, refresh
     a.show_body, a.show_text, a.stream = show_body, show_text, stream
     a.retries, a.sticky = retries, sticky
-    return _run('data', _entry_fn('zen'), fmt, output, no_cache, no_proxy, 'text')
+    return _run('data', _entry_fn('zen'), fmt, output, no_cache, no_proxy)
 
 
 def _entry_fn(name):
