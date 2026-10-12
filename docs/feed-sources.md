@@ -1,107 +1,51 @@
-# Folo/RSSHub 站点订阅源 → webtool feed 落地清单（实测 2026-10-11）
+# feed 源实测清单（2026-10-12）
 
-原则：能用官方 feed 用官方（稳定、无限流）；官方被墙/挂 JS 壳/需 cookie 的，走 RSSHub 公共实例（有 429 限流）或自建。
+原则：**能用官方 feed 用官方**（稳定、无限流）；官方被墙/壳化/需 cookie 的走 RSSHub 公共实例。
+「官方优先」的判据不是"有没有 feed"，而是"这个 feed 含不含你要的栏目"——`feed radar` 会交叉校验官网 feed 栏目分布与路由目标栏目。
 
-**"官方优先"的判据不是"有没有 feed"，而是"这个 feed 含不含你要的栏目"。**
-`webtool feed radar` 会统计官网 feed 条目链接的栏目分布，与路由的目标栏目对照：
+## 随包精选种子（`src/webtool/data/feeds.seed.json`）
 
-- 命中 → `✓ 官网 feed 含该栏目 /xxx (N 条) —— 走官网即可`，不必借实例
-- 未命中 → `✗ 官网 feed 不含该栏目 —— 需 RSSHub 路由`（要付 503/超时的代价）
-- 目标是站点根 → `~ 官网 feed 是全站流，含该栏目但没有它自己的排序`
+**104 个源，14 类**：AI 专题 19 / 技术社区 17 / 大厂技术博客 13 / 前端设计 12 / 编程语言官方 10 / 安全 7 / RSS 工具 5 / 版本追踪 5 / 周刊 4 / 科技媒体 6 / 学术 2 / 新闻 2 / 知乎 2 / RSSHub 路由若干。来自 [JackyST0/awesome-rsshub-routes](https://github.com/JackyST0/awesome-rsshub-routes)，双通道逐条实测。
 
-实测：36氪官网 feed 含 `/newsflashes` 20 条，与 `hub.slarker.me/36kr/newsflashes`
-拉回来的条目同源 —— 借实例纯属白付可用性风险。
+- 安装时自动并入 `~/.webtool/feeds.json`（setup.py 钩子 + 运行时兜底），**只增不覆盖**用户改动；`WEBTOOL_NO_SEED=1` 关闭
+- 实测 98+ 可用；arXiv 4 源周末 skipDays 空 feed 属正常；LinuxDo 3 源 CF 403 需登录态
 
-## 📦 随包精选源（`src/webtool/data/feeds.seed.json`）
+## 官方 feed 实测可用（直连出数据）
 
-精选 **103 个** 源（分类：AI 专题 / 技术社区 / 大厂技术博客 / 前端设计 / 编程语言官方博客 / 安全资讯 / 科技媒体 / 技术周刊 / 学术论文 / 开发工具版本追踪 / RSS 工具更新）。清单来自 [JackyST0/awesome-rsshub-routes](https://github.com/JackyST0/awesome-rsshub-routes)，2026-10-12 双通道（直连 + 代理）逐条实测。
+| 名字 | URL | 备注 |
+|---|---|---|
+| kr36 | https://www.36kr.com/feed | **必须带 www**；30 条 = 主站 10 + 快讯 20，与 RSSHub 路由同源，优先官网 |
+| theverge / arstechnica / wired / mittr | 官方 feed | 国际科技媒体 |
+| ieee_ai | https://spectrum.ieee.org/feeds/topic/artificial-intelligence.rss | IEEE Spectrum AI |
+| arxiv_csai | https://export.arxiv.org/rss/cs.AI | 周末空 feed 正常 |
+| producthunt | https://www.producthunt.com/feed | 日榜 |
+| krebs / anquanke | 官方 | 安全 |
+| juejin_rss / leiphone / geekpark | 官方 | 中文科技 |
+| qbitai | 官方 | 曾判定 403，换指纹通道后复测已通——**「官方不可用」的结论有时效，每次换通道要复测** |
 
-**安装时自动落地**：seed 会在 `pip install` / `pip install -e` 时并入 `~/.webtool/feeds.json`（`setup.py` 的 `build_py` 钩子），运行时 `feed._load_user_feeds()` 还有一道兜底，所以直接解包 wheel / 手动拷源码也能补上。
+（sspai / ithome / ifanr / ruanyifeng / github_blog / v2ex / cnode 为内置预设）
 
-**只增不覆盖**：用户 `--add` / `--del` 过的同名项以本地为准，seed 更新不会抹掉本地改动。打包场景可用 `WEBTOOL_NO_SEED=1` 显式关掉。HOME 只读或写盘失败一律静默，不影响安装。
+## 官方挂 → RSSHub 路由兜底
 
-**实测状态**：98 源可用；arXiv 4 源（cs.AI/LG/CL/CV）feed 有效但 `skipDays` 周末不更新，看到空 feed 属正常；LinuxDo 3 源（latest/top/posts.rss）Cloudflare 403，需登录态 cookie。
+| 站点 | 路由 | 状态 |
+|---|---|---|
+| B站综合热门 | /bilibili/popular/all | ✅ 实例实测 |
+| 知乎热榜/日报/周刊 | /zhihu/hotlist /daily /weekly | daily/weekly ✅（hotlist 429，用 rank zhihu 更好） |
+| 微博 | /weibo/search/hot 等 | 需 cookie，公共实例挂，用 rank weibo |
+| Solidot | /solidot | 公共实例超时，需自建 |
 
-```bash
-webtool feed list                          # 7 预设 + 103 精选
-webtool feed arXivAI uvReleases Nature -n 5 # 按名字直接拉
+## RSSHub 公共实例池（官方清单全量实测）
+
+可用 4：`rsshub.rssforever.com`(AE) / `hub.slarker.me`(US) / `rss.wudifeixue.com`(CA) / `rsshub.isrss.com`(US)。
+半可用：`rsshub.ktachibana.party`（429 频繁）。其余挂/壳页（rsshub.app 403、owo.nz 502 等）。
+
+```sh
+webtool feed instances              # 探活今天谁活着, 默认自动挑最快的
+webtool feed radar bilibili --pick 1 --example --add rbili   # 路由 → 落地
 ```
 
-## ✅ 官方 feed（全部 webtool 通道实测出数据）
+429 时**轮换实例前缀**而非换源；重度用建议自建。
 
-### 中文新闻
-| 名字 | URL | 说明 |
-|---|---|---|
-| kr36 | https://www.36kr.com/feed | 36氪，30 条 = `/p` 主站文章 10 + `/newsflashes` 快讯 20（**必须带 www**，裸域 `36kr.com/feed` 返 text/html）。快讯与 RSSHub 路由同源，优先用官网 |
+## 放弃清单（2026-10 复测）
 
-### 国际科技/AI
-| 名字 | URL | 说明 |
-|---|---|---|
-| theverge | https://www.theverge.com/rss/index.xml | The Verge 主站 |
-| arstechnica | https://feeds.arstechnica.com/arstechnica/index | Ars Technica |
-| wired | https://www.wired.com/feed/rss | Wired |
-| mittr | https://www.technologyreview.com/feed/ | MIT 科技评论 |
-| ieee_ai | https://spectrum.ieee.org/feeds/topic/artificial-intelligence.rss | IEEE Spectrum AI 频道 |
-| arxiv_csai | https://export.arxiv.org/rss/cs.AI | arXiv cs.AI（周末 skipDays 空 feed 属正常） |
-| producthunt | https://www.producthunt.com/feed | Product Hunt 日榜 |
-
-### 安全/隐私
-| 名字 | URL | 说明 |
-|---|---|---|
-| krebs | https://krebsonsecurity.com/feed/ | Krebs on Security |
-| anquanke | https://api.anquanke.com/data/v1/rss | 安全客 |
-
-### 中文科技
-| 名字 | URL | 说明 |
-|---|---|---|
-| juejin_rss | https://juejin.cn/rss | 掘金全站（官方 RSS，无需 RSSHub） |
-| leiphone | https://www.leiphone.com/feed | 雷峰网 |
-| geekpark | https://www.geekpark.net/rss | 极客公园 |
-
-（sspai/ithome/ifanr/ruanyifeng/github_blog/v2ex/cnode 已是 webtool 内置预设）
-
-## ⚠️ 官方被墙/壳化 → 用 RSSHub 路由（已验证）
-
-| 站点 | 官方状态 | 可用路由（rssforever/ktachibana 实测） |
-|---|---|---|
-| 36氪**主站文章** | ✅ **有官方 feed**（见下） | 直接用 `https://www.36kr.com/feed` |
-| 36氪**快讯** newsflashes | ✅ **官网 feed 也含**（`/newsflashes` 20 条，与 RSSHub 路由同源） | 优先官网 `www.36kr.com/feed` |
-| B站综合热门 | 无官方 feed | https://rsshub.rssforever.com/bilibili/popular/all ✅ |
-| 知乎热榜 | webtool rank zhihu 更好 | RSSHub /zhihu/hotlist 公共实例 429 |
-| 微博热搜 | webtool rank weibo 更好 | RSSHub 需微博 cookie，公共实例挂 |
-| Solidot | index.rss 403 | /solidot 公共实例超时，需自建 |
-
-## RSSHub 公共实例池（2026-10-11 按 docs.rsshub.app/guide/instances 全量实测）
-
-官方文档口径：官方 rsshub.app + 15 社区公共实例；Folo 内置实例不对外（Folo 只是个 AI RSS 阅读器 + 用户共享实例，与 webtool 无关，路由格式一致）。
-
-**实测可用 4 个**（/36kr/newsflashes 验证出数据）：
-
-| 实例 | 地区 | 状态 |
-|---|---|---|
-| rsshub.rssforever.com | AE | ✅ 直连稳定 |
-| hub.slarker.me | US | ✅ |
-| rss.wudifeixue.com | CA | ✅ |
-| rsshub.isrss.com | US | ✅ |
-
-**半可用**：rsshub.ktachibana.party（✅ 但 429 限流频繁，重试可用）。
-**不可用**：rsshub.app（代理 403）、rss.owo.nz / rss.tips（502）、rss.datuan.dev（403）、cups.moe / 4040940.xyz（HTML 应用壳）、pseudoyu / henry.wang / umzzz / email-once / littlebaby / holoxx / spri（超时或解析失败）。
-
-**用法**：实例地址直接换前缀 — `webtool feed --add 名字 https://hub.slarker.me/路由`；429 时轮换实例前缀而非换源。限流表现：同实例高频会 429，跨实例可分散。
-
-## ❌ 放弃（实测不可用）
-- engadget（403 cffi）、bleepingcomputer（403）、solidot（403）
-- ~~qbitai 量子位~~ → 复测已通! curl 裸 UA 403, webtool 反探测指纹通道 200 (v1.8.0 价值实证)
-- ~~36氪 /feed 返 JS 壳~~ → **2026-10-12 复测已通**，`https://www.36kr.com/feed` 官方 feed 直接出 30 条。先前判定为 JS 壳应是裸请求没带对指纹头。教训: "官方 feed 不可用"的结论有时效，webtool 每次换实例/换指纹都要复测
-- techcrunch/theverge 部分 CDN 对数据中心 IP 抖动 → techcrunch 直连超时
-- cnbeta（DNS 挂）、dongqiudi（567）、infzm（404）、thn feedburner（超时）
-
-## 已沉淀为自定义源（webtool feed 现状）
-r36kr / rbili / rjuejin（RSSHub）+ myblog / hn_daily；官方类按需 `--add`。
-
-## 用法
-```bash
-webtool feed theverge ieee_ai -n 5          # 任意 URL 直接喂
-webtool feed --add mittr https://www.technologyreview.com/feed/ "MIT科技评论"
-webtool feed r36kr --new-only               # RSSHub 源走增量
-```
+engadget 403 / bleepingcomputer 403 / solidot 403 / cnbeta DNS 挂 / dongqiudi 567 / infzm 404 / thn feedburner 超时 / techcrunch 直连抖动（feed 可用但慢）。
