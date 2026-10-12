@@ -8,20 +8,11 @@
 import json
 import time
 
-from .bing import search as bing
-from .sogou import search as sogou
-from .google import search as google
-from .marginalia import search as marginalia
-from .baidu import search as baidu
 from .. import captcha
+from ..plugins import table as _plugin_table
 
-ENGINES = {
-    'bing': {'desc': 'Bing HTML 主通道+RSS兜底, chrome指纹, 国内 cn. 直连', 'fn': bing},
-    'sogou': {'desc': '搜狗: PC优先(chrome指纹)→移动端(Android指纹,直出真实URL)', 'fn': sogou},
-    'google': {'desc': 'Google: web(需代理,常IP级reCAPTCHA)→news RSS 自动降级+文章链还原', 'fn': google},
-    'baidu': {'desc': '百度网页, 多步预热(cookie+sugrec行为链), 反爬严(滑块)', 'fn': baidu},
-    'marginalia': {'desc': 'Marginalia 独立索引, 小站/老网页长尾, 免key直连, sst挑战自动解', 'fn': marginalia},
-}
+# 引擎元数据与实现统一走插件表 (data/plugins.json + ~/.webtool/plugins.json)
+ENGINES = _plugin_table('engine')
 
 
 def status(args, cfg):

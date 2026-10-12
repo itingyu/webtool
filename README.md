@@ -79,6 +79,28 @@ webtool zen "问题" --system "只回 JSON" --tool-choice none
 - 出网全走浏览器指纹，直连优先、失败才探活代理重试；google / docs.rsshub.app 必须代理
 - 报错自带处置建议，照做即可
 
+## 扩展
+
+四类插件：搜索引擎（`engine`）、榜单源（`hot`）、站内站点（`site`）、正文提取器（`extractor`）。清单在 `src/webtool/data/plugins.json`，用户在 `~/.webtool/plugins.json` 可覆盖或追加，无需改代码：
+
+```jsonc
+// ~/.webtool/plugins.json
+{
+  "engine": {
+    "bing": {"base": 0.6},                              // 改权重 (默认 0.9)
+    "my_eng": {"module": "mypkg.search:run", "desc": "自建引擎"}
+  },
+  "extractor": {
+    "my_ext": {"module": "mypkg.extract:run", "desc": "自定义提取器"}
+  }
+}
+```
+
+- `module` 格式 `包路径:函数名`，函数签名 `(query, limit, proxy, timeout) -> [结果]`（提取器为 `(html, url, meta) -> (正文, meta)`）
+- 三层来源，后者覆盖前者：包内 JSON → 用户 JSON → `WEBTOOL_PLUGIN_DIR`（默认 `~/.webtool/plugins`，放外部 `.py` 后在配置里指向）
+- 顺序即优先级：`hot`/`extractor` 按插入顺序尝试，提取器首个返回非空正文的生效；`rank -q` 靠 `search` 标志决定能否直接传关键词
+- 过滤规则同样可配：`~/.webtool/filters.json` 覆盖 `adfilter`（广告词/域名）与 `blocklist`（低质站点）
+
 ## 给 Agent 用
 
 复制 `skills/webtool/SKILL.md` 到 Agent 的 skill 目录（Claude Code `.claude/skills/`、Minis `/var/minis/skills/`）。

@@ -3,6 +3,35 @@
 > 目标：给 Agent 用的免费网页搜索 + 内容获取 CLI，输出 markdown/text/json，去广告留正文，省 token。
 > 仓库：github.com/itingyu/webtool
 
+## 0. 现行架构（2026-10）
+
+V1 设计见下文第 1-4 节（历史决策记录）。当前代码结构以本节为准：
+
+```
+src/webtool/
+├── cli.py            # typer 声明式 CLI (11 命令); 命令函数填 SimpleNamespace 复用 do_*(args, cfg)
+├── plugins.py        # Registry: 四类插件 engine/site/hot/extractor 统一注册表 (懒解析 + 三层来源)
+├── config_data.py    # 配置合并: 包内 data/*.json + ~/.webtool/ 同名文件 (深合并/列表替换)
+├── extractors.py     # 策略链: 正文提取按插件优先级降级 (trafilatura→readability→inscriptis)
+├── search.py         # 多引擎调度 (引擎表与权重来自插件表)
+├── merge.py          # 跨源排序 (BM25 语义 + 权重, 权重来自配置)
+├── fetch.py          # 抓取 (并发/重试/缓存), 提取委托 extractors 策略链
+├── feed.py           # RSS/Atom 订阅聚合
+├── rank.py           # 榜单聚合 (源来自插件表 hot 段)
+├── zen.py            # 免费 LLM 对话 (独立 provider 协议, 形状校验)
+├── render.py / output.py / hotrender.py   # 正文渲染与输出格式
+├── blocklist.py / adfilter.py             # 过滤规则 (来自 filters.json)
+├── transport.py      # curl_cffi 指纹传输层 (直连优先, 失败才走代理)
+├── data/
+│   ├── plugins.json  # 引擎/榜单源/站点/提取器清单 (元数据 + 模块路径)
+│   └── filters.json  # 广告特征词/落地域名/黑名单 (含 notes 说明背景)
+└── engines/          # 各站适配器函数 (由 plugins.json 的 module 字段指向)
+```
+
+**扩展方式**：四类插件清单声明在 `data/plugins.json`，用户经 `~/.webtool/plugins.json` 覆盖或追加（改权重、加引擎/站点/提取器），无需改代码；函数签名约定 `包路径:函数名`。详见 README「扩展」节。
+
+**硬编码现状**：站点适配器函数体（URL 构造、解析逻辑）仍在 `engines/*.py` —— 那是抓取逻辑本身，属代码；所有**元数据与配置**（引擎权重、站点描述/代理偏好、榜单源描述、广告与黑名单规则）已外置到 JSON。
+
 ## 1. 业界调研结论（实测）
 
 | 工具/服务 | 模式 | 费用 | 对 webtool 的借鉴 |
