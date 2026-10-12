@@ -377,7 +377,10 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
         text = reason                       # 少数模型只走 reasoning 通道
         used_reason = True
     base = {'status': 200, 'elapsed': time.time() - t0, 'text': text,
-            'usage': usage}
+            'usage': usage,
+            # 区分"上游没给用量"与"给了但为空": 部分 OpenAI 兼容端点不支持
+            # stream_options.include_usage, 会静默省掉 usage 字段。
+            'usage_available': bool(usage)}
     if reason.strip():
         base['reasoning'] = reason
         base['text_from_reasoning'] = used_reason
@@ -506,6 +509,7 @@ def _fmt_payload(res, args):
         'elapsed': round(res.get('elapsed', 0), 2),
         'text': res.get('text', ''),
         'usage': res.get('usage'),
+        'usage_available': res.get('usage_available', False),
     }
     if res.get('reasoning'):
         out['reasoning'] = res['reasoning']
