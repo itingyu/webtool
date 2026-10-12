@@ -115,18 +115,12 @@ def rerank(results, query, use_semantic=True):
         r['weight'] = round(w, 4)
 
     results.sort(key=lambda r: -r['weight'])
-    # quality 断层自适应 — 坏结果是与批内头部断层, 而非绝对分低。
-    # 判完就地丢弃: quality/sem_score 都是中间量, 不是对外契约。
-    sems = [r.pop('_sem') for r in results]
+    # 中间量与重复项一并清掉: 对外只有 engines 一个来源字段, 且恒为数组
+    # (单引擎也是单元素数组 —— 形状一致, 消费方无需分支判断)
     for i, r in enumerate(results):
+        r.pop('_sem', None)
+        r.pop('engine', None)
         r['rank'] = i + 1
-        # 单引擎时压成 engine 字符串, 多引擎才用 engines 数组
-        eng = r.get('engines') or []
-        if len(eng) == 1:
-            r['engine'] = eng[0]
-            r.pop('engines', None)
-        elif not eng:
-            r.pop('engines', None)
     return results
 
 def merge(results, query, use_semantic=True, dedupe=True):

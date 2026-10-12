@@ -98,6 +98,11 @@ def do_site(args, cfg):
     # quality 仅标注不剔除, 与 search 一致
     from webtool.pipeline.merge import merge as _merge
     n_before = len(results)
+    # 站内搜索不跨引擎, 但结果来源就是该站点 —— 标上它, 否则 engines 是空数组
+    # (注意用 args.site, 不是 src —— 后者是 cache/fresh 缓存状态)
+    for r in results:
+        if not r.get('engine'):
+            r['engine'] = args.site
     results = _merge(results, args.query, use_semantic=cfg.get('semantic') != 'off',
                      dedupe=cfg.get('dedupe') != 'off')
     dedup_removed = n_before - len(results)

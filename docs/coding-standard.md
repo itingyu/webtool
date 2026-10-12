@@ -75,9 +75,10 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 - 需要表格/再加工时用 `-f json` 自行转换，不提供 csv：抓来的字段是不可信文本，
   导出表格必然要回答「要不要防公式注入」，这个长期负担不值当
 - **每条结果的字段就是最终形态，没有"精简开关"**。`merge.rerank` 直接产出最终字段：
-  `rank/title/url/snippet/weight` + 引擎字段（单引擎 → `engine` 字符串，多引擎 →
-  `engines` 数组）。评分中间量 `sem_score`（内部键 `_sem`）与 `confirmations`/
-  `quality` 算完即删，不进对外结果。
+  `rank/title/url/snippet/weight/engines`。评分中间量 `sem_score`（内部键 `_sem`）
+  与 `confirmations`/`quality` 算完即删，不进对外结果。
+  **`engines` 恒为数组**（单引擎命中也是 `["sogou"]` 而非 `"sogou"`）—— 形状一致，
+  消费方不用写 `isinstance` 分支；数组长度就是交叉验证数。`engine` 单数字段不外泄。
 
   曾实现过 `merge(slim=True)` + 输出前再剥一层的设计，已撤除 —— 那等于让数据先
   长出多余字段再当场删掉，多余的参数和两次遍历都是纯负担，且派生 bug（剥字段
