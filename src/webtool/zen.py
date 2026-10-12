@@ -14,21 +14,9 @@ import urllib.error
 import urllib.request
 
 from webtool.core import urls
-from webtool.zenproto import StickySession, get_protocol
-
-ZEN_URL = "https://opencode.ai/zen/v1/chat/completions"
-ZEN_MODELS_URL = "https://opencode.ai/zen/v1/models"
-
-
-def _proto(name=None):
-    """当前协议实例: data/zen.json + ~/.webtool/zen.json 叠加 (mtime 热生效),
-    文件缺失时回落 OpenAI 兼容 + 内置端点"""
-    from webtool.core.config_data import load as _cfg_load
-    d = _cfg_load('zen', 'zen.json') or {}
-    return get_protocol(name or d.get('protocol'), d)
-
-# 指纹 UA: 免费层分类器认这个串
-UA = "opencode/1.18.15 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14"
+from webtool.zenproto import (StickySession, _endpoints, build_body,
+                              build_headers, model_headers, parse_models,
+                              parse_sse)
 
 # socket 空闲超时。urlopen 的 timeout 只管"多久没收到字节", 不是墙钟预算;
 # 流式生成中间只要有 delta 就永不触发, 所以给够即可。
@@ -49,22 +37,21 @@ def fetch_models(cfg, refresh=False, timeout=15.0, proxy=None):
     也只是启发式 —— 真正的判据是 `zen --list-models --check` 实发一次。
     """
     from webtool.core import cache as _cache
-    p = _proto()
-    key = 'zen/models/%s' % p.name        # 按协议分桶, 换端点不会读到旧缓存
+    key = 'zen/models'
+    chat_url, models_url = _endpoints()
     if not refresh:
         hit = _cache.get(cfg, 'zen', key)
         if hit and isinstance(hit.get('ids'), list) and hit['ids']:
             return hit['ids']
-    req = urllib.request.Request(
-        p.models_url, headers=p.model_headers())
+    req = urllib.request.Request(models_url, headers=model_headers())
     try:
         with _opener({'proxy': proxy} if proxy else {}).open(
                 req, timeout=timeout) as r:
             d = json.loads(r.read())
-        ids = p.parse_models(d)
+        ids = parse_models(d)
     except Exception as e:                       # 超时/DNS/TLS 都要兜住
         import sys
-        print('[zen] %s 拉取失败: %s' % (p.models_url, str(e)[:120]),
+        print('[zen] %s 拉取失败: %s' % (models_url, str(e)[:120]),
               file=sys.stderr)
         return []
     if not ids:
@@ -94,10 +81,9 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
              tool_choice=None, full=False, proxy=None):
     """发一次请求, 流式返回 {ok, status, text, usage, ...}。不重试。"""
     cfg = {'proxy': proxy} if proxy else {}
-    p = _proto()
-    body = p.build_body(model, prompt, system, tool_choice, full)
-    headers = session.headers() if session else p.build_headers()
-    req = urllib.request.Request(p.chat_url, data=body, headers=headers,
+    body = build_body(model, prompt, system, tool_choice, full)
+    headers = session.headers() if session else build_headers()
+    req = urllib.request.Request(_endpoints()[0], data=body, headers=headers,
                                  method='POST')
     t0 = time.time()
     stream_err = []
@@ -106,7 +92,7 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
 
     def drain(lines):
         nonlocal usage
-        for text, reason, calls, u, err in p.parse_sse(lines):
+        for text, reason, calls, u, err in parse_sse(lines):
             if text:
                 text_parts.append(text)
                 if on_delta:
@@ -152,17 +138,13 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
                     continue
                 *complete, remainder = remainder.split(b'\n')
                 lines = [c.decode('utf-8', errors='replace') for c in complete]
-                saw_done = saw_done or (
-                    any(l.strip() == 'data: [DONE]' for l in lines)
-                    if p.sees_done else any(l.strip() == 'data: ' + '"' + 'type' + '"' + ': \"message_stop\"'
-                                           or 'message_stop' in l for l in lines))
+                saw_done = saw_done or any(l.strip() == 'data: [DONE]'
+                                           for l in lines)
                 drain(lines)
             if remainder:
                 drain([remainder.decode('utf-8', errors='replace')])
             if not saw_done and not stream_err:
-                tail = ('[DONE]' if p.sees_done else 'message_stop')
-                stream_err.append('stream closed without %s and without content'
-                                  % tail)
+                stream_err.append('stream closed without [DONE] and without content')
     except urllib.error.HTTPError as e:
         with e:
             body_txt = e.read().decode('utf-8', errors='replace')
@@ -343,9 +325,8 @@ def _do_zen(args, cfg):
 
     # ---- dry-run: 打印请求, 不联网 ----
     if args.show_body or args.show_text:
-        p = _proto(getattr(args, 'protocol', None))
-        body = p.build_body(args.model, prompt, args.system, args.tool_choice,
-                            args.full_tools)
+        body = build_body(args.model, prompt, args.system, args.tool_choice,
+                          args.full_tools)
         d = json.loads(body)
         if args.show_text:
             print(json.dumps(d['messages'], indent=2, ensure_ascii=False))
@@ -393,7 +374,7 @@ def _do_zen(args, cfg):
         return 2
 
     # ---- 真正的调用 ----
-    session = StickySession(_proto()) if args.sticky else None
+    session = StickySession() if args.sticky else None
     # 实时刷屏只在"人在看终端"时做: stdout 被管道接走、或要 -f json 时, 缓冲
     # 一次输出, 否则终端上会先看到流式再看到完整结果, 重复一遍。
     fmt = getattr(args, 'format', None) or 'text'

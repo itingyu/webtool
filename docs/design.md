@@ -13,7 +13,8 @@ src/webtool/
 ├── feeds/               # RSS/Atom 订阅聚合
 │   └── command / sources / parse / fetch / cards
 ├── radar/               # RSSHub 路由查询与参数填充 (按数据源切: routes/rules/instances/official/template/race)
-├── zen.py fetch.py sitesearch.py blocklist.py adfilter.py
+├── zen.py + zenproto.py    # LLM 对话编排 + OpenAI 兼容协议细节
+├── fetch.py sitesearch.py blocklist.py adfilter.py
 ├── pipeline/            # search 调度 / rank 榜单 / merge 排序去重 / topup 补量 / qhint 质量诊断
 ├── render/              # render 正文渲染 / hotrender 榜单分节 / output 落盘
 ├── net/                 # transport 指纹传输 / proxy / captcha 冷却 / spa 数据提取
@@ -29,6 +30,19 @@ src/webtool/
     ├── instances.json / zen.json / feeds.seed.json
     └── 注: data/ 在包根, 不在 core/ 下 —— core.config_data.DATA_DIR 指向它
 ```
+
+## LLM 对话协议: 只做 OpenAI 兼容, 不做多协议抽象
+
+曾实现过 Anthropic Messages API 分支 (`zenproto/` 包 + Protocol 基类 +
+协议注册表), 已撤除, 压成单个函数模块 `zenproto.py`。
+
+理由不是"实现麻烦", 而是 Zen 端点根本不提供 Anthropic 形状:
+实测 `/zen/v1/messages`、`/zen/messages`、`/zen/v1/chat/messages` 全 404,
+只有 `/zen/v1/chat/completions` 与 `/zen/v1/models`。官方文档也把 Zen 归为
+AI SDK provider, 接第三方端点默认推荐 `@ai-sdk/openai-compatible`。
+
+单一协议下, Protocol 基类 + 子类 + 注册表是纯开销 (多一层间接、多一处
+配置面), 所以降级为普通函数。真要接第二种协议时再抽基类。
 
 **扩展方式**：七类插件清单声明在 `data/plugins.json`，用户经 `~/.webtool/plugins.json` 覆盖或追加（改权重、加引擎/站点/提取器/解码器/过滤器），无需改代码；函数签名约定 `包路径:函数名`。详见 README「扩展」节。
 
