@@ -10,7 +10,9 @@
 webtool/
   cli/          L4 应用编排   app / config / plugins  —— 唯一可 import 任何层的层
   feeds/        L3 业务流程   command / sources / parse / fetch / cards
-  radar.py zen.py sitesearch.py fetch.py            —— L3 单体模块
+  radar/        L3 业务流程   routes / rules / instances / official / template
+                                           / race / instances_cfg
+  zen.py sitesearch.py fetch.py blocklist.py ...       —— L3/L1 单体模块
   pipeline/     L2 合并输出   search / rank / merge / topup / qhint
   render/       L2 合并输出   render / hotrender / output
   net/          L1 采集实现   transport / proxy / captcha / spa
@@ -19,6 +21,11 @@ webtool/
                                               probe / resilient
                 通用工具类     text / urls / jsonfmt
 ```
+
+`radar/` 与 `feeds/` 是"业务包"的样板：一个能力域一个包，`__init__` 只做再导出，
+对外仍可 `import webtool.radar`。拆包的切分原则是**按数据源/职责切，不按函数个数切**——
+`radar` 切成 routes(官方目录)/rules(规则库)/instances(实例探活)/official(官网兜底)/
+template(模板语法)/race(并发) 六块，每块对应一个独立的数据源或算法。
 
 `core/` 内部分两类，别混：
 
