@@ -9,10 +9,7 @@ CONFIG_PATH = os.path.expanduser('~/.webtool/config.json')
 
 DEFAULTS = {
     'proxy': None,
-    'engine_proxy': {
-        'bing': None, 'sogou': None,
-        'duckduckgo': None, 'jina': None,
-    },
+    'engine_proxy': {},          # 每引擎单独代理覆盖; 键取自引擎插件名
     'fetch_proxy': None,
     'timeout': 15,
     'ua': 'auto',

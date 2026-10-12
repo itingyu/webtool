@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""搜索结果广告过滤
+"""搜索结果广告过滤 (filter 插件: ad)
 
 三层判定 (is_ad=True 即可被 --no-ad 过滤):
 1. 引擎标注: baidu 的 result-op 聚合卡片直接标 is_ad
@@ -13,26 +13,26 @@ from urllib.parse import urlparse
 
 from .config_data import load
 
-_CFG = load('adfilter', 'filters.json')
 
-# 强广告特征词 (标题/摘要) / 广告落地域名 / URL 广告参数, 均可经 ~/.webtool/filters.json 覆盖
-AD_KEYWORDS = _CFG.get('keywords', [])
-AD_DOMAINS = _CFG.get('domains', [])
-AD_URL_PAT = re.compile('|'.join(_CFG.get('url_patterns', ['$^'])) or '$^', re.I)
+def _cfg():
+    """每次读: filters.json 改动按 mtime 自动生效"""
+    return load('adfilter', 'filters.json')
 
 
 def is_ad(item):
     """单条结果广告判定"""
+    c = _cfg()
     url = item.get('url', '') or ''
     if item.get('is_ad'):
         return True
     host = urlparse(url).netloc.lower()
-    if any(host == d or host.endswith('.' + d) for d in AD_DOMAINS):
+    if any(host == d or host.endswith('.' + d) for d in c.get('domains', ())):
         return True
-    if AD_URL_PAT.search(url):
+    pat = '|'.join(c.get('url_patterns', ())) or '$^'
+    if re.search(pat, url, re.I):
         return True
     text = (item.get('title', '') + ' ' + item.get('snippet', '')).lower()
-    return any(k.lower() in text for k in AD_KEYWORDS)
+    return any(k.lower() in text for k in c.get('keywords', ()))
 
 
 def mark_ads(results):
@@ -46,3 +46,8 @@ def mark_ads(results):
 def filter_ads(results):
     """硬过滤: 移除广告结果"""
     return [r for r in results if not is_ad(r)]
+
+
+def filter_ad(results, ctx=None):
+    """filter 插件入口: (结果列表, 上下文) -> 过滤后列表"""
+    return filter_ads(results)

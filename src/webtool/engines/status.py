@@ -11,8 +11,10 @@ import time
 from .. import captcha
 from ..plugins import table as _plugin_table
 
-# 引擎元数据与实现统一走插件表 (data/plugins.json + ~/.webtool/plugins.json)
-ENGINES = _plugin_table('engine')
+
+def _engines():
+    """引擎表; 每次现取, 清单改动即时生效"""
+    return _plugin_table('engine')
 
 
 def status(args, cfg):
@@ -28,7 +30,7 @@ def status(args, cfg):
 def _list(cfg):
     """列引擎清单 + 本地冷却状态 (不发请求)"""
     out = []
-    for name, meta in ENGINES.items():
+    for name, meta in _engines().items():
         row = {'engine': name, 'desc': meta['desc']}
         cd = captcha.cooldown_left(name)
         if cd:
@@ -41,24 +43,24 @@ def _list(cfg):
 def _test(args, cfg):
     """实发一次请求: 指定引擎或全部; 报 ok/条数/耗时/错误"""
     names = [getattr(args, 'name', None)] if getattr(args, 'name', None) \
-        else list(ENGINES)
-    bad = [n for n in names if n not in ENGINES]
+        else list(_engines())
+    bad = [n for n in names if n not in _engines()]
     if bad:
         print(f'unknown engine: {",".join(bad)}\navailable: '
-              f'{",".join(ENGINES)}', flush=True)
+              f'{",".join(_engines())}', flush=True)
         return 2
     query = getattr(args, 'query', None) or 'python'
     # required 引擎无可用代理时标 skipped, 不白等超时
-    from ..search import ENGINE_PROXY_HINT, _proxy_alive
+    from ..search import proxy_hint, _proxy_alive
     out = []
     for name in names:
-        meta = ENGINES[name]
+        meta = _engines()[name]
         row = {'engine': name}
         cd = captcha.cooldown_left(name)
         if cd:
             row['cooldown'] = f'{cd}s (此前触发反爬)'
         proxy = (cfg.get('engine_proxy') or {}).get(name) or cfg.get('proxy')
-        if ENGINE_PROXY_HINT.get(name) == 'required' and not _proxy_alive(cfg):
+        if proxy_hint(name) == 'required' and not _proxy_alive(cfg):
             row.update({'ok': False, 'skipped': True,
                         'error': '需代理 (webtool proxy set <url> 后再试)'})
             out.append(row)

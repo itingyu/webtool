@@ -21,6 +21,15 @@ import urllib.request
 ZEN_URL = "https://opencode.ai/zen/v1/chat/completions"
 ZEN_MODELS_URL = "https://opencode.ai/zen/v1/models"
 
+
+def _endpoints():
+    """zen 端点可被用户配置覆盖 (config.json 的 zen_base_url), 便于换网关/自建反代"""
+    from .configcmd import load_config
+    base = (load_config().get('zen_base_url') or '').rstrip('/')
+    if not base:
+        return ZEN_URL, ZEN_MODELS_URL
+    return base + '/chat/completions', base + '/models'
+
 # 指纹 UA: 免费层分类器认这个串
 UA = "opencode/1.18.15 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14"
 
@@ -169,7 +178,7 @@ def fetch_models(cfg, refresh=False, timeout=15.0, proxy=None):
             return hit['ids']
     ctx = ssl.create_default_context()
     req = urllib.request.Request(
-        ZEN_MODELS_URL,
+        _endpoints()[1],
         headers={'Authorization': 'Bearer public',
                  'Accept': 'application/json',
                  'User-Agent': UA})
@@ -278,7 +287,7 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
     body = build_body(model, prompt, system, tool_choice, full)
     headers = session.headers() if session else build_headers()
     ctx = ssl.create_default_context()
-    req = urllib.request.Request(ZEN_URL, data=body, headers=headers,
+    req = urllib.request.Request(_endpoints()[0], data=body, headers=headers,
                                  method='POST')
     t0 = time.time()
     stream_err = []

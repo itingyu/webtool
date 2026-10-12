@@ -75,13 +75,13 @@ webtool zen "问题" --system "只回 JSON" --tool-choice none
 
 - `-n` 条数 / `-f` 格式（`md`≡`markdown`、`txt`≡`text`，大小写不敏感）/ `-o` 落盘（按 `-f` 补扩展名）/ `--no-cache` / `--no-proxy`
 - 退出码：0 成功 / 2 用法错误（提示走 stderr）
-- 缓存 TTL：search 60s / fetch 10s / 跳转解析 10min
+- 缓存 TTL：search 60s / fetch 10s / 跳转解析 10min（`config set cache_ttl.<桶>=<秒>` 覆盖）
 - 出网全走浏览器指纹，直连优先、失败才探活代理重试；google / docs.rsshub.app 必须代理
 - 报错自带处置建议，照做即可
 
 ## 扩展
 
-四类插件：搜索引擎（`engine`）、榜单源（`hot`）、站内站点（`site`）、正文提取器（`extractor`）。清单在 `src/webtool/data/plugins.json`，用户在 `~/.webtool/plugins.json` 可覆盖或追加，无需改代码：
+七类插件：搜索引擎（`engine`）、榜单源（`hot`）、站内站点（`site`）、正文提取器（`extractor`）、跳转链解码器（`resolver`）、结果过滤器（`filter`）、结果改写（`transformer`）。清单在 `src/webtool/data/plugins.json`，用户在 `~/.webtool/plugins.json` 可覆盖或追加，无需改代码：
 
 ```jsonc
 // ~/.webtool/plugins.json
@@ -96,10 +96,40 @@ webtool zen "问题" --system "只回 JSON" --tool-choice none
 }
 ```
 
-- `module` 格式 `包路径:函数名`，函数签名 `(query, limit, proxy, timeout) -> [结果]`（提取器为 `(html, url, meta) -> (正文, meta)`）
+各类函数签名：
+
+| 类别 | 签名 | 说明 |
+|---|---|---|
+| `engine` | `(query, max_results, proxy, timeout, market) -> [结果]` | `base` 决定排序权重 |
+| `hot` | `(query, limit, proxy, timeout) -> [结果]` | `search` 决定能否直接传关键词 |
+| `site` | `(query, limit, proxy, timeout, **kw) -> [结果]` | `proxy` 为 `direct`/`proxy` |
+| `extractor` | `(html, url, meta) -> (正文, meta)` | 返回 `('' , {...})` 表示降级 |
+| `resolver` | `(url, proxy, timeout) -> 新 url` | `match` 指认跳转链特征 |
+| `filter` | `(results, ctx) -> [结果]` | 剔除不该出现在结果里的条目 |
+| `transformer` | `(results, ctx) -> [结果]` | 补字段、改写 url 等 |
+
+- `module` 格式 `包路径:函数名`
 - 三层来源，后者覆盖前者：包内 JSON → 用户 JSON → `WEBTOOL_PLUGIN_DIR`（默认 `~/.webtool/plugins`，放外部 `.py` 后在配置里指向）
-- 顺序即优先级：`hot`/`extractor` 按插入顺序尝试，提取器首个返回非空正文的生效；`rank -q` 靠 `search` 标志决定能否直接传关键词
-- 过滤规则同样可配：`~/.webtool/filters.json` 覆盖 `adfilter`（广告词/域名）与 `blocklist`（低质站点）
+- 顺序即优先级：`hot`/`extractor`/`filter`/`transformer` 按插入顺序执行；提取器首个返回非空正文的生效
+- 过滤规则同样可配：`~/.webtool/filters.json` 覆盖 `adfilter`（广告词/域名）、`blocklist`（低质站点）、`merge`（词典先验域/跟踪参数/短实体表）、`spa`（内嵌 state 挂载点追加）
+- 引擎行为参数在 `engine.<name>.params`：`rate`（请求间隔秒）、`captcha_signs`（验证页指纹 `[算子,值]`，算子 contains/title_contains/len_lt）、`cooldown`（触发后静默秒）
+- 启停：`webtool plugins enable|disable <kind> <name>`（写用户清单翻转 `enabled`，mtime 自动生效）；被禁用的插件在 `plugins list --all` 与 status 里仍可见（state=disabled）
+- RSSHub 公共实例表在 `data/instances.json`（用户可建 `~/.webtool/instances.json` 同构覆盖）
+
+### 跳转链解码
+
+搜狗 `/link`、百度 `/link?`、Google News `/articles/` 这类跳转链会被还原成原始 URL（`--no-resolve` 关闭）。这一层是 `resolver` 插件，与引擎无关——**按 URL 特征认链，不是按结果来自哪个引擎**：
+
+```jsonc
+// ~/.webtool/plugins.json
+{
+  "resolver": {
+    "myshort": {"module": "mypkg.deLink:resolve", "match": ["~t\\.co/"]}
+  }
+}
+```
+
+`match` 里普通字符串按子串匹配（域名和整条 URL 都比），`~` 开头按正则匹配整条 URL。加自己的短链服务只需照此声明一条。
 
 ### 热更新
 

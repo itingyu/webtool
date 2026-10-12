@@ -20,11 +20,25 @@ import re
 import urllib.parse
 
 # window.<STATE> = {...} 挂载点 (Next/Nuxt/Redux/Vue/自研常见命名)
-_STATE_RE = re.compile(
-    r'window\.(__NEXT_DATA__|__NUXT__|__INITIAL_STATE__|__INITIAL_DATA__'
-    r'|__PRELOADED_STATE__|__APP_DATA__|__INITIAL_PROPS__|__STORE__'
-    r'|__REDUX_STATE__|__APOLLO_STATE__|INITIAL_STATE|RENDER_DATA)'
-    r'\s*=\s*')
+# 内置名单 + 用户追加: filters.json 的 spa.extra_state_names (新框架名免改代码)
+_BUILTIN_STATE_NAMES = ('__NEXT_DATA__', '__NUXT__', '__INITIAL_STATE__',
+                        '__INITIAL_DATA__', '__PRELOADED_STATE__',
+                        '__APP_DATA__', '__INITIAL_PROPS__', '__STORE__',
+                        '__REDUX_STATE__', '__APOLLO_STATE__', 'INITIAL_STATE',
+                        'RENDER_DATA')
+
+
+def _state_names():
+    try:
+        from .config_data import load as _cfg_load
+        extra = _cfg_load('spa', 'filters.json').get('extra_state_names') or ()
+    except Exception:
+        extra = ()
+    return '|'.join((*_BUILTIN_STATE_NAMES, *extra))
+
+
+def _state_re():
+    return re.compile(r'window\.(' + _state_names() + r')\s*=\s*')
 
 _MAX_SCRIPT = 3_000_000      # 单 script 解析上限
 _MAX_NODES = 50_000          # 单 state 递归节点上限
@@ -105,7 +119,7 @@ def _collect_states(html):
             except Exception:
                 pass
             continue
-        wm = _STATE_RE.search(blob)
+        wm = _state_re().search(blob)
         if wm:
             obj = _loads_tail(blob[wm.end():])
             if obj is not None:

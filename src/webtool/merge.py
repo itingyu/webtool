@@ -12,19 +12,28 @@ import re
 from urllib.parse import urlparse, parse_qsl, urlencode
 
 from .adfilter import is_ad
-from .plugins import table as _plugin_table
 
-ENGINE_BASE = {name: spec.get('base')
-               for name, spec in _plugin_table('engine').items()
-               if spec.get('base')}
+
+def _engine_base():
+    """引擎权重表 (engine.<name>.params.base); 每次现取插件表, 清单改动即时生效"""
+    from .plugins import table as _plugin_table
+    return {name: spec.get('base')
+            for name, spec in _plugin_table('engine').items()
+            if spec.get('base')}
 
 # ---------------- 域名先验 ----------------
 # 技术性/实体 query 下, 词典/通用百科页几乎必是噪声 (如 "GPT Claude Gemini"
 # 命中「大(汉语文字)」); 但对「X 是什么意思」类 query 又是好结果 → 不拉黑, 只降权。
-_REF_HOSTS = ('baike.baidu.com', 'iciba.com', 'dict.youdao.com',
-              'hanyu.baidu.com', 'dict.baidu.com', 'www.zdic.net', 'm.zdic.net')
+# 域名表在 data/filters.json 的 merge 段 (ref_hosts), 用户可增删
+from .config_data import load as _cfg_load
+
 _EN_TOKEN_RE = re.compile(r'[A-Za-z][A-Za-z0-9+#.]{2,}')
 _EN_WORD_RE = re.compile(r'^[A-Za-z][A-Za-z0-9+#.\-]*$')
+
+
+def _merge_cfg():
+    """merge 段配置 (ref_hosts/track_params/short_entities); mtime 热生效"""
+    return _cfg_load('merge', 'filters.json')
 
 
 def _domain_prior(r, query):
@@ -35,14 +44,11 @@ def _domain_prior(r, query):
         host = (urlparse(r.get('url', '')).netloc or '').lower()
     except Exception:
         return 1.0
-    if any(h == host or host.endswith('.' + h) for h in _REF_HOSTS):
+    if any(h == host or host.endswith('.' + h) for h in _merge_cfg().get('ref_hosts', ())):
         return 0.5
     return 1.0
 
 # ---------------- URL 归一化 ----------------
-_TRACK_PARAMS = {'utm_source', 'utm_medium', 'utm_campaign', 'utm_term',
-                 'utm_content', 'from', 'refer', 'refer_flag', 'fr',
-                 'share_token', 'share_appid', 'vd', 'ns', 'seid', 'sc'}
 
 
 def normalize_url(u):
@@ -51,9 +57,10 @@ def normalize_url(u):
         p = urlparse(u.strip())
     except Exception:
         return u
+    track = set(_merge_cfg().get('track_params', ()))
     host = p.netloc.lower().replace('www.', '', 1) if p.netloc.startswith('www.') else p.netloc.lower()
     qs = [(k, v) for k, v in parse_qsl(p.query, keep_blank_values=True)
-          if k.lower() not in _TRACK_PARAMS]
+          if k.lower() not in track]
     path = p.path.rstrip('/') or '/'
     return f'{p.scheme}://{host}{path}' + (f'?{urlencode(qs)}' if qs else '')
 
@@ -87,7 +94,7 @@ def rerank(results, query, use_semantic=True):
         sem_scores = {i: 1.0 for i in range(len(results))}
 
     for i, r in enumerate(results):
-        base = ENGINE_BASE.get(r.get('engine'), 0.7)
+        base = _engine_base().get(r.get('engine'), 0.7)
         rank = r.get('rank', 10)
         pos = 1.0 / math.log2(rank + 1)
         n_eng = len(r['engines'])
@@ -134,7 +141,8 @@ def _entity_factor(query, r):
     只统计长度≥3 的独立英文 token (GPT/LLM 等短 token 单独白名单),
     至少 2 个实体 token 才启用 (避免英文单词 query 误伤)。
     """
-    toks = [t for t in _EN_TOKEN_RE.findall(query or '') if len(t) >= 3 or t.upper() in _SHORT_ENT]
+    toks = [t for t in _EN_TOKEN_RE.findall(query or '')
+            if len(t) >= 3 or t.upper() in set(_merge_cfg().get('short_entities', ()))]
     toks = [t for t in toks if _EN_WORD_RE.match(t)]
     if len(set(t.lower() for t in toks)) < 2:
         return 1.0
@@ -148,9 +156,6 @@ def _entity_factor(query, r):
     if hit_any >= max(1, n // 2):
         return 1.15
     return 0.45
-
-
-_SHORT_ENT = {'GPT', 'LLM', 'API', 'CSS', 'SQL', 'AWS', 'K8S', 'GO', 'JS', 'AI'}
 
 
 def merge(results, query, use_semantic=True, dedupe=True):

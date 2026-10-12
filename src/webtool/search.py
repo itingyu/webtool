@@ -10,7 +10,11 @@ from . import cache
 from .adfilter import is_ad, mark_ads
 from .plugins import table as _plugin_table
 
-ENGINES = {name: spec['fn'] for name, spec in _plugin_table('engine').items()}
+
+def _engines():
+    """引擎表 (name -> spec); 每次现取插件表, 清单改动即时生效"""
+    return _plugin_table('engine')
+
 _PROBE_CACHE = None
 def _proxy_alive(cfg, ttl=60):
     """全局代理 TCP 探活, 结果缓存 ttl 秒. 代理未配置返回 False."""
@@ -32,14 +36,19 @@ def _proxy_alive(cfg, ttl=60):
     return ok
 
 
-# 各引擎代理建议: None=跟随全局; 'required'=必须代理; 'direct'=建议直连
-# google: 必须代理 — 代理未配置或探活失败(进程挂/端口不通)都静默跳过, 不搜谷歌
-ENGINE_PROXY_HINT = {'bing': 'direct', 'sogou': 'direct',
-                     'google': 'required', 'baidu': 'direct',
-                     'marginalia': 'direct'}
-# 默认组合 bing/sogou/baidu (免 key 直连); google 不进默认: DC 代理出口普遍被
-# IP 级 reCAPTCHA 拦截只剩新闻通道; marginalia 中文覆盖弱, 作长尾补充源
-DEFAULT_ENGINES = 'bing,sogou,baidu'
+# 各引擎代理建议来自插件清单 engine.*.params.proxy_hint:
+# None=跟随全局; 'required'=必须代理; 'direct'=建议直连
+# google 为 required — 代理未配置或探活失败(进程挂/端口不通)都静默跳过, 不搜谷歌
+def proxy_hint(engine):
+    """按插件元数据取代理策略, 未声明的引擎保守跟随全局"""
+    spec = _engines().get(engine) or {}
+    return spec.get('proxy_hint')
+
+
+def default_engines():
+    """默认引擎组合 = 清单里 enabled_by_default 为真的引擎"""
+    on = [n for n, s in _engines().items() if s.get('enabled_by_default')]
+    return ','.join(on) if on else 'bing,sogou,baidu'
 
 
 def do_search(args, cfg):
@@ -64,7 +73,7 @@ def _do_search(args, cfg, filter_ad=True):
     if args.no_semantic or cfg.get('semantic') == 'off':
         args.no_semantic = True
     engines = [e.strip() for e in (args.engine or cfg.get('default_engines')
-                                   or DEFAULT_ENGINES).split(',') if e.strip()]
+                                   or default_engines()).split(',') if e.strip()]
     if args.format is None and cfg.get('default_format'):
         args.format = cfg['default_format']
     if cfg.get('cache') == 'off':
@@ -95,9 +104,10 @@ def _do_search(args, cfg, filter_ad=True):
               + f' → {qmap[name]!r}', file=sys.stderr)
 
     for eng in engines:
-        fn = ENGINES.get(eng)
+        spec = _engines().get(eng)
+        fn = spec['fn'] if spec else None
         if not fn:
-            errors.append({'engine': eng, 'error': f'unknown engine, available: {",".join(ENGINES)}'})
+            errors.append({'engine': eng, 'error': f'unknown engine, available: {",".join(_engines())}'})
             continue
         ckey = f'{eng}|{qmap[eng]}|{_pull}|{args.market}'
         cached = None if args.no_cache else cache.get(cfg, 'search', ckey)
@@ -106,7 +116,7 @@ def _do_search(args, cfg, filter_ad=True):
             per_engine[eng] = 'cache'
         else:
             eproxy = (cfg.get('engine_proxy') or {}).get(eng)
-            hint = ENGINE_PROXY_HINT.get(eng)
+            hint = proxy_hint(eng)
             if args.no_proxy:
                 if hint == 'required':
                     continue            # --no-proxy 时 required 引擎直接跳过
@@ -151,13 +161,21 @@ def _do_search(args, cfg, filter_ad=True):
     # 注: BM25 的 IDF 基于传入批自身, 黑名单先行会让 sem 数值随黑名单配置
     # 漂移 — 本就批内自适应, 跨配置不可比, 非回归
     from .merge import merge as _merge
+    from .plugins import table as _pt
     from .blocklist import filter_blocklist, is_blocked
-    if args.no_blocklist:
-        n_blocked = 0
-    else:
+    # 过滤器走插件表, 顺序即优先级; blocklist 单列计数供 json 输出
+    n_blocked = 0
+    if not args.no_blocklist:
         n_before_bl = len(results)
-        results, n_blocked = filter_blocklist(
-            results, extra_block=args.block or (), extra_allow=args.allow or ())
+        for fname, spec in _pt('filter').items():
+            if fname == 'blocklist':
+                kept, nb = filter_blocklist(
+                    results, extra_block=args.block or (),
+                    extra_allow=args.allow or ())
+                n_blocked += nb
+                results = kept
+            else:
+                results = spec['fn'](results, {'args': args, 'cfg': cfg})
     n_before = len(results)
     results = _merge(results, args.query,
                      use_semantic=not args.no_semantic,
@@ -174,11 +192,12 @@ def _do_search(args, cfg, filter_ad=True):
         seen_urls = {r.get('url') for r in results} | \
                     {r.get('url') for r in []}
         for eng in engines:
-            fn = ENGINES.get(eng)
+            spec = _engines().get(eng)
+            fn = spec['fn'] if spec else None
             if not fn or len(results) >= _want:
                 break
             eproxy = (cfg.get('engine_proxy') or {}).get(eng)
-            hint = ENGINE_PROXY_HINT.get(eng)
+            hint = proxy_hint(eng)
             if args.no_proxy:
                 proxy = None
             elif eproxy is not None:
@@ -223,6 +242,11 @@ def _do_search(args, cfg, filter_ad=True):
     # 还原为原始 URL 再返回 (带并发+缓存+熔断); --no-resolve 关闭
     if not getattr(args, 'no_resolve', False):
         _resolve_sogou_links(results, cfg)
+
+    # transformer 插件: 解码完成后逐条改写 (补字段/规范化/重写 url), 顺序即优先级
+    from .plugins import table as _pt
+    for tname, tspec in _pt('transformer').items():
+        results = tspec['fn'](results, {'args': args, 'cfg': cfg})
 
     # 质量诊断: 结果集与 query 整体脱节 → 输出 query 优化建议 (不自动改写,
     # 自动改词可能引入歧义, 改写权在用户; 这里只做检测 + 提醒)
@@ -295,7 +319,8 @@ def _fetch_engines(args, cfg, engines, query, filter_ad):
     """对指定 query 跑一轮多引擎抓取 (供 site/子命令复用, 返回原始结果)"""
     rs_all, errs, ads = [], [], 0
     for eng in engines:
-        fn = ENGINES.get(eng)
+        spec = _engines().get(eng)
+        fn = spec['fn'] if spec else None
         if not fn:
             continue
         ckey = f'{eng}|{query}|{args.max}|{args.market}'
@@ -304,7 +329,7 @@ def _fetch_engines(args, cfg, engines, query, filter_ad):
             rs = cached
         else:
             eproxy = (cfg.get('engine_proxy') or {}).get(eng)
-            hint = ENGINE_PROXY_HINT.get(eng)
+            hint = proxy_hint(eng)
             if args.no_proxy:
                 proxy = None
             elif eproxy is not None:
@@ -329,28 +354,24 @@ def _fetch_engines(args, cfg, engines, query, filter_ad):
 
 
 def _resolve_sogou_links(results, cfg):
-    """跳转链批量解码成原始 URL: 搜狗 /link + baidu /link + gnews articles"""
-    from urllib.parse import urlparse
-    from .engines.sogou import resolve_link as _sogou_resolve
-    from .engines.baidu import _resolve_one as _baidu_resolve
-    from .engines.google import resolve_link as _google_resolve
-    import concurrent.futures as cf
+    """跳转链批量解码成原始 URL
 
-    def _kind(u):
-        n = urlparse(u).netloc + u
-        if 'sogou.com/link' in n:
-            return 'sogou'
-        if 'baidu.com/link?' in n:
-            return 'baidu'
-        if 'news.google.com' in n and '/articles/' in n:
-            return 'gnews'
-        return None
+    解码器与匹配规则都来自 resolver 插件表 (data/plugins.json):
+    每条按 match 特征认出某种跳转链, 交给对应解码器。排序无所谓,
+    匹配到就解, 与结果来自哪个引擎无关。
+    """
+    from .plugins import resolve_match, table as _pt
 
-    todo = [(i, r, _kind(r['url'])) for i, r in enumerate(results)]
-    todo = [x for x in todo if x[2]]
+    resolvers = _pt('resolver')
+    timeout = cfg.get('timeout', 15)
+
+    todo = []
+    for i, r in enumerate(results):
+        kind = resolve_match(r['url'], resolvers)
+        if kind:
+            todo.append((i, r, kind))
     if not todo:
         return
-    timeout = cfg.get('timeout', 15)
 
     def work(item):
         i, r, kind = item
@@ -358,15 +379,9 @@ def _resolve_sogou_links(results, cfg):
         if not real:
             eproxy = (cfg.get('engine_proxy') or {}).get(kind)
             proxy = eproxy if eproxy is not None else cfg.get('proxy')
-            if kind == 'sogou':
-                real = _sogou_resolve(r['url'], proxy=proxy, timeout=timeout)
-            elif kind == 'baidu':
-                real = _baidu_resolve(r['url'], proxy=proxy, timeout=timeout)
-            else:
-                real = _google_resolve(r['url'], proxy=proxy, timeout=timeout)
-            # 只有"真的解出了另一个 URL"才写缓存: 解码失败时各引擎 resolve_link
-            # 会把原链原样返回, 若照单全收就会把跳转链本身当成解码结果缓存起来,
-            # 之后每次都在这里短路命中 → 一次失败变成永久失败
+            real = resolvers[kind]['fn'](r['url'], proxy=proxy, timeout=timeout)
+            # 只有"真的解出了另一个 URL"才写缓存: 解码失败时解码器会把原链原样
+            # 返回, 若照单全收就会把跳转链当成解码结果缓存, 之后永久短路
             if real and real != r['url']:
                 cache.put(cfg, 'resolve', r['url'], real)
         return i, real

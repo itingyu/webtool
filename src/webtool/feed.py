@@ -3,7 +3,7 @@
 
 用法:
   webtool feed list                     内置预设源清单 + 用法
-  webtool feed                          拉默认预设源 (PRESET_FEEDS), 按源分组原序
+  webtool feed                          拉默认预设源 (seed 里 default:true), 按源分组原序
   webtool feed sspai ithome             指定预设源
   webtool feed <任意RSS/Atom URL>       直接订阅任意 feed
   webtool feed ithome sspai -q "汽车"   语义筛选 (BM25 本地筛 + 按相关度重排)
@@ -15,6 +15,10 @@
 
 解析: 纯标准库 xml.etree (零依赖), 兼容 RSS 2.0 / Atom; 条目字段统一为
 {rank, title, url, snippet, date, source}; 连通策略同 rank (直连→探活代理)。
+
+预设源已外置: data/feeds.seed.json (随包种子) + ~/.webtool/feeds.json (用户)。
+种子条目里 "default": true 即默认入选源 (原 DEFAULT_FEED_SOURCES 硬编码的
+角色); 安装时种子并入用户文件 (只增不覆盖), 用户可改可删。
 """
 import json
 import os
@@ -35,17 +39,6 @@ def _clean(s):
     """去 HTML 标签, 折叠空白 (与 engines.hotsites._clean 同逻辑)"""
     s = re.sub(r'<[^>]+>', '', s or '')
     return re.sub(r'\s+', ' ', s).strip()
-
-PRESET_FEEDS = {
-    'sspai':    {'url': 'https://sspai.com/feed',              'desc': '少数派文章'},
-    'ithome':   {'url': 'https://www.ithome.com/rss/',          'desc': 'IT之家资讯 (60条)'},
-    'ifanr':    {'url': 'https://www.ifanr.com/feed',           'desc': '爱范儿'},
-    'ruanyifeng': {'url': 'https://www.ruanyifeng.com/blog/atom.xml', 'desc': '阮一峰科技爱好者周刊'},
-    'cnode':    {'url': 'https://cnodejs.org/rss',              'desc': 'CNode 社区'},
-    'github_blog': {'url': 'https://github.blog/feed/',         'desc': 'GitHub Blog'},
-    'v2ex':     {'url': 'https://www.v2ex.com/index.xml',       'desc': 'V2EX 全站新帖'},
-}
-DEFAULT_FEED_SOURCES = ['sspai', 'ithome', 'ifanr', 'ruanyifeng', 'github_blog']
 
 FEEDS_FILE = os.path.expanduser('~/.webtool/feeds.json')
 FEED_STATE_FILE = os.path.expanduser('~/.webtool/feed_state.json')
@@ -638,8 +631,9 @@ def do_feed(args, cfg):
     if getattr(args, 'del_src', None):
         user = _load_user_feeds()
         if args.del_src not in user:
-            if args.del_src in PRESET_FEEDS:
-                print(f'"{args.del_src}" 是内置预设源, 不可删除 (自定义源才可删)',
+            if args.del_src in _load_seed_feeds():
+                print(f'"{args.del_src}" 是内置预设源, 不可删除 (自定义源才可删; '
+                      f'不想订阅可在 feeds.json 里把 "default" 置 false 或整条删掉后用 WEBTOOL_NO_SEED=1)',
                       file=sys.stderr)
             else:
                 print(f'自定义源 "{args.del_src}" 不存在; 现有: '
@@ -775,11 +769,15 @@ def do_feed(args, cfg):
     user = _load_user_feeds()
     if (not args.sources) or \
             (len(args.sources) == 1 and args.sources[0] == 'list'):
-        print(f'webtool feed 订阅源 ({len(PRESET_FEEDS)} 预设 + {len(user)} 自定义):\n')
-        for k, v in PRESET_FEEDS.items():
-            star = ' *' if k in DEFAULT_FEED_SOURCES else ''
-            print(f'  {k:14s} {v["desc"]}{star}')
+        seed = _load_seed_feeds()
+        defaults = {k for k, v in seed.items() if v.get('default')}
+        print(f'webtool feed 订阅源 ({len(seed)} 预设 + {len(user)} 自定义):\n')
+        for k, v in seed.items():
+            star = ' *' if k in defaults else ''
+            print(f'  {k:14s} {v.get("desc") or ""}{star}')
         for k, v in user.items():
+            if k in seed:
+                continue
             print(f'  {k:14s} {v.get("desc") or ""} (自定义) {v["url"]}')
         print('\n用法:')
         print('  webtool feed sspai ithome        指定源 (预设名或任意 RSS/Atom URL)')
@@ -798,9 +796,12 @@ def do_feed(args, cfg):
         return 0
     # ---- 解析源名 → url (支持直接喂 URL) ----
     user = _load_user_feeds()
-    all_names = dict(PRESET_FEEDS)
-    for k, v in user.items():
-        all_names[k] = v
+    all_names = dict(user)
+    if not args.sources:
+        # 无参数 = 默认源: 用户文件里 default:true 的; 一个都没有则回退 seed 元数据
+        args.sources = [k for k, v in user.items() if isinstance(v, dict) and v.get('default')]
+        if not args.sources:
+            args.sources = [k for k, v in _load_seed_feeds().items() if v.get('default')]
     names, specs, unknown = [], {}, []
     for s in args.sources:
         if s in all_names:

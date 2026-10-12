@@ -27,6 +27,8 @@ CONFIG_KEYS = {
     'timeout':          ('请求超时秒数', '5 ~ 60 整数', int),
     'cache':            ('缓存开关', 'on / off', ('on', 'off')),
     'engine_proxy.<engine>': ('单引擎代理覆盖', '<engine>=<url> 形式 set, 如 engine_proxy.google=http://...', None),
+    'zen_base_url':         ('zen 端点 base (换网关/自建反代)', '如 https://my-mirror.example.com/zen/v1', None),
+    'cache_ttl.<bucket>':   ('分桶缓存 TTL 秒覆盖', '<bucket>=<sec>, 如 cache_ttl.search=30 (桶: search/fetch/resolve/hot/zen)', None),
 }
 
 
@@ -48,6 +50,8 @@ def save_config(cfg):
 
 def _validate(key, value):
     """返回 (ok, 转换后的值/错误信息)"""
+    if key.startswith(('engine_proxy.', 'cache_ttl.')):
+        return True, value          # 复合键: 桶/引擎名自由, 值按原样
     if key not in CONFIG_KEYS:
         return False, f'未知配置键: {key}\n可用键: {", ".join(CONFIG_KEYS)}'
     desc, hint, typ = CONFIG_KEYS[key]
@@ -122,6 +126,9 @@ def handle(args):
         if args.key.startswith('engine_proxy.'):
             eng = args.key.split('.', 1)[1]
             cfg.setdefault('engine_proxy', {})[eng] = v
+        elif args.key.startswith('cache_ttl.'):
+            bucket = args.key.split('.', 1)[1]
+            cfg.setdefault('cache_ttl', {})[bucket] = v
         else:
             cfg[args.key] = v
         save_config(cfg)

@@ -1,51 +1,44 @@
 # -*- coding: utf-8 -*-
-"""验证码识别 + 冷却 (state 持久化, 指数加长跨进程生效)"""
+"""验证码识别 + 冷却 (state 持久化, 指数加长跨进程生效)
+
+指纹与冷却秒数来自插件清单 engine.<name>.params:
+    captcha_signs: [[算子, 值], ...]   算子 ∈ contains / title_contains / len_lt
+    cooldown:      秒数               触发验证页后的静默期 (未声明用 30)
+清单改动按 mtime 热生效, 新引擎不再改本文件。generic 段对所有引擎生效。
+"""
 import threading
 import time
 
 from . import state
+from .config_data import load as _cfg_load
 
-# ---- 验证页指纹 (按引擎) ----
-CAPTCHA_SIGNS = {
-    'baidu': [
-        ('title_contains', '百度安全验证'),
-        ('contains', 'wappass.baidu.com'),
-        ('contains', 'mkdjump_v2'),
-        ('len_lt', 2000),
-    ],
-    'sogou': [
-        ('contains', 'antispider'),
-        ('title_contains', '验证码'),
-        ('contains', 'seccodeimage'),
-        ('contains', '403 forbidden'),   # nginx 硬拦 (DC IP 常见)
-        ('len_lt', 1300),                # 564B/1150B 跳转壳都算被拦
-    ],
-    'google': [
-        ('contains', 'unusual traffic'),
-        ('contains', 'www.google.com/sorry'),
-        ('contains', 'recaptcha'),
-    ],
-    'bing': [
-        ('contains', 'challenge-form'),   # DDG 同款 anomaly
-    ],
-    'generic': [
-        ('title_contains', 'captcha'),
-        ('title_contains', 'verify'),
-        ('title_contains', '安全验证'),
-        ('contains', 'cf-challenge'),
-        ('contains', 'Just a moment'),
-    ],
-}
+# 验证页指纹的通用段: 任何引擎命中都算被拦 (Cloudflare 质询等)
+_GENERIC_SIGNS = [
+    ('title_contains', 'captcha'),
+    ('title_contains', 'verify'),
+    ('title_contains', '安全验证'),
+    ('contains', 'cf-challenge'),
+    ('contains', 'Just a moment'),
+]
+_DEFAULT_COOLDOWN = 30
 
-# 引擎冷却秒数: 触发验证页后, 该引擎静默期
-COOLDOWN = {'baidu': 90, 'sogou': 30, 'google': 300, 'bing': 30, 'generic': 30}
+
+def _engine_params():
+    """engine 段插件表 (name -> params); mtime 热生效"""
+    from .plugins import table as _plugin_table
+    return {n: (s.get('params') or {}) for n, s in _plugin_table('engine').items()}
+
+
+def _signs_for(engine):
+    ps = _engine_params().get(engine) or {}
+    return [tuple(x) for x in (ps.get('captcha_signs') or ())] + _GENERIC_SIGNS
 
 
 def detect(engine, html):
     """判定是否验证页. 返回 (blocked, hit_sign)"""
     if not html:
         return False, None
-    signs = CAPTCHA_SIGNS.get(engine, []) + CAPTCHA_SIGNS['generic']
+    signs = _signs_for(engine)
     low = html.lower()
     title_m = None
     tl = low.find('<title')
@@ -53,9 +46,9 @@ def detect(engine, html):
         te = low.find('</title>', tl)
         title_m = low[tl:te] if te > 0 else low[tl:tl + 200]
     for kind, val in signs:
-        if kind == 'contains' and val.lower() in low:
+        if kind == 'contains' and str(val).lower() in low:
             return True, f'{kind}:{val}'
-        if kind == 'title_contains' and title_m and val.lower() in title_m:
+        if kind == 'title_contains' and title_m and str(val).lower() in title_m:
             return True, f'{kind}:{val}'
         if kind == 'len_lt' and len(html) < val:
             return True, f'{kind}<{val}'
@@ -66,7 +59,8 @@ def mark_blocked(engine):
     """记录某引擎触发验证页, 进入冷却 (持久化, 指数加长跨进程生效)"""
     st = state.get_captcha(engine)
     st['hits'] += 1
-    cd = COOLDOWN.get(engine, 30)
+    ps = _engine_params().get(engine) or {}
+    cd = ps.get('cooldown', _DEFAULT_COOLDOWN)
     state.set_captcha(engine, time.time() + cd * min(st['hits'], 4), st['hits'])
 
 

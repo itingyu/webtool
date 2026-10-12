@@ -11,6 +11,17 @@ import time
 
 TTL = {'search': 60, 'fetch': 10, 'resolve': 600, 'hot': 120, 'zen': 604800}
 
+
+def _ttl(cfg, bucket):
+    """分桶 TTL: 内置默认 + 用户 config set cache_ttl.<bucket>=<sec> 覆盖"""
+    over = (cfg or {}).get('cache_ttl')
+    if isinstance(over, dict) and bucket in over:
+        try:
+            return float(over[bucket])
+        except (TypeError, ValueError):
+            pass
+    return TTL.get(bucket, 3600)
+
 def _path(cfg, bucket, key):
     d = os.path.join(cfg.get('cache_dir') or os.path.expanduser('~/.webtool/cache'), bucket)
     os.makedirs(d, exist_ok=True)
@@ -22,7 +33,7 @@ def get(cfg, bucket, key):
     try:
         with open(p, encoding='utf-8') as f:
             obj = json.load(f)
-        if time.time() - obj['t'] < TTL.get(bucket, 3600):
+        if time.time() - obj['t'] < _ttl(cfg, bucket):
             return obj['v']
         os.unlink(p)
     except (OSError, KeyError, ValueError):

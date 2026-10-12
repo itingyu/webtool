@@ -10,7 +10,7 @@ V1 设计见下文第 1-4 节（历史决策记录）。当前代码结构以本
 ```
 src/webtool/
 ├── cli.py            # typer 声明式 CLI (11 命令); 命令函数填 SimpleNamespace 复用 do_*(args, cfg)
-├── plugins.py        # Registry: 四类插件 engine/site/hot/extractor 统一注册表 (懒解析 + 三层来源)
+├── plugins.py        # Registry: 七类插件 engine/site/hot/extractor/resolver/filter/transformer 统一注册表 (懒解析 + 三层来源)
 ├── config_data.py    # 配置合并: 包内 data/*.json + ~/.webtool/ 同名文件 (深合并/列表替换)
 ├── extractors.py     # 策略链: 正文提取按插件优先级降级 (trafilatura→readability→inscriptis)
 ├── search.py         # 多引擎调度 (引擎表与权重来自插件表)
@@ -28,7 +28,7 @@ src/webtool/
 └── engines/          # 各站适配器函数 (由 plugins.json 的 module 字段指向)
 ```
 
-**扩展方式**：四类插件清单声明在 `data/plugins.json`，用户经 `~/.webtool/plugins.json` 覆盖或追加（改权重、加引擎/站点/提取器），无需改代码；函数签名约定 `包路径:函数名`。详见 README「扩展」节。
+**扩展方式**：七类插件清单声明在 `data/plugins.json`，用户经 `~/.webtool/plugins.json` 覆盖或追加（改权重、加引擎/站点/提取器/解码器/过滤器），无需改代码；函数签名约定 `包路径:函数名`。详见 README「扩展」节。
 
 **硬编码现状**：站点适配器函数体（URL 构造、解析逻辑）仍在 `engines/*.py` —— 那是抓取逻辑本身，属代码；所有**元数据与配置**（引擎权重、站点描述/代理偏好、榜单源描述、广告与黑名单规则）已外置到 JSON。
 

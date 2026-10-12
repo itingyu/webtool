@@ -6,14 +6,28 @@ import sys
 import time
 
 from . import cache
-from .engines.sites import SITES
+from .engines.sites import sites_table
+
+
+def _site_kwargs(args, spec):
+    """站点声明要的额外参数 (params.args) 与命令行值的交集
+
+    站点自己在清单里写 "params": {"args": ["lang"]}, 命令行给了同名值
+    才传下去 —— 新增带参站点只需改清单, 不必改调度代码。
+    """
+    out = {}
+    for key in (spec.get('args') or ()):
+        val = getattr(args, key, None)
+        if val not in (None, '', 'zh'):     # 默认值不传, 让站点用自己的默认
+            out[key] = val
+    return out
 
 
 def do_site(args, cfg):
     if args.site in (None, 'list'):
         from .customsites import load_custom_sites
         rows = []
-        for k, v in SITES.items():
+        for k, v in sites_table().items():
             rows.append({'site': k, 'desc': v['desc'], 'proxy_hint': v['proxy'], 'source': 'builtin'})
         for k, v in load_custom_sites().items():
             if v.get('_error'):
@@ -35,10 +49,10 @@ def do_site(args, cfg):
     elif args.site in customs:
         print(f'site {args.site} 配置有误: {customs[args.site]["_error"]}', file=sys.stderr)
         return 2
-    elif args.site in SITES:
-        kind, spec = 'builtin', SITES[args.site]
+    elif args.site in sites_table():
+        kind, spec = 'builtin', sites_table()[args.site]
     else:
-        print(f'unknown site: {args.site}\navailable: {", ".join(sorted(set(SITES) | set(customs)))}\n'
+        print(f'unknown site: {args.site}\navailable: {", ".join(sorted(set(sites_table()) | set(customs)))}\n'
               f'use `webtool site list` for detail', file=sys.stderr)
         return 2
 
@@ -62,11 +76,12 @@ def do_site(args, cfg):
             if kind == 'custom':
                 results = search_custom(args.site, spec, args.query, args.max,
                                         proxy, cfg.get('timeout', 15))
-            elif args.site == 'wikipedia' and args.lang != 'zh':
-                results = SITES['wikipedia']['fn'](args.query, args.max, proxy,
-                                                   cfg.get('timeout', 15), lang=args.lang)
             else:
-                results = spec['fn'](args.query, args.max, proxy, cfg.get('timeout', 15))
+                # 站点在 params.args 声明要哪些额外参数 (如 wikipedia 的 lang),
+                # 命令行给了才带上 —— 不再按站点名写特例分支
+                results = spec['fn'](args.query, args.max, proxy,
+                                     cfg.get('timeout', 15),
+                                     **_site_kwargs(args, spec))
             cache.put(cfg, 'search', ckey, results)
             src = 'fresh'
         except Exception as e:

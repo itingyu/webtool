@@ -89,16 +89,25 @@ def _registrable(host):
 
 # ---------------- 节奏控制 (每引擎最小间隔 + 抖动) ----------------
 
-RATE = {'baidu': 1.2, 'sogou': 0.8, 'bing': 0.5, 'google': 1.0}
+_DEFAULT_RATE = 0.4
 _last_hit = {}
 _rate_lock = threading.Lock()
+
+
+def _rate_of(engine):
+    """每引擎最小请求间隔秒数; engine.<name>.params.rate, 未声明用默认"""
+    if not engine:
+        return _DEFAULT_RATE
+    from .plugins import table as _plugin_table
+    spec = _plugin_table('engine').get(engine) or {}
+    return (spec.get('params') or {}).get('rate', _DEFAULT_RATE)
 
 
 def _pace(engine):
     """请求前节奏控制: 距上次请求不足 min_interval 时随机补足"""
     if not engine:
         return
-    gap = RATE.get(engine, 0.4)
+    gap = _rate_of(engine)
     with _rate_lock:
         last = _last_hit.get(engine, 0.0)
         wait = gap - (time.time() - last) + random.uniform(0.05, 0.4)

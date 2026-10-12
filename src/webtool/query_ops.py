@@ -12,16 +12,24 @@ _OP_RE = re.compile(r'\b(site|intitle|inurl):(?:"([^"]+)"|(\S+))', re.I)
 # -word 排除: 前面不能是空白(否则是长破折号/负数), 且不能紧跟冒号(那是 -site:foo)
 _EXCLUDE_RE = re.compile(r'(?<!\S)-([^\s:][^\s]*)')
 
-# 引擎 → 支持的操作符集合; 集合外的操作符按 strip 策略丢弃
-SUPPORT = {
-    'google':     {'site', 'intitle', 'inurl', 'exclude'},
-    'bing':       {'site', 'intitle', 'inurl', 'exclude'},
-    'baidu':      {'site', 'intitle', 'exclude'},
-    'sogou':      {'site', 'intitle', 'exclude'},
-    'marginalia': set(),
-}
-# 未登记引擎的默认策略: 保守起见全部丢弃操作符 (宁可少筛, 不要噪声)
-_DEFAULT_SUPPORT = set()
+# 引擎支持哪些操作符, 来自插件清单 engine.<name>.params.ops;
+# 集合外的操作符按 strip 策略丢弃。未声明的引擎保守起见全部丢弃
+# (宁可少筛, 不要噪声)
+_DEFAULT_SUPPORT = frozenset()
+_SUP_CACHE = {}
+
+
+def _ops_map():
+    """插件表 → {engine: {操作符}}; 清单改动后自动重读 (mtime 失效)"""
+    from .plugins import ENGINES
+    items = ENGINES.items()
+    key = tuple(sorted(items))
+    hit = _SUP_CACHE.get('key')
+    if hit != key:
+        _SUP_CACHE['key'] = key
+        _SUP_CACHE['ops'] = {
+            n: frozenset(s.get('ops') or ()) for n, s in items.items()}
+    return _SUP_CACHE['ops']
 
 
 class ParsedQuery:
@@ -72,7 +80,7 @@ def render(operators, excludes, bare_terms):
 
 def supported_ops(engine):
     """该引擎支持的操作符集合"""
-    return SUPPORT.get((engine or '').lower(), _DEFAULT_SUPPORT)
+    return _ops_map().get((engine or '').lower(), _DEFAULT_SUPPORT)
 
 
 def engine_supports(engine, op):

@@ -75,13 +75,12 @@ def race(jobs, ok=None, timeout=None, need=None):
 RADAR_FILE = Path.home() / '.webtool' / 'cache' / 'radar_rules.json'
 RADAR_TTL = 7 * 86400
 
-# 公共实例 (顺序即默认优先级)。可用性每天在变, 别当常量信 —— 用 instances() 探活。
-_DEFAULT_INSTANCES = [
-    'https://rsshub.rssforever.com',
-    'https://hub.slarker.me',
-    'https://rss.wudifeixue.com',
-    'https://rsshub.isrss.com',
-]
+# 公共实例表已外置: data/instances.json (默认) + ~/.webtool/instances.json (用户覆盖)。
+# 可用性每天在变, 别当常量信 —— 用 instances() 探活。
+def _default_instances():
+    from .config_data import load as _cfg_load
+    return list((_cfg_load('rsshub', 'instances.json') or {}).get('instances') or [])
+
 # 实例探活用的廉价路由, 任意一个出条目即视为实例活着
 _PROBE_ROUTE = '/36kr/newsflashes'
 INSTANCES_FILE = Path.home() / '.webtool' / 'cache' / 'rsshub_instances.json'
@@ -342,7 +341,7 @@ def load_rules(proxy=None, refresh=False, timeout=20):
             pass
     from . import transport
     errs = []
-    for base in _DEFAULT_INSTANCES:
+    for base in _default_instances():
         # 直连优先 (CF 对代理出口更敏感), 失败再试代理
         attempts = [None] + ([proxy] if proxy else [])
         for px in attempts:
@@ -448,7 +447,7 @@ def instances(proxy=None, refresh=False, need=None, timeout=10):
         return {'instance': base, 'ok': False, 'items': 0,
                 'ms': int((time.time() - t0) * 1000), 'err': last}
 
-    jobs = {b: (lambda b=b: probe(b)) for b in _DEFAULT_INSTANCES}
+    jobs = {b: (lambda b=b: probe(b)) for b in _default_instances()}
     if need is None:
         # 全量清单 (`feed instances` 用法) 必须等全部回来, 否则早退会把没探
         # 到的显示成 '未探测' —— 看着像挂了, 其实没问过
@@ -458,7 +457,7 @@ def instances(proxy=None, refresh=False, need=None, timeout=10):
                      timeout=timeout * 3, need=need)
     out = [found.get(b, {'instance': b, 'ok': False, 'items': 0, 'ms': 0,
                           'err': '未探测'})
-           for b in _DEFAULT_INSTANCES]
+           for b in _default_instances()]
     complete = all(x['err'] != '未探测' for x in out)
     # 早退的部分结果也落盘, 否则紧接着的全量调用把刚省下的等待又付一遍
     INSTANCES_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -644,5 +643,6 @@ def best_instance(proxy=None, refresh=False, default=None):
     alive = [it for it in instances(proxy=proxy, refresh=refresh, need=1)
              if it['ok']]
     if not alive:
-        return _DEFAULT_INSTANCES[1].rstrip('/')
+        inst = _default_instances()
+        return inst[1].rstrip('/') if len(inst) > 1 else (inst[0].rstrip('/') if inst else '')
     return min(alive, key=lambda it: it['ms'])['instance'].rstrip('/')

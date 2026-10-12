@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""站点黑名单: 低质量/内容农场站点过滤
+"""站点黑名单: 低质量/内容农场站点过滤 (filter 插件: blocklist)
 
 三层来源 (后者覆盖前者同名字段):
-1. 内置默认 (DEFAULT_BLOCKLIST): 常见内容农场/SEO 垃圾站, 开箱即用
+1. 内置默认 (data/filters.json): 常见内容农场/SEO 垃圾站, 开箱即用;
+   每条的背景在该文件 notes 段
 2. 用户配置 ~/.webtool/blocklist.json:
    {"block": ["csdn.net", ...], "allow": ["blog.csdn.net/gitblog_xxx"]}
    - block: 域名后缀匹配 (netloc == d 或 netloc.endswith('.' + d))
@@ -14,13 +15,9 @@
 """
 import json
 import os
-import re
 from urllib.parse import urlparse
 from .config_data import load
 
-# 内置黑名单 (内容农场/SEO 模板站/低质量聚合), 见 data/filters.json;
-# 每条的背景在该文件 notes 段, 用户可在 ~/.webtool/filters.json 增删
-DEFAULT_BLOCKLIST = load('blocklist', 'filters.json').get('domains', [])
 
 def _norm_host(host):
     host = (host or '').lower().strip()
@@ -29,9 +26,18 @@ def _norm_host(host):
     return host
 
 
+def builtin_blocklist():
+    """内置黑名单域名; filters.json 改动按 mtime 自动生效"""
+    return load('blocklist', 'filters.json').get('domains', [])
+
+
+# 兼容旧引用 (仅统计展示用); 过滤判定一律走 load_blocklist() 现取
+DEFAULT_BLOCKLIST = builtin_blocklist()
+
+
 def load_blocklist():
-    """返回 (block_set, allow_set)"""
-    block = set(DEFAULT_BLOCKLIST)
+    """返回 (block_set, allow_set); 内置表 mtime 热生效"""
+    block = set(builtin_blocklist())
     allow = set()
     path = os.path.expanduser('~/.webtool/blocklist.json')
     if os.path.exists(path):
@@ -78,6 +84,11 @@ def filter_blocklist(results, extra_block=(), extra_allow=()):
         else:
             kept.append(r)
     return kept, blocked
+
+
+def filter_blocked(results, ctx=None):
+    """filter 插件入口: (结果列表, 上下文) -> 过滤后列表"""
+    return filter_blocklist(results)[0]
 
 
 def handle_cli(args):

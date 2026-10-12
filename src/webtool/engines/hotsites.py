@@ -529,12 +529,20 @@ def bili_word(q, limit=10, proxy=None, timeout=15):
 
 
 # ============================================================ 注册表
-# 元数据 (desc/search 标志) 在 data/plugins.json 的 "hot" 段;
+# 元数据 (desc/search 标志/是否默认入选) 在 data/plugins.json 的 "hot" 段;
 # 加新源 = 本文件加 fetch 函数 + plugins.json 加一条 {"module": "...", "desc": "..."}
+#
+# 注意: Registry.items() 返回 dict (name -> spec), 遍历要用 .items() 两层 ——
+# `for k, v in registry.items()` 是对 dict 迭代 key, 'zhihu' 会被解包成
+# ('z','h') 直接 ValueError。统一走 table() 取 dict 再 .items()。
 from ..plugins import table as _plugin_table
 
 HOT_SITES = _plugin_table('hot')
 
-DEFAULT_HOT_SOURCES = ['zhihu', 'weibo', 'baidu', 'douyin', 'douyin_hot',
-                       'toutiao_hot', 'bili_hot', 'tieba', 'hn_official',
-                       'github_trend']
+
+# 默认榜单组合 = 清单里 default_on 为真的源 (用户可在 ~/.webtool/plugins.json 改)
+def default_hot_sources():
+    """清单驱动: hot.<name>.params.default_on; 每次现取表, 清单改动即时生效"""
+    return [n for n, s in _plugin_table('hot').items() if s.get('default_on')]
+
+DEFAULT_HOT_SOURCES = default_hot_sources()

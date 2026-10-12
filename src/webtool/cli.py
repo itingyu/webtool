@@ -340,11 +340,13 @@ def config_cmd(action: str = typer.Argument(..., help='list/get/set/unset'),
 
 
 @app.command('plugins')
-def plugins_cmd(action: str = typer.Argument('list', help='list/check/reload'),
-                kind: str = typer.Argument(None, help='engine/hot/site/extractor')):
-    """插件管理: 清单与来源 / 加载体检 / 热重载外部插件"""
+def plugins_cmd(action: str = typer.Argument('list', help='list/check/reload/enable/disable'),
+                kind: str = typer.Argument(None, help='engine/hot/site/extractor/resolver/filter/transformer'),
+                plugin: str = typer.Argument(None, help='enable/disable 的插件名'),
+                all: bool = typer.Option(False, '--all', '-a', help='list 含 disabled 项')):
+    """插件管理: 清单与来源 / 加载体检 / 启停 / 热重载外部插件"""
     a = _CTX['args']
-    a.action, a.kind = action, kind
+    a.action, a.kind, a.plugin, a.all = action, kind, plugin, all
 
     def fn(args, cfg):
         from . import plugincmd

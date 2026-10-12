@@ -311,4 +311,7 @@ def _ts2date(ts):
 # 加站点 = 写一个 (q, limit, proxy, timeout) -> [结果] 的适配器 + plugins.json 加一条
 from ..plugins import table as _plugin_table
 
-SITES = _plugin_table('site')
+
+def sites_table():
+    """站点表; 每次现取插件表, 清单改动即时生效"""
+    return _plugin_table('site')

@@ -19,7 +19,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from . import cache
-from .engines.hotsites import HOT_SITES, DEFAULT_HOT_SOURCES
+from .engines.hotsites import HOT_SITES, default_hot_sources
 
 _proxy_alive = {}
 
@@ -79,8 +79,8 @@ def _fmt_filters(d):
 
 def _print_sources():
     """rank list: 打印支持的热榜清单 + 用法示例"""
-    print(f'webtool rank 榜单源 ({len(HOT_SITES)} 个, 默认 {len(DEFAULT_HOT_SOURCES)} 源):\n')
-    dn = set(DEFAULT_HOT_SOURCES)
+    dn = set(default_hot_sources())
+    print(f'webtool rank 榜单源 ({len(HOT_SITES)} 个, 默认 {len(dn)} 源):\n')
     for k, v in HOT_SITES.items():
         star = ' *' if k in dn else ''
         s = ' 支持-q站内' if v.get('search') else ''
@@ -112,10 +112,10 @@ def do_rank(args, cfg):
             seen.add(s)
             names.append(s)
     if not names:
-        names = list(DEFAULT_HOT_SOURCES)
+        names = list(default_hot_sources())
     if unknown:
         print(f'unknown rank sources (skip): {", ".join(unknown)}; '
-              f'可选: {", ".join(HOT_SITES)}; 无参数 = 默认 {len(DEFAULT_HOT_SOURCES)} 源',
+              f'可选: {", ".join(HOT_SITES)}; 无参数 = 默认 {len(default_hot_sources())} 源',
               file=sys.stderr)
         return 2
 
