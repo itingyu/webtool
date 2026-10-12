@@ -173,6 +173,18 @@ def do_feed(args, cfg):
             (len(args.sources) == 1 and args.sources[0] == 'list'):
         seed = load_seed_feeds()
         defaults = {k for k, v in seed.items() if v.get('default')}
+        # 给了 -f (含 json) 就走 render 层统一分发, 清单是可机读数据不是给人看的表格
+        if getattr(args, 'format', None):
+            rows = [{'name': k, 'url': v.get('url', ''), 'desc': v.get('desc') or '',
+                     'origin': 'seed', 'default': k in defaults}
+                    for k, v in seed.items()]
+            rows += [{'name': k, 'url': v.get('url', ''), 'desc': v.get('desc') or '',
+                      'origin': 'custom', 'default': False}
+                     for k, v in user.items() if k not in seed]
+            from webtool.render.hotrender import render_feed_list
+            render_feed_list({'results': rows, 'seed_count': len(seed),
+                              'user_count': len(user)}, args.format)
+            return 0
         print(f'webtool feed 订阅源 ({len(seed)} 预设 + {len(user)} 自定义):\n')
         for k, v in seed.items():
             star = ' *' if k in defaults else ''

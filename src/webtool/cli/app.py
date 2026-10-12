@@ -2,8 +2,10 @@
 
 约定:
 - 数据命令 (search/fetch/site/rank/feed/zen) 的 print 输出统一捕获后走 emit,
-  支持 -f/-o 落盘; 管理命令 (proxy/engines/cache/blocklist/config) 直接输出
-- -f 大小写不敏感, md=markdown, txt=text; 默认 json (fetch/zen 例外)
+  支持 -f/-o 落盘; 管理命令 (proxy/engines/cache/blocklist/config/plugins) 也支持
+  -f/-o, 由 cli/adminfmt.py 把它们吐出的 JSON 转成目标格式
+- -f 大小写不敏感, md=markdown, txt=text; 非法值直接报错退出 (不静默回落);
+  默认 json (fetch/zen 例外)
 - 退出码: 0 成功 / 2 用法错误 / 130 Ctrl-C
 """
 import io
@@ -16,7 +18,7 @@ import typer
 from typer._click.exceptions import UsageError as _UsageError, ClickException as _ClickException
 
 from webtool.net import proxy as _proxy
-from webtool.render.output import emit
+from webtool.render.output import emit, FORMATS
 
 app = typer.Typer(add_completion=False, no_args_is_help=True,
                   help='Agent 友好的网页搜索与内容获取工具',
@@ -25,7 +27,7 @@ app = typer.Typer(add_completion=False, no_args_is_help=True,
 # ---------- 公共选项 ----------
 
 Fmt = typer.Option(None, '-f', '--format',
-                   help='输出格式 json/text/markdown (大小写不敏感; md=markdown, txt=text)')
+                   help='输出格式 json/text/markdown/csv (大小写不敏感; md=markdown, txt=text)')
 Output = typer.Option(None, '-o', '--output',
                       help='输出到文件 (按 -f 补扩展名; 目录则自动命名; -o - 强制 stdout)')
 NoProxy = typer.Option(False, '--no-proxy', help='本次不走代理(覆盖配置)')
@@ -33,17 +35,29 @@ NoCache = typer.Option(False, '--no-cache', help='跳过缓存')
 
 
 def _norm_fmt(v, default):
+    """归一化输出格式; 非法值直接报错退出, 不静默回落 text。
+
+    静默回落会让 Agent 拿到人类可读文本却毫无提示, 解析阶段才炸, 难排查。
+    """
     if not v:
         return default
     x = v.strip().lower()
-    return {'md': 'markdown', 'txt': 'text'}.get(x, x)
+    x = {'md': 'markdown', 'txt': 'text'}.get(x, x)
+    if x not in FORMATS:
+        raise _UsageError(f'未知输出格式 {v!r}; 可用: {", ".join(sorted(FORMATS))}'
+                          f' (别名 md=markdown, txt=text)')
+    return x
 
 
 from types import SimpleNamespace
 
 
 def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='json'):
-    """执行 do_* 并按数据命令约定处理输出; 返回 exit code"""
+    """执行 do_* 并按数据命令约定处理输出; 返回 exit code
+
+    data_cmd 非空 = 数据命令, 内部自己按 args.format 渲染, 这里只接住落盘;
+    data_cmd 为空 = 管理命令, 内部 print 原样输出, 这里按 -f 转格式后再 emit。
+    """
     cfg = _proxy.load_config()
     gproxy = _CTX.get('proxy')
     if gproxy:
@@ -56,11 +70,24 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='json'):
     if data_cmd:
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = fn(args, cfg)
+            try:
+                rc = fn(args, cfg)
+            except ValueError as e:
+                # 渲染层的用法错误 (如 fetch -f csv) 不该甩 traceback
+                raise _UsageError(str(e))
         if rc not in (0, None):
             return rc
         return emit(buf.getvalue(), args.format, output)
-    return fn(args, cfg) or 0
+    # 管理命令: 未指定 -f 时保持直出 (不套一层), 给了 -f 才转
+    if not fmt and not output:
+        return fn(args, cfg) or 0
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = fn(args, cfg)
+    if rc not in (0, None):
+        return rc
+    from webtool.cli.adminfmt import adapt
+    return emit(adapt(buf.getvalue(), args.format), args.format, output)
 
 
 _CTX = {}
@@ -289,7 +316,8 @@ def proxy_cmd(action: str = typer.Argument(..., help='get/set/unset/test'),
 def engines_cmd(action: str = typer.Argument('list', help='list=清单+冷却状态; test=实发体检'),
                 name: str = typer.Argument(None, help='test 时的引擎名; 省略=全部引擎'),
                 check: bool = typer.Option(False, '--check', help='实发一次测试请求 (等价 engines test)'),
-                query: str = typer.Option('python', '--query', help='test 用的测试词')):
+                query: str = typer.Option('python', '--query', help='test 用的测试词'),
+                fmt: str = Fmt, output: str = Output):
     """搜索引擎状态"""
     a = _CTX['args']
     a.action, a.name, a.check, a.query = action, name, check, query
@@ -297,11 +325,12 @@ def engines_cmd(action: str = typer.Argument('list', help='list=清单+冷却状
     def fn(args, cfg):
         from webtool.engines.status import status
         return status(args, cfg)
-    return _run(None, fn, None, None, False, False)
+    return _run(None, fn, fmt, output, False, False)
 
 
 @app.command('cache')
-def cache_cmd(action: str = typer.Argument(..., help='clear/info')):
+def cache_cmd(action: str = typer.Argument(..., help='clear/info'),
+               fmt: str = Fmt, output: str = Output):
     """缓存管理"""
     a = _CTX['args']
     a.action = action
@@ -309,13 +338,14 @@ def cache_cmd(action: str = typer.Argument(..., help='clear/info')):
     def fn(args, cfg):
         from webtool.core import cache
         return cache.handle(args, cfg)
-    return _run(None, fn, None, None, False, False)
+    return _run(None, fn, fmt, output, False, False)
 
 
 @app.command('blocklist')
 def blocklist_cmd(action: str = typer.Argument(..., help='show/add/remove/reset'),
                   domain: str = typer.Argument(None, help='域名, 如 csdn.net'),
-                  allow: bool = typer.Option(False, '--allow', help='add/remove 白名单例外')):
+                  allow: bool = typer.Option(False, '--allow', help='add/remove 白名单例外'),
+               fmt: str = Fmt, output: str = Output):
     """黑名单管理 (低质量站点)"""
     a = _CTX['args']
     a.action, a.domain, a.allow = action, domain, allow
@@ -323,13 +353,14 @@ def blocklist_cmd(action: str = typer.Argument(..., help='show/add/remove/reset'
     def fn(args, cfg):
         import webtool.filters.blocklist as blocklist
         return blocklist.handle_cli(args)
-    return _run(None, fn, None, None, False, False)
+    return _run(None, fn, fmt, output, False, False)
 
 
 @app.command('config')
 def config_cmd(action: str = typer.Argument(..., help='list/get/set/unset'),
                key: str = typer.Argument(None),
-               value: str = typer.Argument(None)):
+               value: str = typer.Argument(None),
+               fmt: str = Fmt, output: str = Output):
     """配置管理: 代理/黑名单/权重阈值/默认引擎等"""
     a = _CTX['args']
     a.action, a.key, a.value = action, key, value
@@ -337,14 +368,15 @@ def config_cmd(action: str = typer.Argument(..., help='list/get/set/unset'),
     def fn(args, cfg):
         from webtool.cli import config as _cfg_cmd
         return _cfg_cmd.handle(args)
-    return _run(None, fn, None, None, False, False)
+    return _run(None, fn, fmt, output, False, False)
 
 
 @app.command('plugins')
 def plugins_cmd(action: str = typer.Argument('list', help='list/check/reload/enable/disable'),
                 kind: str = typer.Argument(None, help='engine/hot/site/extractor/resolver/filter/transformer'),
                 plugin: str = typer.Argument(None, help='enable/disable 的插件名'),
-                all: bool = typer.Option(False, '--all', '-a', help='list 含 disabled 项')):
+                all: bool = typer.Option(False, '--all', '-a', help='list 含 disabled 项'),
+                fmt: str = Fmt, output: str = Output):
     """插件管理: 清单与来源 / 加载体检 / 启停 / 热重载外部插件"""
     a = _CTX['args']
     a.action, a.kind, a.plugin, a.all = action, kind, plugin, all
@@ -352,7 +384,7 @@ def plugins_cmd(action: str = typer.Argument('list', help='list/check/reload/ena
     def fn(args, cfg):
         from webtool.cli import plugins as _plug_cmd
         return _plug_cmd.handle(args)
-    return _run(None, fn, None, None, False, False)
+    return _run(None, fn, fmt, output, False, False)
 
 
 def main(argv=None):

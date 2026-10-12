@@ -33,7 +33,10 @@ def do_site(args, cfg):
             else:
                 rows.append({'site': k, 'desc': v.get('desc', ''), 'proxy_hint': v.get('proxy', 'auto'),
                              'source': 'custom(~/.webtool/sites)'})
-        print(json.dumps(rows, ensure_ascii=False, indent=1))
+        # 清单是可机读数据: 一律走 render 分发, 别让 -f 变成摆设
+        from webtool.render.hotrender import render_keyed_list
+        render_keyed_list({'results': rows}, args.format, kind='site',
+                           title='站点搜索源', desc_fields=('desc',))
         return 0
     if args.query is None:
         args.query = ''

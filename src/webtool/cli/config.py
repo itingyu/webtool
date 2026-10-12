@@ -78,8 +78,8 @@ def handle(args):
     cfg = load_config()
 
     if args.action == 'list':
-        print(f'配置文件: {CONFIG_PATH}')
-        print()
+        fmt = getattr(args, 'format', None)
+        rows = []
         for k, (desc, hint, _t) in CONFIG_KEYS.items():
             base = k.split('.')[0]
             if k.startswith('engine_proxy.'):
@@ -87,8 +87,16 @@ def handle(args):
                 cur = json.dumps(v, ensure_ascii=False) if v else '(未设置)'
             else:
                 cur = json.dumps(cfg.get(base, '(未设置)'), ensure_ascii=False)
-            print(f'  {k:24} {desc}')
-            print(f'  {"":24} 当前: {cur}   合法值: {hint}')
+            rows.append({'key': k, 'desc': desc, 'current': cur, 'hint': hint})
+        # 给了 -f 就交结构化数据给 cli/adminfmt 转格式; 没给保持人类可读表格
+        if fmt and fmt != 'json':
+            print(json.dumps(rows, ensure_ascii=False, indent=1))
+            return 0
+        print(f'配置文件: {CONFIG_PATH}')
+        print()
+        for r in rows:
+            print(f'  {r["key"]:24} {r["desc"]}')
+            print(f'  {"":24} 当前: {r["current"]}   合法值: {r["hint"]}')
         return 0
 
     if args.action == 'get':

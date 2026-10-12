@@ -344,9 +344,8 @@ def _do_zen(args, cfg):
         if args.list_free:
             ids = [i for i in ids if is_free_model(i)]
             if not args.check:
-                for i in ids:
-                    print(i)
-                return 0
+                return _print_model_ids(ids, args.format)
+            ok_n = 0
             ok_n = 0
             for i in ids:
                 # 必须走完整路径 (stream=True), 分类器认形状
@@ -362,9 +361,22 @@ def _do_zen(args, cfg):
             print('-- %d/%d 可用 (命名约定只是启发式, 这才是判据)'
                   % (ok_n, len(ids)), file=sys.stderr)
             return 0 if ok_n else 1
+        return _print_model_ids(ids, args.format)
+
+
+def _print_model_ids(ids, fmt):
+    """模型清单按 -f 输出; 默认 text 保持一行一个 id 的老样子"""
+    import json as _json
+    if fmt == 'json':
+        print(_json.dumps({'models': ids, 'count': len(ids)}, ensure_ascii=False, indent=1))
+    elif fmt == 'csv':
+        print('model')
         for i in ids:
             print(i)
-        return 0
+    else:
+        for i in ids:
+            print(i)
+    return 0
 
     if not prompt:
         print('用法: webtool zen "你的问题" [--model M]\n'

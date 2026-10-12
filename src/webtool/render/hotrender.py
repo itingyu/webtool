@@ -21,6 +21,10 @@ def render_rank(out, fmt, filters):
     if fmt == 'json':
         print(json.dumps(out, ensure_ascii=False, indent=1))
         return
+    if fmt == 'csv':
+        from webtool.render.csvout import render as _csv
+        _csv(out, 'rank')
+        return
     data = out.get('sources_data') or {}
     errors = out.get('errors') or {}
     if fmt == 'markdown':
@@ -77,6 +81,80 @@ def render_rank(out, fmt, filters):
             print(f"== {nm} == FAILED: {e}", file=sys.stderr)
         if filters:
             print('— ' + '; '.join(filters), file=sys.stderr)
+
+
+def render_keyed_list(out, fmt, kind='admin', title='清单', desc_fields=('desc',)):
+    """key-value 型清单的统一渲染 (site list / plugins list 等)
+
+    与 render_feed_list 的区别: 那是 feed 专属列 (name/origin/default),
+    这里按行里实际出现的键自动定列, 一份实现覆盖各种清单。
+    """
+    rows = out.get('results') or []
+    if fmt == 'json':
+        print(json.dumps(out, ensure_ascii=False, indent=1))
+        return
+    if fmt == 'csv':
+        from webtool.render.csvout import render as _csv
+        _csv(out, kind)
+        return
+    # 列序: title/描述字段在前, 其余按首次出现顺序
+    lead = [c for c in ('site', 'name', 'key', 'title') if any(c in r for r in rows)]
+    descs = [c for c in desc_fields if any(c in r for r in rows)]
+    cols = lead + descs
+    rest = []
+    seen = set(cols)
+    for r in rows:
+        for k in r:
+            if k not in seen:
+                seen.add(k)
+                rest.append(k)
+    cols = cols + rest
+    if fmt == 'markdown':
+        print(f'## {title} ({len(rows)} 项)\n')
+        print('| ' + ' | '.join(cols) + ' |')
+        print('|' + '|'.join(['---'] * len(cols)) + '|')
+        for r in rows:
+            print('| ' + ' | '.join(str(r.get(c, '')).replace('|', '\\|')
+                                     for c in cols) + ' |')
+        return
+    # text
+    print(f'{title} ({len(rows)} 项):\n')
+    for r in rows:
+        label = str(r.get(lead[0], '')) if lead else ''
+        desc = str(r.get(descs[0], '')) if descs else ''
+        extra = ' '.join(f'{k}={r[k]}' for k in rest if r.get(k))
+        print(f'  {label:16s} {desc} {extra}'.rstrip())
+
+
+def render_feed_list(out, fmt):
+    """feed 清单输出 (webtool feed list -f <fmt>)
+
+    清单本质是表格数据, 所以四种格式都真正生效, 不像别的清单那样 -f 摆设。
+    """
+    rows = out.get('results') or []
+    if fmt == 'json':
+        print(json.dumps(out, ensure_ascii=False, indent=1))
+        return
+    if fmt == 'csv':
+        from webtool.render.csvout import render as _csv
+        _csv({'results': rows}, 'feed')
+        return
+    if fmt == 'markdown':
+        print(f"## feed 订阅源 ({out.get('seed_count')} 预设 + "
+              f"{out.get('user_count')} 自定义)\n")
+        print('| name | origin | default | desc | url |')
+        print('|---|---|:-:|---|---|')
+        for r in rows:
+            print(f"| {r['name']} | {r['origin']} | "
+                  f"{'✓' if r['default'] else ''} | {r['desc']} | {r['url']} |")
+        return
+    # text
+    print(f"webtool feed 订阅源 ({out.get('seed_count')} 预设 + "
+          f"{out.get('user_count')} 自定义):\n")
+    for r in rows:
+        star = ' *' if r['default'] else ''
+        tag = f" ({r['origin']})" if r['origin'] == 'custom' else ''
+        print(f"  {r['name']:14s} {r['desc']}{star}{tag} {r['url']}")
 
 
 # 兼容旧别名 (hot 命令若仍被调用)

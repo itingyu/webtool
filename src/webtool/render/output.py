@@ -7,8 +7,12 @@ import os
 import sys
 from datetime import datetime
 
+# 支持的输出格式 —— 单一事实来源, cli/app.py 的 -f 校验与 render/ 的分发都用它。
+# 别名 (md/txt) 在 cli/app.py::_norm_fmt 归一化, 这里只列规范名。
+FORMATS = ('json', 'text', 'markdown', 'csv')
+
 EXT = {'json': '.json', 'markdown': '.md', 'md': '.md', 'text': '.txt',
-       'txt': '.txt', 'html': '.html'}
+       'txt': '.txt', 'csv': '.csv'}
 
 
 def emit(payload_str, fmt, output):

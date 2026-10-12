@@ -50,6 +50,33 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 - 只有一个实现时不抽策略基类/注册表，普通函数就够（多一层间接、多一处配置面）；真有第二种实现时再抽
 - 出现 `from webtool.pipeline import ...` 出现在 `engines/` 或 `core/` 下即分层破坏
 
+## 输出格式（`-f`）
+
+规范名只有 4 个，别名 `md`=markdown、`txt`=text，`render/output.py:FORMATS` 是单一事实来源。
+
+| 格式 | search | site | rank | feed | fetch | zen | engines/plugins/cache/config |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| json | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| text | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| markdown | ✅ | ✅ | ✅ | ✅ | ✅ | ~ | ✅ |
+| csv | ✅ | ✅ | ✅ | ✅ | ❌ | ~ | ✅ |
+
+- `zen`：只有模型清单（`--list-models` / `--list-free`）接 json/csv；对话输出本身是流式
+  文本，markdown 无结构可渲染，回落 text
+- `fetch`：拒收 csv，见下
+
+约定：
+
+- **非法值直接退出码 2**，不静默回落 text（`cli/app.py::_norm_fmt`）。回落会让 Agent
+  拿到人类可读文本却毫无提示，解析阶段才炸
+- 数据命令自己按 `args.format` 渲染（`render.render` / `render.hotrender` /
+  `net/fetch._emit`）；管理命令内部是 print，由 `cli/adminfmt.py` 把吐出的 JSON 转格式
+- 管理命令不给 `-f` 时保持原样直出（不套一层），给了才转
+- `csv` 只导结果行；`filters_applied` 这类统计不进表格，需要就用 `-f json`
+- `fetch` 拒收 csv（正文进单元格无意义），抛 `ValueError` 由 `_run` 转成用法错误
+- CSV 列序 = `render/csvout.py:COLUMNS` 中本数据集真有值的列，保持固定相对次序。
+  曾按固定 19 列输出，导致 `engines list -f csv` 整表全空
+
 ## 2. 导入
 
 - **一律绝对导入**：`from webtool.core.config_data import load`；禁止 `from .x` / `from ..x`
