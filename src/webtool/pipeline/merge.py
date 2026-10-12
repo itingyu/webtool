@@ -2,8 +2,11 @@
 
 去重: URL 归一化 (去 utm/跟踪参数, 尾斜杠, http/https) + 标题指纹,
 多引擎命中时保留信息最全的一条, 其余引擎名并入 engines 数组。
-weight = √(pos(1/log2(rank+1)) × agree(1+0.15×(引擎数-1))) ×
+weight = √(pos(1/log2(rank+1)) × agree(1+0.20×log2(域级引擎数))) ×
 sem((1+√BM25归一化分)/2, ∈[0.5,1]) × (0.2 if is_ad)
+
+agree 用域名级共现而非精确命中: 各引擎常返回同站点的不同页面, 精确匹配
+几乎撞不上, 该因子在九成结果上恒为 1.0 从不生效。
 
 三因子。原先还有 base(引擎权重)/entity(英文实体)/prior(词典域名降权),
 实测对排序几乎无影响已撤除 —— 少三个不可解释的常数。
@@ -48,7 +51,8 @@ def rerank(results, query, use_semantic=True):
 
     每条结果最终只带 title/url/snippet/weight/rank + 引擎字段:
       engine   单引擎命中时的来源 (字符串)
-      engines  多引擎命中时的来源数组 (交叉验证, 长度即验证数)
+      engines  精确命中同一页面时的来源数组; 交叉验证强度另按域级引擎数
+               计算 (agree), 故 engines 长度为 1 不代表未被其他引擎认可
     sem_score/quality/confirmations 是评分中间量, 算完即弃 —— 不进对外结果。
     quality 判据: cut = max(0.12, top×0.35), sem<cut 视为与批内头部断层(噪声)。
     """
@@ -71,10 +75,15 @@ def rerank(results, query, use_semantic=True):
         # query 基本不命中), 已撤除 —— 少三个拍脑袋的常数, 少三处误导。
         rank = r.get('rank', 10)
         pos = 1.0 / math.log2(rank + 1)
-        agree = 1.0 + 0.15 * (len(r['engines']) - 1)
-        # sem 直接用 BM25 归一化分 (0-1), 不再做 0.4+0.9×x 的映射。
-        # 下限 0.1: 完全零命中的结果不该被乘成 0 提前出局 —— 引擎把它排在
-        # 前几位说明它认为相关, 让 pos/agree 去决定它该落哪。
+        # agree = 域级交叉验证强度, 而非"精确命中同一页面"。
+        # 实测 bing/baidu/sogou 对同一 query 返回的几乎全是同站点的不同页面,
+        # 精确去重只能合并 0-2 条 / 20 条, 于是 agree 在九成结果上恒为 1.0 ——
+        # 一个从不生效的因子。改看该可注册域被几个不同引擎各自认可:
+        # "vue 组件" 精确命中 0/19, 域级却覆盖 11/19。
+        # 用 log2 而非线性: 2 引擎认可的信息增量远大于 5 引擎, 线性会让
+        # 大站在所有结果上无条件加分。
+        n_agree = max(len(r['engines']), r.get('_dom_engines') or 1)
+        agree = 1.0 + 0.20 * math.log2(max(1, n_agree))
         raw = sem_scores[i]
         # (1+√sem)/2 : 把 BM25 分压到 [0.5, 1.0]。直接用 raw 时零命中结果被
         # 乘到 0.1 以下几乎出局, 而 BM25 分档又极粗 (要么满分要么触底),
@@ -95,6 +104,7 @@ def rerank(results, query, use_semantic=True):
     # (单引擎也是单元素数组 —— 形状一致, 消费方无需分支判断)
     for i, r in enumerate(results):
         r.pop('_sem', None)
+        r.pop('_dom_engines', None)
         r.pop('engine', None)
         r['rank'] = i + 1
     return results
@@ -118,7 +128,14 @@ def _dedupe(results):
     """URL 归一化 + 标题指纹双通道去重; 保留信息最全条, 合并 engines"""
     seen = {}
     out = []
+    # 域名 → 命中的引擎集合。不同引擎常返回同一站点的不同页面 (精确 URL 撞不
+    # 上), 域名级才是交叉验证的真实强度: 该站点被几个引擎各自认可过。
+    dom_engines = {}
     for r in results:
+        eng = r.get('engine')
+        dm = urls.registrable(urls.host_of(r.get('url', '')))
+        if dm and eng:
+            dom_engines.setdefault(dm, set()).add(eng)
         key_u = normalize_url(r.get('url', ''))
         key_t = title_fingerprint(r.get('title'))
         dup_idx = None
@@ -153,6 +170,10 @@ def _dedupe(results):
             if key_t:
                 seen[key_t] = len(out)
             out.append(r)
+    # 回填域级共现数 (agree 用): 同一站点的不同页面共享这个值
+    for r in out:
+        dm = urls.registrable(urls.host_of(r.get('url', '')))
+        r['_dom_engines'] = len(dom_engines.get(dm, set())) if dm else len(r.get('engines') or [])
     return out
 
 # ---------------- 语义相关性 (BM25, 零依赖) ----------------
