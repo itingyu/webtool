@@ -5,7 +5,8 @@
 - text:  人类/Agent 易读纯文本, 元信息以 [key: value] 行内嵌
 - markdown: 结构化 md, 表格+清单, 适合直接投喂 LLM
 
-过滤统计 (filters_applied) 三格式都输出, 不丢信息。
+过滤统计 (filters_applied) 只进 json 供程序化消费; 文本/markdown 不回显 ——
+用户要的是结果本身, "广告过滤 3 条" 这类内部计数只是噪音。
 """
 import json
 import sys
@@ -32,11 +33,10 @@ def _fmt_degraded(out):
 def render(out, fmt, kind):
     """kind: 'search' | 'site' | 'fetch'; fmt: 'json' | 'text' | 'markdown'"""
     filters = _fmt_filters(out)
-    # json 的 filters_applied 始终在场 (0 也列出, 保持字段形状稳定);
-    # 文本层无过滤时不回显 —— "无过滤动作 (0 剔除)" 是纯噪音。
-    out['filters_applied'] = filters or ['无过滤动作 (0 剔除)']
-    if fmt != 'json':
-        filters = filters
+    # 无过滤时留空数组 —— 不编造 "无过滤动作 (0 剔除)" 这种占位文案
+    out['filters_applied'] = filters
+    if fmt != 'json':              # 文本/markdown 不显示过滤统计
+        filters = []
     degraded = _fmt_degraded(out)
     if fmt == 'json':
         print(json.dumps(out, ensure_ascii=False, indent=1))
