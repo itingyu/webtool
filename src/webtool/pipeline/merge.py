@@ -2,53 +2,24 @@
 
 去重: URL 归一化 (去 utm/跟踪参数, 尾斜杠, http/https) + 标题指纹,
 多引擎命中时保留信息最全的一条, 其余引擎名并入 engines 数组。
-weight = base(引擎分) × pos(1/log2(rank+1)) × agree(1+0.35×(引擎数-1)) ×
-sem(0.4+0.9×BM25归一化分) × entity(英文实体命中) × prior(词典/百科先验) ×
-(0.2 if is_ad); quality 断层自适应: poor = sem < max(0.12, top×0.35)。
+weight = √(pos(1/log2(rank+1)) × agree(1+0.15×(引擎数-1))) ×
+sem(BM25归一化分, 下限0.1) × (0.2 if is_ad)
+
+三因子。原先还有 base(引擎权重)/entity(英文实体)/prior(词典域名降权),
+实测对排序几乎无影响已撤除 —— 少三个不可解释的常数。
 """
 import math
 import re
 from urllib.parse import urlparse, parse_qsl, urlencode
 
-from webtool.filters.adfilter import is_ad
-
-
-def _engine_base():
-    """引擎权重表 (engine.<name>.params.base); 每次现取插件表, 清单改动即时生效"""
-    from webtool.core.plugins import table as _plugin_table
-    return {name: spec.get('base')
-            for name, spec in _plugin_table('engine').items()
-            if spec.get('base')}
-
-# ---------------- 域名先验 ----------------
-# 技术性/实体 query 下, 词典/通用百科页几乎必是噪声 (如 "GPT Claude Gemini"
-# 命中「大(汉语文字)」); 但对「X 是什么意思」类 query 又是好结果 → 不拉黑, 只降权。
-# 域名表在 data/filters.json 的 merge 段 (ref_hosts), 用户可增删
 from webtool.core import urls
 from webtool.core.config_data import load as _cfg_load
-
-_EN_TOKEN_RE = re.compile(r'[A-Za-z][A-Za-z0-9+#.]{2,}')
-_EN_WORD_RE = re.compile(r'^[A-Za-z][A-Za-z0-9+#.\-]*$')
+from webtool.filters.adfilter import is_ad
 
 
 def _merge_cfg():
     """merge 段配置 (ref_hosts/track_params/short_entities); mtime 热生效"""
     return _cfg_load('merge', 'filters.json')
-
-
-def _domain_prior(r, query):
-    """词典/百科先验: query 含英文实体(≥2个独立 token)时对词典/百科域名降权"""
-    if not _EN_TOKEN_RE.search(query or ''):
-        return 1.0
-    try:
-        host = (urlparse(r.get('url', '')).netloc or '').lower()
-    except Exception:
-        return 1.0
-    if any(h == host or host.endswith('.' + h) for h in _merge_cfg().get('ref_hosts', ())):
-        return 0.5
-    return 1.0
-
-# ---------------- URL 归一化 ----------------
 
 
 def normalize_url(u):
@@ -94,21 +65,22 @@ def rerank(results, query, use_semantic=True):
         sem_scores = {i: 1.0 for i in range(len(results))}
 
     for i, r in enumerate(results):
-        base = _engine_base().get(r.get('engine'), 0.7)
+        # 三因子: 引擎内排名位置 × 交叉验证 × 语义相关性
+        # 曾有 base(引擎权重)/ent(英文实体)/prior(词典域名降权) 三项, 实测
+        # 前者与后两者对排序几乎无影响 (prior 的 ref_hosts 全是国内词典, 英文
+        # query 基本不命中), 已撤除 —— 少三个拍脑袋的常数, 少三处误导。
         rank = r.get('rank', 10)
         pos = 1.0 / math.log2(rank + 1)
-        n_eng = len(r['engines'])
-        agree = 1.0 + 0.35 * (n_eng - 1)
+        agree = 1.0 + 0.15 * (len(r['engines']) - 1)
+        # sem 直接用 BM25 归一化分 (0-1), 不再做 0.4+0.9×x 的映射。
+        # 下限 0.1: 完全零命中的结果不该被乘成 0 提前出局 —— 引擎把它排在
+        # 前几位说明它认为相关, 让 pos/agree 去决定它该落哪。
         raw = sem_scores[i]
-        # 排序乘区上下限 0.4-1.3
-        sem = max(0.4, min(1.3, 0.4 + 0.9 * raw))
-        if not use_semantic:
-            sem = 1.0
-        ent = 1.0
-        if use_semantic:
-            ent = _entity_factor(query, r)
-        prior = _domain_prior(r, query)
-        w = base * pos * agree * sem * ent * prior
+        sem = max(0.1, raw) if use_semantic else 1.0
+        # pos×agree 先开根号再乘 sem: 直接连乘时 pos 的对数衰减会被二次放大
+        # (rank1→rank10 差 3.4 倍), 且 agree 几乎压不动; 开根号把两者压回
+        # 接近加性的量级, sem 得以在同等权重上参与排序。
+        w = math.sqrt(pos * agree) * sem
         if is_ad(r):
             w *= 0.2
         r['_sem'] = round(raw, 3)      # 中间量, 排完即删
@@ -137,28 +109,6 @@ def merge(results, query, use_semantic=True, dedupe=True):
         r.pop('_key_t', None)
     return rerank(results, query, use_semantic=use_semantic)
 
-
-def _entity_factor(query, r):
-    """英文实体命中系数: title 精确命中 ×1.6 / snippet ×1.15 / 零命中 ×0.45
-
-    只统计长度≥3 的独立英文 token (GPT/LLM 等短 token 单独白名单),
-    至少 2 个实体 token 才启用 (避免英文单词 query 误伤)。
-    """
-    toks = [t for t in _EN_TOKEN_RE.findall(query or '')
-            if len(t) >= 3 or t.upper() in set(_merge_cfg().get('short_entities', ()))]
-    toks = [t for t in toks if _EN_WORD_RE.match(t)]
-    if len(set(t.lower() for t in toks)) < 2:
-        return 1.0
-    title = (r.get('title') or '').lower()
-    snip = (r.get('snippet') or '').lower()
-    hit_title = sum(1 for t in set(t.lower() for t in toks) if t in title)
-    n = len(set(t.lower() for t in toks))
-    if hit_title >= 1:
-        return 1.6
-    hit_any = sum(1 for t in set(t.lower() for t in toks) if t in snip)
-    if hit_any >= max(1, n // 2):
-        return 1.15
-    return 0.45
 
 def _dedupe(results):
     """URL 归一化 + 标题指纹双通道去重; 保留信息最全条, 合并 engines"""

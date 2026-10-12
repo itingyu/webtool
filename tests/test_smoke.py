@@ -111,11 +111,34 @@ from webtool.net import captcha
 blocked, hit = captcha.detect('baidu', '<html><title>百度安全验证</title></html>')
 check(blocked, f'captcha.detect baidu 命中配置指纹 ({hit})')
 
-# 8. merge 配置驱动 (track_params/ref_hosts)
-from webtool.pipeline.merge import normalize_url, _engine_base
+# 8. merge 配置驱动 (track_params/ref_hosts) + 三因子排序
+from webtool.pipeline.merge import normalize_url, merge as _merge
 u = normalize_url('https://www.Example.com/a/?utm_source=x&id=1')
 check(u == 'https://example.com/a?id=1', f'normalize_url 走配置 ({u})')
-check(bool(_engine_base()), 'engine_base 来自清单')
+
+# pos(排名) 与 agree(交叉验证) 都应单调影响权重
+def _mk(title, rank, engines):
+    return {'title': title, 'url': 'https://e.com/' + title, 'snippet': 'query 教程',
+            'engine': engines[0], 'engines': list(engines), 'rank': rank}
+_rr = _merge([_mk('alpha 教程', 1, ['bing']), _mk('beta 教程', 5, ['bing'])],
+             'query', dedupe=False)
+check(_rr[0]['weight'] > _rr[1]['weight'], f'pos 靠前权重高 ({_rr[0]["weight"]} > {_rr[1]["weight"]})')
+# agree: 同位置同相关性, 引擎多者权重高 (用 no-semantic 排除 sem 干扰)
+_m = _merge([_mk('alpha 教程', 1, ['bing']), _mk('beta 教程', 1, ['bing', 'baidu', 'sogou'])],
+            '', use_semantic=False, dedupe=False)
+_by_eng = {tuple(r['engines']): r['weight'] for r in _m}
+check(_by_eng[('bing', 'baidu', 'sogou')] > _by_eng[('bing',)],
+      f'agree 交叉验证加成 ({_by_eng[("bing", "baidu", "sogou")]} '
+      f'> {_by_eng[("bing",)]})')
+# sem 直接用 BM25 归一化分: 相关文档权重高于无关文档 (多文档才有区分度)
+_docs = [_mk('alpha 相关页', 1, ['bing']), _mk('zeta 无关页', 1, ['bing'])]
+_docs[0]['snippet'] = 'query 命中 snippet'
+_docs[1]['snippet'] = '完全不相关的内容'
+_r = _merge(_docs, 'query', dedupe=False)
+_by_title = {r['title']: r['weight'] for r in _r}
+check(_by_title['alpha 相关页'] > _by_title['zeta 无关页'],
+      f'sem BM25 拉高相关结果 ({_by_title["alpha 相关页"]} '
+      f'> {_by_title["zeta 无关页"]})')
 
 print()
 if fails:
