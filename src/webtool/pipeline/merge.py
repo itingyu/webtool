@@ -5,8 +5,16 @@
 位置分 pos = Σ(base × pos_rank) / 引擎个数 —— 引擎可信度加权的简单平均
 weight = prior × √pos × sem((1+√BM25归一化分)/2, ∈[0.5,1])
 
-三因子, prior = 0 (广告) / 0.5 (词典百科页) / 1.0 (其余)。原先 is_ad 走
-×0.2, 那个常数把广告留在候选里靠排名挤出去; 判 0 语义更明确。
+三因子, prior = 0 (广告) / 0.4 (低质量站 low_prior) / 0.5 (词典百科
+ref_hosts) / 1.0 (其余)。原先 is_ad 走 ×0.2, 那个常数把广告留在候选里
+靠排名挤出去; 判 0 语义更明确。
+
+排完按 weight_floor 过滤 (默认 0.12): 广告 weight 必为 0 必被剔除, 该
+阈值另挡掉位置分与相关性双低的尾部噪声。配 0 关闭。
+
+low_prior 与 blocklist 的分工: 克隆官网/洗稿/需登录的站硬过滤 (拉黑无
+争议); 无署名搬运、内容本身可用的站只降权 —— 硬过滤过重, 留在结果里让
+用户自行取用更合理。
 agree=1+0.15×(引擎数-1) 曾按引擎个数线性加成, 把"命中引擎多"与"引擎可信"
 混为一谈, 已由 pos 内的 base 加权取代。
 """
@@ -28,18 +36,28 @@ def _merge_cfg():
 _EN_TOKEN_RE = re.compile(r'[A-Za-z][A-Za-z0-9+#.]{2,}')
 
 
-def _domain_prior(r, query):
-    """词典/百科先验: query 含英文时, 词典/通用百科页几乎必是噪声
+def _host_in(host, domains):
+    return bool(host) and any(host == d or host.endswith('.' + d)
+                              for d in domains or ())
 
-    "GPT Claude Gemini" 命中「大(汉语文字)」是典型误报; 但对「X 是什么
-    意思」类 query 又是有用结果 → 不拉黑, 只降权 (×0.5)。
-    域名表在 data/filters.json 的 merge 段 (ref_hosts), 用户可增删。
+
+def _domain_prior(r, query):
+    """域名先验, 三档: 低质量站 0.4 / 词典百科 0.5 / 其余 1.0; 广告走 0。
+
+    ref_hosts (词典/百科): query 含英文时几乎必是噪声 —— "GPT Claude
+    Gemini" 命中「大(汉语文字)」是典型误报; 但对「X 是什么意思」类 query
+    又是有用结果 → 不拉黑, 只降权。
+
+    low_prior (内容可用但质量存疑的无署名搬运/云厂商社区): 硬过滤过重,
+    降权后可留在结果里, 用户自行取用。
+
+    域名表在 data/filters.json 的 merge 段, 用户可增删。
     """
-    if not _EN_TOKEN_RE.search(query or ''):
-        return 1.0
+    cfg = _merge_cfg()
     host = urls.host_of(r.get('url', ''))
-    if host and any(host == h or host.endswith('.' + h)
-                    for h in _merge_cfg().get('ref_hosts', ())):
+    if _host_in(host, cfg.get('low_prior')):
+        return float(cfg.get('low_prior_value') or 0.4)
+    if _EN_TOKEN_RE.search(query or '') and _host_in(host, cfg.get('ref_hosts')):
         return 0.5
     return 1.0
 
@@ -135,6 +153,12 @@ def rerank(results, query, use_semantic=True):
         r['weight'] = round(w, 4)
 
     results.sort(key=lambda r: -r['weight'])
+    # 权重阈值过滤: prior=0 的广告 (weight 必为 0) 必剔除; 另有一道
+    # weight_floor 兜底, 挡掉位置分与相关性双低的尾部噪声。阈值在
+    # filters.json 的 merge 段, 配 0 即关闭。
+    floor = float(_merge_cfg().get('weight_floor') or 0)
+    if floor > 0:
+        results = [r for r in results if r['weight'] > floor]
     # 中间量与重复项一并清掉: 对外只有 engines 一个来源字段, 且恒为数组
     # (单引擎也是单元素数组 —— 形状一致, 消费方无需分支判断)
     for i, r in enumerate(results):

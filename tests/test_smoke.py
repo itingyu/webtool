@@ -160,8 +160,8 @@ _ad['is_ad'] = True
 _p = _merge([_ad, _mk('正常页', 1, ['bing'], {'bing': 1})],
             'query', use_semantic=False, dedupe=False)
 _by_p = {r['title']: r['weight'] for r in _p}
-check(_by_p['广告页'] == 0.0 and _by_p['正常页'] > 0,
-      f'prior 广告判 0 ({_by_p["广告页"]}, {_by_p["正常页"]})')
+check('广告页' not in _by_p and _by_p.get('正常页', 0) > 0,
+      f'prior 广告判 0 并被过滤 ({sorted(_by_p)})')
 # prior: 英文 query 下词典域名降权 (ref_hosts: baike.baidu.com)
 _dic = _mk('词典页', 1, ['bing'], {'bing': 1})
 _dic['url'] = 'https://baike.baidu.com/item/x'
@@ -170,6 +170,30 @@ _d2 = _merge([_dic, _mk('正常页2', 1, ['bing'], {'bing': 1})],
 _by_d = {r['title']: r['weight'] for r in _d2}
 check(0 < _by_d['词典页'] < _by_d['正常页2'],
       f'prior 词典降权 ({_by_d["词典页"]} < {_by_d["正常页2"]})')
+# prior: low_prior 降权 (从 blocklist 放出的内容可用但质量存疑的站)
+_low = _mk('搬运页', 1, ['bing'], {'bing': 1})
+_low['url'] = 'https://www.jb51.net/article/1'
+_pw = _merge([_low, _mk('正常页3', 1, ['bing'], {'bing': 1})],
+             'query', use_semantic=False, dedupe=False)
+_by_w = {r['title']: r['weight'] for r in _pw}
+check(0 < _by_w['搬运页'] < _by_w['正常页3'],
+      f'prior low_prior 降权 ({_by_w["搬运页"]} < {_by_w["正常页3"]})')
+# weight_floor 是兜底阈值: 实测真实结果权重集中在 0.47-0.95 (57 条样本
+# min 0.465), 故 0.30 只挡异常值。两个方向各测一次 ——
+# 相关结果即使排名靠后也不该被误杀;
+_rel = _mk('相关页', 30, ['bing'], {'bing': 30})
+_rel['snippet'] = 'query 命中 snippet'
+_nf = _merge([_rel, _mk('正常页4', 1, ['bing'], {'bing': 1})], 'query', dedupe=False)
+_titles = [r['title'] for r in _nf]
+check('相关页' in _titles and '正常页4' in _titles,
+      f'weight_floor 不误杀 ({_titles})')
+# 完全零相关 + 排名靠后的合成条目应被剔除 (兜底生效)
+_junk = _mk('零相关页', 30, ['bing'], {'bing': 30})
+_junk['snippet'] = 'zzz'
+_nf2 = _merge([_mk('正常页5', 1, ['bing'], {'bing': 1}), _junk],
+              'query', dedupe=False)
+check('零相关页' not in [r['title'] for r in _nf2],
+      f'weight_floor 剔除零相关 ({[r["title"] for r in _nf2]})')
 
 print()
 if fails:

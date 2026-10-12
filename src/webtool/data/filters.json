@@ -35,11 +35,6 @@
   "domains": [
    "csdn.net",
    "cdnbaidujc.com",
-   "jb51.net",
-   "huaweicloud.com",
-   "aliyun.com",
-   "51cto.com",
-   "easylearn.baidu.com",
    "baijiahao.baidu.com",
    "zhimind.com",
    "kaipuyun.cn",
@@ -58,12 +53,9 @@
    "pythonlang.cn",
    "cainiaojc.com",
    "hanyuguoxue.com",
-   "chagushici.com",
    "hgcha.com",
    "gushici.net",
-   "iciba.com",
    "youdao.com",
-   "baike.baidu.com",
    "zhihu.com"
   ],
   "notes": {
@@ -72,8 +64,9 @@
    "baibaidu.com": "傍 baidu 品牌模板页",
    "pythonlang.cn": "克隆 python.org 冒充官网",
    "cainiaojc.com": "克隆 runoob 洗稿",
-   "baike.baidu.com": "技术实体 query 下高频噪声",
-   "zhihu.com": "正文 403 需登录态, fetch 拿不到"
+   "baike.baidu.com": "由 merge.ref_hosts + prior 降权接管 (曾与 blocklist 冲突, 硬过滤使 prior 永不生效)",
+   "zhihu.com": "正文 403 需登录态, fetch 拿不到",
+   "iciba.com": "同上"
   }
  },
  "merge": {
@@ -114,7 +107,18 @@
    "GO",
    "JS",
    "AI"
-  ]
+  ],
+  "low_prior": [
+   "jb51.net",
+   "51cto.com",
+   "easylearn.baidu.com",
+   "huaweicloud.com",
+   "aliyun.com",
+   "chagushici.com"
+  ],
+  "low_prior_value": 0.4,
+  "weight_floor": 0.3,
+  "_note_weight_floor": "实测真实结果权重集中在 0.47-0.95 (57 条样本 min 0.465); 0.30 低于实测下限, 只兜底异常值 (广告 weight=0 必过) 而非正常结果。调高会误杀。"
  },
  "spa": {
   "extra_state_names": []
