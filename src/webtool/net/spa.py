@@ -29,7 +29,7 @@ _BUILTIN_STATE_NAMES = ('__NEXT_DATA__', '__NUXT__', '__INITIAL_STATE__',
 
 def _state_names():
     try:
-        from webtool.config_data import load as _cfg_load
+        from webtool.core.config_data import load as _cfg_load
         extra = _cfg_load('spa', 'filters.json').get('extra_state_names') or ()
     except Exception:
         extra = ()

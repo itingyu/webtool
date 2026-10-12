@@ -2,26 +2,14 @@
 
 热榜类源 (reddit/hn_official/lobsters/github_trend) 在 engines/hotsites.py。
 """
-
 import json
 import re
 import urllib.parse
 
-import sys as _sys
-
-
-def _clean(s):
-    """去 HTML 标签/高亮 em 标记"""
-    s = re.sub(r'</?em[^>]*>', '', s or '')
-    s = re.sub(r'<[^>]+>', '', s)
-    return re.sub(r'\s+', ' ', s).strip()
-
-_sites = _sys.modules.get('webtool.engines.sites')
-if _sites is None:
-    from webtool import sites as _sites
-    _sites = _sys.modules['webtool.engines.sites']
-
+from webtool.core import text
 from webtool.engines.sites import _headers, _mk, _fetch
+
+_clean = text.clean_markup
 
 
 def sov2ex(q, limit=10, proxy=None, timeout=15):

@@ -1,10 +1,9 @@
 """webtool site: 站内搜索调度 (区别于传统搜索引擎)"""
 import json
-import os
 import sys
 import time
 
-from webtool import cache
+from webtool.core import cache
 from webtool.engines.sites import sites_table
 
 
@@ -94,7 +93,7 @@ def do_site(args, cfg):
     n_blocked = 0
 
     # quality 仅标注不剔除, 与 search 一致
-    from webtool.merge import merge as _merge
+    from webtool.pipeline.merge import merge as _merge
     n_before = len(results)
     results = _merge(results, args.query, use_semantic=cfg.get('semantic') != 'off', dedupe=cfg.get('dedupe') != 'off')
     dedup_removed = n_before - len(results)
@@ -108,6 +107,6 @@ def do_site(args, cfg):
     out = {'site': args.site, 'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'source': src, 'total': len(results), 'results': results,
            'dedup_removed': dedup_removed, 'blocked_by_blocklist': n_blocked}
-    from webtool.render import render
+    from webtool.render.render import render
     render(out, args.format, 'site')
     return 0

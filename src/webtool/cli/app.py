@@ -15,8 +15,8 @@ import typer
 # typer 0.27 vendored 了 click: 异常类在 typer._click.exceptions, 与顶层 click 不同源
 from typer._click.exceptions import UsageError as _UsageError, ClickException as _ClickException
 
-from webtool import proxy as _proxy
-from webtool.output import emit
+from webtool.net import proxy as _proxy
+from webtool.render.output import emit
 
 app = typer.Typer(add_completion=False, no_args_is_help=True,
                   help='Agent 友好的网页搜索与内容获取工具',
@@ -110,9 +110,9 @@ def search_cmd(query: str = typer.Argument(..., help='搜索词'),
 
     def fn(args, cfg):
         if keep_ad:
-            from webtool.search import do_search_raw
+            from webtool.pipeline.search import do_search_raw
             return do_search_raw(args, cfg)
-        from webtool.search import do_search
+        from webtool.pipeline.search import do_search
         return do_search(args, cfg)
     return _run('data', fn, fmt, output, no_cache, no_proxy)
 
@@ -187,8 +187,9 @@ def _entry_fn(name):
     def fn(args, cfg):
         import importlib
         mod = {'zen': ('zen', 'do_zen'), 'fetch': ('fetch', 'do_fetch'),
-               'site': ('sitesearch', 'do_site'), 'rank': ('rank', 'do_rank'),
-               'feed': ('feed', 'do_feed')}[name]
+               'site': ('sitesearch', 'do_site'),
+               'rank': ('pipeline.rank', 'do_rank'),
+               'feed': ('feeds.command', 'do_feed')}[name]
         m = importlib.import_module('.' + mod[0], package='webtool')
         return getattr(m, mod[1])(args, cfg)
     return fn
@@ -305,7 +306,7 @@ def cache_cmd(action: str = typer.Argument(..., help='clear/info')):
     a.action = action
 
     def fn(args, cfg):
-        from webtool import cache
+        from webtool.core import cache
         return cache.handle(args, cfg)
     return _run(None, fn, None, None, False, False)
 
@@ -333,8 +334,8 @@ def config_cmd(action: str = typer.Argument(..., help='list/get/set/unset'),
     a.action, a.key, a.value = action, key, value
 
     def fn(args, cfg):
-        from webtool import configcmd
-        return configcmd.handle(args)
+        from webtool.cli import config as _cfg_cmd
+        return _cfg_cmd.handle(args)
     return _run(None, fn, None, None, False, False)
 
 
@@ -348,8 +349,8 @@ def plugins_cmd(action: str = typer.Argument('list', help='list/check/reload/ena
     a.action, a.kind, a.plugin, a.all = action, kind, plugin, all
 
     def fn(args, cfg):
-        from webtool import plugincmd
-        return plugincmd.handle(args)
+        from webtool.cli import plugins as _plug_cmd
+        return _plug_cmd.handle(args)
     return _run(None, fn, None, None, False, False)
 
 

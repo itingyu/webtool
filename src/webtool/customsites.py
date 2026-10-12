@@ -10,7 +10,7 @@ import os
 import re
 import urllib.parse
 
-from webtool.resilient import fetch as rfetch
+from webtool.core.resilient import fetch as rfetch
 from webtool.engines.sites import _headers
 
 SITES_DIR = os.path.expanduser('~/.webtool/sites')

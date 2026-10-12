@@ -10,7 +10,7 @@
 import re
 from urllib.parse import urlparse
 
-from webtool.config_data import load
+from webtool.core.config_data import load
 
 
 def _cfg():

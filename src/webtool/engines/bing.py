@@ -13,7 +13,8 @@ RSS 通道保留为兜底 (curl_cffi 被限流时), 但 RSS 是独立索引, 排
 import re
 import urllib.parse
 
-from webtool import captcha, transport
+from webtool.core import text
+from webtool.net import captcha, transport
 
 _ENDPOINT = 'https://cn.bing.com'
 
@@ -84,7 +85,7 @@ def _urllib_html(query, max_results, proxy, timeout, market, page):
 
 def _resilient(url, proxy=None, timeout=15, headers=None):
     """代理失败自动直连重试 (fetch 等非引擎通道复用)"""
-    from webtool.http import http_get
+    from webtool.core.http import http_get
     last = None
     for p in ([proxy, None] if proxy else [None]):
         try:
@@ -159,6 +160,4 @@ def _strip_tags(s):
     return re.sub(r'<[^>]+>', '', s or '')
 
 
-def _unescape(s):
-    from html import unescape
-    return unescape(s or '').strip()
+_unescape = text.unescape

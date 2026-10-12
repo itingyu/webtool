@@ -4,28 +4,42 @@
 
 ## 1. 分层与分包
 
-包结构（自上而下只允许向下依赖，禁止反向）：
+物理包结构（自上而下只允许向下依赖，禁止反向）：
 
 ```
-L4 应用编排   cli                    # 命令行入口, 唯一可 import 任何层的层
-L3 业务流程   search / rank / feed / sitesearch / fetch
-L2 合并输出   merge / render / hotrender / output / proxy / status / topup
-L1 采集实现   engines/* / spa / radar / zen / captcha / transport / extractors
-              blocklist / adfilter / customsites / query_ops / gnews ...
-L0 基础设施   plugins / config_data / cache / state / http / probe / resilient
-              feedhealth / qhint / configcmd / plugincmd
+webtool/
+  cli/          L4 应用编排   app / config / plugins  —— 唯一可 import 任何层的层
+  feeds/        L3 业务流程   command / sources / parse / fetch / cards
+  radar.py zen.py sitesearch.py fetch.py            —— L3 单体模块
+  pipeline/     L2 合并输出   search / rank / merge / topup / qhint
+  render/       L2 合并输出   render / hotrender / output
+  net/          L1 采集实现   transport / proxy / captcha / spa
+  engines/      L1 采集实现   baidu / bing / google / sites / hotsites ...
+  core/         L0 基础设施   plugins / config_data / cache / state / http
+                                              probe / resilient
+                通用工具类     text / urls / jsonfmt
 ```
+
+`core/` 内部分两类，别混：
+
+- **底座模块**（plugins/config_data/cache/state/http/probe/resilient）：运行期状态与 I/O 机制
+- **通用工具类**（`core.text` / `core.urls` / `core.jsonfmt`）：纯函数，无状态、无业务概念
+  - `core.text`：`clean_markup` / `plain` / `unescape` / `truncate` —— HTML 转纯文本，按语义分函数而不是给一个 `mode` 参数
+  - `core.urls`：`norm_key`（去重键）/ `host_of` / `registrable` / `section_of` / `same_site` —— 命名即用途，杜绝"归一化"的五种变体
+  - `core.jsonfmt`：`read`（坏了退默认）/ `write`（原子替换）/ `fingerprint`（mtime 热更新判失效）
 
 判定规则（写代码前自查）：
 
-- L0 不知道任何业务概念：不 import L1+ 的任何模块
-- `engines/` 只被上层调用，实现里不 import `search / rank / feed / sitesearch / fetch / cli`
-- 工具函数按"谁依赖更广就住更低"归位：探活、限速这类被多业务用的，住 transport/probe，不住业务文件
-- 出现 `from webtool.search import ...` 出现在 engines/ 下即分层破坏，必须下沉到 L1/L2 或抽到 L0
+- `core/` 不知道任何业务概念：不 import `net / engines / pipeline / render / feeds / cli` 中任何一个
+- `engines/` 只被上层调用，实现里不 import `pipeline / feeds / cli`
+- 工具函数按"谁依赖更广就住更低"归位：探活、限速这类被多业务用的，住 `net`/`core`，不住业务文件
+- 发现某逻辑在 3 处以上重复 → 抽成 `core/` 工具类，不要再复制第四份
+- 顶层单文件超过 ~500 行 → 按职责拆成子包（如 `feed.py` → `feeds/`），别让一个文件既管数据又管出网又管渲染
+- 出现 `from webtool.pipeline import ...` 出现在 `engines/` 或 `core/` 下即分层破坏
 
 ## 2. 导入
 
-- **一律绝对导入**：`from webtool.config_data import load`；禁止 `from .x` / `from ..x`
+- **一律绝对导入**：`from webtool.core.config_data import load`；禁止 `from .x` / `from ..x`
   （历史 116 处已于 2026-10 全量迁移，rg 检查：`rg "from \.|from \.\." src/` 应无输出）
 - import 顺序：标准库 → 三方 → webtool，组间空行
 - 循环依赖靠"函数内延迟 import"打破只允许出现在真实循环场景，且写一行注释说明原因；能靠分层消除的不用这招
@@ -35,7 +49,7 @@ L0 基础设施   plugins / config_data / cache / state / http / probe / resilie
 - **逻辑进代码，数据进 JSON，调参进 config**：
   - 抓取/解析逻辑 → 模块函数，经 `plugins.json` 声明成插件（engine/site/hot/extractor/resolver/filter/transformer 七类，签名见 `plugins.SIGNATURES`）
   - 纯数据表（域名、指纹、TTL、实例列表）→ `data/*.json`（`filters.json` / `plugins.json` / `instances.json` / `zen.json` / `feeds.seed.json`），用户用 `~/.webtool/` 同构文件覆盖，mtime 热生效
-  - 运行时调参（开关联动多模块）→ `webtool config set`（白名单在 `configcmd.CONFIG_KEYS`）
+  - 运行时调参（开关联动多模块）→ `webtool config set`（白名单在 `cli/config.py`）
 - 新增"看起来该配置化"的东西前先问：它是数据吗？改它需要重跑算法基准吗？数据才进 JSON
 - 模块级**禁止缓存插件表/配置快照**——一律调用点现取（`_plugin_table(kind)` / `config_data.load`），这是热更新名实相符的前提
 
@@ -57,4 +71,8 @@ L0 基础设施   plugins / config_data / cache / state / http / probe / resilie
 
 - `Registry.items()` 返回 dict——遍历要 `.items().items()`；直接 `for k, v in reg.items()` 会把 key 字符串解包报错（smoke 有契约测试锁死）
 - `rank._proxy_ok` 是 `probe.proxy_ok` 的兼容别名，新代码直接用 `probe.proxy_ok`
-- `search.py` 的 `proxy_hint/_proxy_alive` 同理是兼容再导出，实现在 `transport.py`
+- `pipeline/search.py` 的 `proxy_hint/_proxy_alive` 同理是兼容再导出，实现在 `net/transport.py`
+- `engines/sites.py` 的 `_mk/_fetch/_headers` 被另外三个站点源跨文件复用，暂留私有名；
+  真要复用得按规范去掉 `_` 并下沉到 `core` 或 `engines/base.py`
+- 打包数据在包根 `src/webtool/data/`（不在 `core/` 下），`core.config_data.DATA_DIR`
+  指向它；`pyproject` 的 `package-data` 按此配

@@ -28,7 +28,7 @@ dependencies = [
 ]
 
 [project.scripts]
-webtool = "webtool.cli:main"
+webtool = "webtool.cli.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -18,7 +18,8 @@ import json
 import re
 import urllib.parse
 
-from webtool import transport
+from webtool.net import transport
+from webtool.core import text
 
 # 浏览器 UA 常量 (文档/兼容用; 实际 header 全部经 transport._headers 动态构造)
 _UA = transport.PROFILES['chrome131_win']['ua']
@@ -58,18 +59,11 @@ def _headers(site_url, kind='api', extra=None):
     return h
 
 
-def _clean_html(s):
-    return re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', s or '')).strip()
-
-
-def _html_unescape(s):
-    from html import unescape
-    return unescape(s or '')
-
-
+# 结果条目工厂: 所有站点源统一出口, 标题/摘要在这里清洗定长, 下游不用再兜
 def _mk(title, url, snippet='', score=None, extra=None):
-    r = {'title': _html_unescape(_clean_html(title)), 'url': url,
-         'snippet': _html_unescape(_clean_html(snippet))[:300]}
+    """构造标准结果条目 {title,url,snippet,score?,...extra}"""
+    r = {'title': text.plain(title), 'url': url,
+         'snippet': text.plain(snippet)[:300]}
     if score is not None:
         r['score'] = score
     if extra:
@@ -202,7 +196,7 @@ def juejin(q, limit=10, proxy=None, timeout=15):
             continue
         out.append(_mk(info['title'],
                        f"https://juejin.cn/post/{info['article_id']}",
-                       _clean_html(m.get('article_content', ''))[:200],
+                       text.plain(m.get('article_content', ''))[:200],
                        score=info.get('view_count'),
                        extra={'author': (m.get('author_user_info') or {}).get('user_name'),
                               'views': info.get('view_count'),
@@ -310,7 +304,7 @@ def _ts2date(ts):
 # ---------------------------------------------------------------- 注册表
 # site_key -> {desc, fn, proxy: 'direct'|'proxy'}; 清单在 data/plugins.json 的 "site" 段,
 # 加站点 = 写一个 (q, limit, proxy, timeout) -> [结果] 的适配器 + plugins.json 加一条
-from webtool.plugins import table as _plugin_table
+from webtool.core.plugins import table as _plugin_table
 
 
 def sites_table():

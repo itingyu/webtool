@@ -5,11 +5,9 @@
     cooldown:      秒数               触发验证页后的静默期 (未声明用 30)
 清单改动按 mtime 热生效, 新引擎不再改本文件。generic 段对所有引擎生效。
 """
-import threading
 import time
 
-from webtool import state
-from webtool.config_data import load as _cfg_load
+from webtool.core import state
 
 # 验证页指纹的通用段: 任何引擎命中都算被拦 (Cloudflare 质询等)
 _GENERIC_SIGNS = [
@@ -24,7 +22,7 @@ _DEFAULT_COOLDOWN = 30
 
 def _engine_params():
     """engine 段插件表 (name -> params); mtime 热生效"""
-    from webtool.plugins import table as _plugin_table
+    from webtool.core.plugins import table as _plugin_table
     return {n: (s.get('params') or {}) for n, s in _plugin_table('engine').items()}
 
 

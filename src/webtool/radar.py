@@ -77,7 +77,7 @@ RADAR_TTL = 7 * 86400
 # 公共实例表已外置: data/instances.json (默认) + ~/.webtool/instances.json (用户覆盖)。
 # 可用性每天在变, 别当常量信 —— 用 instances() 探活。
 def _default_instances():
-    from webtool.config_data import load as _cfg_load
+    from webtool.core.config_data import load as _cfg_load
     return list((_cfg_load('rsshub', 'instances.json') or {}).get('instances') or [])
 
 # 实例探活用的廉价路由, 任意一个出条目即视为实例活着
@@ -168,7 +168,7 @@ def load_routes(proxy=None, refresh=False, timeout=60):
                 return o['routes']
         except Exception:
             pass
-    from webtool import transport
+    from webtool.net import transport
     text, st, _ = transport.get(ROUTES_URL, kind='plain', timeout=timeout,
                                 proxy=proxy, allow_fallback=False)
     if st != 200:
@@ -338,7 +338,7 @@ def load_rules(proxy=None, refresh=False, timeout=20):
                 return o['rules']
         except Exception:
             pass
-    from webtool import transport
+    from webtool.net import transport
     errs = []
     for base in _default_instances():
         # 直连优先 (CF 对代理出口更敏感), 失败再试代理
@@ -425,7 +425,7 @@ def instances(proxy=None, refresh=False, need=None, timeout=10):
                     return lst
         except Exception:
             pass
-    from webtool import transport
+    from webtool.net import transport
 
     def probe(base):
         t0 = time.time()
@@ -513,7 +513,7 @@ def probe_official(domain, proxy=None, timeout=8):
 
     www 与裸域都试 —— 只试一种必然漏一半。
     """
-    from webtool import transport
+    from webtool.net import transport
     domain = domain.strip().strip('/')
     if not domain or '://' in domain:
         domain = domain.replace('https://', '').replace('http://', '').split('/')[0]
@@ -555,7 +555,6 @@ def official_section_url(card, filled=None):
     filled = (filled or card.get('template') or '').strip()
     if not filled:
         return f'https://{dom}'
-    ns = filled.strip('/').split('/')[0]
     rest = filled.strip('/').split('/', 1)
     rest = rest[1] if len(rest) > 1 else ''
     return f'https://{dom}/{rest}' if rest else f'https://{dom}'

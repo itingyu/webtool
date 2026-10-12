@@ -13,11 +13,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 import importlib
 
 MODULES = [
-    'webtool.cli', 'webtool.search', 'webtool.rank', 'webtool.feed',
+    'webtool.core.plugins', 'webtool.core.config_data', 'webtool.core.cache', 'webtool.core.state', 'webtool.core.http', 'webtool.core.probe', 'webtool.core.resilient', 'webtool.core.text', 'webtool.core.urls', 'webtool.core.jsonfmt',
+    'webtool.cli.app', 'webtool.cli.config', 'webtool.cli.plugins',
+    'webtool.pipeline.search', 'webtool.pipeline.rank', 'webtool.pipeline.merge',
+    'webtool.pipeline.topup', 'webtool.pipeline.qhint',
+    'webtool.net.transport', 'webtool.net.proxy', 'webtool.net.captcha', 'webtool.net.spa',
+    'webtool.render.render', 'webtool.render.hotrender', 'webtool.render.output',
+    'webtool.feeds.command', 'webtool.feeds.sources', 'webtool.feeds.parse', 'webtool.feeds.fetch', 'webtool.feeds.cards', 'webtool.radar', 'webtool.zen',
     'webtool.sitesearch', 'webtool.fetch', 'webtool.extractors',
-    'webtool.merge', 'webtool.blocklist', 'webtool.adfilter',
-    'webtool.plugincmd', 'webtool.configcmd', 'webtool.captcha',
-    'webtool.transport', 'webtool.radar', 'webtool.spa',
+    'webtool.blocklist', 'webtool.adfilter', 'webtool.query_ops',
     'webtool.engines.hotsites', 'webtool.engines.sites',
     'webtool.engines.status', 'webtool.engines.bing',
     'webtool.engines.sogou', 'webtool.engines.baidu',
@@ -42,7 +46,7 @@ for m in MODULES:
         check(False, f'import {m}: {type(e).__name__}: {e}')
 
 # 2. 七类插件表非空且可迭代 (k,v) 对
-from webtool import plugins
+from webtool.core import plugins
 for kind in ('engine', 'hot', 'site', 'extractor', 'resolver', 'filter'):
     try:
         items = list(plugins.table(kind).items())
@@ -94,19 +98,19 @@ for kind, reg in ((r.kind, r) for r in plugins._REGISTRIES):
 check(not bad, f'插件体检 0 异常 ({bad[:3] if bad else "ok"})')
 
 # 6. 配置文件装载
-from webtool.config_data import load
+from webtool.core.config_data import load
 for section, fn_ in (('adfilter', 'filters.json'), ('blocklist', 'filters.json'),
                      ('merge', 'filters.json'), ('rsshub', 'instances.json')):
     d = load(section, fn_)
     check(bool(d), f'load({section}, {fn_}) 非空')
 
 # 7. captcha 配置驱动 (engine.params.captcha_signs)
-from webtool import captcha
+from webtool.net import captcha
 blocked, hit = captcha.detect('baidu', '<html><title>百度安全验证</title></html>')
 check(blocked, f'captcha.detect baidu 命中配置指纹 ({hit})')
 
 # 8. merge 配置驱动 (track_params/ref_hosts)
-from webtool.merge import normalize_url, _engine_base
+from webtool.pipeline.merge import normalize_url, _engine_base
 u = normalize_url('https://www.Example.com/a/?utm_source=x&id=1')
 check(u == 'https://example.com/a?id=1', f'normalize_url 走配置 ({u})')
 check(bool(_engine_base()), 'engine_base 来自清单')

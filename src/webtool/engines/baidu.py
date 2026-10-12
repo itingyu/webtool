@@ -4,10 +4,10 @@ urllib 的 JA3 指纹会触发安全验证页, 必须走浏览器指纹。预热
 BAIDUID → sugrec 行为链 → 带会话 cookie 搜索; result-op 卡片标 is_ad。
 """
 import re
-import time
 import urllib.parse
 
-from webtool import captcha, transport
+from webtool.core import text
+from webtool.net import captcha, transport
 
 BAIDU = 'https://www.baidu.com'
 
@@ -126,6 +126,4 @@ def _resolve_one(link, proxy, timeout):
     return real
 
 
-def _unescape(s):
-    from html import unescape
-    return unescape(s or '').strip()
+_unescape = text.unescape

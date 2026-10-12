@@ -2,7 +2,7 @@
 import json
 import sys
 
-from webtool import config_data, plugins
+from webtool.core import config_data, plugins
 
 _KINDS = tuple((reg.kind, reg) for reg in plugins._REGISTRIES)
 
@@ -33,7 +33,7 @@ def _set_enabled(args, on):
         return 2
     reg = plugins.by_kind(kind)
     if name not in reg:
-        from webtool import config_data as _cd
+        from webtool.core import config_data as _cd
         if name not in _cd.load(kind, 'plugins.json'):
             print(f'unknown {kind} plugin: {name}', file=sys.stderr)
             return 2

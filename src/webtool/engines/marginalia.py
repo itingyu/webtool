@@ -7,7 +7,8 @@ import re
 import time
 import urllib.parse
 
-from webtool import captcha, transport, state
+from webtool.core import text
+from webtool.net import captcha, transport
 
 _BASE = 'https://marginalia-search.com'
 _MAX_HOPS = 6          # 挑战握手最多跟几跳
@@ -75,7 +76,4 @@ def _parse(main, max_results):
     return out
 
 
-def _text(s):
-    s = re.sub(r'<[^>]+>', '', s or '')
-    from html import unescape
-    return unescape(s).strip()
+_text = text.plain

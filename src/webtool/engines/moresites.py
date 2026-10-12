@@ -4,7 +4,6 @@
 拦截 (纯 HTTP 拿不到数据), 不进内置表。
 """
 import json
-import re
 import urllib.parse
 
 import sys as _sys
@@ -12,15 +11,12 @@ import sys as _sys
 _sites = _sys.modules.get('webtool.engines.sites')
 if _sites is None:
     from webtool import sites as _sites
-from webtool import transport
+from webtool.core import text
+from webtool.net import transport
 from webtool.engines.sites import _headers, _mk, _fetch
 
 
-def _clean(s):
-    """去 HTML 标签/高亮 em 标记"""
-    s = re.sub(r'</?em[^>]*>', '', s or '')
-    s = re.sub(r'<[^>]+>', '', s)
-    return re.sub(r'\s+', ' ', s).strip()
+_clean = text.clean_markup
 
 
 def thepaper(q, limit=10, proxy=None, timeout=15):

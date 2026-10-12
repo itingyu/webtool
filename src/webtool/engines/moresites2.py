@@ -13,13 +13,11 @@ import sys as _sys
 _sites = _sys.modules.get('webtool.engines.sites')
 if _sites is None:
     from webtool import sites as _sites
+from webtool.core import text
 from webtool.engines.sites import _headers, _mk, _fetch
 
 
-def _clean(s):
-    s = re.sub(r'</?em[^>]*>', '', s or '')
-    s = re.sub(r'<[^>]+>', '', s)
-    return re.sub(r'\s+', ' ', s).strip()
+_clean = text.clean_markup
 
 
 # ============================================================ CSDN 问答

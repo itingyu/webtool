@@ -15,14 +15,11 @@
 import json
 import os
 from urllib.parse import urlparse
-from webtool.config_data import load
+from webtool.core import urls
+from webtool.core.config_data import load
 
 
-def _norm_host(host):
-    host = (host or '').lower().strip()
-    if host.startswith('www.'):
-        host = host[4:]
-    return host
+_norm_host = urls.host_of   # 取 host 并去 www.
 
 
 def builtin_blocklist():

@@ -12,8 +12,9 @@ import time
 import urllib.parse
 import urllib.request
 
-from webtool import state, transport as _t
-from webtool.http import build_opener
+from webtool.core import state
+import webtool.net.transport as _t
+from webtool.core.http import build_opener
 
 log = logging.getLogger(__name__)
 
@@ -79,7 +80,6 @@ def decode(link, proxy=None, timeout=15):
 
     op = build_opener(proxy)
     _prof = _t.PROFILES[_t._pick_profile('gnews')]
-    ua = _prof['ua']
     try:
         req = urllib.request.Request(link, headers=_t.headers_for(
             'nav', link, full=True, profile=_prof))

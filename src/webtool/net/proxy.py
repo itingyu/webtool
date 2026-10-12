@@ -64,13 +64,13 @@ def handle(args, cfg):
             print('no proxy to test. use: webtool proxy test http://127.0.0.1:2080', file=sys.stderr)
             return 2
         import urllib.request
-        from webtool import http as _http
+        from webtool.core import http as _http
         try:
             if val.startswith('socks'):
                 import socks  # noqa: F401
             opener = _http.build_opener(val)
             t0 = time.time()
-            from webtool.transport import headers_for as _hf
+            from webtool.net.transport import headers_for as _hf
             r = opener.open(urllib.request.Request(
                 'https://www.bing.com/robots.txt',
                 headers=_hf('nav', 'https://www.bing.com/robots.txt',

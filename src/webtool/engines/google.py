@@ -16,7 +16,8 @@ news RSS 是新闻检索不是全 Web 搜索:
 import re
 import urllib.parse
 
-from webtool import captcha, transport
+from webtool.core import text
+from webtool.net import captcha, transport
 
 _BATCH_URL = 'https://news.google.com/_/DotsSplashUi/data/batchexecute'
 
@@ -168,10 +169,7 @@ def _attach_snippets(html, out):
         r['snippet'] = _text(b)[:300]
 
 
-def _text(s):
-    s = re.sub(r'<[^>]+>', '', s or '')
-    from html import unescape
-    return unescape(s).strip()
+_text = text.plain
 
 
 # ---------- news RSS 降级 ----------
@@ -233,9 +231,7 @@ def _market(market):
     return 'zh-Hans', 'CN', 'zh-Hans'
 
 
-def _unescape(s):
-    from html import unescape
-    return unescape(s or '').strip()
+_unescape = text.unescape
 
 
 def resolve_link(url, proxy=None, timeout=10):

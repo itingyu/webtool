@@ -33,7 +33,7 @@
 search/...) 自动并入 params, 老配置不用改。
 
 代码注册用装饰器:
-    from webtool.plugins import SITES
+    from webtool.core.plugins import SITES
     @SITES.register('mysite', desc='我的站点', proxy='direct')
     def mysite(q, limit, proxy, timeout): return [...]
 
@@ -57,9 +57,10 @@ import os
 import sys
 from pathlib import Path
 
-from webtool import config_data
+from webtool.core import config_data
+from webtool.core import jsonfmt
 
-DATA_DIR = Path(__file__).parent / 'data'
+DATA_DIR = config_data.DATA_DIR          # 打包数据在包根 webtool/data/
 PLUGIN_DIR = Path(os.environ.get('WEBTOOL_PLUGIN_DIR',
                                  os.path.expanduser('~/.webtool/plugins')))
 
@@ -468,12 +469,8 @@ def _import_target(target, kind=None):
 
 def _raw_section(kind, filename, user_only=False):
     """读单层原始配置 (不合并); 用于区分 builtin / user 来源"""
-    import json
     base = config_data.USER_DIR if user_only else config_data.DATA_DIR
-    try:
-        return json.loads((base / filename).read_text(encoding='utf-8')).get(kind, {})
-    except (FileNotFoundError, ValueError, OSError):
-        return {}
+    return jsonfmt.read(base / filename).get(kind, {})
 
 
 ENGINES = Registry('engine')             # 搜索引擎

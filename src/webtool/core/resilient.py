@@ -2,7 +2,7 @@
 
 opener 参数保留兼容旧调用, 实际不再使用。
 """
-from webtool import transport
+from webtool.net import transport
 
 
 def fetch(url, proxy=None, timeout=15, headers=None, opener=None,

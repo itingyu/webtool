@@ -9,13 +9,12 @@ tool_choice 存在 / stream=true。解析: 纯标准库 urllib + 逐行 SSE, rea
 """
 
 import json
-import os
-import re
 import secrets
-import ssl
 import time
 import urllib.error
 import urllib.request
+
+from webtool.core import urls
 
 ZEN_URL = "https://opencode.ai/zen/v1/chat/completions"
 ZEN_MODELS_URL = "https://opencode.ai/zen/v1/models"
@@ -24,7 +23,7 @@ ZEN_MODELS_URL = "https://opencode.ai/zen/v1/models"
 def _endpoints():
     """zen 端点: data/zen.json (包内) + ~/.webtool/zen.json (用户覆盖) 同构叠加,
     mtime 热生效; 文件缺失/无值回落内置常量"""
-    from webtool.config_data import load as _cfg_load
+    from webtool.core.config_data import load as _cfg_load
     d = _cfg_load('zen', 'zen.json') or {}
     chat = d.get('chat_url') or ZEN_URL
     models = d.get('models_url') or ZEN_MODELS_URL
@@ -170,13 +169,12 @@ def fetch_models(cfg, refresh=False, timeout=15.0, proxy=None):
     刻意不内置名单: 免费模型上架/下架频繁, 硬编码名单很快过期。命名约定
     也只是启发式 —— 真正的判据是 `zen --list-models --check` 实发一次。
     """
-    from webtool import cache as _cache
+    from webtool.core import cache as _cache
     key = 'zen/models'
     if not refresh:
         hit = _cache.get(cfg, 'zen', key)
         if hit and isinstance(hit.get('ids'), list) and hit['ids']:
             return hit['ids']
-    ctx = ssl.create_default_context()
     req = urllib.request.Request(
         _endpoints()[1],
         headers={'Authorization': 'Bearer public',
@@ -275,9 +273,7 @@ def _opener(cfg):
     return urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
-def _norm(u):
-    return re.sub(r'^https?://(www\.)?', '', (u or '').split('#')[0].split('?')[0],
-                  flags=re.I).lower()
+_norm = urls.norm_key   # 请求去重键 (与 feed 共用同一把尺)
 
 
 def call_zen(model, prompt, system=None, session=None, on_delta=None,
@@ -286,7 +282,6 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
     cfg = {'proxy': proxy} if proxy else {}
     body = build_body(model, prompt, system, tool_choice, full)
     headers = session.headers() if session else build_headers()
-    ctx = ssl.create_default_context()
     req = urllib.request.Request(_endpoints()[0], data=body, headers=headers,
                                  method='POST')
     t0 = time.time()
@@ -429,7 +424,7 @@ def call_zen_direct_then_proxy(model, prompt, system=None, session=None,
     if not gproxy:
         return r if r else {'ok': False, 'status': 0, 'elapsed': 0,
                              'error_body': err + ' (direct)'}
-    from webtool.probe import proxy_ok
+    from webtool.core.probe import proxy_ok
     if not proxy_ok(gproxy):
         return r if r else {'ok': False, 'status': 0, 'elapsed': 0,
                             'error_body': err + ' (direct; proxy 未探活, 跳过)'}

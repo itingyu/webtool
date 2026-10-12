@@ -12,12 +12,11 @@
 
 连通策略: 能直连直连; 直连失败且配置了全局代理 → 探活代理, 可用则代理重试。
 """
-import json
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from webtool import cache
+from webtool.core import cache
 from webtool.engines.hotsites import HOT_SITES, default_hot_sources
 
 _proxy_alive = {}
@@ -31,7 +30,7 @@ def _proxy_ok(proxy, timeout=6):
         return _proxy_alive[proxy]
     ok = False
     try:
-        from webtool.probe import head_probe
+        from webtool.core.probe import head_probe
         ok = bool(head_probe(proxy, timeout))
     except Exception:
         ok = False
@@ -158,7 +157,7 @@ def do_rank(args, cfg):
     filtered_out = 0
     if q:
         # 不支持站内搜索的源在本地做 BM25 阈值筛
-        from webtool.merge import _semantic_scores
+        from webtool.pipeline.merge import _semantic_scores
         pool = []
         for nm in names:
             for r in results.get(nm) or []:
@@ -202,6 +201,6 @@ def do_rank(args, cfg):
         out['results'] = flat
         out['filtered_out'] = filtered_out
         out['total'] = len(flat)
-    from webtool.hotrender import render_rank
+    from webtool.render.hotrender import render_rank
     render_rank(out, args.format, _fmt_filters(out))
     return 0

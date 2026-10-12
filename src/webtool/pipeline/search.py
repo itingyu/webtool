@@ -1,14 +1,11 @@
 """多引擎搜索调度"""
-import json
-import re
-import socket
+import concurrent.futures
 import sys
 import time
 
-from webtool import cache
-from webtool.transport import _proxy_alive, proxy_hint  # noqa: F401 — 旧名再导出
-from webtool.adfilter import is_ad, mark_ads
-from webtool.plugins import table as _plugin_table
+from webtool.core import cache
+from webtool.core.plugins import table as _plugin_table
+from webtool.net.transport import _proxy_alive, proxy_hint  # noqa: F401 — 旧名再导出
 
 
 def _engines():
@@ -132,13 +129,12 @@ def _do_search(args, cfg, filter_ad=True):
     #    不再被即将拉黑的高 sem 头部抬高 → 标签更真实
     # 注: BM25 的 IDF 基于传入批自身, 黑名单先行会让 sem 数值随黑名单配置
     # 漂移 — 本就批内自适应, 跨配置不可比, 非回归
-    from webtool.merge import merge as _merge
-    from webtool.plugins import table as _pt
+    from webtool.pipeline.merge import merge as _merge
+    from webtool.core.plugins import table as _pt
     from webtool.blocklist import filter_blocklist, is_blocked
     # 过滤器走插件表, 顺序即优先级; blocklist 单列计数供 json 输出
     n_blocked = 0
     if not args.no_blocklist:
-        n_before_bl = len(results)
         for fname, spec in _pt('filter').items():
             if fname == 'blocklist':
                 kept, nb = filter_blocklist(
@@ -160,9 +156,8 @@ def _do_search(args, cfg, filter_ad=True):
     topup_fetched = 0
     _want = args.max
     if len(results) < _want and not args.no_dedupe:
-        from webtool.topup import top_up
-        seen_urls = {r.get('url') for r in results} | \
-                    {r.get('url') for r in []}
+        from webtool.pipeline.topup import top_up
+        seen_urls = {r.get('url') for r in results}
         for eng in engines:
             spec = _engines().get(eng)
             fn = spec['fn'] if spec else None
@@ -216,7 +211,7 @@ def _do_search(args, cfg, filter_ad=True):
         _resolve_sogou_links(results, cfg)
 
     # transformer 插件: 解码完成后逐条改写 (补字段/规范化/重写 url), 顺序即优先级
-    from webtool.plugins import table as _pt
+    from webtool.core.plugins import table as _pt
     for tname, tspec in _pt('transformer').items():
         results = tspec['fn'](results, {'args': args, 'cfg': cfg})
 
@@ -224,7 +219,7 @@ def _do_search(args, cfg, filter_ad=True):
     # 自动改词可能引入歧义, 改写权在用户; 这里只做检测 + 提醒)
     quality_hint = None
     if not args.no_semantic and not args.no_retry and _low_quality(results):
-        from webtool.qhint import build_hint
+        from webtool.pipeline.qhint import build_hint
         quality_hint = build_hint(args.query, results)
 
     out = {'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
@@ -271,7 +266,7 @@ def _do_search(args, cfg, filter_ad=True):
                                   'engine_query': qmap}
     if errors:
         out['errors'] = errors
-    from webtool.render import render
+    from webtool.render.render import render
     render(out, args.format, 'search')
     return 0
 
@@ -281,7 +276,7 @@ def _low_quality(results, query=None):
 
     v1.4.2 起默认不过滤, 只标注 quality + hint; 剩余条数即全部结果。
     """
-    from webtool.qhint import need_retry
+    from webtool.pipeline.qhint import need_retry
     if not results:
         return False
     return need_retry({i: r.get('sem_score', 0) for i, r in enumerate(results)})
@@ -332,7 +327,7 @@ def _resolve_sogou_links(results, cfg):
     每条按 match 特征认出某种跳转链, 交给对应解码器。排序无所谓,
     匹配到就解, 与结果来自哪个引擎无关。
     """
-    from webtool.plugins import resolve_match, table as _pt
+    from webtool.core.plugins import resolve_match, table as _pt
 
     resolvers = _pt('resolver')
     timeout = cfg.get('timeout', 15)
@@ -358,7 +353,7 @@ def _resolve_sogou_links(results, cfg):
                 cache.put(cfg, 'resolve', r['url'], real)
         return i, real
 
-    with cf.ThreadPoolExecutor(5) as ex:
+    with concurrent.futures.ThreadPoolExecutor(5) as ex:
         for i, real in ex.map(work, todo):
             if real and real != results[i]['url']:
                 results[i]['url'] = real

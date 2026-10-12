@@ -3,7 +3,6 @@
 -o file 按 -f 格式落盘, -o - 或未指定走 stdout; 未给扩展名按 -f 自动补;
 -o 目录时自动命名 webtool-<cmd>-<ts>.<ext>; 写文件成功后回一行提示。
 """
-import json
 import os
 import sys
 from datetime import datetime

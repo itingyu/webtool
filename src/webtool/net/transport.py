@@ -13,7 +13,9 @@ import urllib.parse
 from curl_cffi import requests as _cr
 HAS_CFFI = True
 
-from webtool import captcha, state
+from webtool.core import state
+from webtool.core import urls
+from webtool.net import captcha
 
 # ---------------- 浏览器指纹档案 (UA 与 impersonate 版本严格对齐) ----------------
 
@@ -70,21 +72,8 @@ ACCEPT_XHR = 'application/json, text/plain, */*'
 LANG_ZH = 'zh-CN,zh;q=0.9,en;q=0.8'
 LANG_EN = 'en-US,en;q=0.9'
 
-# 常见多级后缀 (可注册域判定用)
-_SFX2 = ('com.cn', 'net.cn', 'org.cn', 'gov.cn', 'com.hk', 'com.tw',
-         'com.au', 'co.uk', 'co.jp', 'com.br', 'com.sg')
 
-
-def _registrable(host):
-    host = (host or '').split(':')[0].lower()
-    if host.startswith('www.'):
-        host = host[4:]
-    labels = host.rsplit('.', 2)
-    if len(labels) == 3 and labels[1] + '.' + labels[2] in _SFX2:
-        return host
-    if len(labels) >= 2:
-        return labels[-2] + '.' + labels[-1]
-    return host
+_registrable = urls.registrable   # 可注册域判定 (含 com.cn/co.uk 等二级后缀)
 
 
 # ---------------- 节奏控制 (每引擎最小间隔 + 抖动) ----------------
@@ -98,7 +87,7 @@ def _rate_of(engine):
     """每引擎最小请求间隔秒数; engine.<name>.params.rate, 未声明用默认"""
     if not engine:
         return _DEFAULT_RATE
-    from webtool.plugins import table as _plugin_table
+    from webtool.core.plugins import table as _plugin_table
     spec = _plugin_table('engine').get(engine) or {}
     return (spec.get('params') or {}).get('rate', _DEFAULT_RATE)
 
@@ -329,7 +318,7 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
     except Exception as e:
         last_cffi_err = f'{type(e).__name__}: {str(e)[:150]}'
     # 通道2: urllib (仅 cffi 自身崩溃时)
-    from webtool.http import http_get
+    from webtool.core.http import http_get
     h = headers_for(kind, url, referer=referer, lang=lang, full=True,
                     extra=headers)
     try:
@@ -409,7 +398,7 @@ def warm_session(session, home, *, kind='nav', referer=None, timeout=10,
 # google 为 required — 代理未配置或探活失败(进程挂/端口不通)都静默跳过, 不搜谷歌
 def proxy_hint(engine):
     """按插件元数据取代理策略, 未声明的引擎保守跟随全局"""
-    from webtool.plugins import table as _plugin_table
+    from webtool.core.plugins import table as _plugin_table
     spec = _plugin_table('engine').get(engine) or {}
     return spec.get('proxy_hint')
 _PROBE_CACHE = None
