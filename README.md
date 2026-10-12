@@ -101,6 +101,17 @@ webtool zen "问题" --system "只回 JSON" --tool-choice none
 - 顺序即优先级：`hot`/`extractor` 按插入顺序尝试，提取器首个返回非空正文的生效；`rank -q` 靠 `search` 标志决定能否直接传关键词
 - 过滤规则同样可配：`~/.webtool/filters.json` 覆盖 `adfilter`（广告词/域名）与 `blocklist`（低质站点）
 
+### 热更新
+
+| 改什么 | 生效方式 |
+|---|---|
+| `~/.webtool/plugins.json` 增删改条目 | **自动**（按 mtime 判定失效，同进程内立即生效） |
+| `~/.webtool/filters.json` 过滤规则 | **自动**（同上） |
+| 外部插件 `.py` 文件内容 | `webtool plugins reload`（Python 缓存了已导入模块，需显式重载） |
+| 装饰器 `@register` 注册的代码 | 重启进程 |
+
+`webtool plugins list`（清单与来源：builtin/user/code）、`plugins check`（逐个加载体检，报失败项）、`plugins reload`（重载外部模块并清配置缓存）。配置坏了不会拖垮进程，退回内置默认并在 `plugins check` 报错。
+
 ## 给 Agent 用
 
 复制 `skills/webtool/SKILL.md` 到 Agent 的 skill 目录（Claude Code `.claude/skills/`、Minis `/var/minis/skills/`）。

@@ -82,6 +82,7 @@ webtool zen "问题" --system "只回 JSON" --tool-choice none
 - `-n` 条数 / `-f` 格式（`md`≡`markdown`、`txt`≡`text`，大小写不敏感）/ `-o` 落盘（按 `-f` 补扩展名，目录自动命名，`-o -` 强制 stdout）/ `--no-cache` / `--no-proxy` / `--proxy URL`
 - 退出码：0 成功 / 2 用法错误（提示走 stderr）
 - 缓存 TTL：search 60s / fetch 10s / 跳转解析 10min / zen 模型清单 1h
+- 插件与配置：`webtool plugins list`（清单与来源 builtin/user/code）· `check`（逐个加载体检）· `reload`（重载外部插件）。改 `~/.webtool/plugins.json`、`filters.json` 自动生效（按 mtime 判定），改外部插件 `.py` 需 `plugins reload`
 
 ## 注意
 

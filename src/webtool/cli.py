@@ -339,6 +339,19 @@ def config_cmd(action: str = typer.Argument(..., help='list/get/set/unset'),
     return _run(None, fn, None, None, False, False)
 
 
+@app.command('plugins')
+def plugins_cmd(action: str = typer.Argument('list', help='list/check/reload'),
+                kind: str = typer.Argument(None, help='engine/hot/site/extractor')):
+    """插件管理: 清单与来源 / 加载体检 / 热重载外部插件"""
+    a = _CTX['args']
+    a.action, a.kind = action, kind
+
+    def fn(args, cfg):
+        from . import plugincmd
+        return plugincmd.handle(args)
+    return _run(None, fn, None, None, False, False)
+
+
 def main(argv=None):
     """入口: argv=None 走 sys.argv; 退出码 0/2/130
 
