@@ -182,6 +182,18 @@ _d2 = _merge([_dic, _mk('正常页2', 1, ['bing'])],
 _by_d = {r['title']: r['weight'] for r in _d2}
 check(0 < _by_d['词典页'] < _by_d['正常页2'],
       f'prior 词典降权 ({_by_d["词典页"]} < {_by_d["正常页2"]})')
+# blocklist 硬过滤改为 prior=0: 黑名单站算完权重后被剔除, 且参与去重
+_blk = _mk('黑名单页', 1, ['bing'])
+_blk['url'] = 'https://blog.csdn.net/abc/post/1'
+_bw = _merge([_blk, _mk('正常页6', 1, ['bing'])], 'query',
+             use_semantic=False, dedupe=False)
+check('黑名单页' not in [r['title'] for r in _bw] and '正常页6' in [r['title'] for r in _bw],
+      f'blocklist 判 prior=0 并被剔除 ({[r["title"] for r in _bw]})')
+# apply_blocklist=False 时黑名单站照常返回 (--no-blocklist 语义)
+_bt = [r['title'] for r in _merge([dict(_mk('黑名单页2', 1, ['bing']), url='https://blog.csdn.net/x'),
+                                   _mk('正常页7', 1, ['bing'])], 'query',
+                                  use_semantic=False, dedupe=False, apply_blocklist=False)]
+check('黑名单页2' in _bt, f'apply_blocklist=False 放行 ({_bt})')
 # prior: low_prior 降权 (从 blocklist 放出的内容可用但质量存疑的站)
 _low = _mk('搬运页', 1, ['bing'])
 _low['url'] = 'https://www.jb51.net/article/1'

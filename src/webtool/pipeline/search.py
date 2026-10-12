@@ -6,6 +6,7 @@ import time
 from webtool.core import cache
 from webtool.core.plugins import table as _plugin_table
 from webtool.net.transport import _proxy_alive, proxy_hint  # noqa: F401 — 旧名再导出
+from webtool.filters.blocklist import load_blocklist
 
 
 def _engines():
@@ -131,24 +132,24 @@ def _do_search(args, cfg, filter_ad=True):
     # 漂移 — 本就批内自适应, 跨配置不可比, 非回归
     from webtool.pipeline.merge import merge as _merge
     from webtool.core.plugins import table as _pt
-    from webtool.filters.blocklist import filter_blocklist, is_blocked
-    # 过滤器走插件表, 顺序即优先级; blocklist 单列计数供 json 输出
-    n_blocked = 0
-    if not args.no_blocklist:
-        for fname, spec in _pt('filter').items():
-            if fname == 'blocklist':
-                kept, nb = filter_blocklist(
-                    results, extra_block=args.block or (),
-                    extra_allow=args.allow or ())
-                n_blocked += nb
-                results = kept
-            else:
-                results = spec['fn'](results, {'args': args, 'cfg': cfg})
+    # 过滤器走插件表, 顺序即优先级。
+    # blocklist 不在其中预剔除 —— 它由 merge 内的 prior=0 处理, 算完权重
+    # 再统一过滤。这样黑名单条目仍参与去重, 多引擎命中的同一页能完整合并
+    # engines 而不留半条结果。计数在 merge 之后统计。
+    for fname, spec in _pt('filter').items():
+        if fname != 'blocklist':
+            results = spec['fn'](results, {'args': args, 'cfg': cfg})
+    _blk = blocklist_for(args)
+    stats = {}
     n_before = len(results)
     results = _merge(results, args.query,
                      use_semantic=not args.no_semantic,
-                     dedupe=not args.no_dedupe)
-    dedup_removed = n_before - len(results)
+                     dedupe=not args.no_dedupe,
+                     apply_blocklist=not args.no_blocklist,
+                     blocklist=_blk, stats=stats)
+    # dedup_removed 只算去重掉的; merge 里的剔除另由 stats 分项计数,
+    # 混在一起会把 "黑名单过滤" 误报成 "重复合并"。
+    dedup_removed = stats.get('dedup_removed', 0)
 
     # ---- 自动补量: 过滤后不足 requested 且有翻页能力 → 翻页补拉重过滤 ----
     # 触发条件: 总数 < args.max 且未被 --no-dedupe/--no-blocklist 关掉主过滤
@@ -198,8 +199,13 @@ def _do_search(args, cfg, filter_ad=True):
             n_before = len(results)
             results = _merge(results, args.query,
                              use_semantic=not args.no_semantic,
-                             dedupe=not args.no_dedupe)
-            dedup_removed += n_before - len(results)
+                             dedupe=not args.no_dedupe,
+                             apply_blocklist=not args.no_blocklist,
+                             blocklist=_blk, stats=stats)
+            dedup_removed += stats.get('dedup_removed', 0)
+
+    n_blocked = stats.get('blocked', 0)
+    n_floor = stats.get('floor_dropped', 0)
 
     # 最终截断: 排序后取质量最高的 n 条 (多引擎大池 → top n, 硬上限语义)
     if len(results) > args.max:
@@ -225,6 +231,7 @@ def _do_search(args, cfg, filter_ad=True):
     out = {'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'cache': per_engine, 'total': len(results), 'results': results,
            'dedup_removed': dedup_removed, 'blocked_by_blocklist': n_blocked,
+           'dropped_by_floor': n_floor,
            'sorted_by': 'weight(semantic)' if not args.no_semantic else 'weight'}
     if topup_fetched:
         out['topup'] = {'fetched': topup_fetched,
@@ -280,6 +287,17 @@ def _low_quality(results, query=None):
     if not results:
         return False
     return need_retry({i: r.get('_sem', 0) for i, r in enumerate(results)})
+
+
+def blocklist_for(args):
+    """命令行 --block/--allow 追加项 → (block, allow); 无参时用内置表
+
+    传给 merge 供 prior 判定用, 使黑名单条目在计算权重时才被判 0。
+    """
+    blk, allow = load_blocklist()
+    blk = set(blk) | {d.lower().strip() for d in (getattr(args, 'block', None) or ())}
+    allow = set(allow) | {d.lower().strip() for d in (getattr(args, 'allow', None) or ())}
+    return blk, allow
 
 
 def _fetch_engines(args, cfg, engines, query, filter_ad):

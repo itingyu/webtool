@@ -28,6 +28,7 @@ from webtool.core import urls
 from webtool.core.config_data import load as _cfg_load
 from webtool.core.plugins import table as _plugin_table
 from webtool.filters.adfilter import is_ad
+from webtool.filters.blocklist import is_blocked
 
 
 def _merge_cfg():
@@ -43,8 +44,15 @@ def _host_in(host, domains):
                               for d in domains or ())
 
 
-def _domain_prior(r, query):
-    """域名先验, 三档: 低质量站 0.4 / 词典百科 0.5 / 其余 1.0; 广告走 0。
+def _domain_prior(r, query, apply_blocklist=True, blocklist=None):
+    """域名先验, 四档: 黑名单 0 / 低质量站 0.4 / 词典百科 0.5 / 其余 1.0
+
+    广告不走这里 (在调用处判 0)。
+
+    blocklist (硬过滤站): 克隆官网、洗稿、需登录正文、纯 SEO 垃圾站 —— 判 0
+    而不是在进 merge 前就剔除。先算完再按 weight 过滤, 好处是黑名单条目
+    仍参与去重 (同一页被多引擎命中时能合并 engines, 不会出现"半条结果"),
+    且过滤依据是最终权重而非 URL 字符串匹配。
 
     ref_hosts (词典/百科): query 含英文时几乎必是噪声 —— "GPT Claude
     Gemini" 命中「大(汉语文字)」是典型误报; 但对「X 是什么意思」类 query
@@ -53,10 +61,13 @@ def _domain_prior(r, query):
     low_prior (内容可用但质量存疑的无署名搬运/云厂商社区): 硬过滤过重,
     降权后可留在结果里, 用户自行取用。
 
-    域名表在 data/filters.json 的 merge 段, 用户可增删。
+    域名表在 data/filters.json, 用户可增删。
     """
     cfg = _merge_cfg()
-    host = urls.host_of(r.get('url', ''))
+    url = r.get('url', '')
+    if apply_blocklist and is_blocked(url, *(blocklist or (None, None))):
+        return 0.0
+    host = urls.host_of(url)
     if _host_in(host, cfg.get('low_prior')):
         return float(cfg.get('low_prior_value') or 0.4)
     if _EN_TOKEN_RE.search(query or '') and _host_in(host, cfg.get('ref_hosts')):
@@ -94,7 +105,8 @@ def title_fingerprint(t):
 
 
 # ---------------- 权重重排 ----------------
-def rerank(results, query, use_semantic=True):
+def rerank(results, query, use_semantic=True, apply_blocklist=True,
+          blocklist=None, stats=None):
     """评分排序: merge() 的排序半程, 供多轮召回复用
 
     每条结果最终只带 title/url/snippet/weight/rank + 引擎字段:
@@ -150,46 +162,66 @@ def rerank(results, query, use_semantic=True):
         # 在同等权重上参与排序。
         # prior: 广告判 0 (权重直接归零, 取代原先的 ×0.2 —— 那个常数把广告
         # 留在候选里靠排名挤出去, 判 0 语义更明确); 词典/百科页 ×0.5。
-        prior = 0.0 if is_ad(r) else _domain_prior(r, query)
+        prior = (0.0 if is_ad(r)
+                 else _domain_prior(r, query, apply_blocklist, blocklist))
         w = prior * math.sqrt(pos) * sem
         r['_sem'] = round(raw, 3)      # 中间量, 排完即删
+        r['_prior'] = round(prior, 3)
         r['weight'] = round(w, 4)
 
-    # 除以批内最高分: 让 weight 变成批内相对分 (top 恒为 1.0), 随候选集
-    # 大小 n 变化 —— 8 条候选时 0.47 是中游, 30 条候选时 0.47 可能已是尾部,
-    # 绝对分在不同 n 下不可比。归一后 weight 只表达"比这批里最好的差多少"。
+    # 先归一再过滤: 除以批内最高分让 weight 成为相对分 (top 恒为 1.0),
+    # 随候选集大小 n 变化 —— 8 条候选时 0.47 是中游, 30 条候选时 0.47
+    # 可能已在尾部, 绝对分跨 n 不可比。归一后才谈得上"比头部差多少"的阈值。
     top = max((r['weight'] for r in results), default=0.0)
     if top > 0:
         for r in results:
             r['weight'] = round(r['weight'] / top, 4)
     results.sort(key=lambda r: -r['weight'])
-    # 权重阈值过滤: prior=0 的广告 (weight 必为 0) 必剔除; 另有一道
-    # weight_floor 兜底, 挡掉位置分与相关性双低的尾部噪声。阈值在
-    # filters.json 的 merge 段, 配 0 即关闭。
+    # 算完再过滤: prior=0 的广告与黑名单站 weight 必为 0, 在此一并剔除 ——
+    # 它们进 merge 前不做剔除, 以便参与去重 (多引擎命中的同一页能完整合并
+    # engines, 不留半条结果)。weight_floor 另兜底位置分与相关性双低的尾部。
     floor = float(_merge_cfg().get('weight_floor') or 0)
+    n_zero = sum(1 for r in results if r.get('_prior') == 0.0)
     if floor > 0:
-        results = [r for r in results if r['weight'] > floor]
+        kept = [r for r in results if r['weight'] > floor]
+        if stats is not None:
+            stats['blocked'] = sum(1 for r in results
+                                   if r['weight'] <= floor and r.get('_prior') == 0.0)
+            stats['floor_dropped'] = len(results) - len(kept) - stats['blocked']
+        results = kept
+    elif n_zero:
+        # floor 关闭时仍必须剔除 prior=0 —— 那恒为 weight 0
+        results = [r for r in results if r.get('_prior') != 0.0]
+    if stats is not None:
+        stats.setdefault('blocked', n_zero)
     # 中间量与重复项一并清掉: 对外只有 engines 一个来源字段, 且恒为数组
     # (单引擎也是单元素数组 —— 形状一致, 消费方无需分支判断)
     for i, r in enumerate(results):
         r.pop('_sem', None)
+        r.pop('_prior', None)
         r.pop('engine', None)
         r['rank'] = i + 1
     return results
 
-def merge(results, query, use_semantic=True, dedupe=True):
+def merge(results, query, use_semantic=True, dedupe=True,
+         apply_blocklist=True, blocklist=None, stats=None):
     """合并多引擎结果: 去重 → 评分 → 排序
 
     results: [{title,url,snippet,engine,rank,is_ad?}, ...]
     返回: 排序后的结果列表, 每条带 rank/title/url/snippet/weight + 引擎字段
     """
+    n_in = len(results)
     if dedupe:
         results = _dedupe(results)
+    if stats is not None:
+        stats['dedup_removed'] = n_in - len(results)
     # 去重产生的内部键不外泄 (json 输出干净)
     for r in results:
         r.pop('_key_u', None)
         r.pop('_key_t', None)
-    return rerank(results, query, use_semantic=use_semantic)
+    return rerank(results, query, use_semantic=use_semantic,
+                  apply_blocklist=apply_blocklist, blocklist=blocklist,
+                  stats=stats)
 
 
 def _dedupe(results):
