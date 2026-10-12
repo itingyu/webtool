@@ -21,10 +21,6 @@ def render_rank(out, fmt, filters):
     if fmt == 'json':
         print(json.dumps(out, ensure_ascii=False, indent=1))
         return
-    if fmt == 'csv':
-        from webtool.render.csvout import render as _csv
-        _csv(out, 'rank')
-        return
     data = out.get('sources_data') or {}
     errors = out.get('errors') or {}
     if fmt == 'markdown':
@@ -93,10 +89,6 @@ def render_keyed_list(out, fmt, kind='admin', title='清单', desc_fields=('desc
     if fmt == 'json':
         print(json.dumps(out, ensure_ascii=False, indent=1))
         return
-    if fmt == 'csv':
-        from webtool.render.csvout import render as _csv
-        _csv(out, kind)
-        return
     # 列序: title/描述字段在前, 其余按首次出现顺序
     lead = [c for c in ('site', 'name', 'key', 'title') if any(c in r for r in rows)]
     descs = [c for c in desc_fields if any(c in r for r in rows)]
@@ -134,10 +126,6 @@ def render_feed_list(out, fmt):
     rows = out.get('results') or []
     if fmt == 'json':
         print(json.dumps(out, ensure_ascii=False, indent=1))
-        return
-    if fmt == 'csv':
-        from webtool.render.csvout import render as _csv
-        _csv({'results': rows}, 'feed')
         return
     if fmt == 'markdown':
         print(f"## feed 订阅源 ({out.get('seed_count')} 预设 + "

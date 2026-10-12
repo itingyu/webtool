@@ -9,10 +9,10 @@ from datetime import datetime
 
 # 支持的输出格式 —— 单一事实来源, cli/app.py 的 -f 校验与 render/ 的分发都用它。
 # 别名 (md/txt) 在 cli/app.py::_norm_fmt 归一化, 这里只列规范名。
-FORMATS = ('json', 'text', 'markdown', 'csv')
+FORMATS = ('json', 'text', 'markdown')
 
 EXT = {'json': '.json', 'markdown': '.md', 'md': '.md', 'text': '.txt',
-       'txt': '.txt', 'csv': '.csv'}
+       'txt': '.txt'}
 
 
 def emit(payload_str, fmt, output):

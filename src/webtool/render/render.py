@@ -32,17 +32,7 @@ def _fmt_degraded(out):
 
 
 def render(out, fmt, kind):
-    """kind: 'search' | 'site' | 'fetch'; fmt: 'json' | 'text' | 'markdown' | 'csv'"""
-    if fmt == 'csv':
-        if kind == 'fetch':
-            # fetch 的产物是整篇正文, 塞进单元格既难读也没法用; 直接说清,
-            # 别默默输出 markdown 让用户以为导出了表格
-            raise ValueError('fetch 不支持 -f csv (正文进单元格无意义); '
-                             '要结构化数据请用 -f json')
-        # CSV 走独立渲染器: 过滤统计已落在 json 副本外, 表格只导结果行
-        from webtool.render.csvout import render as _csv
-        _csv(out, kind)
-        return
+    """kind: 'search' | 'site' | 'fetch'; fmt: 'json' | 'text' | 'markdown'"""
     filters = _fmt_filters(out)
     # 无过滤动作时也回显一行, 保持过滤统计在三格式里始终在场 (0 可查证)
     if not filters:

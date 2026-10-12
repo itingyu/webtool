@@ -27,7 +27,7 @@ app = typer.Typer(add_completion=False, no_args_is_help=True,
 # ---------- 公共选项 ----------
 
 Fmt = typer.Option(None, '-f', '--format',
-                   help='输出格式 json/text/markdown/csv (大小写不敏感; md=markdown, txt=text)')
+                   help='输出格式 json/text/markdown (大小写不敏感; md=markdown, txt=text)')
 Output = typer.Option(None, '-o', '--output',
                       help='输出到文件 (按 -f 补扩展名; 目录则自动命名; -o - 强制 stdout)')
 NoProxy = typer.Option(False, '--no-proxy', help='本次不走代理(覆盖配置)')
@@ -73,7 +73,7 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='json'):
             try:
                 rc = fn(args, cfg)
             except ValueError as e:
-                # 渲染层的用法错误 (如 fetch -f csv) 不该甩 traceback
+                # 渲染层的用法错误不该甩 traceback
                 raise _UsageError(str(e))
         if rc not in (0, None):
             return rc

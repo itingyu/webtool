@@ -369,10 +369,6 @@ def _print_model_ids(ids, fmt):
     import json as _json
     if fmt == 'json':
         print(_json.dumps({'models': ids, 'count': len(ids)}, ensure_ascii=False, indent=1))
-    elif fmt == 'csv':
-        print('model')
-        for i in ids:
-            print(i)
     else:
         for i in ids:
             print(i)

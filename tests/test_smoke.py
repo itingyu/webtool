@@ -117,15 +117,6 @@ u = normalize_url('https://www.Example.com/a/?utm_source=x&id=1')
 check(u == 'https://example.com/a?id=1', f'normalize_url 走配置 ({u})')
 check(bool(_engine_base()), 'engine_base 来自清单')
 
-# 9. CSV 公式注入防护 (字段全是抓来的不可信文本, 必须降级成文本)
-from webtool.render.csvout import _cell
-_danger = ['=1+1', '=cmd|\' /C calc\'!A0', '@SUM(1+1)', '+1+1', '-2+3',
-           '\t=1+1', '\r\n=1+1']
-for d in _danger:
-    check(_cell(d).startswith("'"), f'CSV 注入前缀 ({d!r} → {_cell(d)[:14]!r})')
-for ok in ['normal', 'C++ 教程', 'a=b=c', '中文，逗号']:
-    check(not _cell(ok).startswith("'"), f'CSV 不误伤 ({ok!r})')
-
 print()
 if fails:
     print(f'{len(fails)} FAILED')

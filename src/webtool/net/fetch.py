@@ -174,8 +174,6 @@ def _emit(r, args, single):
         return
     if args.format == 'json':
         print(json.dumps(r, ensure_ascii=False, indent=1))
-    elif args.format == 'csv':
-        raise ValueError('fetch 不支持 -f csv (正文进单元格无意义); 要结构化数据请用 -f json')
     elif args.format == 'text':
         import re as _re
         txt = _re.sub(r'\[([^\]]*)\]\([^)]*\)', r'\1', r.get('content', ''))
