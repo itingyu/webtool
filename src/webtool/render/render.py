@@ -15,13 +15,13 @@ def _fmt_filters(out):
     """过滤说明行 -> 单行字符串"""
     parts = []
     if out.get('ad_filtered'):
-        parts.append(f"广告过滤 {out['ad_filtered']} 条(--keep-ad 保留)")
+        parts.append(f"广告过滤 {out['ad_filtered']} 条")
     if out.get('blocked_by_blocklist'):
-        parts.append(f"黑名单剔除 {out['blocked_by_blocklist']} 条(--no-blocklist 关闭)")
+        parts.append(f"黑名单剔除 {out['blocked_by_blocklist']} 条(--blocklist off 关闭)")
     if out.get('topup', {}).get('fetched'):
         parts.append(f"翻页补拉 {out['topup']['fetched']} 条(过滤后不足 {out.get('requested', '?')})")
     if out.get('dedup_removed'):
-        parts.append(f"跨引擎去重合并 {out['dedup_removed']} 条(--no-dedupe 关闭)")
+        parts.append(f"跨引擎去重合并 {out['dedup_removed']} 条")
     return parts
 
 

@@ -126,7 +126,7 @@ webtool zen "问题" --show-body        # 只打请求体, 不出网 (排查用)
 
 ### 跳转链解码
 
-搜狗 `/link`、百度 `/link?`、Google News `/articles/` 这类跳转链会被还原成原始 URL（`--no-resolve` 关闭）。这一层是 `resolver` 插件，与引擎无关——**按 URL 特征认链，不是按结果来自哪个引擎**：
+搜狗 `/link`、百度 `/link?`、Google News `/articles/` 这类跳转链会被还原成原始 URL（无条件执行：不还原则去重与黑名单匹配均失效）。这一层是 `resolver` 插件，与引擎无关——**按 URL 特征认链，不是按结果来自哪个引擎**：
 
 ```jsonc
 // ~/.webtool/plugins.json

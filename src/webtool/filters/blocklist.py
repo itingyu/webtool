@@ -9,7 +9,7 @@
    - allow: 白名单例外, 优先级高于 block (可精确放行某子域)
 3. 命令行 --block / --allow: 临时追加, 不落盘
 
-匹配范围: 搜索结果 url; site 子命令结果同样生效 (--no-blocklist 关闭)。
+匹配范围: 搜索结果 url; site 子命令结果同样生效 (--blocklist off 关闭)。
 被剔除条目计入输出 blocked_by_blocklist 计数, json 可查。
 """
 import json

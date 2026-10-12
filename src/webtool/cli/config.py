@@ -1,7 +1,7 @@
 """webtool config: 统一配置管理子命令
 
 配置层级 (优先级从高到低):
-1. 命令行参数 (--proxy / --block / --no-blocklist ...)
+1. 命令行参数 (--proxy / --blocklist ...)
 2. 引擎/站点级配置 (~/.webtool/config.json 的 engine_proxy)
 3. 全局配置 (config set 写入的键)
 4. 内置默认值

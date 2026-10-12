@@ -92,7 +92,6 @@ def do_site(args, cfg):
             return 1
 
     # 站内搜索是白名单源 (官方 API, 站点本身已可信), 不走黑名单过滤;
-    # --block/--allow 仍保留用于临时域名补充
     n_blocked = 0
 
     # quality 仅标注不剔除, 与 search 一致
@@ -108,9 +107,9 @@ def do_site(args, cfg):
 
     filters = []
     if n_blocked:
-        filters.append(f'黑名单剔除 {n_blocked} 条 (--no-blocklist 关闭)')
+        filters.append(f'黑名单剔除 {n_blocked} 条')
     if dedup_removed:
-        filters.append(f'跨引擎去重合并 {dedup_removed} 条(--no-dedupe 关闭)')
+        filters.append(f'跨引擎去重合并 {dedup_removed} 条')
 
     out = {'site': args.site, 'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'source': src, 'total': len(results), 'results': results,
