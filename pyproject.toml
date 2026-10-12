@@ -24,6 +24,7 @@ dependencies = [
     "inscriptis",
     "pysocks",
     "curl_cffi>=0.16",
+    "typer>=0.12",
 ]
 
 [project.scripts]

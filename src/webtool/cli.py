@@ -1,286 +1,375 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""webtool - Agent 友好的网页搜索/内容获取 CLI (纯 argparse, 无框架)
+"""webtool CLI (typer)
 
-参数标准化约定 (全子命令统一):
-- 通用短参: -n 条数 / -f 输出格式 / -o 输出文件 / -q 查询词 / -t 阈值 / -e 引擎
-- 布尔开关一律 --no-* 关闭默认行为; 短参区分大小写, -f 值不区分
+约定:
+- 数据命令 (search/fetch/site/rank/feed/zen) 的 print 输出统一捕获后走 emit,
+  支持 -f/-o 落盘; 管理命令 (proxy/engines/cache/blocklist/config) 直接输出
+- -f 大小写不敏感, md=markdown, txt=text; 默认 json (fetch/zen 例外)
+- 退出码: 0 成功 / 2 用法错误 / 130 Ctrl-C
 """
-import argparse, json, sys, os, re, time
+import io
+import sys
+from contextlib import redirect_stdout
+
+import typer
+
+# typer 0.27 vendored 了 click: 异常类在 typer._click.exceptions, 与顶层 click 不同源
+from typer._click.exceptions import UsageError as _UsageError, ClickException as _ClickException
 
 from . import proxy as _proxy
-from . import http as _http
 from .output import emit
 
-# ---------- 公共参数组 (跨子命令复用, 保证同名同义) ----------
+app = typer.Typer(add_completion=False, no_args_is_help=True,
+                  help='Agent 友好的网页搜索与内容获取工具',
+                  context_settings={'help_option_names': ['-h', '--help']})
 
-def _add_common_output(g):
-    """数据类子命令通用: 输出格式 + 落盘"""
-    g.add_argument('-f', '--format', dest='format', default=None,
-                   choices=['json', 'text', 'markdown', 'md', 'txt', 'JSON', 'TEXT', 'MARKDOWN', 'MD', 'TXT'],
+# ---------- 公共选项 ----------
+
+Fmt = typer.Option(None, '-f', '--format',
                    help='输出格式 json/text/markdown (大小写不敏感; md=markdown, txt=text)')
-    g.add_argument('-o', '--output', dest='output', default=None,
-                   help='输出到文件 (默认按 -f 补扩展名 .json/.md/.txt; 目录则自动命名; '
-                        '-o - 强制 stdout)')
-
-
-def _add_common_net(g):
-    g.add_argument('--no-proxy', action='store_true', help='本次不走代理(覆盖配置)')
-    g.add_argument('--no-cache', action='store_true', help='跳过缓存')
+Output = typer.Option(None, '-o', '--output',
+                      help='输出到文件 (按 -f 补扩展名; 目录则自动命名; -o - 强制 stdout)')
+NoProxy = typer.Option(False, '--no-proxy', help='本次不走代理(覆盖配置)')
+NoCache = typer.Option(False, '--no-cache', help='跳过缓存')
 
 
 def _norm_fmt(v, default):
-    """-f 值归一化: 大小写不敏感 + md/txt 别名"""
     if not v:
         return default
     x = v.strip().lower()
     return {'md': 'markdown', 'txt': 'text'}.get(x, x)
 
 
-def main(argv=None):
-    p = argparse.ArgumentParser(prog='webtool',
-                                description='Agent 友好的网页搜索与内容获取工具')
-    p.add_argument('--proxy', help='临时代理, 覆盖配置文件')
-    p.add_argument('--no-cache', action='store_true')
-    sub = p.add_subparsers(dest='cmd', required=True)
+from types import SimpleNamespace
 
-    ps = sub.add_parser('search', help='多引擎网页搜索')
-    ps.add_argument('query')
-    ps.add_argument('-e', '--engine', default=None,
-                    help='逗号分隔: bing,sogou,baidu,google,marginalia (默认 bing,sogou,baidu)')
-    ps.add_argument('-n', '--max', type=int, default=8, help='每引擎结果数')
-    _add_common_output(ps)
-    _add_common_net(ps)
-    ps.add_argument('--market', default='zh-CN', help='市场: zh-CN / en-US')
-    ps.add_argument('--no-resolve', action='store_true',
-                    help='关闭跳转链解码 (sogou/baidu link, gnews articles)')
-    ps.add_argument('--keep-ad', action='store_true', help='保留广告结果并标记 is_ad (默认已过滤)')
-    ps.set_defaults(no_ad=True)
-    ps.add_argument('--no-dedupe', action='store_true', help='关闭跨引擎去重')
-    ps.add_argument('--no-semantic', action='store_true', help='关闭语义向量排序(纯位置权重)')
-    ps.add_argument('--no-retry', action='store_true', help='关闭低召回自动重试(默认开启)')
-    ps.add_argument('--operators', default='passthrough',
-                    choices=['passthrough', 'strip', 'strict'],
-                    help='高级操作符路由: passthrough=原样透传(默认) / '
-                         'strip=静默剔除该引擎不支持的操作符 / '
-                         'strict=有引擎不支持就报错。'
-                         '支持 site: intitle: inurl: -词')
-    ps.add_argument('--block', action='append', default=[],
-                    help='临时追加黑名单域名, 可多次')
-    ps.add_argument('--allow', action='append', default=[],
-                    help='临时白名单例外(优先于黑名单), 可多次')
-    ps.add_argument('--no-blocklist', action='store_true', help='关闭黑名单过滤')
 
-    pf = sub.add_parser('fetch', help='抓取 URL 并提取正文')
-    pf.add_argument('url', nargs='?', help='要抓取的 URL')
-    pf.add_argument('--url-file', help='从文件读多个 URL(每行一个)')
-    _add_common_output(pf)
-    _add_common_net(pf)
-    pf.set_defaults(format_default='markdown')
-    pf.add_argument('--max-chars', type=int, default=0, help='正文截断字符数, 0=不截断')
-    pf.add_argument('--raw', action='store_true', help='跳过正文提取, 输出原始 HTML')
-    pf.add_argument('--with-metadata', action='store_true', help='json 格式附带标题/作者/日期')
-    pf.add_argument('--profile', default=None,
-                    help='传输指纹档案: chrome131_win/mac/linux/android, safari18_4_ios 等 '
-                         '(默认桌面 chrome; 移动站/拿不到数据时试 android/ios 档案)')
-
-    pp = sub.add_parser('proxy', help='代理配置')
-    pp.add_argument('action', choices=['get', 'set', 'unset', 'test'])
-    pp.add_argument('value', nargs='?', help='代理地址, 如 http://127.0.0.1:2080 或 socks5://...')
-
-    pe = sub.add_parser('engines', help='搜索引擎状态: list(默认,只读本地) / test(实发请求)')
-    pe.add_argument('action', nargs='?', default='list',
-                    choices=['list', 'test'],
-                    help='list=列引擎清单+冷却状态(不发请求); test=实发一次搜索体检 (默认 list)')
-    pe.add_argument('name', nargs='?',
-                    help='test 时的引擎名 (bing/sogou/baidu/google/marginalia); 省略=全部引擎')
-    pe.add_argument('--check', action='store_true',
-                    help='实发一次测试请求 (等价 `engines test`)')
-    pe.add_argument('--query', default='python',
-                    help='test 用的测试词 (默认 python)')
-
-    pzen = sub.add_parser('zen', help='OpenCode Zen 免费层对话 (公开模式, 无需 key)')
-    pzen.add_argument('prompt', nargs='*', help='要问的问题 (留空则走 --list-models)')
-    pzen.add_argument('--model', default='big-pickle',
-                      help='模型 id (不带 provider 前缀; 见 zen --list-models)')
-    pzen.add_argument('--system', default=None,
-                      help='system prompt (分类器只验 role:system 存在, 不读内容)')
-    _zg = pzen.add_argument_group('zen 专用')
-    _zg.add_argument('--tool-choice', choices=('none', 'auto', 'required'),
-                     default='none',
-                     help='是否允许模型调工具; 默认 none。调用只打印不执行')
-    _zg.add_argument('--full-tools', action='store_true',
-                     help='发完整的 11 个工具定义 (默认只发 bash+read, 412B vs 23KB)')
-    _zg.add_argument('--list-models', action='store_true',
-                     help='列出 /v1/models 的全部 id')
-    _zg.add_argument('--list-free', action='store_true',
-                     help='只列免费层 id (按命名约定筛, 不是保证)')
-    _zg.add_argument('--check', action='store_true',
-                     help='配合 --list-free: 真调每个模型验证能不能用')
-    _zg.add_argument('--refresh', action='store_true',
-                     help='绕过 1h 模型清单缓存')
-    _zg.add_argument('--show-body', action='store_true',
-                     help='打印将要发送的请求体并退出, 不联网')
-    _zg.add_argument('--show-text', action='store_true',
-                     help='只打印 messages (原样 JSON), 不联网')
-    _zg.add_argument('--no-stream', dest='stream', action='store_false',
-                     default=True, help='不流式, 缓冲到最后一次性输出')
-    pzen.set_defaults(format_default='text')
-    _zg.add_argument('--retries', type=int, default=3,
-                     help='瞬时故障 (连接错/408/429/5xx) 重试次数')
-    _zg.add_argument('--sticky', action='store_true',
-                     help='复用同一 ses_id, 命中上游 prompt cache')
-    _add_common_output(pzen)
-    _add_common_net(pzen)
-
-    pcache = sub.add_parser('cache', help='缓存管理')
-    pcache.add_argument('action', choices=['clear', 'info'])
-
-    pbl = sub.add_parser('blocklist', help='黑名单管理 (低质量站点)')
-    pbl.add_argument('action', choices=['show', 'add', 'remove', 'reset'])
-    pbl.add_argument('domain', nargs='?', help='域名, 如 csdn.net')
-    pbl.add_argument('--allow', action='store_true', help='add/remove 白名单例外')
-
-    pcf = sub.add_parser('config', help='配置管理: 代理/黑名单/权重阈值/默认引擎等')
-    pcf.add_argument('action', choices=['list', 'get', 'set', 'unset'])
-    pcf.add_argument('key', nargs='?')
-    pcf.add_argument('value', nargs='?')
-
-    psite = sub.add_parser('site', help='站内搜索(知名站点官方接口, 与传统搜索引擎区分)')
-    psite.add_argument('site', nargs='?', help='站点 key, `webtool site list` 查看全部')
-    psite.add_argument('query', nargs='?', help='站内搜索词')
-    psite.add_argument('-n', '--max', type=int, default=10)
-    psite.add_argument('--lang', default='zh', help='wikipedia 语言版本')
-    _add_common_output(psite)
-    _add_common_net(psite)
-
-    phot = sub.add_parser('rank', help='榜单聚合: 无参=榜单清单; 指定源=按源分组原序; -q 语义筛选')
-    phot.add_argument('sources', nargs='*',
-                      help='榜单源 key, 空格分隔; 无参数 = 榜单清单+用法 (同 `rank list`)')
-    phot.add_argument('-q', '--query', default=None,
-                      help='语义筛选词: 支持搜索的源透传站内过滤, 其余源拉榜后本地 BM25 筛选+跨源重排')
-    phot.add_argument('-t', '--threshold', type=float, default=0.15,
-                      help='语义筛选阈值 0-1 (默认 0.15; 0=只列清单不过滤不重排; 无 -q 忽略)')
-    phot.add_argument('-n', '--max', type=int, default=10, help='每源条数')
-    _add_common_output(phot)
-    _add_common_net(phot)
-
-    pfeed = sub.add_parser('feed', help='RSS/Atom 订阅源抓取 (官方 feed + 任意 URL; 支持增量)')
-    pfeed.add_argument('sources', nargs='*',
-                       help='feed key 或任意 RSS/Atom URL; 无参数 = 清单+用法')
-    pfeed.add_argument('-n', '--max', type=int, default=10, help='每源条数')
-    pfeed.add_argument('-q', '--query', default=None,
-                       help='语义筛选词 (BM25 本地筛 + 按相关度重排)')
-    pfeed.add_argument('-t', '--threshold', type=float, default=0.15,
-                       help='语义筛选阈值 (默认 0.15; 0=只重排不过滤)')
-    pfeed.add_argument('--new-only', action='store_true',
-                       help='增量: 只显示上次抓取后的新条目 (状态存 ~/.webtool/feed_state.json)')
-    pfeed.add_argument('--add', nargs='+', metavar=('NAME', 'URL'),
-                       help='添加自定义源: --add NAME URL [描述] (存 ~/.webtool/feeds.json)')
-    pfeed.add_argument('--del', dest='del_src', metavar='NAME',
-                       help='删除自定义源 (--del NAME; 预设源不可删)')
-    pfeed.add_argument('--mark', nargs='+', metavar=('KEY', 'NOTE'),
-                       help='人工登记坏源: --mark KEY [URL] "原因备注" (存健康登记表)')
-    pfeed.add_argument('--retest', metavar='KEY', default=None,
-                       help='复查坏源是否恢复: --retest KEY 或 --retest all; 恢复即移除')
-    _rg = pfeed.add_argument_group(
-        'feed radar 专用 (查 RSSHub 路由 / 填参数)')
-    _rg.add_argument('--pick', metavar='N|TEMPLATE', default=None,
-                     help='选定命中的第几条路由 (列表序号 1 起) 或按模板子串匹配; '
-                          '不给则自动取 heat 最高的一条')
-    _rg.add_argument('--param', action='append', default=[], metavar='K=V',
-                     help='给选中的那条路由填占位符, 可重复: --param category=newsflashes')
-    _rg.add_argument('--example', action='store_true',
-                     help='用官方 example 路径填参出订阅 URL')
-    _rg.add_argument('--top', type=int, metavar='N', default=None,
-                     help='用第 N 条真实实例样例 (topFeeds, 1 起) 填参')
-    _rg.add_argument('--from-url', metavar='URL', default=None,
-                     help='给定网页 URL, 用 radar.source 模式反推路由')
-    _rg.add_argument('--instance', metavar='PREFIX', default=None,
-                     help='指定实例前缀 (默认自动挑最快可用的)')
-    _rg.add_argument('--cat', metavar='CAT', default=None,
-                     help='按分类过滤路由 (new-media/programming/finance/...)')
-    _rg.add_argument('--radar-refresh', action='store_true',
-                     help='强制刷新路由库缓存 (默认 7 天)')
-    _rg.add_argument('--no-xcheck', action='store_true',
-                     help='不与官网 feed 交叉校验 (默认校验并据此决定取数源)')
-    _rg.add_argument('--items', action='store_true',
-                     help='校验后把选定源的条目完整输出 (-f 生效); '
-                          '默认只报校验结论与耗时, 不重复打印条目')
-    _add_common_output(pfeed)
-    _add_common_net(pfeed)
-
-    args = p.parse_args(argv)
+def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='json'):
+    """执行 do_* 并按数据命令约定处理输出; 返回 exit code"""
     cfg = _proxy.load_config()
-    if args.proxy:
-        cfg['proxy'] = args.proxy
+    gproxy = _CTX.get('proxy')
+    if gproxy:
+        cfg['proxy'] = gproxy
+    args = _CTX['args']
+    args.no_cache = no_cache or _CTX['no_cache']
+    args.no_proxy = no_proxy
+    args.format = _norm_fmt(fmt, fmt_default)
+    args.output = output
+    if data_cmd:
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = fn(args, cfg)
+        if rc not in (0, None):
+            return rc
+        return emit(buf.getvalue(), args.format, output)
+    return fn(args, cfg) or 0
 
-    # -f 归一化 (含默认值: fetch=markdown, 其余数据命令=json)
-    if getattr(args, 'format', None) is not None or hasattr(args, 'output'):
-        dflt = getattr(args, 'format_default', None) or 'json'
-        args.format = _norm_fmt(getattr(args, 'format', None), dflt)
 
-    # 输出捕获: 数据命令 print → 捕获后走 emit (统一 -o)
-    data_cmds = {'search', 'fetch', 'site', 'rank', 'feed', 'zen'}
+_CTX = {}
 
+
+@app.callback()
+def _main(ctx: typer.Context,
+          proxy: str = typer.Option(None, '--proxy', help='临时代理, 覆盖配置文件'),
+          no_cache: bool = typer.Option(False, '--no-cache', help='跳过缓存')):
+    _CTX.clear()
+    _CTX.update(proxy=proxy, no_cache=no_cache, args=SimpleNamespace())
+
+
+# ---------- search ----------
+
+@app.command('search')
+def search_cmd(query: str = typer.Argument(..., help='搜索词'),
+               engine: str = typer.Option(None, '-e', '--engine',
+                                          help='逗号分隔: bing,sogou,baidu,google,marginalia (默认 bing,sogou,baidu)'),
+               max: int = typer.Option(8, '-n', '--max', help='每引擎结果数'),
+               fmt: str = Fmt, output: str = Output,
+               no_proxy: bool = NoProxy, no_cache: bool = NoCache,
+               market: str = typer.Option('zh-CN', help='市场: zh-CN / en-US'),
+               no_resolve: bool = typer.Option(False, '--no-resolve',
+                                               help='关闭跳转链解码 (sogou/baidu link, gnews articles)'),
+               keep_ad: bool = typer.Option(False, '--keep-ad',
+                                            help='保留广告结果并标记 is_ad (默认已过滤)'),
+               no_dedupe: bool = typer.Option(False, '--no-dedupe', help='关闭跨引擎去重'),
+               no_semantic: bool = typer.Option(False, '--no-semantic',
+                                                help='关闭语义向量排序(纯位置权重)'),
+               no_retry: bool = typer.Option(False, '--no-retry',
+                                             help='关闭低召回自动重试(默认开启)'),
+               operators: str = typer.Option('passthrough', '--operators',
+                                             help='高级操作符路由: passthrough/strip/strict '
+                                                  '(支持 site: intitle: inurl: -词)'),
+               block: list[str] = typer.Option([], '--block', help='临时追加黑名单域名, 可多次'),
+               allow: list[str] = typer.Option([], '--allow', help='临时白名单例外(优先于黑名单), 可多次'),
+               no_blocklist: bool = typer.Option(False, '--no-blocklist', help='关闭黑名单过滤')):
+    """多引擎网页搜索"""
+    a = _CTX['args']
+    a.update = None
+    a.query, a.engine, a.max = query, engine, max
+    a.market, a.no_resolve, a.keep_ad = market, no_resolve, keep_ad
+    a.no_dedupe, a.no_semantic, a.no_retry = no_dedupe, no_semantic, no_retry
+    a.operators, a.block, a.allow, a.no_blocklist = operators, block, allow, no_blocklist
+    a.no_ad = not keep_ad
+
+    def fn(args, cfg):
+        if keep_ad:
+            from .search import do_search_raw
+            return do_search_raw(args, cfg)
+        from .search import do_search
+        return do_search(args, cfg)
+    return _run('data', fn, fmt, output, no_cache, no_proxy)
+
+
+# ---------- fetch ----------
+
+@app.command('fetch')
+def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
+              url_file: str = typer.Option(None, '--url-file', help='从文件读多个 URL(每行一个)'),
+              fmt: str = Fmt, output: str = Output,
+              no_proxy: bool = NoProxy, no_cache: bool = NoCache,
+              max_chars: int = typer.Option(0, '--max-chars', help='正文截断字符数, 0=不截断'),
+              raw: bool = typer.Option(False, '--raw', help='跳过正文提取, 输出原始 HTML'),
+              with_metadata: bool = typer.Option(False, '--with-metadata',
+                                                 help='json 格式附带标题/作者/日期'),
+              profile: str = typer.Option(None, '--profile',
+                                          help='传输指纹档案: chrome131_win/mac/linux/android, '
+                                               'safari18_4_ios 等 (移动站/拿不到数据时试 android/ios)')):
+    """抓取 URL 并提取正文"""
+    a = _CTX['args']
+    a.url, a.url_file = url, url_file
+    a.max_chars, a.raw, a.with_metadata, a.profile = max_chars, raw, with_metadata, profile
+    return _run('data', _do('fetch'), fmt, output, no_cache, no_proxy, 'markdown')
+
+
+def _do(name):
+    def fn(args, cfg):
+        from . import fetch
+        return getattr(fetch, f'do_{name}')(args, cfg)
+    return fn
+
+
+# ---------- zen ----------
+
+@app.command('zen')
+def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空则走 --list-models)'),
+            model: str = typer.Option('big-pickle', '--model',
+                                      help='模型 id (不带 provider 前缀; 见 zen --list-models)'),
+            system: str = typer.Option(None, '--system',
+                                       help='system prompt (分类器只验 role:system 存在, 不读内容)'),
+            tool_choice: str = typer.Option('none', '--tool-choice',
+                                            help='是否允许模型调工具; 默认 none。调用只打印不执行'),
+            full_tools: bool = typer.Option(False, '--full-tools',
+                                            help='发完整的 11 个工具定义 (默认只发 bash+read)'),
+            list_models: bool = typer.Option(False, '--list-models', help='列出 /v1/models 的全部 id'),
+            list_free: bool = typer.Option(False, '--list-free',
+                                           help='只列免费层 id (按命名约定筛, 不是保证)'),
+            check: bool = typer.Option(False, '--check',
+                                       help='配合 --list-free: 真调每个模型验证能不能用'),
+            refresh: bool = typer.Option(False, '--refresh', help='绕过 1h 模型清单缓存'),
+            show_body: bool = typer.Option(False, '--show-body',
+                                           help='打印将要发送的请求体并退出, 不联网'),
+            show_text: bool = typer.Option(False, '--show-text',
+                                           help='只打印 messages (原样 JSON), 不联网'),
+            stream: bool = typer.Option(True, '--no-stream/--stream',
+                                        help='不流式, 缓冲到最后一次性输出'),
+            retries: int = typer.Option(3, '--retries', help='瞬时故障 (连接错/408/429/5xx) 重试次数'),
+            sticky: bool = typer.Option(False, '--sticky', help='复用同一 ses_id, 命中上游 prompt cache'),
+            fmt: str = Fmt, output: str = Output,
+            no_proxy: bool = NoProxy, no_cache: bool = NoCache):
+    """OpenCode Zen 免费层对话 (公开模式, 无需 key)"""
+    a = _CTX['args']
+    a.prompt, a.model, a.system = ' '.join(prompt) if prompt else '', model, system
+    a.tool_choice, a.full_tools = tool_choice, full_tools
+    a.list_models, a.list_free, a.check, a.refresh = list_models, list_free, check, refresh
+    a.show_body, a.show_text, a.stream = show_body, show_text, stream
+    a.retries, a.sticky = retries, sticky
+    return _run('data', _entry_fn('zen'), fmt, output, no_cache, no_proxy, 'text')
+
+
+def _entry_fn(name):
+    def fn(args, cfg):
+        import importlib
+        mod = {'zen': ('zen', 'do_zen'), 'fetch': ('fetch', 'do_fetch'),
+               'site': ('sitesearch', 'do_site'), 'rank': ('rank', 'do_rank'),
+               'feed': ('feed', 'do_feed')}[name]
+        m = importlib.import_module('.' + mod[0], package='webtool')
+        return getattr(m, mod[1])(args, cfg)
+    return fn
+
+
+# ---------- site ----------
+
+@app.command('site')
+def site_cmd(site: str = typer.Argument(None, help='站点 key, `webtool site list` 查看全部'),
+             query: str = typer.Argument(None, help='站内搜索词'),
+             max: int = typer.Option(10, '-n', '--max'),
+             lang: str = typer.Option('zh', '--lang', help='wikipedia 语言版本'),
+             fmt: str = Fmt, output: str = Output,
+             no_proxy: bool = NoProxy, no_cache: bool = NoCache):
+    """站内搜索(知名站点官方接口, 与传统搜索引擎区分)"""
+    a = _CTX['args']
+    a.site, a.query, a.max, a.lang = site, query, max, lang
+    return _run('data', _entry_fn('site'), fmt, output, no_cache, no_proxy)
+
+
+# ---------- rank ----------
+
+@app.command('rank')
+def rank_cmd(sources: list[str] = typer.Argument([], help='榜单源 key; 无参数 = 榜单清单+用法'),
+             query: str = typer.Option(None, '-q', '--query',
+                                       help='语义筛选词: 支持搜索的源透传站内过滤, 其余源拉榜后本地 BM25 筛选+跨源重排'),
+             threshold: float = typer.Option(0.15, '-t', '--threshold',
+                                             help='语义筛选阈值 0-1 (默认 0.15; 0=只列清单不过滤不重排)'),
+             max: int = typer.Option(10, '-n', '--max', help='每源条数'),
+             fmt: str = Fmt, output: str = Output,
+             no_proxy: bool = NoProxy, no_cache: bool = NoCache):
+    """榜单聚合: 无参=榜单清单; 指定源=按源分组原序; -q 语义筛选"""
+    a = _CTX['args']
+    a.sources, a.query, a.threshold, a.max = sources, query, threshold, max
+    return _run('data', _entry_fn('rank'), fmt, output, no_cache, no_proxy)
+
+
+# ---------- feed ----------
+
+@app.command('feed')
+def feed_cmd(sources: list[str] = typer.Argument([], help='feed key 或任意 RSS/Atom URL; 无参数 = 清单+用法'),
+             max: int = typer.Option(10, '-n', '--max', help='每源条数'),
+             query: str = typer.Option(None, '-q', '--query', help='语义筛选词 (BM25 本地筛 + 按相关度重排)'),
+             threshold: float = typer.Option(0.15, '-t', '--threshold',
+                                             help='语义筛选阈值 (默认 0.15; 0=只重排不过滤)'),
+             new_only: bool = typer.Option(False, '--new-only',
+                                           help='增量: 只显示上次抓取后的新条目 (状态存 ~/.webtool/feed_state.json)'),
+             add: list[str] = typer.Option([], '--add',
+                                           help='添加自定义源: --add NAME URL [描述] (存 ~/.webtool/feeds.json)'),
+             del_src: str = typer.Option(None, '--del', help='删除自定义源 (预设源不可删)'),
+             mark: list[str] = typer.Option([], '--mark',
+                                            help='人工登记坏源: --mark KEY [URL] "原因备注"'),
+             retest: str = typer.Option(None, '--retest',
+                                        help='复查坏源是否恢复: --retest KEY 或 --retest all'),
+             pick: str = typer.Option(None, '--pick',
+                                      help='选定命中的第几条路由 (1 起) 或按模板子串匹配; 不给则自动取 heat 最高'),
+             param: list[str] = typer.Option([], '--param',
+                                             help='给选中的那条路由填占位符, 可重复: --param category=newsflashes'),
+             example: bool = typer.Option(False, '--example', help='用官方 example 路径填参出订阅 URL'),
+             top: int = typer.Option(None, '--top', help='用第 N 条真实实例样例 (topFeeds, 1 起) 填参'),
+             from_url: str = typer.Option(None, '--from-url', help='给定网页 URL, 用 radar.source 模式反推路由'),
+             instance: str = typer.Option(None, '--instance', help='指定实例前缀 (默认自动挑最快可用的)'),
+             cat: str = typer.Option(None, '--cat', help='按分类过滤路由 (new-media/programming/finance/...)'),
+             radar_refresh: bool = typer.Option(False, '--radar-refresh', help='强制刷新路由库缓存 (默认 7 天)'),
+             no_xcheck: bool = typer.Option(False, '--no-xcheck',
+                                            help='不与官网 feed 交叉校验 (默认校验并据此决定取数源)'),
+             items: bool = typer.Option(False, '--items',
+                                        help='校验后把选定源的条目完整输出; 默认只报校验结论与耗时'),
+             fmt: str = Fmt, output: str = Output,
+             no_proxy: bool = NoProxy, no_cache: bool = NoCache):
+    """RSS/Atom 订阅源抓取 (官方 feed + 任意 URL; 支持增量)"""
+    a = _CTX['args']
+    a.sources, a.max, a.query, a.threshold = sources, max, query, threshold
+    a.new_only, a.add, a.del_src, a.mark, a.retest = new_only, add, del_src, mark, retest
+    a.pick, a.param, a.example, a.top = pick, param, example, top
+    a.from_url, a.instance, a.cat = from_url, instance, cat
+    a.radar_refresh, a.no_xcheck, a.items = radar_refresh, no_xcheck, items
+    return _run('data', _entry_fn('feed'), fmt, output, no_cache, no_proxy)
+
+
+# ---------- 管理命令 ----------
+
+@app.command('proxy')
+def proxy_cmd(action: str = typer.Argument(..., help='get/set/unset/test'),
+              value: str = typer.Argument(None, help='代理地址, 如 http://127.0.0.1:2080 或 socks5://...')):
+    """代理配置"""
+    a = _CTX['args']
+    a.action, a.value = action, value
+    cfg = _proxy.load_config()
+    if _CTX.get('proxy'):
+        cfg['proxy'] = _CTX['proxy']
+    return _proxy.handle(a, cfg) or 0
+
+
+@app.command('engines')
+def engines_cmd(action: str = typer.Argument('list', help='list=清单+冷却状态; test=实发体检'),
+                name: str = typer.Argument(None, help='test 时的引擎名; 省略=全部引擎'),
+                check: bool = typer.Option(False, '--check', help='实发一次测试请求 (等价 engines test)'),
+                query: str = typer.Option('python', '--query', help='test 用的测试词')):
+    """搜索引擎状态"""
+    a = _CTX['args']
+    a.action, a.name, a.check, a.query = action, name, check, query
+
+    def fn(args, cfg):
+        from .engines.status import status
+        return status(args, cfg)
+    return _run(None, fn, None, None, False, False)
+
+
+@app.command('cache')
+def cache_cmd(action: str = typer.Argument(..., help='clear/info')):
+    """缓存管理"""
+    a = _CTX['args']
+    a.action = action
+
+    def fn(args, cfg):
+        from . import cache
+        return cache.handle(args, cfg)
+    return _run(None, fn, None, None, False, False)
+
+
+@app.command('blocklist')
+def blocklist_cmd(action: str = typer.Argument(..., help='show/add/remove/reset'),
+                  domain: str = typer.Argument(None, help='域名, 如 csdn.net'),
+                  allow: bool = typer.Option(False, '--allow', help='add/remove 白名单例外')):
+    """黑名单管理 (低质量站点)"""
+    a = _CTX['args']
+    a.action, a.domain, a.allow = action, domain, allow
+
+    def fn(args, cfg):
+        from . import blocklist
+        return blocklist.handle_cli(args)
+    return _run(None, fn, None, None, False, False)
+
+
+@app.command('config')
+def config_cmd(action: str = typer.Argument(..., help='list/get/set/unset'),
+               key: str = typer.Argument(None),
+               value: str = typer.Argument(None)):
+    """配置管理: 代理/黑名单/权重阈值/默认引擎等"""
+    a = _CTX['args']
+    a.action, a.key, a.value = action, key, value
+
+    def fn(args, cfg):
+        from . import configcmd
+        return configcmd.handle(args)
+    return _run(None, fn, None, None, False, False)
+
+
+def main(argv=None):
+    """入口: argv=None 走 sys.argv; 退出码 0/2/130
+
+    standalone_mode=False 让 click 把用法错误抛成 UsageError 而非自退,
+    这里统一转成 stderr 提示 + rc 2。
+    """
     try:
-        if args.cmd in data_cmds:
-            import io
-            from contextlib import redirect_stdout
-            buf = io.StringIO()
-            rc = None
-            with redirect_stdout(buf):
-                rc = _dispatch(args, cfg)
-            if rc not in (0, None):
-                return rc
-            emit(buf.getvalue(), args.format, getattr(args, 'output', None))
-            return 0
-        return _dispatch(args, cfg) or 0
-    except BrokenPipeError:
+        if argv is None:
+            rc = app(standalone_mode=False, prog_name='webtool')
+        else:
+            rc = app(args=argv, standalone_mode=False, prog_name='webtool')
+        return rc if isinstance(rc, int) else 0
+    except (typer.Exit, SystemExit) as e:      # --help / --version
+        code = e.code if isinstance(e, SystemExit) else e.exit_code
+        return code if isinstance(code, int) else 0
+    except _UsageError as e:
+        msg = e.format_message()
+        print(f'webtool: {msg}', file=sys.stderr)
+        print('(webtool --help 看用法)', file=sys.stderr)
+        return 2
+    except _ClickException as e:
+        e.show()
+        return e.exit_code
+    except BrokenPipeError:                    # 管道给 head 之类截断
         return 0
     except KeyboardInterrupt:
         return 130
 
 
-def _dispatch(args, cfg):
-    """子命令分发 (数据命令的 stdout 由调用方捕获)"""
-    if args.cmd == 'search':
-        if args.keep_ad:
-            from .search import do_search_raw
-            return do_search_raw(args, cfg)
-        from .search import do_search
-        return do_search(args, cfg)
-    if args.cmd == 'fetch':
-        from .fetch import do_fetch
-        return do_fetch(args, cfg)
-    if args.cmd == 'zen':
-        from .zen import do_zen
-        return do_zen(args, cfg)
-    if args.cmd == 'proxy':
-        return _proxy.handle(args, cfg)
-    if args.cmd == 'engines':
-        from .engines import status as _status_mod
-        return _status_mod.status(args, cfg)
-    if args.cmd == 'cache':
-        from .cache import handle
-        return handle(args, cfg)
-    if args.cmd == 'site':
-        from .sitesearch import do_site
-        return do_site(args, cfg)
-    if args.cmd == 'rank':
-        from .rank import do_rank
-        return do_rank(args, cfg)
-    if args.cmd == 'feed':
-        from .feed import do_feed
-        return do_feed(args, cfg)
-    if args.cmd == 'blocklist':
-        from .blocklist import handle_cli
-        return handle_cli(args)
-    if args.cmd == 'config':
-        from .configcmd import handle
-        return handle(args)
-    return 0
-
-
 if __name__ == '__main__':
     sys.exit(main())
+
+
+
