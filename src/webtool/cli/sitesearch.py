@@ -105,12 +105,8 @@ def do_site(args, cfg):
     results = _merge(results, args.query, use_semantic=True, dedupe=True)
     dedup_removed = n_before - len(results)
 
-    filters = []
-    if n_blocked:
-        filters.append(f'黑名单剔除 {n_blocked} 条')
-    if dedup_removed:
-        filters.append(f'跨引擎去重合并 {dedup_removed} 条')
-
+    # filters_applied 由 render 层从 blocked_by_blocklist 等字段生成, 此处
+    # 不再自建 filters 列表 (那是局部死变量)。
     out = {'site': args.site, 'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'source': src, 'total': len(results), 'results': results,
            'dedup_removed': dedup_removed, 'blocked_by_blocklist': n_blocked}

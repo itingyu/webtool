@@ -14,14 +14,12 @@ import sys
 def _fmt_filters(out):
     """过滤说明行 -> 单行字符串"""
     parts = []
+    # 只报"少了东西"的过滤 —— 用户可能追问"csdn 怎么没了", 数量异常也是
+    # 排查线索。去重与翻页补拉不报: 那是内部实现细节, 用户无从据此行动。
     if out.get('ad_filtered'):
         parts.append(f"广告过滤 {out['ad_filtered']} 条")
     if out.get('blocked_by_blocklist'):
-        parts.append(f"黑名单剔除 {out['blocked_by_blocklist']} 条(--blocklist off 关闭)")
-    if out.get('topup', {}).get('fetched'):
-        parts.append(f"翻页补拉 {out['topup']['fetched']} 条(过滤后不足 {out.get('requested', '?')})")
-    if out.get('dedup_removed'):
-        parts.append(f"跨引擎去重合并 {out['dedup_removed']} 条")
+        parts.append(f"黑名单剔除 {out['blocked_by_blocklist']} 条")
     return parts
 
 
@@ -34,10 +32,11 @@ def _fmt_degraded(out):
 def render(out, fmt, kind):
     """kind: 'search' | 'site' | 'fetch'; fmt: 'json' | 'text' | 'markdown'"""
     filters = _fmt_filters(out)
-    # 无过滤动作时也回显一行, 保持过滤统计在三格式里始终在场 (0 可查证)
-    if not filters:
-        filters = ['无过滤动作 (0 剔除)']
-    out['filters_applied'] = filters
+    # json 的 filters_applied 始终在场 (0 也列出, 保持字段形状稳定);
+    # 文本层无过滤时不回显 —— "无过滤动作 (0 剔除)" 是纯噪音。
+    out['filters_applied'] = filters or ['无过滤动作 (0 剔除)']
+    if fmt != 'json':
+        filters = filters
     degraded = _fmt_degraded(out)
     if fmt == 'json':
         print(json.dumps(out, ensure_ascii=False, indent=1))
