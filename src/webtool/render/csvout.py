@@ -16,6 +16,26 @@ COLUMNS = ['rank', 'source', 'name', 'title', 'url', 'desc', 'origin', 'default'
 # 嵌套/长字段不进 CSV: 拆成纯文本反而不好用, 需要时用 -f json
 _SKIP = {'engines'}
 
+# Excel/LibreOffice/Sheets 把 = + - @ 开头的单元格当公式执行 → CSV 公式注入。
+# webtool 的字段全是**从网上抓来的不可信文本** (标题/snippet 都能被站方控制),
+# 不加防护等于让对方的页面在你 Excel 里执行宏或发起网络请求。
+# 手法与 OWASP CSV Injection 一致: 前缀一个单引号把它降级成文本。
+_DANGER = ('=', '+', '-', '@', '\t', '\r')
+
+
+_DANGER = ('=', '+', '-', '@')
+
+
+def _cell(v):
+    """单元格值 → 防注入后的文本"""
+    s = _flat(v)
+    if not isinstance(s, str):
+        s = str(s)
+    # lstrip 后再判: Excel 会忽略前导空白/制表符, "\t=1+1" 照样被当公式执行
+    if s.lstrip(' \t\r\n')[:1] in _DANGER:
+        return "'" + s
+    return s
+
 
 def _flat(v):
     """列表/字典转紧凑文本; None → 空串"""
@@ -67,5 +87,5 @@ def render(out, kind):
     w = csv.DictWriter(buf, fieldnames=cols, extrasaction='ignore')
     w.writeheader()
     for r in rows:
-        w.writerow({c: _flat(r.get(c)) for c in cols})
+        w.writerow({c: _cell(r.get(c)) for c in cols})
     sys.stdout.write(buf.getvalue())

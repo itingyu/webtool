@@ -76,6 +76,9 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 - `fetch` 拒收 csv（正文进单元格无意义），抛 `ValueError` 由 `_run` 转成用法错误
 - CSV 列序 = `render/csvout.py:COLUMNS` 中本数据集真有值的列，保持固定相对次序。
   曾按固定 19 列输出，导致 `engines list -f csv` 整表全空
+- **CSV 公式注入必须防**：字段全是抓来的不可信文本（站方可控制 title/snippet），
+  `= + - @` 开头的单元格会被 Excel/Sheets 当公式执行。`csvout._cell()` 统一前缀 `'`
+  降级成文本；判定要先 `lstrip` 前导空白，否则 `\t=1+1` 绕过。smoke 有契约测试锁死
 
 ## 2. 导入
 
