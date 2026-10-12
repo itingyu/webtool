@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """webtool rank 榜单源适配器: 热榜/趋势类
 
 search: False 的源不支持关键词, rank 拉全榜后本地 BM25 筛选;

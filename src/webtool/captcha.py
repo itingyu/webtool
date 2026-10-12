@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """验证码识别 + 冷却 (state 持久化, 指数加长跨进程生效)
 
 指纹与冷却秒数来自插件清单 engine.<name>.params:

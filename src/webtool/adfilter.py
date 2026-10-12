@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """搜索结果广告过滤 (filter 插件: ad)
 
 三层判定 (is_ad=True 即可被 --no-ad 过滤):

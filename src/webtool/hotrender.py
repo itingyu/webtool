@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """rank / hot 渲染: 按源分节输出 (json / text / markdown), -q 时另有跨源重排清单"""
 import json
 import sys

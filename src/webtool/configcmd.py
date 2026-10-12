@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """webtool config: 统一配置管理子命令
 
 配置层级 (优先级从高到低):
@@ -26,8 +25,11 @@ CONFIG_KEYS = {
     'default_format':   ('默认输出格式', 'json / text / markdown', ('json', 'text', 'markdown')),
     'timeout':          ('请求超时秒数', '5 ~ 60 整数', int),
     'cache':            ('缓存开关', 'on / off', ('on', 'off')),
-    'engine_proxy.<engine>': ('单引擎代理覆盖', '<engine>=<url> 形式 set, 如 engine_proxy.google=http://...', None),
-    'cache_ttl.<bucket>':   ('分桶缓存 TTL 秒覆盖', '<bucket>=<sec>, 如 cache_ttl.search=30 (桶: search/fetch/resolve/hot/zen)', None),
+    'engine_proxy.<engine>': ('单引擎代理覆盖',
+                              '<engine>=<url> 形式 set, 如 engine_proxy.google=http://...', None),
+    'cache_ttl.<bucket>':   ('分桶缓存 TTL 秒覆盖',
+                             '<bucket>=<sec>, 如 cache_ttl.search=30 (桶: search/fetch/resolve/hot/zen)',
+                             None),
 }
 
 

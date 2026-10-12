@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """磁盘缓存: 分桶 TTL (search 60s / fetch 10s / resolve 600s / hot 120s)
 
 防短窗口内重复查询/抓取, 也避免对反爬引擎暴露重复行为模式; 新鲜度优先,

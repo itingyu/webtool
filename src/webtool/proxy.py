@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """代理与全局配置: ~/.webtool/config.json"""
 import json
 import os

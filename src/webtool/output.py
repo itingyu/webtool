@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """webtool CLI 输出统一出口: 渲染 + 可选写文件 (-o/--output)
 
 -o file 按 -f 格式落盘, -o - 或未指定走 stdout; 未给扩展名按 -f 自动补;

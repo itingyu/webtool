@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """fetch 主获取通道: transport 浏览器指纹, cffi 全挂时内部落到 urllib。
 
 opener 参数保留兼容旧调用, 实际不再使用。

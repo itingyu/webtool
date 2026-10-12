@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Google 429 挑战 (reCAPTCHA no-js form) 处置模块
 
 实现到表单提交一步: anchor 可取 recaptcha-token, 但评分依赖 botguard.bg

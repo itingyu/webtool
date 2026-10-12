@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """zen: OpenCode Zen 免费层客户端 (公开模式, 无需 API key)
 端点 https://opencode.ai/zen/v1/chat/completions, 未配置 OPENCODE_API_KEY 时
 apiKey 为字面量 "public"。免费层形状校验: tools 必须非空且含名为 bash 和 read

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """插件注册表: 七类扩展点的统一入口
 
 清单在 src/webtool/data/plugins.json (内置) + ~/.webtool/plugins.json (用户),

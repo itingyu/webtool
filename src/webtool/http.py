@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """HTTP 底层: urllib 兜底通道 (transport 的降级备胎) + 老式 socks 代理。
 
 http_get 未显式给 UA 时自动套 transport 指纹档案的浏览器 UA,

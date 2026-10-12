@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Google 风格操作符解析 + 按引擎能力路由 (site:/intitle:/inurl:/-word 排除)
 
 没实现的操作符原样丢给引擎会被当普通词, 返回全跑偏的噪声。策略: passthrough

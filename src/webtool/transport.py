@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """统一传输层: curl_cffi 浏览器指纹 + 降级重试 + 节奏控制 + 验证码处置
 
 UA 与 impersonate 版本严格对齐, header 按 kind 分型 (nav 页面导航 / xhr 页面

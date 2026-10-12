@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """webtool site: 站内搜索调度 (区别于传统搜索引擎)"""
 import json
 import os

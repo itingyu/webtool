@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """跨进程持久状态: ~/.webtool/state.json
 
 CLI 每次调用都是新进程, 冷却/熔断/cookie 必须落盘才能跨调用生效,

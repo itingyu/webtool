@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Bing 搜索引擎: curl_cffi chrome 指纹 HTML 通道
 
 通道对比:

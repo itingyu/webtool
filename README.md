@@ -146,4 +146,4 @@ webtool zen "问题" --system "只回 JSON" --tool-choice none
 
 复制 `skills/webtool/SKILL.md` 到 Agent 的 skill 目录（Claude Code `.claude/skills/`、Minis `/var/minis/skills/`）。
 
-深入文档：`docs/design.md`（架构）· `docs/feed-sources.md`（feed 源实测）· `docs/custom-sites.md`（site 扩展）· `docs/engine-notes.md`（引擎通道记录）。
+深入文档：`docs/coding-standard.md`（**编码规范/分层，改代码先读**）· `docs/design.md`（架构）· `docs/feed-sources.md`（feed 源实测）· `docs/custom-sites.md`（site 扩展）· `docs/engine-notes.md`（引擎通道记录）。

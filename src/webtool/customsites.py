@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """自定义站点扩展: ~/.webtool/sites/*.json (JSON 适配器 = 搜索URL模板 + 提取规则)
 
 一个文件可含多个站点, 每站字段: desc / url ({query}{limit}{page}) /

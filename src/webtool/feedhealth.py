@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """feed 源健康登记表: ~/.webtool/feed_health.json
 
 登记"官网 feed 挂了/被墙/壳化"的站点, 供 --health 查看、--retest 修复后

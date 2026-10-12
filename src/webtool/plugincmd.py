@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """plugins 子命令: 查插件清单/来源, 体检加载, enable/disable, 手动热重载"""
 import json
 import sys

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """fetch: URL -> 纯净正文 (markdown/text/json/html)
 提取链: trafilatura → readability-lxml → html2text → 保底全文; 桌面指纹
 拿到壳页/过薄页时自动切移动指纹重试一次。

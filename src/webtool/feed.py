@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """webtool feed: RSS/Atom 订阅源聚合 (热点追踪的另一半: 榜单看热度, feed 看时序)
 
 用法:

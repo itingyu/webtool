@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Google 引擎: Web HTML 优先 (需代理), news RSS 降级, 结果带 quality 标注
 
 数据中心代理出口 IP 对 www.google.com/search 会触发 IP 级 reCAPTCHA

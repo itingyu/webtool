@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Marginalia 引擎: 独立索引 (非 Google 系), 小站/老网页长尾, 免 key
 
 高频访问有 'Wait A Moment' 挑战, 纯 HTTP 握手可解 (sst token + cookie 重放);

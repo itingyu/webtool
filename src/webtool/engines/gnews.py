@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """google news 跳转链解码: batchexecute 接口还原真实文章 URL
 
 article 页 c-wiz 节点带 data-n-a-id/ts/sg, POST batchexecute (f.req 携带

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """站点内搜索 (site search): 知名站点的官方/公开接口, 与传统搜索引擎区分
 
 设计原则:
@@ -252,10 +251,12 @@ def sspai(q, limit=10, proxy=None, timeout=15):
     d = json.loads(txt)
     out = []
     for a in (d.get('data') or [])[:limit]:
+        author = a.get('author', {})
         out.append(_mk(a.get('title', ''),
                        f"https://sspai.com/post/{a.get('id')}",
                        a.get('summary', ''),
-                       extra={'author': a.get('author', {}).get('nickname') if isinstance(a.get('author'), dict) else None,
+                       extra={'author': author.get('nickname')
+                              if isinstance(author, dict) else None,
                               'views': a.get('view_count')}))
     return out
 

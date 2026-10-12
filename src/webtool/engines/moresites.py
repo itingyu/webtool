@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """webtool site 站点: thepaper/eastmoney, 全走 transport 指纹通道。
 
 热榜类源在 engines/hotsites.py (rank 命令用); 36kr 被火山引擎 JS 挑战

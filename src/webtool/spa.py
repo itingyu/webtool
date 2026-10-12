@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """SPA 内嵌状态数据提取 (SSR harvester)
 
 SPA 站点的首屏数据通常以 JSON 形态内嵌在 HTML 的 <script> 里 (SSR/hydration):

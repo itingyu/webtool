@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """多引擎搜索调度"""
 import json
 import re
