@@ -69,12 +69,11 @@ def _render_search(out, fmt, filters, degraded=None):
             print(f"\n⚠ {degraded} (覆盖范围可能小于全 Web 搜索)")
         for r in results:
             w = f" `w={r['weight']:.2f}`" if r.get('weight') is not None else ''
-            conf = f" ✕{r['confirmations']}" if r.get('confirmations', 1) > 1 else ''
+            # 交叉验证数不再单列: 引擎名已列出几个就是几个, ✕N 纯属重复
             eng = ','.join(r['engines']) if r.get('engines') else r.get('engine', '')
-            qflag = {'poor': ' ⚠poor', 'good': ''}.get(r.get('quality'), '')
             print(f"\n### {r['rank']}. [{r['title']}]({r['url']})")
             sub = []
-            if eng: sub.append(f"引擎: {eng}{conf}{w}{qflag}")
+            if eng: sub.append(f"引擎: {eng}{w}")
             if r.get('is_ad'): sub.append('**广告**')
             if sub: print(f"\n*{'; '.join(sub)}*")
             if r.get('snippet'):
@@ -95,7 +94,6 @@ def _render_search(out, fmt, filters, degraded=None):
             if eng: flags.append(eng)
             if r.get('weight') is not None: flags.append(f"w={r['weight']:.2f}")
             if r.get('is_ad'): flags.append('AD')
-            if r.get('quality') == 'poor': flags.append('poor')
             if flags: line += f"  ({';'.join(flags)})"
             print(line)
             print(f"    {r['url']}")

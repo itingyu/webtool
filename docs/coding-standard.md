@@ -74,6 +74,22 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 - 管理命令不给 `-f` 时保持原样直出（不套一层），给了才转
 - 需要表格/再加工时用 `-f json` 自行转换，不提供 csv：抓来的字段是不可信文本，
   导出表格必然要回答「要不要防公式注入」，这个长期负担不值当
+- **输出瘦身**：`json` 的每条结果只留 `rank/title/url/snippet/weight` + 引擎字段，
+  剥掉四个可推导项（`merge.slim_results`，仅在 json 输出前施加）：
+
+  | 剥掉 | 为什么可推导 |
+  |---|---|
+  | `engine` | 恒等于 `engines[0]`，单引擎时压成字符串 `engine` |
+  | `confirmations` | 恒等于 `len(engines)` |
+  | `sem_score` | 批内归一化分，最高位恒为 1.0，实测各批几乎全 1.0 |
+  | `quality` | 由 `sem_score` 与批内断层推导，看 `weight` 即可 |
+
+  `text`/`markdown` 同理：md 的 `✕N` 交叉验证标记与 `⚠poor` 质量标记均已移除
+  （引擎名列出几个就是几个，权重低自然看得出差）。`rank` 保留（渲染器要用）。
+  **顶层 `quality_hint` 是诊断结论不是逐条冗余，一律保留**。
+
+  ⚠ slim 必须在质量诊断与 engine 通道判定**之后**施加 —— 那两处还要读
+  `sem_score` 与 `engine`。曾因在 merge 里提前剥导致 json 与 text 的诊断结果不一致。
 
 ## 2. 导入
 

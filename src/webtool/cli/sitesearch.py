@@ -98,7 +98,8 @@ def do_site(args, cfg):
     # quality 仅标注不剔除, 与 search 一致
     from webtool.pipeline.merge import merge as _merge
     n_before = len(results)
-    results = _merge(results, args.query, use_semantic=cfg.get('semantic') != 'off', dedupe=cfg.get('dedupe') != 'off')
+    results = _merge(results, args.query, use_semantic=cfg.get('semantic') != 'off',
+                     dedupe=cfg.get('dedupe') != 'off')
     dedup_removed = n_before - len(results)
 
     filters = []
@@ -110,6 +111,9 @@ def do_site(args, cfg):
     out = {'site': args.site, 'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'source': src, 'total': len(results), 'results': results,
            'dedup_removed': dedup_removed, 'blocked_by_blocklist': n_blocked}
+    if args.format == 'json':
+        from webtool.pipeline.merge import slim_results
+        slim_results(out['results'])
     from webtool.render.render import render
     render(out, args.format, 'site')
     return 0

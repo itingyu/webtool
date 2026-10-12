@@ -72,12 +72,15 @@ def title_fingerprint(t):
 
 
 # ---------------- 权重重排 ----------------
-def rerank(results, query, use_semantic=True):
+def rerank(results, query, use_semantic=True, slim=False):
     """评分排序: merge() 的排序半程, 供多轮召回复用
 
     每条结果带 engines/weight/sem_score(0-1 BM25 归一化)/confirmations/quality。
     quality 断层自适应: cut = max(0.12, top×0.35), sem<cut=poor (与批内头部
     断层 → 噪声), sem>=top×0.5=good, 其余 fair。比固定阈值更能贴合每批分布。
+
+    slim=True 时额外剥掉可推导字段 (engine/sem_score/quality/rank), 用于
+    JSON 输出瘦身 —— text/markdown 走各自的渲染器, 不受影响。
     """
     if not results:
         return results
@@ -130,7 +133,38 @@ def rerank(results, query, use_semantic=True):
 
     for i, r in enumerate(results):
         r['rank'] = i + 1
+    if slim:
+        slim_results(results)
     return results
+
+
+# JSON 输出里可推导 / 无区分度的字段, 见 slim_results 处的取舍说明
+_SLIM_DROP = ('engine', 'sem_score', 'quality', 'confirmations')
+
+
+def slim_results(results):
+    """剥掉可推导字段, 只留 Agent 判断需要的信息。
+
+    砍掉的四项都能从留下的字段推出, 不是丢信息:
+      engine         恒等于 engines[0] (rerank 入口已保证 engines 非空) →
+                      单引擎时压成字符串 engine, 多引擎保留 engines 数组
+      confirmations  恒等于 len(engines) —— 交叉验证数, 看 engines 就够
+      sem_score      批内 BM25 归一化分, 最高那条恒为 1.0, 实测各批几乎全 1.0
+      quality        由 sem_score 与批内断层推导, 保留 weight 即可自行判断
+    rank 保留 —— text/markdown 渲染器要用它, 且数组顺序即名次, 留着无妨。
+
+    只在 JSON 输出前调用: text/markdown 渲染器要用 confirmations 渲染
+    "✕2" 交叉验证标记, 质量诊断与 engine 通道判定也要读 sem_score 与 engine。
+    """
+    for r in results:
+        for k in _SLIM_DROP:
+            r.pop(k, None)
+        eng = r.get('engines') or []
+        if len(eng) == 1:
+            r['engine'] = eng[0]
+            r.pop('engines', None)
+        elif not eng:
+            r.pop('engines', None)
 
 
 def _entity_factor(query, r):
@@ -156,11 +190,12 @@ def _entity_factor(query, r):
     return 0.45
 
 
-def merge(results, query, use_semantic=True, dedupe=True):
+def merge(results, query, use_semantic=True, dedupe=True, slim=False):
     """合并多引擎结果: 去重 → 评分 → 排序
 
     results: [{title,url,snippet,engine,rank,is_ad?}, ...]
-    返回: 排序后的结果列表, 每条带 engines/weight/sem_score/confirmations/quality
+    返回: 排序后的结果列表, 每条带 engines/weight/sem_score/confirmations/quality;
+         slim=True 时剥掉可推导字段 (给 json 瘦身用, 见 rerank._slim)
     """
     if dedupe:
         results = _dedupe(results)
@@ -168,7 +203,7 @@ def merge(results, query, use_semantic=True, dedupe=True):
     for r in results:
         r.pop('_key_u', None)
         r.pop('_key_t', None)
-    return rerank(results, query, use_semantic=use_semantic)
+    return rerank(results, query, use_semantic=use_semantic, slim=slim)
 
 
 def _dedupe(results):
