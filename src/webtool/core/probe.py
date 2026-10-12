@@ -17,8 +17,8 @@ _proxy_alive = {}
 def proxy_ok(proxy, timeout=6):
     """探活 + 进程内缓存: HEAD https://www.bing.com/generate_204 经代理可达即可用。
 
-    原 rank._proxy_ok, zen/fetch 等上层模块也走这里 —— 探活属于传输层,
-    不该让引擎层 (rank) 当公共依赖被反向引用。
+    上层 (rank/zen/fetch 等) 统一走这里 —— 探活属于传输层,
+    不该让某个业务模块当公共依赖被反向引用。
     """
     if not proxy:
         return False

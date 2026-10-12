@@ -12,7 +12,7 @@ webtool/
   feeds/        L3 业务流程   command / sources / parse / fetch / cards
   radar/        L3 业务流程   routes / rules / instances / official / template
                                            / race / instances_cfg
-  zen.py sitesearch.py fetch.py blocklist.py ...       —— L3/L1 单体模块
+  zen.py zenproto.py sitesearch.py fetch.py blocklist.py ...  —— L3/L1 单体模块
   pipeline/     L2 合并输出   search / rank / merge / topup / qhint
   render/       L2 合并输出   render / hotrender / output
   net/          L1 采集实现   transport / proxy / captcha / spa
@@ -41,7 +41,8 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 - `engines/` 只被上层调用，实现里不 import `pipeline / feeds / cli`
 - 工具函数按"谁依赖更广就住更低"归位：探活、限速这类被多业务用的，住 `net`/`core`，不住业务文件
 - 发现某逻辑在 3 处以上重复 → 抽成 `core/` 工具类，不要再复制第四份
-- 顶层单文件超过 ~500 行 → 按职责拆成子包（如 `feed.py` → `feeds/`），别让一个文件既管数据又管出网又管渲染
+- 顶层单文件超过 ~500 行 → 按职责拆成子包（如 `feed.py` → `feeds/`、`radar.py` → `radar/`），别让一个文件既管数据又管出网又管渲染；判据是"有几件事"而不是"多少行"
+- 只有一个实现时不抽策略基类/注册表，普通函数就够（多一层间接、多一处配置面）；真有第二种实现时再抽
 - 出现 `from webtool.pipeline import ...` 出现在 `engines/` 或 `core/` 下即分层破坏
 
 ## 2. 导入
@@ -77,9 +78,10 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 ## 6. 已知取舍（防止"好心办坏事"）
 
 - `Registry.items()` 返回 dict——遍历要 `.items().items()`；直接 `for k, v in reg.items()` 会把 key 字符串解包报错（smoke 有契约测试锁死）
-- `rank._proxy_ok` 是 `probe.proxy_ok` 的兼容别名，新代码直接用 `probe.proxy_ok`
+- 探活统一走 `core.probe.proxy_ok`；`pipeline/rank.py` 的 `_proxy_ok` 是它上面加了进程内缓存的薄包装
 - `pipeline/search.py` 的 `proxy_hint/_proxy_alive` 同理是兼容再导出，实现在 `net/transport.py`
-- `engines/sites.py` 的 `_mk/_fetch/_headers` 被另外三个站点源跨文件复用，暂留私有名；
+- `engines/sites.py` 的 `_mk/_fetch/_headers` 被 6 个模块跨文件复用（customsites / sitesearch /
+  feeds.fetch / hotsites / moresites / moresites2 / oversites），暂留私有名；
   真要复用得按规范去掉 `_` 并下沉到 `core` 或 `engines/base.py`
 - 打包数据在包根 `src/webtool/data/`（不在 `core/` 下），`core.config_data.DATA_DIR`
   指向它；`pyproject` 的 `package-data` 按此配

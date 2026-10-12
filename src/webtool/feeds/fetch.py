@@ -29,7 +29,7 @@ def pull_one(name, url, n, proxy, timeout):
 
 
 def _resolve_proxy(cfg, no_proxy):
-    """直连优先 → 失败且全局代理可用则代理重试 (探活复用 rank 的 _proxy_ok)"""
+    """直连优先 → 失败且全局代理可用则代理重试"""
     def once(p):
         def _pull(item):
             nm, spec = item

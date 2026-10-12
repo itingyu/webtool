@@ -9,6 +9,8 @@ pip install 'git+https://github.com/itingyu/webtool'
 # 依赖含 trafilatura / curl_cffi / pysocks 等, 随安装自动装
 ```
 
+代码按分层分包（`cli` → `feeds`/`radar`/`zen` → `pipeline`/`render` → `net`/`engines` → `core`），只允许向下依赖。改代码前先读 [docs/coding-standard.md](docs/coding-standard.md)，整体设计见 [docs/design.md](docs/design.md)。
+
 ## 命令
 
 ```bash
@@ -21,7 +23,7 @@ webtool feed sspai ithome --new-only          # 抓 feed, 增量模式
 webtool feed radar 36kr --pick 1 --example    # 查 RSSHub 路由库 → 填参 → 拉数据
 webtool feed instances                        # 公共实例探活
 webtool feed health                           # 坏源登记表
-webtool site github fastapi                   # 站内搜索 (20 站点)
+webtool site github fastapi                   # 站内搜索 (18 站点)
 webtool zen "问题"                            # OpenCode Zen 免费层对话, 无需 key
 webtool proxy set http://127.0.0.1:2080       # 代理 (google 等被墙源必须)
 ```
@@ -59,7 +61,7 @@ webtool proxy set http://127.0.0.1:2080       # 代理 (google 等被墙源必�
 - 公共实例：rsshub.rssforever.com / hub.slarker.me / rss.wudifeixue.com / rsshub.isrss.com；429 时轮换前缀
 
 ### site
-20 站点：github / so / hn / wikipedia / arxiv / csdn / csdn_so / juejin / juejin2 / bilibili / bili2 / sspai / npm / npmjs_github / thepaper / eastmoney / sov2ex / douban / gh_search / v2ex。
+18 站点：github / gh_search / so / hn / wikipedia / arxiv / csdn / csdn_so / juejin / juejin2 / bilibili / bili2 / sspai / npm / thepaper / eastmoney / sov2ex / douban。
 JSON 扩展见 `docs/custom-sites.md`（`~/.webtool/sites/*.json`）。
 
 ### zen
@@ -68,8 +70,14 @@ webtool zen "你好"                    # 默认 big-pickle
 webtool zen "问题" --model ling-3.1-flash-free
 webtool zen --list-free               # 免费模型清单 (实时拉)
 webtool zen "问题" --system "只回 JSON" --tool-choice none
+webtool zen "问题" --no-stream         # 一次性返回 (默认 SSE 流式)
+webtool zen "问题" --show-body        # 只打请求体, 不出网 (排查用)
 ```
+
 模型上下架频繁，先 `--list-free` 再用；403 FreeTierError = 模型已下架。
+
+- JSON 里的 `usage_available` = 上游是否返回用量；`false` 且 `ok: true` 是「调用成功但端点不给统计」，不是故障
+- 换端点改 `~/.webtool/zen.json` 的 `chat_url` / `models_url`（mtime 热生效），协议固定 OpenAI 形状
 
 ## 通用约定
 

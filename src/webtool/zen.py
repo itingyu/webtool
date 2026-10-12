@@ -206,7 +206,7 @@ def call_zen_direct_then_proxy(model, prompt, system=None, session=None,
                                cfg=None, verbose=False):
     """直连优先, 直连接不上才换代理 —— 与 rank/feed 同一套策略。
 
-    只在"代理确实可用"时才重试 (复用 rank._proxy_ok 的探活, 结果带进程内
+    只在"代理确实可用"时才重试 (探活走 core.probe.proxy_ok, 结果带进程内
     缓存), 否则直连失败就直接报错, 不做无谓的等待。
     直连失败指的是传输层失败 (status==0: DNS/连接拒/超时), 或者连上了但
     上游没给东西 —— 这两种换代理都有意义。HTTP 4xx 不换 (那是请求本身的问题,

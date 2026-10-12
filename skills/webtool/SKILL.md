@@ -1,6 +1,6 @@
 ---
 name: webtool
-description: 网页搜索与内容获取 CLI。多引擎搜索 + 榜单聚合 rank（知乎/微博/抖音/B站/HN/GitHub Trending 等 19 源）+ 20 站点站内搜索 site + RSS 订阅 feed（RSSHub 路由库 radar 查询填参、增量、坏源登记）+ zen 免费层 LLM 对话 + 正文提取转 markdown/text/json。当用户提到「搜索网页 / 查资料 / 抓网页正文 / 热榜 / 榜单 / 订阅 / RSS / 站内搜索 / 问大模型 / webtool」时触发。
+description: 网页搜索与内容获取 CLI。多引擎搜索 + 榜单聚合 rank（知乎/微博/抖音/B站/HN/GitHub Trending 等 19 源）+ 18 站点站内搜索 site + RSS 订阅 feed（RSSHub 路由库 radar 查询填参、增量、坏源登记）+ zen 免费层 LLM 对话 + 正文提取转 markdown/text/json。当用户提到「搜索网页 / 查资料 / 抓网页正文 / 热榜 / 榜单 / 订阅 / RSS / 站内搜索 / 问大模型 / webtool」时触发。
 version: 1.8.0
 ---
 
@@ -19,7 +19,7 @@ webtool feed sspai ithome --new-only         # 抓 feed; --new-only 增量
 webtool feed radar 36kr                      # 查 RSSHub 路由库
 webtool feed instances                       # 公共实例探活
 webtool feed health                          # 坏源登记表
-webtool site github fastapi                  # 站内搜索 (20 站点, site list 查全部)
+webtool site github fastapi                  # 站内搜索 (18 站点, site list 查全部)
 webtool zen "问题"                           # 免费层 LLM 对话, 无需 key
 webtool config set default_engines bing,sogou
 ```
@@ -63,7 +63,7 @@ webtool config set default_engines bing,sogou
 
 ## site
 
-20 站点：github / so / hn / wikipedia / arxiv / csdn / csdn_so / juejin / juejin2 / bilibili / bili2 / sspai / npm / npmjs_github / thepaper / eastmoney / sov2ex / douban / gh_search / v2ex。
+18 站点：github / gh_search / so / hn / wikipedia / arxiv / csdn / csdn_so / juejin / juejin2 / bilibili / bili2 / sspai / npm / thepaper / eastmoney / sov2ex / douban。
 JSON 扩展格式见 `docs/custom-sites.md`（`~/.webtool/sites/*.json`，可覆盖内置）。
 
 ## zen
@@ -73,9 +73,14 @@ webtool zen "你好"                    # 默认 big-pickle
 webtool zen "问题" --model ling-3.1-flash-free
 webtool zen --list-free               # 免费模型清单 (实时拉, 不硬编码)
 webtool zen "问题" --system "只回 JSON" --tool-choice none
+webtool zen "问题" --sticky             # 复用 ses_id (默认关)
 ```
 
 模型上下架频繁，别凭记忆报模型名，先 `--list-free`。报 403 FreeTierError = 模型已下架，刷新清单。
+
+- `--sticky` 复用 ses_id，默认关：实测 Zen 免费层 `cached_tokens` 恒为 0，开不开耗时无差异，别当提速手段
+- JSON 里 `usage_available` = 上游是否返回用量；`false` 且 `ok: true` 是"调用成功但端点不给统计"，不是故障
+- 换端点改 `~/.webtool/zen.json` 的 `chat_url` / `models_url`，mtime 热生效；协议固定 OpenAI 形状
 
 ## 通用约定
 
