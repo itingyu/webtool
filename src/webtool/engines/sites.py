@@ -306,30 +306,9 @@ def _ts2date(ts):
         return None
 
 
-SITES = {
-    'github':       {'fn': github, 'desc': 'GitHub 仓库', 'proxy': 'direct'},
-    'so':           {'fn': stackoverflow, 'desc': 'Stack Overflow', 'proxy': 'direct'},
-    'hn':           {'fn': hackernews, 'desc': 'Hacker News (Algolia API)', 'proxy': 'direct'},
-    'wikipedia':    {'fn': wikipedia, 'desc': '维基百科 (lang 参数可换 en/zh)', 'proxy': 'proxy'},
-    'arxiv':        {'fn': arxiv, 'desc': 'arXiv 论文', 'proxy': 'direct'},
-    'csdn':         {'fn': csdn, 'desc': 'CSDN 博客', 'proxy': 'direct'},
-    'juejin':       {'fn': juejin, 'desc': '掘金', 'proxy': 'direct'},
-    'bilibili':     {'fn': bilibili, 'desc': 'B站视频', 'proxy': 'direct'},
-    'sspai':        {'fn': sspai, 'desc': '少数派', 'proxy': 'direct'},
-    'npm':          {'fn': npm, 'desc': 'npm 包', 'proxy': 'direct'},
-}
+# ---------------------------------------------------------------- 注册表
+# site_key -> {desc, fn, proxy: 'direct'|'proxy'}; 清单在 data/plugins.json 的 "site" 段,
+# 加站点 = 写一个 (q, limit, proxy, timeout) -> [结果] 的适配器 + plugins.json 加一条
+from ..plugins import table as _plugin_table
 
-
-def _lazy_extend():
-    """moresites/oversites/moresites2 扩展站点延迟注入 (防御循环导入)"""
-    for mod, attr in (('moresites', 'NEW_SITES'), ('oversites', 'OVER_SITES'),
-                      ('moresites2', 'NEW2_SITES')):
-        try:
-            m = __import__(f'webtool.engines.{mod}', fromlist=[attr])
-            SITES.update(getattr(m, attr))
-        except AttributeError:
-            pass
-
-
-if __name__ != '__main__':
-    _lazy_extend()
+SITES = _plugin_table('site')

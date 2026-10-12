@@ -26,5 +26,30 @@
     "google":     {"module": "webtool.engines.google:search",     "desc": "Google: web(需代理,常IP级reCAPTCHA)→news RSS 自动降级+文章链还原", "base": 0.95},
     "baidu":      {"module": "webtool.engines.baidu:search",      "desc": "百度网页, 多步预热(cookie+sugrec行为链), 反爬严(滑块)", "base": 0.8},
     "marginalia": {"module": "webtool.engines.marginalia:search", "desc": "Marginalia 独立索引, 小站/老网页长尾, 免key直连, sst挑战自动解"}
+  },
+  "site": {
+    "github":    {"module": "webtool.engines.sites:github",       "desc": "GitHub 仓库", "proxy": "direct"},
+    "so":        {"module": "webtool.engines.sites:stackoverflow", "desc": "Stack Overflow", "proxy": "direct"},
+    "hn":        {"module": "webtool.engines.sites:hackernews",   "desc": "Hacker News (Algolia API)", "proxy": "direct"},
+    "wikipedia": {"module": "webtool.engines.sites:wikipedia",    "desc": "维基百科 (lang 参数可换 en/zh)", "proxy": "proxy"},
+    "arxiv":     {"module": "webtool.engines.sites:arxiv",        "desc": "arXiv 论文", "proxy": "direct"},
+    "csdn":      {"module": "webtool.engines.sites:csdn",         "desc": "CSDN 博客", "proxy": "direct"},
+    "juejin":    {"module": "webtool.engines.sites:juejin",       "desc": "掘金", "proxy": "direct"},
+    "bilibili":  {"module": "webtool.engines.sites:bilibili",     "desc": "B站视频", "proxy": "direct"},
+    "sspai":     {"module": "webtool.engines.sites:sspai",        "desc": "少数派", "proxy": "direct"},
+    "npm":       {"module": "webtool.engines.sites:npm",          "desc": "npm 包", "proxy": "direct"},
+    "thepaper":  {"module": "webtool.engines.moresites:thepaper",  "desc": "澎湃新闻搜索", "proxy": "direct"},
+    "eastmoney": {"module": "webtool.engines.moresites:eastmoney", "desc": "东方财富资讯搜索", "proxy": "direct"},
+    "sov2ex":    {"module": "webtool.engines.oversites:sov2ex",    "desc": "V2EX 全文搜索 (sov2ex)", "proxy": "direct"},
+    "csdn_so":   {"module": "webtool.engines.moresites2:csdn_so",  "desc": "CSDN 问答搜索", "proxy": "direct"},
+    "juejin2":   {"module": "webtool.engines.moresites2:juejin2",  "desc": "掘金文章搜索", "proxy": "direct"},
+    "bili2":     {"module": "webtool.engines.moresites2:bili2",    "desc": "B站视频综合搜索", "proxy": "direct"},
+    "douban":    {"module": "webtool.engines.moresites2:douban",   "desc": "豆瓣内容搜索 (图书/影剧等)", "proxy": "direct"},
+    "gh_search": {"module": "webtool.engines.moresites2:gh_search", "desc": "GitHub 仓库搜索 (q 语法透传)", "proxy": "direct"}
+  },
+  "extractor": {
+    "trafilatura": {"module": "webtool.extractors:extract_trafilatura", "desc": "trafilatura 正文抽取 (markdown, 带元数据)"},
+    "readability": {"module": "webtool.extractors:extract_readability", "desc": "readability-lxml + html2text 兜底"},
+    "inscriptis":  {"module": "webtool.extractors:extract_inscriptis",  "desc": "全文纯文本保底"}
   }
 }

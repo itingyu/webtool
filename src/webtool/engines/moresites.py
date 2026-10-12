@@ -77,7 +77,3 @@ def eastmoney(q, limit=10, proxy=None, timeout=15):
     return out[:limit]
 
 
-NEW_SITES = {
-    'thepaper':  {'fn': thepaper,  'desc': '澎湃新闻搜索', 'proxy': 'direct'},
-    'eastmoney': {'fn': eastmoney, 'desc': '东方财富资讯搜索', 'proxy': 'direct'},
-}

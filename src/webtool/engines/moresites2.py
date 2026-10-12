@@ -184,10 +184,3 @@ def gh_search(q, limit=10, proxy=None, timeout=15):
 
 # ============================================================ 注册表
 
-NEW2_SITES = {
-    'csdn_so':    {'fn': csdn_so,    'desc': 'CSDN 问答搜索', 'proxy': 'direct'},
-    'juejin2':    {'fn': juejin2,    'desc': '掘金文章搜索', 'proxy': 'direct'},
-    'bili2':      {'fn': bili2,      'desc': 'B站视频综合搜索', 'proxy': 'direct'},
-    'douban':     {'fn': douban,     'desc': '豆瓣内容搜索 (图书/影剧等)', 'proxy': 'direct'},
-    'gh_search':  {'fn': gh_search,  'desc': 'GitHub 仓库搜索 (q 语法透传)', 'proxy': 'direct'},
-}

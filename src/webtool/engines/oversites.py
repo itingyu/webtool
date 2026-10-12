@@ -49,6 +49,3 @@ def sov2ex(q, limit=10, proxy=None, timeout=15):
     return out[:limit]
 
 
-OVER_SITES = {
-    'sov2ex':       {'fn': sov2ex,       'desc': 'V2EX 全文搜索 (sov2ex)', 'proxy': 'direct'},
-}

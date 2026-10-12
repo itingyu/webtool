@@ -10,7 +10,7 @@ import sys
 import time
 import urllib.parse
 
-from . import cache
+from . import cache, extractors
 
 
 def do_fetch(args, cfg):
@@ -163,95 +163,10 @@ def _is_nav_shell(content):
 
 
 def _extract(html, url):
-    """trafilatura -> readability-lxml -> html2text -> 保底 四级提取"""
-    meta = {}
-    # 0. JS-only 壳页预检: SPA 壳的提取产物是"请启用 JavaScript"一类提示词
-    #    + 极短文本, 会被误当正文。识别后提前短路返回空, 让上层走 hint,
-    #    不缓存垃圾。
-    try:
-        import re as _re
-        from html import unescape as _un
-        _text = _re.sub(r'<script[\s\S]*?</script>|<style[\s\S]*?</style>|<[^>]+>',
-                        ' ', html)
-        _text = _re.sub(r'\s+', ' ', _un(_text)).strip()
-        # 提示词须出现在开头 30 字符内 (壳页全文即提示词; 正文页偶提 JS 的
-        # 不会在开头) — 不用 ^ 锚, 容忍 title/站点名等前置噪声
-        _JS_SHELL_RE = _re.compile(
-            r'请开启|请启用|需要开启|需要启用|需要允许|允许.{0,6}执行|开启.{0,8}JavaScript'
-            r'|enable.{0,20}javascript|turn.{0,10}on.{0,10}javascript'
-            r'|requires?\s+javascript|浏览器不支持|请使用.{0,10}浏览器'
-            r'|您需要|你需要|需开启|需启用|需允许|需要.{0,6}浏览器'
-            r'|please\s+enable\s+javascript|enable\s+javascript', _re.I)
-        if len(_text) < 500 and _JS_SHELL_RE.search(_text[:30]):
-            return '', {'_js_shell': '1', 'title': meta.get('title', '')}
-    except Exception:
-        pass
-    # 1. trafilatura
-    try:
-        import trafilatura
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            md = trafilatura.extract(html, url=url, output_format='markdown',
-                                     include_links=True, include_tables=True,
-                                     with_metadata=True)
-        if md and md.strip():
-            m = None
-            try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter('ignore')
-                    m = trafilatura.bare_extraction(html, url=url, with_metadata=True,
-                                                    only_with_metadata=False)
-                if m and not isinstance(m, dict):
-                    meta = {k: str(getattr(m, k)) for k in
-                            ('title', 'author', 'date', 'sitename', 'description')
-                            if getattr(m, k, None)}
-                elif m:
-                    meta = {k: str(m[k]) for k in
-                            ('title', 'author', 'date', 'sitename', 'description')
-                            if m.get(k)}
-            except Exception:
-                pass
-            return md, meta
-    except ImportError:
-        pass
-    except Exception:
-        pass
-    # 2. readability-lxml + html2text
-    try:
-        from readability import Document
-        import html2text
-        doc = Document(html)
-        title = doc.short_title()
-        if title:
-            meta['title'] = title
-        summ = doc.summary(html_partial=True)
-        h = html2text.HTML2Text()
-        h.body_width = 0
-        h.ignore_images = True
-        h.ignore_emphasis = False
-        return h.handle(summ).strip(), meta
-    except ImportError:
-        pass
-    except Exception:
-        pass
-    # 3. 保底: 全文文本
-    try:
-        import inscriptis
-        return inscriptis.get_text(html), meta
-    except Exception:
-        return _basic_text(html), meta
-
-
-def _basic_text(html):
-    html = re.sub(r'<(script|style|noscript)[^>]*>.*?</\1>', '', html, flags=re.S | re.I)
-    html = re.sub(r'<br[^>]*>|</p>|</div>|</h\d>', '\n', html, flags=re.I)
-    txt = re.sub(r'<[^>]+>', '', html)
-    import html as _h
-    txt = _h.unescape(txt)
-    txt = re.sub(r'\n{3,}', '\n\n', txt)
-    txt = re.sub(r'[ \t]+', ' ', txt)
-    return txt.strip()
+    """提取器策略链 (见 extractors.py): 壳页预检 → 按优先级降级"""
+    if extractors.is_js_shell(html):
+        return '', {'_js_shell': '1', 'title': ''}
+    return extractors.run_chain(html, url, {})
 
 
 def _emit(r, args, single):
