@@ -15,11 +15,17 @@
 import json
 import os
 from urllib.parse import urlparse
-from webtool.core import urls
 from webtool.core.config_data import load
 
 
-_norm_host = urls.host_of   # 取 host 并去 www.
+def _norm_host(netloc):
+    """netloc → host (去 www./端口/大小写)
+
+    注意 urls.host_of 收完整 URL, 这里传的是裸 netloc —— 直接调会得到
+    空串 (urlparse('a.com').netloc 为空), 导致黑名单全部失效。
+    """
+    h = (netloc or '').split('@')[-1].split(':')[0].strip().lower()
+    return h[4:] if h.startswith('www.') else h
 
 
 def builtin_blocklist():

@@ -111,6 +111,19 @@ from webtool.net import captcha
 blocked, hit = captcha.detect('baidu', '<html><title>百度安全验证</title></html>')
 check(blocked, f'captcha.detect baidu 命中配置指纹 ({hit})')
 
+# 9. blocklist 域名匹配 (回归: 曾因 _norm_host 收 URL 却传裸 netloc 而全表失效)
+from webtool.filters.blocklist import is_blocked as _isblk
+_bcases = [('https://blog.csdn.net/abc', True, '子域'),
+           ('https://csdn.net', True, 'apex'),
+           ('https://www.zhihu.com/x', True, 'www 前缀'),
+           ('https://user:pw@csdn.net/x', True, '带凭据'),
+           ('https://csdn.net:8080/x', True, '带端口'),
+           ('https://evil-csdn.net/x', False, '非子域不拦'),
+           ('https://docs.python.org/3', False, '正常站不拦'),
+           ('', False, '空 URL 不拦')]
+_bad = [d for u, w, d in _bcases if _isblk(u) != w]
+check(not _bad, f'blocklist 域名匹配 {len(_bcases)} 例全对 (错: {_bad or "无"})')
+
 # 8. merge 配置驱动 (track_params/ref_hosts) + 两因子排序
 from webtool.pipeline.merge import normalize_url, merge as _merge
 u = normalize_url('https://www.Example.com/a/?utm_source=x&id=1')
