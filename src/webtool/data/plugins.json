@@ -1,0 +1,30 @@
+{
+  "hot": {
+    "zhihu":        {"module": "webtool.engines.hotsites:zhihu_hot",        "desc": "知乎热榜", "search": false},
+    "weibo":        {"module": "webtool.engines.hotsites:weibo",            "desc": "微博热搜", "search": false},
+    "baidu":        {"module": "webtool.engines.hotsites:baidu",            "desc": "百度热搜", "search": false},
+    "douyin":       {"module": "webtool.engines.hotsites:douyin",           "desc": "抖音热搜词榜 (50词)", "search": false},
+    "douyin_hot":   {"module": "webtool.engines.hotsites:douyin_hot",       "desc": "抖音热点榜 (事件聚合+视频数)", "search": false},
+    "toutiao_hot":  {"module": "webtool.engines.hotsites:toutiao_hot",      "desc": "今日头条热榜 (官方 hot-board)", "search": false},
+    "bili_hot":     {"module": "webtool.engines.hotsites:bili_hot",         "desc": "B站热门视频榜", "search": false},
+    "bili_rank":    {"module": "webtool.engines.hotsites:bili_rank",        "desc": "B站全站排行榜 (质量周榜)", "search": false},
+    "bili_word":    {"module": "webtool.engines.hotsites:bili_word",        "desc": "B站搜索热词 (20词)", "search": false},
+    "tieba":        {"module": "webtool.engines.hotsites:tieba",            "desc": "百度贴吧热议榜 (30话题)", "search": false},
+    "sina_hot":     {"module": "webtool.engines.hotsites:sina_hot",         "desc": "新浪新闻热榜", "search": false},
+    "douban_movie": {"module": "webtool.engines.hotsites:douban_movie",     "desc": "豆瓣热门电影 (评分+链接)", "search": false},
+    "netease_music":{"module": "webtool.engines.hotsites:netease_music",    "desc": "网易云新歌榜 (100首)", "search": false},
+    "ithome":       {"module": "webtool.engines.hotsites:ithome",           "desc": "IT之家资讯榜", "search": false},
+    "hn_official":  {"module": "webtool.engines.hotsites:hn_official",      "desc": "Hacker News 热榜", "search": false},
+    "github_trend": {"module": "webtool.engines.hotsites:github_trend",     "desc": "GitHub Trending (近7日)", "search": true},
+    "lobsters":     {"module": "webtool.engines.hotsites:lobsters",         "desc": "Lobsters 热帖", "search": false},
+    "toutiao":      {"module": "webtool.engines.hotsites:toutiao",          "desc": "今日头条推荐 feed (移动指纹, 非热榜)", "search": false},
+    "reddit":       {"module": "webtool.engines.hotsites:reddit",           "desc": "Reddit r/<sub> 热帖 (需代理; 本环境 IP 受限)", "search": true}
+  },
+  "engine": {
+    "bing":       {"module": "webtool.engines.bing:search",       "desc": "Bing HTML 主通道+RSS兜底, chrome指纹, 国内 cn. 直连", "base": 0.9},
+    "sogou":      {"module": "webtool.engines.sogou:search",      "desc": "搜狗: PC优先(chrome指纹)→移动端(Android指纹,直出真实URL)", "base": 0.75},
+    "google":     {"module": "webtool.engines.google:search",     "desc": "Google: web(需代理,常IP级reCAPTCHA)→news RSS 自动降级+文章链还原", "base": 0.95},
+    "baidu":      {"module": "webtool.engines.baidu:search",      "desc": "百度网页, 多步预热(cookie+sugrec行为链), 反爬严(滑块)", "base": 0.8},
+    "marginalia": {"module": "webtool.engines.marginalia:search", "desc": "Marginalia 独立索引, 小站/老网页长尾, 免key直连, sst挑战自动解"}
+  }
+}

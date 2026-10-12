@@ -11,25 +11,14 @@
 import re
 from urllib.parse import urlparse
 
-# 强广告特征词 (标题/摘要)
-AD_KEYWORDS = [
-    '百度营销', '招商加盟', '免费注册领取', '限时优惠', '立即咨询',
-    '官方网站注册', '点击咨询', '在线客服', '预约试听', '领取优惠券',
-    '低价', '促销', '代办理', '一站式服务', '官方授权经销商',
-    'sponsored', 'ad ·', 'promo',
-]
+from .config_data import load
 
-# 常见广告/推广落地域名
-AD_DOMAINS = [
-    'baidujc.com',          # 百度联盟跳转
-    'pos.baidu.com',
-    'recommend_list.baidu.com',
-    'nourl.ubs.baidu.com',
-    'ocsp.baidu.com',
-]
+_CFG = load('adfilter', 'filters.json')
 
-# 广告参数特征
-AD_URL_PAT = re.compile(r'[?&](prosite=1|tn=baiduad|bd_vid=)', re.I)
+# 强广告特征词 (标题/摘要) / 广告落地域名 / URL 广告参数, 均可经 ~/.webtool/filters.json 覆盖
+AD_KEYWORDS = _CFG.get('keywords', [])
+AD_DOMAINS = _CFG.get('domains', [])
+AD_URL_PAT = re.compile('|'.join(_CFG.get('url_patterns', ['$^'])) or '$^', re.I)
 
 
 def is_ad(item):

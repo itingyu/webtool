@@ -12,8 +12,11 @@ import re
 from urllib.parse import urlparse, parse_qsl, urlencode
 
 from .adfilter import is_ad
+from .plugins import table as _plugin_table
 
-ENGINE_BASE = {'google': 0.95, 'bing': 0.90, 'baidu': 0.80, 'sogou': 0.75}
+ENGINE_BASE = {name: spec.get('base')
+               for name, spec in _plugin_table('engine').items()
+               if spec.get('base')}
 
 # ---------------- 域名先验 ----------------
 # 技术性/实体 query 下, 词典/通用百科页几乎必是噪声 (如 "GPT Claude Gemini"

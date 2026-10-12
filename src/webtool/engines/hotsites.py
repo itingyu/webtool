@@ -529,32 +529,11 @@ def bili_word(q, limit=10, proxy=None, timeout=15):
 
 
 # ============================================================ 注册表
-# search: True  = 支持关键词, rank 把 -q 直接传适配器 (站内过滤)
-# search: False = 纯榜单, rank 拉全榜后本地 BM25 语义筛选
-HOT_SITES = {
-    # ---- 国内综合 (默认源) ----
-    'zhihu':        {'fn': zhihu_hot,    'desc': '知乎热榜', 'search': False},
-    'weibo':        {'fn': weibo,        'desc': '微博热搜', 'search': False},
-    'baidu':        {'fn': baidu,        'desc': '百度热搜', 'search': False},
-    'douyin':       {'fn': douyin,       'desc': '抖音热搜词榜 (50词)', 'search': False},
-    'douyin_hot':   {'fn': douyin_hot,   'desc': '抖音热点榜 (事件聚合+视频数)', 'search': False},
-    'toutiao_hot':  {'fn': toutiao_hot,  'desc': '今日头条热榜 (官方 hot-board)', 'search': False},
-    'bili_hot':     {'fn': bili_hot,     'desc': 'B站热门视频榜', 'search': False},
-    'bili_rank':    {'fn': bili_rank,    'desc': 'B站全站排行榜 (质量周榜)', 'search': False},
-    'bili_word':    {'fn': bili_word,    'desc': 'B站搜索热词 (20词)', 'search': False},
-    'tieba':        {'fn': tieba,        'desc': '百度贴吧热议榜 (30话题)', 'search': False},
-    'sina_hot':     {'fn': sina_hot,     'desc': '新浪新闻热榜', 'search': False},
-    'douban_movie': {'fn': douban_movie, 'desc': '豆瓣热门电影 (评分+链接)', 'search': False},
-    'netease_music': {'fn': netease_music, 'desc': '网易云新歌榜 (100首)', 'search': False},
-    'ithome':       {'fn': ithome,       'desc': 'IT之家资讯榜', 'search': False},
-    # ---- 国际/技术 (默认源) ----
-    'hn_official':  {'fn': hn_official,  'desc': 'Hacker News 热榜', 'search': False},
-    'github_trend': {'fn': github_trend, 'desc': 'GitHub Trending (近7日)', 'search': True},
-    'lobsters':     {'fn': lobsters,     'desc': 'Lobsters 热帖', 'search': False},
-    # ---- 扩展 ----
-    'toutiao':      {'fn': toutiao,      'desc': '今日头条推荐 feed (移动指纹, 非热榜)', 'search': False},
-    'reddit':       {'fn': reddit,       'desc': 'Reddit r/<sub> 热帖 (需代理; 本环境 IP 受限)', 'search': True},
-}
+# 元数据 (desc/search 标志) 在 data/plugins.json 的 "hot" 段;
+# 加新源 = 本文件加 fetch 函数 + plugins.json 加一条 {"module": "...", "desc": "..."}
+from ..plugins import table as _plugin_table
+
+HOT_SITES = _plugin_table('hot')
 
 DEFAULT_HOT_SOURCES = ['zhihu', 'weibo', 'baidu', 'douyin', 'douyin_hot',
                        'toutiao_hot', 'bili_hot', 'tieba', 'hn_official',

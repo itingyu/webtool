@@ -8,15 +8,9 @@ import time
 
 from . import cache
 from .adfilter import is_ad, mark_ads
-from .engines.bing import search as bing_search
-from .engines.sogou import search as sogou_search
-from .engines.google import search as google_search
-from .engines.baidu import search as baidu_search
-from .engines.marginalia import search as marginalia_search
+from .plugins import table as _plugin_table
 
-ENGINES = {'bing': bing_search, 'sogou': sogou_search,
-           'google': google_search, 'baidu': baidu_search,
-           'marginalia': marginalia_search}
+ENGINES = {name: spec['fn'] for name, spec in _plugin_table('engine').items()}
 _PROBE_CACHE = None
 def _proxy_alive(cfg, ttl=60):
     """全局代理 TCP 探活, 结果缓存 ttl 秒. 代理未配置返回 False."""

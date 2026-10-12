@@ -16,37 +16,11 @@ import json
 import os
 import re
 from urllib.parse import urlparse
+from .config_data import load
 
-# ---- 内置黑名单: 内容农场 / SEO 模板站 / 低质量聚合 ----
-DEFAULT_BLOCKLIST = [
-    # CSDN 系: 博客正文被折叠要登录, 大量搬运/营销号
-    'csdn.net', 'cdnbaidujc.com',
-    # SEO 农场 / 模板采集站
-    'jb51.net',           # 脚本之家: 大量无署名搬运
-    'huaweicloud.com',    # 云社区采集文
-    'aliyun.com',         # 开发者社区采集文
-    '51cto.com',          # 采集/营销号混合
-    'easylearn.baidu.com',
-    'baijiahao.baidu.com',
-    'zhimind.com', 'kaipuyun.cn', 'chinanpo.gov.cn',
-    # 问答低质站
-    'wenda.so.com', 'yisu.com', 'php.cn', 'divcss5.com',
-    'dazhuanlan.com', 'xiaoheiseo.com',
-    # 资源站引流的假下载页
-    'win7xzb.com', 'pc6.com', 'downxia.com', 'greenxiazai.com',
-    # 傍品牌/克隆洗稿站
-    'baibaidu.com',       # 傍 baidu 品牌的万年历站, 按日批量生成模板页
-    'pythonlang.cn',      # 整站克隆 python.org 中文版, 冒充官网
-    'cainiaojc.com',      # 自称"菜鸟教程"克隆 runoob 洗稿, 非 runoob 官方
-    # 词典泛匹配页: 单词释义页对实体 query 是纯噪声
-    # youdao.com 后缀匹配连主站一起拦, 主站本身也是词典壳, 拦掉无害
-    'hanyuguoxue.com', 'chagushici.com', 'hgcha.com', 'gushici.net',
-    'iciba.com', 'youdao.com',
-    # 百科/词典: 技术与实体 query 下的高频噪声源 (泛匹配页)
-    'baike.baidu.com',
-    # 知乎: 正文 403 (需登录态), fetch 拿不到内容
-    'zhihu.com',
-]
+# 内置黑名单 (内容农场/SEO 模板站/低质量聚合), 见 data/filters.json;
+# 每条的背景在该文件 notes 段, 用户可在 ~/.webtool/filters.json 增删
+DEFAULT_BLOCKLIST = load('blocklist', 'filters.json').get('domains', [])
 
 def _norm_host(host):
     host = (host or '').lower().strip()

@@ -1,0 +1,45 @@
+{
+  "adfilter": {
+    "keywords": [
+      "百度营销", "招商加盟", "免费注册领取", "限时优惠", "立即咨询",
+      "官方网站注册", "点击咨询", "在线客服", "预约试听", "领取优惠券",
+      "低价", "促销", "代办理", "一站式服务", "官方授权经销商",
+      "sponsored", "ad ·", "promo"
+    ],
+    "domains": [
+      "baidujc.com",
+      "pos.baidu.com",
+      "recommend_list.baidu.com",
+      "nourl.ubs.baidu.com",
+      "ocsp.baidu.com"
+    ],
+    "url_patterns": ["[?&](prosite=1|tn=baiduad|bd_vid=)"]
+  },
+  "blocklist": {
+    "domains": [
+      "csdn.net", "cdnbaidujc.com",
+      "jb51.net", "huaweicloud.com", "aliyun.com", "51cto.com",
+      "easylearn.baidu.com", "baijiahao.baidu.com",
+      "zhimind.com", "kaipuyun.cn", "chinanpo.gov.cn",
+      "wenda.so.com", "yisu.com", "php.cn", "divcss5.com",
+      "dazhuanlan.com", "xiaoheiseo.com",
+      "win7xzb.com", "pc6.com", "downxia.com", "greenxiazai.com",
+      "baibaidu.com", "pythonlang.cn", "cainiaojc.com",
+      "hanyuguoxue.com", "chagushici.com", "hgcha.com", "gushici.net",
+      "iciba.com", "youdao.com", "baike.baidu.com", "zhihu.com"
+    ],
+    "notes": {
+      "csdn.net": "正文需登录, 大量搬运",
+      "jb51.net": "脚本之家: 无署名搬运",
+      "baibaidu.com": "傍 baidu 品牌模板页",
+      "pythonlang.cn": "克隆 python.org 冒充官网",
+      "cainiaojc.com": "克隆 runoob 洗稿",
+      "baike.baidu.com": "技术实体 query 下高频噪声",
+      "zhihu.com": "正文 403 需登录态, fetch 拿不到"
+    }
+  },
+  "rank": {
+    "defaults": ["zhihu", "weibo", "baidu", "douyin", "douyin_hot",
+                 "toutiao_hot", "bili_hot", "tieba", "hn_official", "github_trend"]
+  }
+}
