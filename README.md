@@ -6,8 +6,7 @@
 
 ```bash
 pip install 'git+https://github.com/itingyu/webtool#egg=webtool[full]'
-# full extra = trafilatura 正文提取 + curl_cffi TLS 指纹 + pysocks 代理
-# 裸装也可用: bing/sogou/google 搜索, 百度引擎与正文提取需 full
+# full = trafilatura 正文提取 + curl_cffi TLS 指纹 + pysocks 代理
 ```
 
 ## 命令

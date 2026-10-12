@@ -26,7 +26,7 @@ webtool config set default_engines bing,sogou
 
 ## search
 
-- 引擎：bing（直连）/ sogou（直连）/ baidu（需 `[full]` extra）/ google（**必须代理**，429 自动降级 news RSS，结果 `channel: news` 且链接已还原原文 URL，直接 fetch）/ marginalia
+- 引擎：bing（直连）/ sogou（直连）/ baidu（直连）/ google（**必须代理**，429 自动降级 news RSS，结果 `channel: news` 且链接已还原原文 URL，直接 fetch）/ marginalia
 - `-e` 逗号分隔组合；跳转链默认自动解码（`--no-resolve` 关）
 - query 精简：核心实体 + 意图词；优先英文；中文用引擎习惯叫法（`大模型` 而非 `大语言模型`）
 - 低质量批带 `💡 quality_hint`，按提示改词重搜
@@ -87,5 +87,5 @@ webtool zen "问题" --system "只回 JSON" --tool-choice none
 
 - 出网全走浏览器指纹（UA/TLS 由 impersonate 同源生成），传输层直连优先、失败才探活代理重试
 - google / docs.rsshub.app 被墙，必须代理：`webtool proxy set http://127.0.0.1:2080`；未配置时相关命令立即说明不空等
-- 报错自带处置建议（换引擎 / 切 `--profile` / 配代理 / 装 `[full]`），照做即可
+- 报错自带处置建议（换引擎 / 切 `--profile` / 配代理），照做即可
 - 优先 fetch 而非啃原始 HTML
