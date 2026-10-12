@@ -1,7 +1,7 @@
 """结果合并: 去重 + 权重排序
 
 去重: URL 归一化 (去 utm/跟踪参数, 尾斜杠, http/https) + 标题指纹,
-多引擎命中时保留信息最全的一条, 其他引擎计 confirmations。
+多引擎命中时保留信息最全的一条, 其余引擎名并入 engines 数组。
 weight = base(引擎分) × pos(1/log2(rank+1)) × agree(1+0.35×(引擎数-1)) ×
 sem(0.4+0.9×BM25归一化分) × entity(英文实体命中) × prior(词典/百科先验) ×
 (0.2 if is_ad); quality 断层自适应: poor = sem < max(0.12, top×0.35)。
@@ -72,15 +72,14 @@ def title_fingerprint(t):
 
 
 # ---------------- 权重重排 ----------------
-def rerank(results, query, use_semantic=True, slim=False):
+def rerank(results, query, use_semantic=True):
     """评分排序: merge() 的排序半程, 供多轮召回复用
 
-    每条结果带 engines/weight/sem_score(0-1 BM25 归一化)/confirmations/quality。
-    quality 断层自适应: cut = max(0.12, top×0.35), sem<cut=poor (与批内头部
-    断层 → 噪声), sem>=top×0.5=good, 其余 fair。比固定阈值更能贴合每批分布。
-
-    slim=True 时额外剥掉可推导字段 (engine/sem_score/quality/rank), 用于
-    JSON 输出瘦身 —— text/markdown 走各自的渲染器, 不受影响。
+    每条结果最终只带 title/url/snippet/weight/rank + 引擎字段:
+      engine   单引擎命中时的来源 (字符串)
+      engines  多引擎命中时的来源数组 (交叉验证, 长度即验证数)
+    sem_score/quality/confirmations 是评分中间量, 算完即弃 —— 不进对外结果。
+    quality 判据: cut = max(0.12, top×0.35), sem<cut 视为与批内头部断层(噪声)。
     """
     if not results:
         return results
@@ -112,59 +111,37 @@ def rerank(results, query, use_semantic=True, slim=False):
         w = base * pos * agree * sem * ent * prior
         if is_ad(r):
             w *= 0.2
-        r['sem_score'] = round(raw, 3)
+        r['_sem'] = round(raw, 3)      # 中间量, 排完即删
         r['weight'] = round(w, 4)
-        r['confirmations'] = n_eng
 
     results.sort(key=lambda r: -r['weight'])
-    # quality: 断层自适应 — 坏结果是与批内头部断层, 而非绝对分低;
-    # 0.12 下限防全垃圾批互相抬轿, 35% 相对线贴合每批分布
-    sems = [r['sem_score'] for r in results]
-    top = max(sems) if sems else 0.0
-    cut = max(0.12, top * 0.35)
-    for r in results:
-        s = r['sem_score']
-        if s < cut:
-            r['quality'] = 'poor'
-        elif s >= 0.5 * top:
-            r['quality'] = 'good'
-        else:
-            r['quality'] = 'fair'
-
+    # quality 断层自适应 — 坏结果是与批内头部断层, 而非绝对分低。
+    # 判完就地丢弃: quality/sem_score 都是中间量, 不是对外契约。
+    sems = [r.pop('_sem') for r in results]
     for i, r in enumerate(results):
         r['rank'] = i + 1
-    if slim:
-        slim_results(results)
-    return results
-
-
-# JSON 输出里可推导 / 无区分度的字段, 见 slim_results 处的取舍说明
-_SLIM_DROP = ('engine', 'sem_score', 'quality', 'confirmations')
-
-
-def slim_results(results):
-    """剥掉可推导字段, 只留 Agent 判断需要的信息。
-
-    砍掉的四项都能从留下的字段推出, 不是丢信息:
-      engine         恒等于 engines[0] (rerank 入口已保证 engines 非空) →
-                      单引擎时压成字符串 engine, 多引擎保留 engines 数组
-      confirmations  恒等于 len(engines) —— 交叉验证数, 看 engines 就够
-      sem_score      批内 BM25 归一化分, 最高那条恒为 1.0, 实测各批几乎全 1.0
-      quality        由 sem_score 与批内断层推导, 保留 weight 即可自行判断
-    rank 保留 —— text/markdown 渲染器要用它, 且数组顺序即名次, 留着无妨。
-
-    只在 JSON 输出前调用: text/markdown 渲染器要用 confirmations 渲染
-    "✕2" 交叉验证标记, 质量诊断与 engine 通道判定也要读 sem_score 与 engine。
-    """
-    for r in results:
-        for k in _SLIM_DROP:
-            r.pop(k, None)
+        # 单引擎时压成 engine 字符串, 多引擎才用 engines 数组
         eng = r.get('engines') or []
         if len(eng) == 1:
             r['engine'] = eng[0]
             r.pop('engines', None)
         elif not eng:
             r.pop('engines', None)
+    return results
+
+def merge(results, query, use_semantic=True, dedupe=True):
+    """合并多引擎结果: 去重 → 评分 → 排序
+
+    results: [{title,url,snippet,engine,rank,is_ad?}, ...]
+    返回: 排序后的结果列表, 每条带 rank/title/url/snippet/weight + 引擎字段
+    """
+    if dedupe:
+        results = _dedupe(results)
+    # 去重产生的内部键不外泄 (json 输出干净)
+    for r in results:
+        r.pop('_key_u', None)
+        r.pop('_key_t', None)
+    return rerank(results, query, use_semantic=use_semantic)
 
 
 def _entity_factor(query, r):
@@ -188,23 +165,6 @@ def _entity_factor(query, r):
     if hit_any >= max(1, n // 2):
         return 1.15
     return 0.45
-
-
-def merge(results, query, use_semantic=True, dedupe=True, slim=False):
-    """合并多引擎结果: 去重 → 评分 → 排序
-
-    results: [{title,url,snippet,engine,rank,is_ad?}, ...]
-    返回: 排序后的结果列表, 每条带 engines/weight/sem_score/confirmations/quality;
-         slim=True 时剥掉可推导字段 (给 json 瘦身用, 见 rerank._slim)
-    """
-    if dedupe:
-        results = _dedupe(results)
-    # 去重产生的内部键不外泄 (json 输出干净)
-    for r in results:
-        r.pop('_key_u', None)
-        r.pop('_key_t', None)
-    return rerank(results, query, use_semantic=use_semantic, slim=slim)
-
 
 def _dedupe(results):
     """URL 归一化 + 标题指纹双通道去重; 保留信息最全条, 合并 engines"""

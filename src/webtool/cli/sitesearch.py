@@ -111,9 +111,6 @@ def do_site(args, cfg):
     out = {'site': args.site, 'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'source': src, 'total': len(results), 'results': results,
            'dedup_removed': dedup_removed, 'blocked_by_blocklist': n_blocked}
-    if args.format == 'json':
-        from webtool.pipeline.merge import slim_results
-        slim_results(out['results'])
     from webtool.render.render import render
     render(out, args.format, 'site')
     return 0

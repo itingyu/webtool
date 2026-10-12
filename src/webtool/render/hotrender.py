@@ -38,7 +38,7 @@ def render_rank(out, fmt, filters):
                 t = r.get('title') or ''
                 link = f'[{t}]({url})' if url else t
                 print(f"{r['rank']}. {link} — *{r['source']}"
-                      + (f" sem:{r['sem_score']}" if r.get('sem_score') is not None else '')
+                      + (f" sem:{r['_sem']}" if r.get('_sem') is not None else '')
                       + '*')
         for nm in out['sources']:
             items = data.get(nm)
@@ -59,7 +59,7 @@ def render_rank(out, fmt, filters):
             print('== 重排 (跨源) ==' if out.get('threshold') else '== 清单 (原序) ==')
             for r in out['results']:
                 print(f"[{r['rank']}] ({r['source']}) {r.get('title') or ''}"
-                      + (f"  sem={r['sem_score']}" if r.get('sem_score') is not None else ''))
+                      + (f"  sem={r['_sem']}" if r.get('_sem') is not None else ''))
                 if r.get('url'):
                     print(f"    {r['url']}")
             print()

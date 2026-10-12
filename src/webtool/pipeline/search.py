@@ -266,11 +266,6 @@ def _do_search(args, cfg, filter_ad=True):
                                   'engine_query': qmap}
     if errors:
         out['errors'] = errors
-    # JSON 瘦身放最后: 上面的质量诊断/engine 通道判定都还要读 sem_score 与
-    # engine 字段, 提前剥会让他们读空 (曾导致 json 与 text 的诊断结果不一致)
-    if args.format == 'json':
-        from webtool.pipeline.merge import slim_results
-        slim_results(out['results'])
     from webtool.render.render import render
     render(out, args.format, 'search')
     return 0
@@ -284,7 +279,7 @@ def _low_quality(results, query=None):
     from webtool.pipeline.qhint import need_retry
     if not results:
         return False
-    return need_retry({i: r.get('sem_score', 0) for i, r in enumerate(results)})
+    return need_retry({i: r.get('_sem', 0) for i, r in enumerate(results)})
 
 
 def _fetch_engines(args, cfg, engines, query, filter_ad):
