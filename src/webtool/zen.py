@@ -179,7 +179,7 @@ def build_body(model, prompt, system=None, tool_choice=None, full=False):
 # ---------------------------------------------------------------- 模型清单
 
 
-def fetch_models(cfg, refresh=False, timeout=15.0):
+def fetch_models(cfg, refresh=False, timeout=15.0, proxy=None):
     """实时拉 /v1/models (缓存 1h)。
 
     刻意不内置名单: 实测 3 周内就有 4 个免费模型上架、9 个下架, 硬编码的
@@ -199,7 +199,8 @@ def fetch_models(cfg, refresh=False, timeout=15.0):
                  'Accept': 'application/json',
                  'User-Agent': UA})
     try:
-        with _opener(cfg).open(req, timeout=timeout) as r:
+        with _opener({'proxy': proxy} if proxy else {}).open(
+                req, timeout=timeout) as r:
             d = json.loads(r.read())
         ids = [m.get('id') for m in d.get('data', []) if m.get('id')]
     except Exception as e:                       # 超时/DNS/TLS 都要兜住
@@ -296,8 +297,9 @@ def _norm(u):
 
 
 def call_zen(model, prompt, system=None, session=None, on_delta=None,
-             tool_choice=None, full=False, cfg=None):
+             tool_choice=None, full=False, proxy=None):
     """发一次请求, 流式返回 {ok, status, text, usage, ...}。不重试。"""
+    cfg = {'proxy': proxy} if proxy else {}
     body = build_body(model, prompt, system, tool_choice, full)
     headers = session.headers() if session else build_headers()
     ctx = ssl.create_default_context()
@@ -416,6 +418,69 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
     return dict(base, ok=True)
 
 
+def call_zen_direct_then_proxy(model, prompt, system=None, session=None,
+                               on_delta=None, tool_choice=None, full=False,
+                               cfg=None, verbose=False):
+    """直连优先, 直连接不上才换代理 —— 与 rank/feed 同一套策略。
+
+    只在"代理确实可用"时才重试 (复用 rank._proxy_ok 的探活, 结果带进程内
+    缓存), 否则直连失败就直接报错, 不做无谓的等待。
+    直连失败指的是传输层失败 (status==0: DNS/连接拒/超时), 或者连上了但
+    上游没给东西 —— 这两种换代理都有意义。HTTP 4xx 不换 (那是请求本身的问题,
+    换出口 IP 也一样)。
+    """
+    import sys
+    gproxy = (cfg or {}).get('proxy')
+    try:
+        r = call_zen(model, prompt, system, session, on_delta, tool_choice,
+                     full, proxy=None)
+        if r.get('ok'):
+            return r
+        if not _worth_proxy(r):
+            return r
+        err = (r.get('error_body') or '')[:100]
+    except Exception as e:
+        r, err = None, str(e)[:100]
+
+    if not gproxy:
+        return r if r else {'ok': False, 'status': 0, 'elapsed': 0,
+                             'error_body': err + ' (direct)'}
+    from .rank import _proxy_ok
+    if not _proxy_ok(gproxy):
+        return r if r else {'ok': False, 'status': 0, 'elapsed': 0,
+                            'error_body': err + ' (direct; proxy 未探活, 跳过)'}
+    if verbose:
+        print('[zen] 直连失败 (%s), 换代理 %s 重试' % (err[:60], gproxy),
+              file=sys.stderr)
+    r2 = call_zen(model, prompt, system, session, on_delta, tool_choice, full,
+                  proxy=gproxy)
+    if r2.get('ok') and verbose:
+        print('[zen] 代理通道成功', file=sys.stderr)
+    return r2
+
+
+def _worth_proxy(res):
+    """这次失败值不值得换代理再试。
+
+    只有**传输层/可重试状态**才换:
+      status==0  → DNS 失败 / 连接被拒 / 超时 / TLS 错误
+      408 / 429 → 限流, 换个出口可能就通
+      5xx       → 上游错误
+    不换的:
+      200       → 流已经通了, 后面是语义问题 (截断 / 模型要调工具), 与出口无关,
+                   换代理只会再失败一次 (和重试层同一条规则)
+      其它 4xx  → 请求本身的问题, 换出口 IP 也不会变
+    """
+    if not res:
+        return True
+    st = res.get('status', 0)
+    if st == 200:
+        return False
+    if 400 <= st < 500 and st not in (408, 429):
+        return False
+    return True
+
+
 def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
                    tool_choice=None, full=False, cfg=None, max_attempts=3,
                    verbose=False):
@@ -428,7 +493,7 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
     last = None
     for attempt in range(1, max(1, max_attempts) + 1):
         last = call_zen(model, prompt, system, session, on_delta, tool_choice,
-                        full, cfg)
+                        full, proxy=None)
         if last.get('ok'):
             return last
         status = last.get('status', 0)
@@ -487,7 +552,7 @@ def _do_zen(args, cfg):
 
     # ---- 模型清单 ----
     if args.list_models or args.list_free:
-        ids = fetch_models(cfg, refresh=args.refresh)
+        ids = fetch_models(cfg, refresh=args.refresh, proxy=None)
         if not ids:
             print('zen: 拿不到 /v1/models (试 --refresh, 或检查代理)',
                   file=sys.stderr)
@@ -543,6 +608,11 @@ def _do_zen(args, cfg):
                          args.tool_choice, args.full_tools, cfg,
                          max_attempts=args.retries,
                          verbose=args.stream)
+    # 传输层失败才换代理 (代理已探活); HTTP 错误不换
+    if not res.get('ok') and _worth_proxy(res):
+        res = call_zen_direct_then_proxy(
+            args.model, prompt, args.system, session, on_delta,
+            args.tool_choice, args.full_tools, cfg, verbose=args.stream)
     for c in res.get('tool_calls_detail') or []:
         print('[zen] tool %s(%s)  ← 未执行'
               % (c.get('name'), json.dumps(c.get('args', {}), ensure_ascii=False)),
@@ -569,3 +639,4 @@ def do_zen(args, cfg):
         cfg = dict(cfg)
         cfg['proxy'] = None
     return _do_zen(args, cfg)
+

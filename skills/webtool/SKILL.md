@@ -46,6 +46,18 @@ webtool config set default_engines bing,sogou   # 持久化配置
 
 **工具调用只打印不执行**：`--tool-choice auto` 让模型去调，`delta.tool_calls` 按 index 拼装分片 arguments，终端打 `[zen] tool bash({...})  ← 未执行`，`ok=False` 退出码 2。reasoning 通道与正文分开收（模型思考时 content 本来就是空的，绝不能"content 空就读 reasoning"），只在全文无正文时才回落。
 
+**连通策略**（与 rank/feed 同一套）：**默认直连**，传输层失败或可重试状态才换代理，且**先探活**（复用 `rank._proxy_ok`，结果带进程内缓存），探不通就不换、不做无谓等待。判据 `_worth_proxy`：
+
+| status | 换代理 | 原因 |
+|---|---|---|
+| 0 | ✓ | DNS 失败 / 连接被拒 / 超时 / TLS 错误 |
+| 408 / 429 | ✓ | 限流，换出口可能通 |
+| 5xx | ✓ | 上游错误 |
+| 200 | ✗ | 流已经通了，后面是语义问题（截断 / 要调工具），与出口无关 |
+| 其它 4xx | ✗ | 请求本身的问题，换出口 IP 也不会变 |
+
+`--no-proxy` 强制直连，连探活都不做。`--retries` 只管同通道内的瞬时重试，与代理切换正交。
+
 **输出**：默认只出正文；`-f json` 给 `usage`/`reasoning`/`tool_calls`/`truncated`；实时流式只在 stdout 是终端且非 `-f json` 时开启（管道里缓冲一次输出）。
 
 ## rank / feed / site 分工
