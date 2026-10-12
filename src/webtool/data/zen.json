@@ -1,6 +1,15 @@
 {
- "zen": {
-  "chat_url": "https://opencode.ai/zen/v1/chat/completions",
-  "models_url": "https://opencode.ai/zen/v1/models"
- }
+  "zen": {
+    "protocol": "openai",
+    "chat_url": "https://opencode.ai/zen/v1/chat/completions",
+    "models_url": "https://opencode.ai/zen/v1/models",
+    "api_key": ""
+  },
+  "zen_readme": {
+    "protocol": "openai = Chat Completions 形状, 公共端点无需 key (占位 Bearer public); anthropic = Messages API, 需 api_key 走 x-api-key",
+    "api_key": "留空即可, 仅 anthropic 必填",
+    "覆盖": "同构写入 ~/.webtool/zen.json, mtime 热生效, 不必复制本文件",
+    "示例": "{\"zen\": {\"protocol\": \"anthropic\", \"api_key\": \"sk-ant-...\", \"chat_url\": \"https://api.anthropic.com/v1/messages\", \"models_url\": \"https://api.anthropic.com/v1/models\"}}",
+    "CLI": "webtool zen --protocol anthropic 可临时覆盖配置里的 protocol"
+  }
 }

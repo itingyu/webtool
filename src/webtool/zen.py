@@ -9,25 +9,23 @@ tool_choice 存在 / stream=true。解析: 纯标准库 urllib + 逐行 SSE, rea
 """
 
 import json
-import secrets
 import time
 import urllib.error
 import urllib.request
 
 from webtool.core import urls
+from webtool.zenproto import StickySession, get_protocol
 
 ZEN_URL = "https://opencode.ai/zen/v1/chat/completions"
 ZEN_MODELS_URL = "https://opencode.ai/zen/v1/models"
 
 
-def _endpoints():
-    """zen 端点: data/zen.json (包内) + ~/.webtool/zen.json (用户覆盖) 同构叠加,
-    mtime 热生效; 文件缺失/无值回落内置常量"""
+def _proto(name=None):
+    """当前协议实例: data/zen.json + ~/.webtool/zen.json 叠加 (mtime 热生效),
+    文件缺失时回落 OpenAI 兼容 + 内置端点"""
     from webtool.core.config_data import load as _cfg_load
     d = _cfg_load('zen', 'zen.json') or {}
-    chat = d.get('chat_url') or ZEN_URL
-    models = d.get('models_url') or ZEN_MODELS_URL
-    return chat, models
+    return get_protocol(name or d.get('protocol'), d)
 
 # 指纹 UA: 免费层分类器认这个串
 UA = "opencode/1.18.15 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14"
@@ -35,137 +33,13 @@ UA = "opencode/1.18.15 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14"
 # socket 空闲超时。urlopen 的 timeout 只管"多久没收到字节", 不是墙钟预算;
 # 流式生成中间只要有 delta 就永不触发, 所以给够即可。
 TIMEOUT = 120.0
-
-# 分类器只认这两个名字; 其余 9 个工具留着只是为了 --full-tools
-MINIMAL_TOOL_NAMES = ("bash", "read")
-TOOL_CHOICES = ("none", "auto", "required")
-DEFAULT_SYSTEM = "You are a helpful assistant. Be brief."
-
-# 完整工具定义只在 --full-tools 时发送。描述文本不随包分发: 原始实现的
-# bash 描述硬编码了本机绝对路径, 每次请求都外传内部目录结构。
-_FULL_TOOL_SPECS = [
-    ('bash', 'Executes a given bash command.'),
-    ('edit', 'Performs exact string replacements in files.'),
-    ('glob', 'Fast file pattern matching tool.'),
-    ('grep', 'Searches file contents with regular expressions.'),
-    ('read', 'Reads a file from the filesystem.'),
-    ('skill', 'Load a specialized skill when the task matches.'),
-    ('task', 'Launch a new agent to handle complex tasks.'),
-    ('todowrite', 'Maintain a structured task list.'),
-    ('webfetch', 'Fetches content from a specified URL.'),
-    ('websearch', 'Search the web using the session provider.'),
-    ('write', 'Writes a file to the local filesystem.'),
-]
-
-
-def minimal_tools():
-    """通过分类器的最小工具定义: bash + read, parameters 空对象。"""
-    return [{'type': 'function',
-             'function': {'name': n, 'parameters': {}}}
-            for n in MINIMAL_TOOL_NAMES]
-
-
-def full_tools():
-    """原始的 11 个工具定义 (--full-tools)。描述已去敏, 不含本机路径。"""
-    return [{'type': 'function',
-             'function': {'name': n, 'description': d,
-                          'parameters': {'type': 'object', 'properties': {},
-                                         'required': []}}}
-            for n, d in _FULL_TOOL_SPECS]
-
+# ---------------------------------------------------------------- 模型清单
 
 def is_free_model(model_id):
     """按命名约定判定是否免费层 —— 但这不是证明, 用 `zen --list-models --check`"""
     return 'free' in model_id or model_id in {'big-pickle'}
 
 
-# ---------------------------------------------------------------- ID 生成
-
-_BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-
-
-class IDGen:
-    """ses_/msg_ ID: 12 hex (时间戳×4096+计数, session 走递减) + 14 base62。
-
-    复刻自 opencode 的 packages/schema/src/identifier.ts。random 部分用
-    secrets (CSPRNG)。
-    """
-
-    def __init__(self):
-        self.last_ts = 0
-        self.counter = 0
-
-    def gen(self, descending=False, timestamp_ms=None):
-        ts = timestamp_ms or int(time.time() * 1000)
-        if ts != self.last_ts:
-            self.counter = 0
-            self.last_ts = ts
-        self.counter += 1
-        cur = ts * 0x1000 + self.counter
-        if descending:
-            cur = (~cur) & ((1 << 48) - 1)
-        rand = ''.join(_BASE62[b % 62] for b in secrets.token_bytes(14))
-        return format(cur, '012x') + rand
-
-
-_ID = IDGen()
-
-
-def make_session_id():
-    return 'ses_' + _ID.gen(descending=True)
-
-
-def make_message_id():
-    return 'msg_' + _ID.gen()
-
-
-class StickySession:
-    """跨请求复用 ses_id (让上游有机会复用同一会话的服务端缓存)
-
-    实测 (2026-10, 10 次顺序调用 + 3 组对照): Zen 免费层 usage 里
-    cached_tokens / cache_creation_input_tokens 恒为 0, 同 prompt 连打也
-    不涨; 开不开耗时无差异 (2.6-3.7s)。所以默认关闭, 不按提速手段看待。
-    """
-
-    def __init__(self):
-        self.ses_id = make_session_id()
-
-    def headers(self):
-        h = build_headers(self.ses_id, make_message_id())
-        return h
-
-
-def build_headers(ses_id=None, msg_id=None):
-    return {
-        'Authorization': 'Bearer public',
-        'Content-Type': 'application/json',
-        'User-Agent': UA,
-        'x-opencode-client': 'cli',
-        'x-opencode-project': 'global',
-        'x-opencode-session': ses_id or make_session_id(),
-        'x-opencode-request': msg_id or make_message_id(),
-        'Accept': '*/*',
-    }
-
-
-def build_body(model, prompt, system=None, tool_choice=None, full=False):
-    """分类器要形状, 不要内容 —— 所以除了 tools 那两个名字, 别的都能随便填。"""
-    body = {
-        'model': model,
-        'max_tokens': 32000,
-        'messages': [
-            {'role': 'system', 'content': system or DEFAULT_SYSTEM},
-            {'role': 'user', 'content': prompt},
-        ],
-        'tools': full_tools() if full else minimal_tools(),
-        'tool_choice': tool_choice or 'none',
-        'stream': True,
-        'stream_options': {'include_usage': True},
-    }
-    return json.dumps(body, ensure_ascii=False).encode('utf-8')
-
-
-# ---------------------------------------------------------------- 模型清单
 
 
 def fetch_models(cfg, refresh=False, timeout=15.0, proxy=None):
@@ -175,94 +49,29 @@ def fetch_models(cfg, refresh=False, timeout=15.0, proxy=None):
     也只是启发式 —— 真正的判据是 `zen --list-models --check` 实发一次。
     """
     from webtool.core import cache as _cache
-    key = 'zen/models'
+    p = _proto()
+    key = 'zen/models/%s' % p.name        # 按协议分桶, 换端点不会读到旧缓存
     if not refresh:
         hit = _cache.get(cfg, 'zen', key)
         if hit and isinstance(hit.get('ids'), list) and hit['ids']:
             return hit['ids']
     req = urllib.request.Request(
-        _endpoints()[1],
-        headers={'Authorization': 'Bearer public',
-                 'Accept': 'application/json',
-                 'User-Agent': UA})
+        p.models_url, headers=p.model_headers())
     try:
         with _opener({'proxy': proxy} if proxy else {}).open(
                 req, timeout=timeout) as r:
             d = json.loads(r.read())
-        ids = [m.get('id') for m in d.get('data', []) if m.get('id')]
+        ids = p.parse_models(d)
     except Exception as e:                       # 超时/DNS/TLS 都要兜住
         import sys
-        print('[zen] /v1/models 拉取失败: %s' % str(e)[:120], file=sys.stderr)
+        print('[zen] %s 拉取失败: %s' % (p.models_url, str(e)[:120]),
+              file=sys.stderr)
         return []
     if not ids:
         return []
     _cache.put(cfg, 'zen', key, {'ids': ids, 'ts': time.time()})
     return ids
 
-
-# ---------------------------------------------------------------- SSE 解析
-
-
-def _parse_sse(lines):
-    """yield (content, reasoning, tool_call_fragments, usage, error)
-
-    三个通道必须分开收:
-    - content    正文, 流式打到终端
-    - reasoning  思考过程。模型思考时 content 本来就是空的, 所以绝不能
-                  "content 空就读 reasoning" —— 那会把 "The user asks what time
-                  is it. I should say I don't know." 当答案打给用户。只有全部
-                  流结束、正文确实一个字符都没有时, 才把 reasoning 兜底当答案。
-    - tool_calls 分片下发: 首个 delta 给 id/type/name, 后续 delta 只是一小段
-                  arguments 字符串, 按 index 归位。
-
-    另外流里会夹 error 事件和 finish_reason, 之前都被静默丢弃, 上游半路失败
-    会伪装成 "ok=True + 空答案"。
-    """
-    for line in lines:
-        line = line.strip()
-        if not line.startswith('data:'):
-            continue
-        payload = line[5:].strip()
-        if not payload or payload == '[DONE]':
-            continue
-        try:
-            evt = json.loads(payload)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(evt, dict) and evt.get('error'):
-            err = evt['error']
-            msg = (err.get('message') if isinstance(err, dict) else None) or str(err)
-            yield '', '', [], evt.get('usage'), str(msg)[:300]
-            continue
-        text = reason = ''
-        calls = []
-        finish = None
-        for choice in evt.get('choices') or []:
-            delta = choice.get('delta') or {}
-            if delta.get('content'):
-                text += delta['content']
-            for key in ('reasoning', 'reasoning_content'):
-                if delta.get(key):
-                    reason += delta[key]
-            for tc in (delta.get('tool_calls') or []):
-                fn = tc.get('function') or {}
-                calls.append({'index': tc.get('index', 0),
-                              'id': tc.get('id'),
-                              'type': tc.get('type'),
-                              'name': fn.get('name'),
-                              'arguments': fn.get('arguments') or ''})
-            if choice.get('finish_reason'):
-                finish = choice['finish_reason']
-        usage = evt.get('usage')
-        err = None
-        if finish == 'tool_calls':
-            # 模型想调工具而本客户端不执行 —— 不是故障, 重试无意义 (再问一遍
-            # 它还是要调), 而且会把已流出去的正文重打一遍。
-            err = '__TOOLCALLS__'
-        elif finish and finish != 'stop':
-            err = 'finish_reason=%s' % finish
-        if text or reason or calls or usage or err:
-            yield text, reason, calls, usage, err
 
 
 def _opener(cfg):
@@ -285,9 +94,10 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
              tool_choice=None, full=False, proxy=None):
     """发一次请求, 流式返回 {ok, status, text, usage, ...}。不重试。"""
     cfg = {'proxy': proxy} if proxy else {}
-    body = build_body(model, prompt, system, tool_choice, full)
-    headers = session.headers() if session else build_headers()
-    req = urllib.request.Request(_endpoints()[0], data=body, headers=headers,
+    p = _proto()
+    body = p.build_body(model, prompt, system, tool_choice, full)
+    headers = session.headers() if session else p.build_headers()
+    req = urllib.request.Request(p.chat_url, data=body, headers=headers,
                                  method='POST')
     t0 = time.time()
     stream_err = []
@@ -296,7 +106,7 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
 
     def drain(lines):
         nonlocal usage
-        for text, reason, calls, u, err in _parse_sse(lines):
+        for text, reason, calls, u, err in p.parse_sse(lines):
             if text:
                 text_parts.append(text)
                 if on_delta:
@@ -342,13 +152,17 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
                     continue
                 *complete, remainder = remainder.split(b'\n')
                 lines = [c.decode('utf-8', errors='replace') for c in complete]
-                saw_done = saw_done or any(l.strip() == 'data: [DONE]'
-                                           for l in lines)
+                saw_done = saw_done or (
+                    any(l.strip() == 'data: [DONE]' for l in lines)
+                    if p.sees_done else any(l.strip() == 'data: ' + '"' + 'type' + '"' + ': \"message_stop\"'
+                                           or 'message_stop' in l for l in lines))
                 drain(lines)
             if remainder:
                 drain([remainder.decode('utf-8', errors='replace')])
             if not saw_done and not stream_err:
-                stream_err.append('stream closed without [DONE] and without content')
+                tail = ('[DONE]' if p.sees_done else 'message_stop')
+                stream_err.append('stream closed without %s and without content'
+                                  % tail)
     except urllib.error.HTTPError as e:
         with e:
             body_txt = e.read().decode('utf-8', errors='replace')
@@ -529,8 +343,9 @@ def _do_zen(args, cfg):
 
     # ---- dry-run: 打印请求, 不联网 ----
     if args.show_body or args.show_text:
-        body = build_body(args.model, prompt, args.system, args.tool_choice,
-                          args.full_tools)
+        p = _proto(getattr(args, 'protocol', None))
+        body = p.build_body(args.model, prompt, args.system, args.tool_choice,
+                            args.full_tools)
         d = json.loads(body)
         if args.show_text:
             print(json.dumps(d['messages'], indent=2, ensure_ascii=False))
@@ -578,7 +393,7 @@ def _do_zen(args, cfg):
         return 2
 
     # ---- 真正的调用 ----
-    session = StickySession() if args.sticky else None
+    session = StickySession(_proto()) if args.sticky else None
     # 实时刷屏只在"人在看终端"时做: stdout 被管道接走、或要 -f json 时, 缓冲
     # 一次输出, 否则终端上会先看到流式再看到完整结果, 重复一遍。
     fmt = getattr(args, 'format', None) or 'text'

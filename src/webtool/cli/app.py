@@ -151,6 +151,8 @@ def _do(name):
 def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空则走 --list-models)'),
             model: str = typer.Option('big-pickle', '--model',
                                       help='模型 id (不带 provider 前缀; 见 zen --list-models)'),
+            protocol: str = typer.Option(None, '--protocol',
+                                         help='协议: openai (默认) / anthropic; 不给则读 zen.json 的 protocol'),
             system: str = typer.Option(None, '--system',
                                        help='system prompt (分类器只验 role:system 存在, 不读内容)'),
             tool_choice: str = typer.Option('none', '--tool-choice',
@@ -174,9 +176,11 @@ def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空
                                         help='复用同一 ses_id (默认关: 实测 Zen 免费层不返回 prompt cache 统计, 开不开耗时无差异)'),
             fmt: str = Fmt, output: str = Output,
             no_proxy: bool = NoProxy, no_cache: bool = NoCache):
-    """OpenCode Zen 免费层对话 (公开模式, 无需 key)"""
+    """LLM 对话: 默认 OpenCode Zen 免费层 (公开模式, 无需 key);
+    --protocol anthropic 可切到 Claude 兼容端点 (需 ~/.webtool/zen.json 配 key/url)"""
     a = _CTX['args']
     a.prompt, a.model, a.system = ' '.join(prompt) if prompt else '', model, system
+    a.protocol = protocol
     a.tool_choice, a.full_tools = tool_choice, full_tools
     a.list_models, a.list_free, a.check, a.refresh = list_models, list_free, check, refresh
     a.show_body, a.show_text, a.stream = show_body, show_text, stream
