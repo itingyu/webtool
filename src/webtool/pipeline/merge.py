@@ -3,7 +3,7 @@
 去重: URL 归一化 (去 utm/跟踪参数, 尾斜杠, http/https) + 标题指纹,
 多引擎命中时保留信息最全的一条, 其余引擎名并入 engines 数组。
 weight = √(pos(1/log2(rank+1)) × agree(1+0.15×(引擎数-1))) ×
-sem(BM25归一化分, 下限0.1) × (0.2 if is_ad)
+sem((1+√BM25归一化分)/2, ∈[0.5,1]) × (0.2 if is_ad)
 
 三因子。原先还有 base(引擎权重)/entity(英文实体)/prior(词典域名降权),
 实测对排序几乎无影响已撤除 —— 少三个不可解释的常数。
@@ -76,7 +76,11 @@ def rerank(results, query, use_semantic=True):
         # 下限 0.1: 完全零命中的结果不该被乘成 0 提前出局 —— 引擎把它排在
         # 前几位说明它认为相关, 让 pos/agree 去决定它该落哪。
         raw = sem_scores[i]
-        sem = max(0.1, raw) if use_semantic else 1.0
+        # (1+√sem)/2 : 把 BM25 分压到 [0.5, 1.0]。直接用 raw 时零命中结果被
+        # 乘到 0.1 以下几乎出局, 而 BM25 分档又极粗 (要么满分要么触底),
+        # 乘性放大会把噪声一起放大。压到 0.5~1 后 sem 从"一票否决"变"温和调节",
+        # 位置与交叉验证主导排序, 相关性只在同档内微调。
+        sem = (1.0 + math.sqrt(max(0.0, raw))) / 2 if use_semantic else 1.0
         # pos×agree 先开根号再乘 sem: 直接连乘时 pos 的对数衰减会被二次放大
         # (rank1→rank10 差 3.4 倍), 且 agree 几乎压不动; 开根号把两者压回
         # 接近加性的量级, sem 得以在同等权重上参与排序。
