@@ -430,8 +430,8 @@ def call_zen_direct_then_proxy(model, prompt, system=None, session=None,
     if not gproxy:
         return r if r else {'ok': False, 'status': 0, 'elapsed': 0,
                              'error_body': err + ' (direct)'}
-    from webtool.rank import _proxy_ok
-    if not _proxy_ok(gproxy):
+    from webtool.probe import proxy_ok
+    if not proxy_ok(gproxy):
         return r if r else {'ok': False, 'status': 0, 'elapsed': 0,
                             'error_body': err + ' (direct; proxy 未探活, 跳过)'}
     if verbose:
