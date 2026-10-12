@@ -116,35 +116,34 @@ from webtool.pipeline.merge import normalize_url, merge as _merge
 u = normalize_url('https://www.Example.com/a/?utm_source=x&id=1')
 check(u == 'https://example.com/a?id=1', f'normalize_url 走配置 ({u})')
 
-# pos(排名) 单调影响权重; _ranks 显式给出时按引擎可信度加权取均值
+# pos(排名) 单调影响权重
 def _mk(title, rank, engines, ranks=None):
     return {'title': title, 'url': 'https://e.com/' + title, 'snippet': 'query 教程',
-            'engine': engines[0], 'engines': list(engines), 'rank': rank,
-            '_ranks': dict(ranks or {engines[0]: rank})}
+            'engine': engines[0], 'engines': list(engines), 'rank': rank}
 _rr = _merge([_mk('alpha 教程', 1, ['bing']), _mk('beta 教程', 5, ['bing'])],
              'query', dedupe=False)
 check(_rr[0]['weight'] > _rr[1]['weight'], f'pos 靠前权重高 ({_rr[0]["weight"]} > {_rr[1]["weight"]})')
-# 可信度加权平均: 同样是 google+sogou 双命中, 让高可信引擎排更前
-# (google#1+sogou#2) 应优于排名反过来的 (google#2+sogou#1)。
-_m = _merge([_mk('alpha 教程', 1, ['google', 'sogou'], {'google': 1, 'sogou': 2}),
-             _mk('beta 教程', 1, ['google', 'sogou'], {'sogou': 1, 'google': 2})],
-            '', use_semantic=False, dedupe=False)
-_by_e = {r['title']: r['weight'] for r in _m}
-check(_by_e['alpha 教程'] > _by_e['beta 教程'],
-      f'可信度加权的简单平均 ({_by_e["alpha 教程"]} > {_by_e["beta 教程"]})')
-# 简单平均下 base 不被约掉: 单引擎命中时可信度同样生效 (google > sogou)
+# base_avg 是批级量: 同批内共享同一 base_avg, 故同 rank 同相关性的条目
+# 必然等权 (归一后同为 1.0) —— 可信度不再逐条区分。
 _m0 = _merge([_mk('gamma 教程', 1, ['google']), _mk('delta 教程', 1, ['sogou'])],
              '', use_semantic=False, dedupe=False)
 _by_0 = {r['title']: r['weight'] for r in _m0}
-check(_by_0['gamma 教程'] > _by_0['delta 教程'],
-      f'单引擎 base 生效 ({_by_0["gamma 教程"]} > {_by_0["delta 教程"]})')
-# 多引擎取加权平均而非累加: bing第1 + sogou第10 应低于 bing第1 单独命中
-_m2 = _merge([_mk('alpha 教程', 1, ['bing'], {'bing': 1, 'sogou': 10}),
-              _mk('beta 教程', 1, ['bing'], {'bing': 1})],
+check(_by_0['gamma 教程'] == _by_0['delta 教程'],
+      f'批级 base_avg 同 rank 等权 ({_by_0["gamma 教程"]})')
+# base_avg 随各引擎贡献数变化: 高可信引擎多贡献的批次, 整体权重应更高。
+# 批A 全是 google, 批B 全是 sogou —— 各自归一后 top 都是 1.0, 故改看
+# 同 rank 下的原始比例: 用两条不同 rank 条目比较衰减速度无意义, 直接
+# 验证 base_avg 本身进了 pos: 低可信引擎独占批次时, 排名靠后条目衰减更快。
+_mg = _merge([_mk('g1', 2, ['google']), _mk('g2', 8, ['google'])],
              '', use_semantic=False, dedupe=False)
-_by_t = {r['title']: r['weight'] for r in _m2}
-check(_by_t['beta 教程'] > _by_t['alpha 教程'],
-      f'多引擎简单平均非累加 ({_by_t["beta 教程"]} > {_by_t["alpha 教程"]})')
+_ms = _merge([_mk('s1', 2, ['sogou']), _mk('s2', 8, ['sogou'])],
+             '', use_semantic=False, dedupe=False)
+_g = {r['title']: r['weight'] for r in _mg}
+_s = {r['title']: r['weight'] for r in _ms}
+# 归一后尾/首比值 = (rank8 分/rank2 分), base_avg 是乘性因子会被约掉,
+# 故两批比值相同 —— 断言批级化确实生效 (不再逐条按引擎区分)
+check(abs((_g['g2'] / _g['g1']) - (_s['s2'] / _s['s1'])) < 1e-3,
+      f'批级化后与引擎无关 ({_g["g2"]/_g["g1"]:.3f} ≈ {_s["s2"]/_s["s1"]:.3f})')
 # sem 直接用 BM25 归一化分: 相关文档权重高于无关文档 (多文档才有区分度)
 _docs = [_mk('alpha 相关页', 1, ['bing']), _mk('zeta 无关页', 1, ['bing'])]
 _docs[0]['snippet'] = 'query 命中 snippet'
@@ -155,25 +154,25 @@ check(_by_title['alpha 相关页'] > _by_title['zeta 无关页'],
       f'sem BM25 拉高相关结果 ({_by_title["alpha 相关页"]} '
       f'> {_by_title["zeta 无关页"]})')
 # prior: 广告判 0 权重 (is_ad 恒 True, 绕开依赖具体广告域名)
-_ad = _mk('广告页', 1, ['bing'], {'bing': 1})
+_ad = _mk('广告页', 1, ['bing'])
 _ad['is_ad'] = True
-_p = _merge([_ad, _mk('正常页', 1, ['bing'], {'bing': 1})],
+_p = _merge([_ad, _mk('正常页', 1, ['bing'])],
             'query', use_semantic=False, dedupe=False)
 _by_p = {r['title']: r['weight'] for r in _p}
 check('广告页' not in _by_p and _by_p.get('正常页', 0) > 0,
       f'prior 广告判 0 并被过滤 ({sorted(_by_p)})')
 # prior: 英文 query 下词典域名降权 (ref_hosts: baike.baidu.com)
-_dic = _mk('词典页', 1, ['bing'], {'bing': 1})
+_dic = _mk('词典页', 1, ['bing'])
 _dic['url'] = 'https://baike.baidu.com/item/x'
-_d2 = _merge([_dic, _mk('正常页2', 1, ['bing'], {'bing': 1})],
+_d2 = _merge([_dic, _mk('正常页2', 1, ['bing'])],
              'python tutorial', use_semantic=False, dedupe=False)
 _by_d = {r['title']: r['weight'] for r in _d2}
 check(0 < _by_d['词典页'] < _by_d['正常页2'],
       f'prior 词典降权 ({_by_d["词典页"]} < {_by_d["正常页2"]})')
 # prior: low_prior 降权 (从 blocklist 放出的内容可用但质量存疑的站)
-_low = _mk('搬运页', 1, ['bing'], {'bing': 1})
+_low = _mk('搬运页', 1, ['bing'])
 _low['url'] = 'https://www.jb51.net/article/1'
-_pw = _merge([_low, _mk('正常页3', 1, ['bing'], {'bing': 1})],
+_pw = _merge([_low, _mk('正常页3', 1, ['bing'])],
              'query', use_semantic=False, dedupe=False)
 _by_w = {r['title']: r['weight'] for r in _pw}
 check(0 < _by_w['搬运页'] < _by_w['正常页3'],
@@ -181,16 +180,16 @@ check(0 < _by_w['搬运页'] < _by_w['正常页3'],
 # weight_floor 是兜底阈值: 实测真实结果权重集中在 0.47-0.95 (57 条样本
 # min 0.465), 故 0.30 只挡异常值。两个方向各测一次 ——
 # 相关结果即使排名靠后也不该被误杀;
-_rel = _mk('相关页', 30, ['bing'], {'bing': 30})
+_rel = _mk('相关页', 30, ['bing'])
 _rel['snippet'] = 'query 命中 snippet'
-_nf = _merge([_rel, _mk('正常页4', 1, ['bing'], {'bing': 1})], 'query', dedupe=False)
+_nf = _merge([_rel, _mk('正常页4', 1, ['bing'])], 'query', dedupe=False)
 _titles = [r['title'] for r in _nf]
 check('相关页' in _titles and '正常页4' in _titles,
       f'weight_floor 不误杀 ({_titles})')
 # 完全零相关 + 排名靠后的合成条目应被剔除 (兜底生效)
-_junk = _mk('零相关页', 30, ['bing'], {'bing': 30})
+_junk = _mk('零相关页', 30, ['bing'])
 _junk['snippet'] = 'zzz'
-_nf2 = _merge([_mk('正常页5', 1, ['bing'], {'bing': 1}), _junk],
+_nf2 = _merge([_mk('正常页5', 1, ['bing']), _junk],
               'query', dedupe=False)
 check('零相关页' not in [r['title'] for r in _nf2],
       f'weight_floor 剔除零相关 ({[r["title"] for r in _nf2]})')
