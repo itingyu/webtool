@@ -2,7 +2,7 @@
 
 去重: URL 归一化 (去 utm/跟踪参数, 尾斜杠, http/https) + 标题指纹,
 多引擎命中时保留信息最全的一条, 其余引擎名并入 engines 数组。
-位置分 pos = Σ(base × pos_rank) / Σbase   —— 引擎可信度加权平均
+位置分 pos = Σ(base × pos_rank) / 引擎个数 —— 引擎可信度加权的简单平均
 weight = √pos × sem((1+√BM25归一化分)/2, ∈[0.5,1]) × (0.2 if is_ad)
 
 两因子。原先 agree=1+0.15×(引擎数-1) 按引擎个数线性加成, 把"命中引擎多"
@@ -84,9 +84,10 @@ def rerank(results, query, use_semantic=True):
         # (prior 的 ref_hosts 全是国内词典, 英文 query 基本不命中), 已撤除。
         # 曾撤除的 base 现在回来了 —— 不是当独立因子, 而是作为位置分的权重。
         rank = r.get('rank', 10)
-        # 位置分 = Σ(可信度 × 自身 pos) / Σ(可信度), 再开根号。
-        # 除以可信度之和而非引擎个数: 加权平均, 避免低可信引擎因为数量多
-        # 而拉低整体 (sogou 0.75 拖 bing 0.9 的腿)。
+        # 位置分 = Σ(可信度 × 自身 pos) / 引擎个数, 再开根号。
+        # 除以长度(简单平均)而非可信度之和(加权平均): 前者让 base 在
+        # 单引擎命中时也保留效力 (google#1 优于 sogou#1), 后者会把 base
+        # 整个约掉。可信度只影响权重分配, 不影响整体尺度。
         # 原式 pos(全局最优 rank) × agree(1+0.15×(引擎数-1)) 有两处失真:
         #   1) 只用最优 rank, 丢掉其余引擎的排名信息;
         #   2) agree 按引擎个数线性加成, 把"多"和"可信"混为一谈 ——
@@ -95,9 +96,8 @@ def rerank(results, query, use_semantic=True):
         eranks = r.get('_ranks') or {}
         if not eranks and r.get('engine') and rank:
             eranks = {r['engine']: rank}
-        wsum = sum(cred.get(en, 0.8) for en in eranks)
         acc = sum(cred.get(en, 0.8) / math.log2(rk + 1) for en, rk in eranks.items())
-        pos = acc / wsum if wsum else 1.0 / math.log2(rank + 1)
+        pos = acc / len(eranks) if eranks else 1.0 / math.log2(rank + 1)
         raw = sem_scores[i]
         # (1+√sem)/2 : 把 BM25 分压到 [0.5, 1.0]。直接用 raw 时零命中结果被
         # 乘到 0.1 以下几乎出局, 而 BM25 分档又极粗 (要么满分要么触底),
