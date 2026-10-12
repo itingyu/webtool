@@ -242,7 +242,7 @@ def resolve_link(url, proxy=None, timeout=10):
     上层当成解码成功写进缓存, 一次失败即永久失败。
     """
     if 'news.google.com/rss/articles/' in url or 'news.google.com/articles/' in url:
-        from webtool import gnews
+        from webtool.engines import gnews
         return gnews.decode(url, proxy=proxy, timeout=timeout)
     if 'google.com/url' not in url:
         return None                     # 非跳转链, 无需解码

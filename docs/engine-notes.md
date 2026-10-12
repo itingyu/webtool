@@ -1,14 +1,15 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""Google (News RSS) + Baidu 引擎扩展 + 广告过滤 + --no-proxy 选项测试记录
+引擎实测笔记 (Google News RSS / Baidu / 广告过滤 / --no-proxy)
 
-实测结论 (2026-10-09):
-1. Google Web 搜索: 不可行 (JS壳页/429 sorry)。Google News RSS 可行:
-   news.google.com/rss/search?q=..&hl=..&ceid=.. 免key, 100条/次, 但文章链接是
-   news.google.com/rss/articles/CBMi.. 跳转链, 新版无法离线解码 (旧 base64
-   方案已失效, HTTP 400), 需逐条请求跳转页且页面 JS 渲染拿 data-n-au →
-   纯 HTTP 不可解析。方案: 输出保留 Google 跳转链 + title/source/date,
-   并在结果里给 google 原搜索 URL 供 Agent 兜底; title 已含来源站名。
+结论基于 2026-10-09 实测，2026-10-12 复核当前实现。
+
+1. Google Web 搜索: 不可行 (JS 壳页 / 429 sorry)。
+   Google News RSS 可行: news.google.com/rss/search?q=..&hl=..&ceid=.. 免 key,
+   100 条/次。
+   文章链接是 news.google.com/rss/articles/CBMi.. 跳转链。旧 base64 方案已失效
+   (HTTP 400)。当前解码走 gnews batchexecute 反查通道 (webtool/engines/gnews.py:
+   decode())，经 engines/google.py:resolve_link() 挂为 resolver 插件 gnews。
+   注意: 该通道依赖上游, 上游未解析出时返回 None, 不是异常 —— 属于预期行为,
+   不是 bug。
 2. Baidu: 可行但限频。先 GET www.baidu.com/ 领 cookie, 再带 Referer 搜索,
    成功率约 3/4 (其余返回安全验证页 1438B); 识别特征: len<10000 或含"安全验证"。
    解析: <h3 class="...title..."><a href="http://www.baidu.com/link?url=..">
@@ -20,4 +21,14 @@
    tuiguang 词在本次页面 CSS 中, 需在块内检测。
 4. Bing RSS 无广告注入 (RSS feed 本身无广告位)。
 5. 通用广告过滤: title/snippet 命中广告词表 + url 命中广告域 → is_ad。
-"""
+   规则已外置到 src/webtool/data/filters.json 的 adfilter 段:
+   keywords 18 / domains 5 / url_patterns 1。
+
+跳转链解码插件 (plugins.json → resolver 段, 共 3 个):
+- sogou  → webtool.engines.sogou:resolve_link
+- baidu  → webtool.engines.baidu:_resolve_one
+- gnews  → webtool.engines.google:resolve_link
+
+踩坑记录: google.py 曾写成 `from webtool import gnews` (错误路径, gnews 实际在
+engines/ 下), 导致 gnews resolver 一调用就 ImportError。已改为
+`from webtool.engines import gnews`。
