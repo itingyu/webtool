@@ -9,23 +9,25 @@ V1 设计见下文第 1-4 节（历史决策记录）。当前代码结构以本
 
 ```
 src/webtool/
-├── cli.py            # typer 声明式 CLI (11 命令); 命令函数填 SimpleNamespace 复用 do_*(args, cfg)
-├── plugins.py        # Registry: 七类插件 engine/site/hot/extractor/resolver/filter/transformer 统一注册表 (懒解析 + 三层来源)
-├── config_data.py    # 配置合并: 包内 data/*.json + ~/.webtool/ 同名文件 (深合并/列表替换)
-├── extractors.py     # 策略链: 正文提取按插件优先级降级 (trafilatura→readability→inscriptis)
-├── search.py         # 多引擎调度 (引擎表与权重来自插件表)
-├── merge.py          # 跨源排序 (BM25 语义 + 权重, 权重来自配置)
-├── fetch.py          # 抓取 (并发/重试/缓存), 提取委托 extractors 策略链
-├── feed.py           # RSS/Atom 订阅聚合
-├── rank.py           # 榜单聚合 (源来自插件表 hot 段)
-├── zen.py            # 免费 LLM 对话 (独立 provider 协议, 形状校验)
-├── render.py / output.py / hotrender.py   # 正文渲染与输出格式
-├── blocklist.py / adfilter.py             # 过滤规则 (来自 filters.json)
-├── transport.py      # curl_cffi 指纹传输层 (直连优先, 失败才走代理)
-├── data/
-│   ├── plugins.json  # 引擎/榜单源/站点/提取器清单 (元数据 + 模块路径)
-│   └── filters.json  # 广告特征词/落地域名/黑名单 (含 notes 说明背景)
-└── engines/          # 各站适配器函数 (由 plugins.json 的 module 字段指向)
+├── cli/                 # typer 声明式 CLI (app/config/plugins); 命令函数填 SimpleNamespace 复用 do_*(args, cfg)
+├── feeds/               # RSS/Atom 订阅聚合
+│   └── command / sources / parse / fetch / cards
+├── radar/               # RSSHub 路由查询与参数填充 (按数据源切: routes/rules/instances/official/template/race)
+├── zen.py fetch.py sitesearch.py blocklist.py adfilter.py
+├── pipeline/            # search 调度 / rank 榜单 / merge 排序去重 / topup 补量 / qhint 质量诊断
+├── render/              # render 正文渲染 / hotrender 榜单分节 / output 落盘
+├── net/                 # transport 指纹传输 / proxy / captcha 冷却 / spa 数据提取
+├── engines/             # 各站适配器函数 (由 plugins.json 的 module 字段指向)
+├── core/                # L0 底座 + 通用工具类
+│   ├── plugins.py       # Registry: 七类插件 engine/site/hot/extractor/resolver/filter/transformer 统一注册表 (懒解析 + 三层来源)
+│   ├── config_data.py   # 配置合并: 包内 data/*.json + ~/.webtool/ 同名文件 (深合并/列表替换, 指纹判失效热生效)
+│   ├── cache.py state.py http.py probe.py resilient.py
+│   └── text.py urls.py jsonfmt.py   # 通用工具类: HTML 转纯文本 / URL 归一化 / JSON 原子读写
+└── data/
+    ├── plugins.json  # 引擎/榜单源/站点/提取器清单 (元数据 + 模块路径)
+    ├── filters.json  # 广告特征词/落地域名/黑名单 (含 notes 说明背景)
+    ├── instances.json / zen.json / feeds.seed.json
+    └── 注: data/ 在包根, 不在 core/ 下 —— core.config_data.DATA_DIR 指向它
 ```
 
 **扩展方式**：七类插件清单声明在 `data/plugins.json`，用户经 `~/.webtool/plugins.json` 覆盖或追加（改权重、加引擎/站点/提取器/解码器/过滤器），无需改代码；函数签名约定 `包路径:函数名`。详见 README「扩展」节。
