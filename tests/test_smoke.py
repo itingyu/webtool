@@ -154,6 +154,22 @@ _by_title = {r['title']: r['weight'] for r in _r}
 check(_by_title['alpha 相关页'] > _by_title['zeta 无关页'],
       f'sem BM25 拉高相关结果 ({_by_title["alpha 相关页"]} '
       f'> {_by_title["zeta 无关页"]})')
+# prior: 广告判 0 权重 (is_ad 恒 True, 绕开依赖具体广告域名)
+_ad = _mk('广告页', 1, ['bing'], {'bing': 1})
+_ad['is_ad'] = True
+_p = _merge([_ad, _mk('正常页', 1, ['bing'], {'bing': 1})],
+            'query', use_semantic=False, dedupe=False)
+_by_p = {r['title']: r['weight'] for r in _p}
+check(_by_p['广告页'] == 0.0 and _by_p['正常页'] > 0,
+      f'prior 广告判 0 ({_by_p["广告页"]}, {_by_p["正常页"]})')
+# prior: 英文 query 下词典域名降权 (ref_hosts: baike.baidu.com)
+_dic = _mk('词典页', 1, ['bing'], {'bing': 1})
+_dic['url'] = 'https://baike.baidu.com/item/x'
+_d2 = _merge([_dic, _mk('正常页2', 1, ['bing'], {'bing': 1})],
+             'python tutorial', use_semantic=False, dedupe=False)
+_by_d = {r['title']: r['weight'] for r in _d2}
+check(0 < _by_d['词典页'] < _by_d['正常页2'],
+      f'prior 词典降权 ({_by_d["词典页"]} < {_by_d["正常页2"]})')
 
 print()
 if fails:

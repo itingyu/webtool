@@ -3,10 +3,12 @@
 去重: URL 归一化 (去 utm/跟踪参数, 尾斜杠, http/https) + 标题指纹,
 多引擎命中时保留信息最全的一条, 其余引擎名并入 engines 数组。
 位置分 pos = Σ(base × pos_rank) / 引擎个数 —— 引擎可信度加权的简单平均
-weight = √pos × sem((1+√BM25归一化分)/2, ∈[0.5,1]) × (0.2 if is_ad)
+weight = prior × √pos × sem((1+√BM25归一化分)/2, ∈[0.5,1])
 
-两因子。原先 agree=1+0.15×(引擎数-1) 按引擎个数线性加成, 把"命中引擎多"
-与"引擎可信"混为一谈, 已由 pos 内的 base 加权取代。
+三因子, prior = 0 (广告) / 0.5 (词典百科页) / 1.0 (其余)。原先 is_ad 走
+×0.2, 那个常数把广告留在候选里靠排名挤出去; 判 0 语义更明确。
+agree=1+0.15×(引擎数-1) 曾按引擎个数线性加成, 把"命中引擎多"与"引擎可信"
+混为一谈, 已由 pos 内的 base 加权取代。
 """
 import math
 import re
@@ -21,6 +23,25 @@ from webtool.filters.adfilter import is_ad
 def _merge_cfg():
     """merge 段配置 (ref_hosts/track_params/short_entities); mtime 热生效"""
     return _cfg_load('merge', 'filters.json')
+
+
+_EN_TOKEN_RE = re.compile(r'[A-Za-z][A-Za-z0-9+#.]{2,}')
+
+
+def _domain_prior(r, query):
+    """词典/百科先验: query 含英文时, 词典/通用百科页几乎必是噪声
+
+    "GPT Claude Gemini" 命中「大(汉语文字)」是典型误报; 但对「X 是什么
+    意思」类 query 又是有用结果 → 不拉黑, 只降权 (×0.5)。
+    域名表在 data/filters.json 的 merge 段 (ref_hosts), 用户可增删。
+    """
+    if not _EN_TOKEN_RE.search(query or ''):
+        return 1.0
+    host = urls.host_of(r.get('url', ''))
+    if host and any(host == h or host.endswith('.' + h)
+                    for h in _merge_cfg().get('ref_hosts', ())):
+        return 0.5
+    return 1.0
 
 
 def _engine_cred():
@@ -58,9 +79,9 @@ def rerank(results, query, use_semantic=True):
 
     每条结果最终只带 title/url/snippet/weight/rank + 引擎字段:
       engine   单引擎命中时的来源 (字符串)
-      engines  多引擎命中时的来源数组 (交叉验证, 长度即验证数)
-    sem_score/quality/confirmations 是评分中间量, 算完即弃 —— 不进对外结果。
-    quality 判据: cut = max(0.12, top×0.35), sem<cut 视为与批内头部断层(噪声)。
+      engines  精确命中同一页面时的来源数组; 交叉验证强度另按 base 加权的
+               排名均值计算 (pos), 故长度为 1 不代表未被其他引擎认可
+    _sem/_ranks 是评分中间量, 算完即弃 —— 不进对外结果。
     """
     if not results:
         return results
@@ -79,10 +100,9 @@ def rerank(results, query, use_semantic=True):
 
     cred = _engine_cred()
     for i, r in enumerate(results):
-        # 两因子: 引擎可信度加权排名位置 × 语义相关性。
-        # 曾有 ent(英文实体)/prior(词典域名降权) 两项, 实测对排序几乎无影响
-        # (prior 的 ref_hosts 全是国内词典, 英文 query 基本不命中), 已撤除。
-        # 曾撤除的 base 现在回来了 —— 不是当独立因子, 而是作为位置分的权重。
+        # 三因子: 先验(广告/词典) × 引擎可信度加权位置 × 语义相关性。
+        # entity(英文实体命中) 曾因影响甚微撤除; base 则从独立因子改为
+        # 位置分内的权重。
         rank = r.get('rank', 10)
         # 位置分 = Σ(可信度 × 自身 pos) / 引擎个数, 再开根号。
         # 除以长度(简单平均)而非可信度之和(加权平均): 前者让 base 在
@@ -107,9 +127,10 @@ def rerank(results, query, use_semantic=True):
         # pos 先开根号再乘 sem: pos 的对数衰减 (rank1→rank10 差 3.4 倍)
         # 直接进权重会把长尾压死, 开根号压回接近加性的量级, sem 才得以
         # 在同等权重上参与排序。
-        w = math.sqrt(pos) * sem
-        if is_ad(r):
-            w *= 0.2
+        # prior: 广告判 0 (权重直接归零, 取代原先的 ×0.2 —— 那个常数把广告
+        # 留在候选里靠排名挤出去, 判 0 语义更明确); 词典/百科页 ×0.5。
+        prior = 0.0 if is_ad(r) else _domain_prior(r, query)
+        w = prior * math.sqrt(pos) * sem
         r['_sem'] = round(raw, 3)      # 中间量, 排完即删
         r['weight'] = round(w, 4)
 
