@@ -8,7 +8,7 @@ import json
 import re
 import urllib.parse
 
-from .sites import _headers, _mk, _fetch
+from webtool.engines.sites import _headers, _mk, _fetch
 
 
 def _clean(s):
@@ -63,7 +63,7 @@ def zhihu_hot(q, limit=10, proxy=None, timeout=15):
 
 def toutiao(q, limit=10, proxy=None, timeout=15):
     """今日头条 feed (m.toutiao.com SSR 页, 移动指纹; 榜单接口不支持关键词)"""
-    from .. import spa
+    from webtool import spa
     url = 'https://m.toutiao.com/feed'
     # 头条按 UA/TLS 指纹分流: 桌面档案回 4.8KB 壳页, 真·移动 TLS 指纹才给 SSR 数据
     headers = _headers(url, 'nav', {'Sec-Fetch-Site': 'none'})
@@ -535,7 +535,7 @@ def bili_word(q, limit=10, proxy=None, timeout=15):
 # 注意: Registry.items() 返回 dict (name -> spec), 遍历要用 .items() 两层 ——
 # `for k, v in registry.items()` 是对 dict 迭代 key, 'zhihu' 会被解包成
 # ('z','h') 直接 ValueError。统一走 table() 取 dict 再 .items()。
-from ..plugins import table as _plugin_table
+from webtool.plugins import table as _plugin_table
 
 HOT_SITES = _plugin_table('hot')
 

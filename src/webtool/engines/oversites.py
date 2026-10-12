@@ -19,10 +19,10 @@ def _clean(s):
 
 _sites = _sys.modules.get('webtool.engines.sites')
 if _sites is None:
-    from . import sites as _sites
+    from webtool import sites as _sites
     _sites = _sys.modules['webtool.engines.sites']
 
-from .sites import _headers, _mk, _fetch
+from webtool.engines.sites import _headers, _mk, _fetch
 
 
 def sov2ex(q, limit=10, proxy=None, timeout=15):

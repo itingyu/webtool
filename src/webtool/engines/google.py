@@ -17,7 +17,7 @@ news RSS 是新闻检索不是全 Web 搜索:
 import re
 import urllib.parse
 
-from .. import captcha, transport
+from webtool import captcha, transport
 
 _BATCH_URL = 'https://news.google.com/_/DotsSplashUi/data/batchexecute'
 
@@ -95,7 +95,7 @@ def _web(query, max_results, proxy, timeout, market, page):
         # 梯内+上层各记一次会瞬间堆到 1200s, 把 news 通道也锁死 (共享 engine 名)
         # 先试纯 HTTP 攻坚挑战 (gcaptcha: anchor token + sorry 表单回填)
         try:
-            from . import gcaptcha as _gc
+            from webtool import gcaptcha as _gc
             if _gc.is_challenge(text, status=status) or '/sorry/' in text:
                 gs, gp = transport._new_session('chrome131_win', proxy, 'google')
                 try:
@@ -247,7 +247,7 @@ def resolve_link(url, proxy=None, timeout=10):
     上层当成解码成功写进缓存, 一次失败即永久失败。
     """
     if 'news.google.com/rss/articles/' in url or 'news.google.com/articles/' in url:
-        from . import gnews
+        from webtool import gnews
         return gnews.decode(url, proxy=proxy, timeout=timeout)
     if 'google.com/url' not in url:
         return None                     # 非跳转链, 无需解码

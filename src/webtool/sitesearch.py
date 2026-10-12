@@ -5,8 +5,8 @@ import os
 import sys
 import time
 
-from . import cache
-from .engines.sites import sites_table
+from webtool import cache
+from webtool.engines.sites import sites_table
 
 
 def _site_kwargs(args, spec):
@@ -25,7 +25,7 @@ def _site_kwargs(args, spec):
 
 def do_site(args, cfg):
     if args.site in (None, 'list'):
-        from .customsites import load_custom_sites
+        from webtool.customsites import load_custom_sites
         rows = []
         for k, v in sites_table().items():
             rows.append({'site': k, 'desc': v['desc'], 'proxy_hint': v['proxy'], 'source': 'builtin'})
@@ -41,7 +41,7 @@ def do_site(args, cfg):
         args.query = ''
 
     # 自定义站点优先查 (允许覆盖内置)
-    from .customsites import load_custom_sites, search_custom
+    from webtool.customsites import load_custom_sites, search_custom
     customs = load_custom_sites()
     kind, spec = None, None
     if args.site in customs and not customs[args.site].get('_error'):
@@ -95,7 +95,7 @@ def do_site(args, cfg):
     n_blocked = 0
 
     # quality 仅标注不剔除, 与 search 一致
-    from .merge import merge as _merge
+    from webtool.merge import merge as _merge
     n_before = len(results)
     results = _merge(results, args.query, use_semantic=cfg.get('semantic') != 'off', dedupe=cfg.get('dedupe') != 'off')
     dedup_removed = n_before - len(results)
@@ -109,6 +109,6 @@ def do_site(args, cfg):
     out = {'site': args.site, 'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'source': src, 'total': len(results), 'results': results,
            'dedup_removed': dedup_removed, 'blocked_by_blocklist': n_blocked}
-    from .render import render
+    from webtool.render import render
     render(out, args.format, 'site')
     return 0

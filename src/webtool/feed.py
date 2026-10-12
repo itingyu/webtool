@@ -29,10 +29,10 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from . import cache
-from . import feedhealth
-from .engines.sites import _fetch
-from .rank import _proxy_ok
+from webtool import cache
+from webtool import feedhealth
+from webtool.engines.sites import _fetch
+from webtool.rank import _proxy_ok
 
 
 def _clean(s):
@@ -167,7 +167,7 @@ def parse_feed(txt, source_name=''):
 
 def pull_one(name, url, n, proxy, timeout):
     """拉单个 feed → 条目列表 (原序=发布时序; 请求头走 transport 统一指纹)"""
-    from .engines.sites import _headers
+    from webtool.engines.sites import _headers
     headers = _headers(url, 'nav', {
         'Accept': 'application/rss+xml, application/atom+xml, '
                   'application/xml, text/xml, */*'})
@@ -190,7 +190,7 @@ def _instance_candidates(preferred, explicit, cfg):
 
     探活只验了一条路由, 不代表该实例支持所有路由, 所以要多备几个候选。
     """
-    from . import radar as _radar
+    from webtool import radar as _radar
     lst = _radar.instances(proxy=cfg.get('proxy'), need=1)
     alive = [it['instance'].rstrip('/') for it in lst if it['ok']]
     unknown = [it['instance'].rstrip('/') for it in lst
@@ -260,7 +260,7 @@ def _crosscheck(official, rss_url, section, n, cfg, timeout=None,
     挂掉的实例都等满超时。比对只取 URL 集合不比正文: RSSHub 的 link 常带
     utm 之类尾参 (_norm_u 已剥掉), 且 URL 比标题稳定。
     """
-    from . import radar as _radar
+    from webtool import radar as _radar
     off_url, _off_n, _buckets = official
     tmo = timeout or cfg.get('timeout', 20)
     # 取数条数要比展示的 n 多, 否则两边窗口对不齐, 重叠率被小样本放大
@@ -354,7 +354,7 @@ def _print_route_cards(cards, kw, args, cfg):
     填参模式用 --pick 选定一条, 实参只灌进那一条, 输出订阅 URL 并直接拉数
     渲染。参数只作用于选中项, 不改写模板, 不影响其它候选路由。
     """
-    from . import radar as _radar
+    from webtool import radar as _radar
 
     params = {}
     for kv in (getattr(args, 'param', None) or []):
@@ -497,7 +497,7 @@ def _print_route_cards(cards, kw, args, cfg):
         if not getattr(args, 'items', False):
             return 0
         items = reuse[:max(getattr(args, 'max', 10) or 10, 1)]
-        from .hotrender import render_hot
+        from webtool.hotrender import render_hot
         render_hot({'cmd': 'feed', 'sources': [src_name],
                     'requested': len(items), 'took_ms': (xc or {}).get('wall_ms', 0),
                     'ok': [src_name], 'failed': [], 'sources_data': {src_name: items},
@@ -549,7 +549,7 @@ def _print_route_cards(cards, kw, args, cfg):
                                           'fetched_from': fetch_url,
                                           'source': fetch_note or 'RSSHub',
                                           'crosscheck': xc}}
-    from .hotrender import render_hot
+    from webtool.hotrender import render_hot
     render_hot(out, args.format)
     return 0
 
@@ -561,7 +561,7 @@ def _print_card(c, idx=None, base=None, official=None, coverage=None,
     base 非空时附 URL 行: 模板形态 (占位符原样, 看得出还要填什么) + example
     形态 (可直接用), 各一行。
     """
-    from . import radar as _radar
+    from webtool import radar as _radar
     feat = c.get('features') or {}
     warn = []
     if feat.get('antiCrawler'):
@@ -702,7 +702,7 @@ def do_feed(args, cfg):
         return 0
     # ---- feed instances: 公共实例探活 ----
     if len(args.sources) == 1 and args.sources[0] == 'instances':
-        from . import radar as _radar
+        from webtool import radar as _radar
         print('公共实例探活 (探测路由 %s, 缓存 1h):\n'
               % _radar._PROBE_ROUTE)
         for it in _radar.instances(proxy=cfg.get('proxy'),
@@ -715,7 +715,7 @@ def do_feed(args, cfg):
         return 0
     # ---- feed radar [--from-url URL | <关键词>]: 查 RSSHub 路由库, 填参出订阅 URL ----
     if len(args.sources) >= 1 and args.sources[0] == 'radar':
-        from . import radar as _radar
+        from webtool import radar as _radar
         kw = args.sources[1] if len(args.sources) > 1 else ''
         from_url = getattr(args, 'from_url', None)
         try:
@@ -901,7 +901,7 @@ def do_feed(args, cfg):
     filtered_out = 0
     flat = []
     if q and results:
-        from .merge import _semantic_scores
+        from webtool.merge import _semantic_scores
         pool = []
         for nm in names:
             for r in results.get(nm) or []:
@@ -932,6 +932,6 @@ def do_feed(args, cfg):
            'total': sum(len(v) for v in results.values())}
     if flat:
         out['results'] = flat
-    from .hotrender import render_hot
+    from webtool.hotrender import render_hot
     render_hot(out, args.format)
     return 0

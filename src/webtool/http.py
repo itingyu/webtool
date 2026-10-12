@@ -54,7 +54,7 @@ def http_get(url, proxy=None, timeout=15, headers=None, opener=None,
     """
     h = dict(headers or {})
     if not h.get('User-Agent'):
-        from . import transport as _t
+        from webtool import transport as _t
         p = _t.PROFILES[_t._pick_profile(None)]
         h.setdefault('User-Agent', p['ua'])
         h.setdefault('Accept-Language', _t.LANG_ZH)

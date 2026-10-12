@@ -19,7 +19,7 @@ import json
 import re
 import urllib.parse
 
-from .. import transport
+from webtool import transport
 
 # 浏览器 UA 常量 (文档/兼容用; 实际 header 全部经 transport._headers 动态构造)
 _UA = transport.PROFILES['chrome131_win']['ua']
@@ -309,7 +309,7 @@ def _ts2date(ts):
 # ---------------------------------------------------------------- 注册表
 # site_key -> {desc, fn, proxy: 'direct'|'proxy'}; 清单在 data/plugins.json 的 "site" 段,
 # 加站点 = 写一个 (q, limit, proxy, timeout) -> [结果] 的适配器 + plugins.json 加一条
-from ..plugins import table as _plugin_table
+from webtool.plugins import table as _plugin_table
 
 
 def sites_table():

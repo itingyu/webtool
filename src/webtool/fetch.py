@@ -10,7 +10,7 @@ import sys
 import time
 import urllib.parse
 
-from . import cache, extractors
+from webtool import cache, extractors
 
 
 def do_fetch(args, cfg):
@@ -54,7 +54,7 @@ def _fetch_one(url, args, cfg, proxy, timeout):
         cached['cache'] = 'hit'
         return cached
     try:
-        from .resilient import fetch as rfetch
+        from webtool.resilient import fetch as rfetch
         profile = getattr(args, 'profile', None)
         html, status, via = rfetch(url, proxy=proxy, timeout=timeout,
                                    profile=profile)
@@ -81,7 +81,7 @@ def _fetch_one(url, args, cfg, proxy, timeout):
         # SPA 页: 收割内嵌 state (SSR JSON); 采用条件是明显优于现有产出
         # (>= 2x 且 >= 300 字), 防止用列表/配置噪声盖掉正常正文
         try:
-            from . import spa
+            from webtool import spa
             md, note = spa.harvest(html, url)
         except Exception:
             md, note = '', None

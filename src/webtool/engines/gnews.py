@@ -13,8 +13,8 @@ import time
 import urllib.parse
 import urllib.request
 
-from .. import state, transport as _t
-from ..http import build_opener
+from webtool import state, transport as _t
+from webtool.http import build_opener
 
 log = logging.getLogger(__name__)
 

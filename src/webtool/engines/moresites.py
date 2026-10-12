@@ -12,9 +12,9 @@ import sys as _sys
 # sites 在尾部 _lazy_extend() 里导入本模块 (半初始化), 从 sys.modules 直接取
 _sites = _sys.modules.get('webtool.engines.sites')
 if _sites is None:
-    from . import sites as _sites
-from .. import transport
-from .sites import _headers, _mk, _fetch
+    from webtool import sites as _sites
+from webtool import transport
+from webtool.engines.sites import _headers, _mk, _fetch
 
 
 def _clean(s):

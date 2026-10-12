@@ -11,8 +11,8 @@ import os
 import re
 import urllib.parse
 
-from .resilient import fetch as rfetch
-from .engines.sites import _headers
+from webtool.resilient import fetch as rfetch
+from webtool.engines.sites import _headers
 
 SITES_DIR = os.path.expanduser('~/.webtool/sites')
 

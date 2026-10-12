@@ -49,10 +49,10 @@ def top_up(engine, fn, query, want, have_count, proxy, timeout, market,
             break
         fetched += len(rs)
         if filter_ad:
-            from .adfilter import is_ad
+            from webtool.adfilter import is_ad
             rs = [r for r in rs if not r.get('is_ad') and not is_ad(r)]
         else:
-            from .adfilter import mark_ads
+            from webtool.adfilter import mark_ads
             mark_ads(rs)
         if is_blocked_fn:
             rs = [r for r in rs if not is_blocked_fn(r.get('url', ''))]

@@ -25,7 +25,7 @@ ZEN_MODELS_URL = "https://opencode.ai/zen/v1/models"
 def _endpoints():
     """zen 端点: data/zen.json (包内) + ~/.webtool/zen.json (用户覆盖) 同构叠加,
     mtime 热生效; 文件缺失/无值回落内置常量"""
-    from .config_data import load as _cfg_load
+    from webtool.config_data import load as _cfg_load
     d = _cfg_load('zen', 'zen.json') or {}
     chat = d.get('chat_url') or ZEN_URL
     models = d.get('models_url') or ZEN_MODELS_URL
@@ -171,7 +171,7 @@ def fetch_models(cfg, refresh=False, timeout=15.0, proxy=None):
     刻意不内置名单: 免费模型上架/下架频繁, 硬编码名单很快过期。命名约定
     也只是启发式 —— 真正的判据是 `zen --list-models --check` 实发一次。
     """
-    from . import cache as _cache
+    from webtool import cache as _cache
     key = 'zen/models'
     if not refresh:
         hit = _cache.get(cfg, 'zen', key)
@@ -430,7 +430,7 @@ def call_zen_direct_then_proxy(model, prompt, system=None, session=None,
     if not gproxy:
         return r if r else {'ok': False, 'status': 0, 'elapsed': 0,
                              'error_body': err + ' (direct)'}
-    from .rank import _proxy_ok
+    from webtool.rank import _proxy_ok
     if not _proxy_ok(gproxy):
         return r if r else {'ok': False, 'status': 0, 'elapsed': 0,
                             'error_body': err + ' (direct; proxy 未探活, 跳过)'}

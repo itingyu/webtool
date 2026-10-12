@@ -11,12 +11,12 @@ import math
 import re
 from urllib.parse import urlparse, parse_qsl, urlencode
 
-from .adfilter import is_ad
+from webtool.adfilter import is_ad
 
 
 def _engine_base():
     """引擎权重表 (engine.<name>.params.base); 每次现取插件表, 清单改动即时生效"""
-    from .plugins import table as _plugin_table
+    from webtool.plugins import table as _plugin_table
     return {name: spec.get('base')
             for name, spec in _plugin_table('engine').items()
             if spec.get('base')}
@@ -25,7 +25,7 @@ def _engine_base():
 # 技术性/实体 query 下, 词典/通用百科页几乎必是噪声 (如 "GPT Claude Gemini"
 # 命中「大(汉语文字)」); 但对「X 是什么意思」类 query 又是好结果 → 不拉黑, 只降权。
 # 域名表在 data/filters.json 的 merge 段 (ref_hosts), 用户可增删
-from .config_data import load as _cfg_load
+from webtool.config_data import load as _cfg_load
 
 _EN_TOKEN_RE = re.compile(r'[A-Za-z][A-Za-z0-9+#.]{2,}')
 _EN_WORD_RE = re.compile(r'^[A-Za-z][A-Za-z0-9+#.\-]*$')

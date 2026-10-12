@@ -11,7 +11,7 @@
 import re
 from urllib.parse import urlparse
 
-from .config_data import load
+from webtool.config_data import load
 
 
 def _cfg():

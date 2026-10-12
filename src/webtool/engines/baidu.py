@@ -8,7 +8,7 @@ import re
 import time
 import urllib.parse
 
-from .. import captcha, transport
+from webtool import captcha, transport
 
 BAIDU = 'https://www.baidu.com'
 

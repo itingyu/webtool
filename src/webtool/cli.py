@@ -16,8 +16,8 @@ import typer
 # typer 0.27 vendored 了 click: 异常类在 typer._click.exceptions, 与顶层 click 不同源
 from typer._click.exceptions import UsageError as _UsageError, ClickException as _ClickException
 
-from . import proxy as _proxy
-from .output import emit
+from webtool import proxy as _proxy
+from webtool.output import emit
 
 app = typer.Typer(add_completion=False, no_args_is_help=True,
                   help='Agent 友好的网页搜索与内容获取工具',
@@ -111,9 +111,9 @@ def search_cmd(query: str = typer.Argument(..., help='搜索词'),
 
     def fn(args, cfg):
         if keep_ad:
-            from .search import do_search_raw
+            from webtool.search import do_search_raw
             return do_search_raw(args, cfg)
-        from .search import do_search
+        from webtool.search import do_search
         return do_search(args, cfg)
     return _run('data', fn, fmt, output, no_cache, no_proxy)
 
@@ -141,7 +141,7 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
 
 def _do(name):
     def fn(args, cfg):
-        from . import fetch
+        from webtool import fetch
         return getattr(fetch, f'do_{name}')(args, cfg)
     return fn
 
@@ -294,7 +294,7 @@ def engines_cmd(action: str = typer.Argument('list', help='list=清单+冷却状
     a.action, a.name, a.check, a.query = action, name, check, query
 
     def fn(args, cfg):
-        from .engines.status import status
+        from webtool.engines.status import status
         return status(args, cfg)
     return _run(None, fn, None, None, False, False)
 
@@ -306,7 +306,7 @@ def cache_cmd(action: str = typer.Argument(..., help='clear/info')):
     a.action = action
 
     def fn(args, cfg):
-        from . import cache
+        from webtool import cache
         return cache.handle(args, cfg)
     return _run(None, fn, None, None, False, False)
 
@@ -320,7 +320,7 @@ def blocklist_cmd(action: str = typer.Argument(..., help='show/add/remove/reset'
     a.action, a.domain, a.allow = action, domain, allow
 
     def fn(args, cfg):
-        from . import blocklist
+        from webtool import blocklist
         return blocklist.handle_cli(args)
     return _run(None, fn, None, None, False, False)
 
@@ -334,7 +334,7 @@ def config_cmd(action: str = typer.Argument(..., help='list/get/set/unset'),
     a.action, a.key, a.value = action, key, value
 
     def fn(args, cfg):
-        from . import configcmd
+        from webtool import configcmd
         return configcmd.handle(args)
     return _run(None, fn, None, None, False, False)
 
@@ -349,7 +349,7 @@ def plugins_cmd(action: str = typer.Argument('list', help='list/check/reload/ena
     a.action, a.kind, a.plugin, a.all = action, kind, plugin, all
 
     def fn(args, cfg):
-        from . import plugincmd
+        from webtool import plugincmd
         return plugincmd.handle(args)
     return _run(None, fn, None, None, False, False)
 

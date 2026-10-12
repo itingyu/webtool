@@ -9,8 +9,8 @@
 import threading
 import time
 
-from . import state
-from .config_data import load as _cfg_load
+from webtool import state
+from webtool.config_data import load as _cfg_load
 
 # 验证页指纹的通用段: 任何引擎命中都算被拦 (Cloudflare 质询等)
 _GENERIC_SIGNS = [
@@ -25,7 +25,7 @@ _DEFAULT_COOLDOWN = 30
 
 def _engine_params():
     """engine 段插件表 (name -> params); mtime 热生效"""
-    from .plugins import table as _plugin_table
+    from webtool.plugins import table as _plugin_table
     return {n: (s.get('params') or {}) for n, s in _plugin_table('engine').items()}
 
 

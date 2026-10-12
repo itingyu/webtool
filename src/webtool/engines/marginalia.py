@@ -8,7 +8,7 @@ import re
 import time
 import urllib.parse
 
-from .. import captcha, transport, state
+from webtool import captcha, transport, state
 
 _BASE = 'https://marginalia-search.com'
 _MAX_HOPS = 6          # 挑战握手最多跟几跳

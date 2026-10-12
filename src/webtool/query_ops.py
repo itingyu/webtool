@@ -21,7 +21,7 @@ _SUP_CACHE = {}
 
 def _ops_map():
     """插件表 → {engine: {操作符}}; 清单改动后自动重读 (mtime 失效)"""
-    from .plugins import ENGINES
+    from webtool.plugins import ENGINES
     items = ENGINES.items()
     key = tuple(sorted(items))
     hit = _SUP_CACHE.get('key')

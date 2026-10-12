@@ -91,7 +91,7 @@ def is_js_shell(html):
 
 def run_chain(html, url, meta):
     """按优先级遍历提取器, 返回 (正文, meta); 全失败用 basic_text 兜底"""
-    from .plugins import table
+    from webtool.plugins import table
     for name, spec in table('extractor').items():
         try:
             text, m = spec['fn'](html, url, meta)

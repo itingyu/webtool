@@ -34,7 +34,7 @@
 search/...) 自动并入 params, 老配置不用改。
 
 代码注册用装饰器:
-    from .plugins import SITES
+    from webtool.plugins import SITES
     @SITES.register('mysite', desc='我的站点', proxy='direct')
     def mysite(q, limit, proxy, timeout): return [...]
 
@@ -58,7 +58,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import config_data
+from webtool import config_data
 
 DATA_DIR = Path(__file__).parent / 'data'
 PLUGIN_DIR = Path(os.environ.get('WEBTOOL_PLUGIN_DIR',

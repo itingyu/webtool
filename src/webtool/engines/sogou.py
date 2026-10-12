@@ -18,8 +18,8 @@ import time
 import urllib.parse
 import urllib.request
 
-from .. import captcha, transport
-from ..http import build_opener
+from webtool import captcha, transport
+from webtool.http import build_opener
 
 ENDPOINT = 'https://www.sogou.com/web'
 SOUGOU = 'https://www.sogou.com'

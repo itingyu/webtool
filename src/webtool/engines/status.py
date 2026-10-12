@@ -8,8 +8,8 @@
 import json
 import time
 
-from .. import captcha
-from ..plugins import table as _plugin_table
+from webtool import captcha
+from webtool.plugins import table as _plugin_table
 
 
 def _engines():
@@ -51,7 +51,7 @@ def _test(args, cfg):
         return 2
     query = getattr(args, 'query', None) or 'python'
     # required 引擎无可用代理时标 skipped, 不白等超时
-    from ..search import proxy_hint, _proxy_alive
+    from webtool.search import proxy_hint, _proxy_alive
     out = []
     for name in names:
         meta = _engines()[name]

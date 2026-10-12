@@ -12,8 +12,8 @@ import sys as _sys
 
 _sites = _sys.modules.get('webtool.engines.sites')
 if _sites is None:
-    from . import sites as _sites
-from .sites import _headers, _mk, _fetch
+    from webtool import sites as _sites
+from webtool.engines.sites import _headers, _mk, _fetch
 
 
 def _clean(s):
@@ -165,7 +165,7 @@ def gh_search(q, limit=10, proxy=None, timeout=15):
         return []
     url = (f'https://api.github.com/search/repositories?q={urllib.parse.quote(q)}'
            f'&sort=best-match&per_page={min(limit, 30)}')
-    from .sites import _headers as _sh
+    from webtool.engines.sites import _headers as _sh
     headers = _sh(url, 'rest', {'Accept': 'application/vnd.github+json'})
     txt, st, _ = _fetch(url, proxy, timeout, headers)
     o = json.loads(txt)

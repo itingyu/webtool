@@ -13,7 +13,7 @@ import urllib.parse
 from curl_cffi import requests as _cr
 HAS_CFFI = True
 
-from . import captcha, state
+from webtool import captcha, state
 
 # ---------------- 浏览器指纹档案 (UA 与 impersonate 版本严格对齐) ----------------
 
@@ -98,7 +98,7 @@ def _rate_of(engine):
     """每引擎最小请求间隔秒数; engine.<name>.params.rate, 未声明用默认"""
     if not engine:
         return _DEFAULT_RATE
-    from .plugins import table as _plugin_table
+    from webtool.plugins import table as _plugin_table
     spec = _plugin_table('engine').get(engine) or {}
     return (spec.get('params') or {}).get('rate', _DEFAULT_RATE)
 
@@ -329,7 +329,7 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
     except Exception as e:
         last_cffi_err = f'{type(e).__name__}: {str(e)[:150]}'
     # 通道2: urllib (仅 cffi 自身崩溃时)
-    from .http import http_get
+    from webtool.http import http_get
     h = headers_for(kind, url, referer=referer, lang=lang, full=True,
                     extra=headers)
     try:

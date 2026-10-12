@@ -6,9 +6,9 @@ import socket
 import sys
 import time
 
-from . import cache
-from .adfilter import is_ad, mark_ads
-from .plugins import table as _plugin_table
+from webtool import cache
+from webtool.adfilter import is_ad, mark_ads
+from webtool.plugins import table as _plugin_table
 
 
 def _engines():
@@ -87,7 +87,7 @@ def _do_search(args, cfg, filter_ad=True):
     _pull = max(args.max, 15)
 
     # 操作符路由: 每引擎按支持面拿到各自查询串; qmap 参与 cache key
-    from .query_ops import apply as _apply_ops
+    from webtool.query_ops import apply as _apply_ops
     qmap, unsupported = _apply_ops(
         args.query, engines, getattr(args, 'operators', 'passthrough'))
     if qmap is None:                                   # --operators strict 报错
@@ -138,7 +138,7 @@ def _do_search(args, cfg, filter_ad=True):
                     rs = [r for r in rs if not r.get('is_ad')]
                     ad_filtered += n_ad
                 else:
-                    from .adfilter import mark_ads
+                    from webtool.adfilter import mark_ads
                     mark_ads(rs)
                 cache.put(cfg, 'search', ckey, rs)
                 per_engine[eng] = 'fresh'
@@ -160,9 +160,9 @@ def _do_search(args, cfg, filter_ad=True):
     #    不再被即将拉黑的高 sem 头部抬高 → 标签更真实
     # 注: BM25 的 IDF 基于传入批自身, 黑名单先行会让 sem 数值随黑名单配置
     # 漂移 — 本就批内自适应, 跨配置不可比, 非回归
-    from .merge import merge as _merge
-    from .plugins import table as _pt
-    from .blocklist import filter_blocklist, is_blocked
+    from webtool.merge import merge as _merge
+    from webtool.plugins import table as _pt
+    from webtool.blocklist import filter_blocklist, is_blocked
     # 过滤器走插件表, 顺序即优先级; blocklist 单列计数供 json 输出
     n_blocked = 0
     if not args.no_blocklist:
@@ -188,7 +188,7 @@ def _do_search(args, cfg, filter_ad=True):
     topup_fetched = 0
     _want = args.max
     if len(results) < _want and not args.no_dedupe:
-        from .topup import top_up
+        from webtool.topup import top_up
         seen_urls = {r.get('url') for r in results} | \
                     {r.get('url') for r in []}
         for eng in engines:
@@ -244,7 +244,7 @@ def _do_search(args, cfg, filter_ad=True):
         _resolve_sogou_links(results, cfg)
 
     # transformer 插件: 解码完成后逐条改写 (补字段/规范化/重写 url), 顺序即优先级
-    from .plugins import table as _pt
+    from webtool.plugins import table as _pt
     for tname, tspec in _pt('transformer').items():
         results = tspec['fn'](results, {'args': args, 'cfg': cfg})
 
@@ -252,7 +252,7 @@ def _do_search(args, cfg, filter_ad=True):
     # 自动改词可能引入歧义, 改写权在用户; 这里只做检测 + 提醒)
     quality_hint = None
     if not args.no_semantic and not args.no_retry and _low_quality(results):
-        from .qhint import build_hint
+        from webtool.qhint import build_hint
         quality_hint = build_hint(args.query, results)
 
     out = {'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
@@ -277,7 +277,7 @@ def _do_search(args, cfg, filter_ad=True):
                 if e:
                     ch.setdefault(e, r['channel'])
     if 'google' in per_engine:
-        from .engines.google import last_channel as _gch
+        from webtool.engines.google import last_channel as _gch
         info = _gch()
         if info.get('channel'):
             ch['google'] = info['channel']          # 自报优先 (更权威)
@@ -291,7 +291,7 @@ def _do_search(args, cfg, filter_ad=True):
                     for e, c in ch.items() if c == 'news']
         if degraded:
             out['degraded'] = degraded
-    from .query_ops import describe as _describe_ops, parse as _parse_ops
+    from webtool.query_ops import describe as _describe_ops, parse as _parse_ops
     if _parse_ops(args.query).has_operators:
         out['query_operators'] = {'used': _describe_ops(args.query),
                                   'stripped': {k: [f'{op}:{v}' for op, v in vs]
@@ -299,7 +299,7 @@ def _do_search(args, cfg, filter_ad=True):
                                   'engine_query': qmap}
     if errors:
         out['errors'] = errors
-    from .render import render
+    from webtool.render import render
     render(out, args.format, 'search')
     return 0
 
@@ -309,7 +309,7 @@ def _low_quality(results, query=None):
 
     v1.4.2 起默认不过滤, 只标注 quality + hint; 剩余条数即全部结果。
     """
-    from .qhint import need_retry
+    from webtool.qhint import need_retry
     if not results:
         return False
     return need_retry({i: r.get('sem_score', 0) for i, r in enumerate(results)})
@@ -360,7 +360,7 @@ def _resolve_sogou_links(results, cfg):
     每条按 match 特征认出某种跳转链, 交给对应解码器。排序无所谓,
     匹配到就解, 与结果来自哪个引擎无关。
     """
-    from .plugins import resolve_match, table as _pt
+    from webtool.plugins import resolve_match, table as _pt
 
     resolvers = _pt('resolver')
     timeout = cfg.get('timeout', 15)
