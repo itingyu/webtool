@@ -170,7 +170,8 @@ def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空
             stream: bool = typer.Option(True, '--no-stream/--stream',
                                         help='不流式, 缓冲到最后一次性输出'),
             retries: int = typer.Option(3, '--retries', help='瞬时故障 (连接错/408/429/5xx) 重试次数'),
-            sticky: bool = typer.Option(False, '--sticky', help='复用同一 ses_id, 命中上游 prompt cache'),
+            sticky: bool = typer.Option(False, '--sticky',
+                                        help='复用同一 ses_id (默认关: 实测 Zen 免费层不返回 prompt cache 统计, 开不开耗时无差异)'),
             fmt: str = Fmt, output: str = Output,
             no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """OpenCode Zen 免费层对话 (公开模式, 无需 key)"""

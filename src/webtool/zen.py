@@ -120,7 +120,12 @@ def make_message_id():
 
 
 class StickySession:
-    """跨请求复用 ses_id, 命中上游 prompt cache (只影响 system 段的缓存)"""
+    """跨请求复用 ses_id (让上游有机会复用同一会话的服务端缓存)
+
+    实测 (2026-10, 10 次顺序调用 + 3 组对照): Zen 免费层 usage 里
+    cached_tokens / cache_creation_input_tokens 恒为 0, 同 prompt 连打也
+    不涨; 开不开耗时无差异 (2.6-3.7s)。所以默认关闭, 不按提速手段看待。
+    """
 
     def __init__(self):
         self.ses_id = make_session_id()
