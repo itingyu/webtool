@@ -11,7 +11,7 @@ import json
 import os
 import time
 
-TTL = {'search': 60, 'fetch': 10, 'resolve': 600, 'hot': 120}
+TTL = {'search': 60, 'fetch': 10, 'resolve': 600, 'hot': 120, 'zen': 604800}
 
 def _path(cfg, bucket, key):
     d = os.path.join(cfg.get('cache_dir') or os.path.expanduser('~/.webtool/cache'), bucket)

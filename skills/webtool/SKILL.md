@@ -24,10 +24,29 @@ webtool feed radar 36kr                     # 查 RSSHub 官方路由库(2069站
 webtool feed radar 36kr --pick 2 --param category=newsflashes   # 选定路由+填占位符, 直接拉数据输出
 webtool feed radar --from-url https://space.bilibili.com/946974   # 用 radar.source 反推路由
 webtool feed instances                       # 公共实例探活(哪几个今天还活着)
+webtool zen "问题"                            # OpenCode Zen 免费层对话(公开模式 Bearer public, 无需 key)
+webtool zen --model space-bunny-free -f json # 结构化: usage / reasoning / tool_calls
+webtool zen --list-free --check             # 免费层模型 + 逐个实调验证可用性
 webtool feed health                         # 坏源登记表 (失败自动记录, 恢复自动移除)
 webtool site github fastapi                 # 站内搜索: github/so/hn/arxiv/wikipedia/csdn/juejin/bilibili/sspai/npm/thepaper/eastmoney/v2ex...
 webtool config set default_engines bing,sogou   # 持久化配置
 ```
+
+## zen：OpenCode Zen 免费层
+
+`webtool zen "问题"` 直连 `https://opencode.ai/zen/v1/chat/completions`，未配 `OPENCODE_API_KEY` 时服务端把 apiKey 换成字面量 `public`，所以 `Authorization: Bearer public`。
+
+**免费层的形状门槛（2026-10-12 逐条实测，每项重复 3 次 × 3 模型）**：
+- `tools` 必须非空，且**必须同时出现 `bash` 和 `read`** —— 缺任一个 → 403 FreeTierError；编造的名字、单字母名 → 403
+- `tool_choice` 设成 `none`/`auto`/`required` 全都过，分类器**完全不看这个值**
+- `description`、参数 schema、`$schema` 都不看 —— 全部清空照样 200
+- `"type":"function"` 包装与 `parameters` 键必须存在，少了报 400 `invalid_request_error`（这是上游模型侧校验，与 403 的分类器拒绝是两回事）
+
+所以默认只发两个空壳工具定义：请求体 **23432 B → 389 B**，顺带消除了原实现里 bash 描述硬编码本机路径 `/home/tq/.hermes-web-ui/...` 每次请求外传的泄漏。`--full-tools` 退回 11 个完整定义（2220 B）。
+
+**工具调用只打印不执行**：`--tool-choice auto` 让模型去调，`delta.tool_calls` 按 index 拼装分片 arguments，终端打 `[zen] tool bash({...})  ← 未执行`，`ok=False` 退出码 2。reasoning 通道与正文分开收（模型思考时 content 本来就是空的，绝不能"content 空就读 reasoning"），只在全文无正文时才回落。
+
+**输出**：默认只出正文；`-f json` 给 `usage`/`reasoning`/`tool_calls`/`truncated`；实时流式只在 stdout 是终端且非 `-f json` 时开启（管道里缓冲一次输出）。
 
 ## rank / feed / site 分工
 

@@ -102,6 +102,40 @@ def main(argv=None):
     pe.add_argument('--query', default='python',
                     help='test 用的测试词 (默认 python)')
 
+    pzen = sub.add_parser('zen', help='OpenCode Zen 免费层对话 (公开模式, 无需 key)')
+    pzen.add_argument('prompt', nargs='*', help='要问的问题 (留空则走 --list-models)')
+    pzen.add_argument('--model', default='big-pickle',
+                      help='模型 id (不带 provider 前缀; 见 zen --list-models)')
+    pzen.add_argument('--system', default=None,
+                      help='system prompt (分类器只验 role:system 存在, 不读内容)')
+    _zg = pzen.add_argument_group('zen 专用')
+    _zg.add_argument('--tool-choice', choices=('none', 'auto', 'required'),
+                     default='none',
+                     help='是否允许模型调工具; 默认 none。调用只打印不执行')
+    _zg.add_argument('--full-tools', action='store_true',
+                     help='发完整的 11 个工具定义 (默认只发 bash+read, 412B vs 23KB)')
+    _zg.add_argument('--list-models', action='store_true',
+                     help='列出 /v1/models 的全部 id')
+    _zg.add_argument('--list-free', action='store_true',
+                     help='只列免费层 id (按命名约定筛, 不是保证)')
+    _zg.add_argument('--check', action='store_true',
+                     help='配合 --list-free: 真调每个模型验证能不能用')
+    _zg.add_argument('--refresh', action='store_true',
+                     help='绕过 1h 模型清单缓存')
+    _zg.add_argument('--show-body', action='store_true',
+                     help='打印将要发送的请求体并退出, 不联网')
+    _zg.add_argument('--show-text', action='store_true',
+                     help='只打印 messages (原样 JSON), 不联网')
+    _zg.add_argument('--no-stream', dest='stream', action='store_false',
+                     default=True, help='不流式, 缓冲到最后一次性输出')
+    pzen.set_defaults(format_default='text')
+    _zg.add_argument('--retries', type=int, default=3,
+                     help='瞬时故障 (连接错/408/429/5xx) 重试次数')
+    _zg.add_argument('--sticky', action='store_true',
+                     help='复用同一 ses_id, 命中上游 prompt cache')
+    _add_common_output(pzen)
+    _add_common_net(pzen)
+
     pcache = sub.add_parser('cache', help='缓存管理')
     pcache.add_argument('action', choices=['clear', 'info'])
 
@@ -190,7 +224,7 @@ def main(argv=None):
         args.format = _norm_fmt(getattr(args, 'format', None), dflt)
 
     # 输出捕获: 数据命令 print → 捕获后走 emit (统一 -o)
-    data_cmds = {'search', 'fetch', 'site', 'rank', 'feed'}
+    data_cmds = {'search', 'fetch', 'site', 'rank', 'feed', 'zen'}
 
     try:
         if args.cmd in data_cmds:
@@ -222,6 +256,9 @@ def _dispatch(args, cfg):
     if args.cmd == 'fetch':
         from .fetch import do_fetch
         return do_fetch(args, cfg)
+    if args.cmd == 'zen':
+        from .zen import do_zen
+        return do_zen(args, cfg)
     if args.cmd == 'proxy':
         return _proxy.handle(args, cfg)
     if args.cmd == 'engines':

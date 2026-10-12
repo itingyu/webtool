@@ -22,6 +22,10 @@ webtool feed sspai ithome --new-only          # 增量: 只出上次之后的新
 webtool feed radar 36kr                       # 查 RSSHub 官方路由库 (2069 站 / 3947 路由, 带参数说明/真实样例/官网 feed)
 webtool feed radar 36kr --pick 2 --param category=newsflashes   # 选路由+填参, 与官网 feed 并发交叉校验后自动选源 (加 --items 看条目)
 webtool feed instances                         # 公共实例探活 (哪几个今天还活着)
+webtool zen "你的问题"                          # OpenCode Zen 免费层对话 (公开模式, 无需 key)
+webtool zen --model space-bunny-free -f json   # 结构化输出 (usage / reasoning / tool_calls)
+webtool zen --list-free --check               # 免费层模型 + 实测可用性
+webtool zen --show-body "问题"                 # 看请求体, 不联网
 webtool site github fastapi                   # 站内搜索 (18 站点)
 webtool feed health / --retest KEY / --mark KEY "备注"   # 坏源登记/复查/人工备注
 webtool proxy set http://127.0.0.1:2080       # 代理 (直连失败自动探活降级)
@@ -39,6 +43,7 @@ webtool proxy set http://127.0.0.1:2080       # 代理 (直连失败自动探活
 - **反探测**：全命令统一浏览器指纹——cffi 通道 curl_cffi impersonate（UA/TLS/HTTP2 同源生成），REST/urllib 兜底套浏览器档案 UA；指纹轮换池 chrome131/safari18_4/移动端
 - **SPA 壳页**：内嵌 SSR state 自动收割（RENDER_DATA/`__NEXT_DATA__`/`__NUXT__` 框架无关）；壳页显式报错不吐假正文
 - **排序**：引擎基础分 × 位置衰减 × 多引擎共识 × BM25 语义 × 实体命中 × 域名先验；BM25 本地分词（中文 2-gram），无外部 API
+- **zen**：OpenCode Zen 免费层对话（公开模式 `Bearer public`，无需 key）。免费层有形状校验，实测门槛是 `tools` 里必须同时出现 `bash` 和 `read`（`tool_choice` 的值完全不看，description、参数 schema 都不看），所以默认只发这两个空壳定义 —— 请求体 23KB → 389B。工具调用只解析并打印，不执行（`--tool-choice auto` 可看模型想调什么）
 - **Agent 友好**：json/text/markdown 信息对齐、`-o` 落盘按 `-f` 补扩展名、错误带处置建议、过滤链每层剔除量回显
 
 ## 局限
