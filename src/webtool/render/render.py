@@ -24,32 +24,23 @@ def _fmt_filters(out):
     return parts
 
 
-def _fmt_degraded(out):
-    """引擎降级说明 -> 单行字符串 (降级是静默的, 必须显式回显)"""
-    dg = out.get('degraded')
-    return '引擎降级: ' + '; '.join(dg) if dg else None
-
 
 def render(out, fmt, kind):
     """kind: 'search' | 'site' | 'fetch'; fmt: 'json' | 'text' | 'markdown'"""
-    filters = _fmt_filters(out)
     # 无过滤时留空数组 —— 不编造 "无过滤动作 (0 剔除)" 这种占位文案
-    out['filters_applied'] = filters
-    if fmt != 'json':              # 文本/markdown 不显示过滤统计
-        filters = []
-    degraded = _fmt_degraded(out)
+    out['filters_applied'] = _fmt_filters(out)
     if fmt == 'json':
         print(json.dumps(out, ensure_ascii=False, indent=1))
         return
     if kind == 'fetch':
-        _render_fetch(out, fmt, filters)
+        _render_fetch(out, fmt)
     else:
-        _render_search(out, fmt, filters, degraded)
+        _render_search(out, fmt)
 
 
 # ---------- search / site ----------
 
-def _render_search(out, fmt, filters, degraded=None):
+def _render_search(out, fmt):
     results = out.get('results') or []
     if fmt == 'markdown':
         print(f"## 搜索: {out['query']}")
@@ -64,8 +55,6 @@ def _render_search(out, fmt, filters, degraded=None):
             meta.append('通道: ' + ', '.join(f"{k}={v}"
                                              for k, v in out['engine_channels'].items()))
         print(f"\n> {' | '.join(meta)}")
-        if degraded:
-            print(f"\n⚠ {degraded} (覆盖范围可能小于全 Web 搜索)")
         for r in results:
             w = f" `w={r['weight']:.2f}`" if r.get('weight') is not None else ''
             # 交叉验证数不再单列: 引擎名已列出几个就是几个, ✕N 纯属重复
@@ -77,13 +66,7 @@ def _render_search(out, fmt, filters, degraded=None):
             if sub: print(f"\n*{'; '.join(sub)}*")
             if r.get('snippet'):
                 print(f"\n{r['snippet'][:200]}")
-        if filters:
-            print(f"\n---\n**过滤统计**: {'; '.join(filters)}")
-        if out.get('errors'):
-            print(f"\n⚠ 引擎错误: {json.dumps(out['errors'], ensure_ascii=False)}")
     else:  # text
-        if degraded:
-            print(f'⚠ {degraded}', file=sys.stderr)
         for r in results:
             eng = ','.join(r['engines']) if r.get('engines') else r.get('engine', '')
             line = f"[{r['rank']}] {r['title']}"
@@ -96,15 +79,13 @@ def _render_search(out, fmt, filters, degraded=None):
             print(f"    {r['url']}")
             if r.get('snippet'):
                 print(f"    {r['snippet'][:150]}")
-        if filters:
-            print('— ' + '; '.join(filters))
         if out.get('errors'):
             print('errors: ' + json.dumps(out['errors'], ensure_ascii=False), file=sys.stderr)
 
 
 # ---------- fetch ----------
 
-def _render_fetch(out, fmt, filters):
+def _render_fetch(out, fmt):
     items = out['results'] if isinstance(out.get('results'), list) else [out]
     if fmt == 'markdown':
         for r in items:
@@ -120,8 +101,6 @@ def _render_fetch(out, fmt, filters):
             print(f"> {' | '.join(meta)}\n")
             print((r.get('content') or '').rstrip())
             print()
-        if filters:
-            print(f"---\n**过滤统计**: {'; '.join(filters)}")
     else:  # text
         for r in items:
             if r.get('error'):
@@ -136,7 +115,5 @@ def _render_fetch(out, fmt, filters):
             print(head)
             print((r.get('content') or '').rstrip())
             print()
-        if filters:
-            print('— ' + '; '.join(filters))
         if out.get('errors'):
             print('errors: ' + json.dumps(out['errors'], ensure_ascii=False), file=sys.stderr)
