@@ -20,6 +20,10 @@ def adapt(raw, fmt, kind='admin'):
     if data is None:
         # 命令输出的是人类可读文本而非 JSON, 无从转格式 → 原样透传
         return raw
+    if not isinstance(data, (dict, list)):
+        # config get 打印的是 JSON 标量 (如 "en-US"); 塞进表格会渲染成
+        # (空), 直接输出值本身
+        return str(data)
     if fmt == 'markdown':
         return _to_md(_rows(data))
     if fmt == 'text':

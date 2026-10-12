@@ -115,7 +115,6 @@ def search_cmd(query: str = typer.Argument(..., help='搜索词'),
                max: int = typer.Option(8, '-n', '--max', help='每引擎结果数'),
                fmt: str = Fmt, output: str = Output,
                no_proxy: bool = NoProxy, no_cache: bool = NoCache,
-               market: str = typer.Option('zh-CN', help='市场: zh-CN / en-US'),
                operators: str = typer.Option('passthrough', '--operators',
                                              help='高级操作符路由: passthrough/strip/strict '
                                                   '(支持 site: intitle: inurl: -词)'),
@@ -126,7 +125,6 @@ def search_cmd(query: str = typer.Argument(..., help='搜索词'),
     a = _CTX['args']
     a.update = None
     a.query, a.engine, a.max = query, engine, max
-    a.market = market
     a.operators, a.blocklist = operators, blocklist
     a.no_ad = True
 

@@ -17,10 +17,8 @@ CONFIG_PATH = os.path.expanduser('~/.webtool/config.json')
 # 可配置键白名单: (键名, 说明, 合法值)
 CONFIG_KEYS = {
     'proxy':            ('HTTP/SOCKS 代理地址', '如 http://127.0.0.1:2080 / socks5://...', None),
-    'blocklist':        ('黑名单开关', 'on / off', ('on', 'off')),
-    'ad_filter':        ('广告过滤开关', 'on / off', ('on', 'off')),
-    'dedupe':           ('跨引擎去重开关', 'on / off', ('on', 'off')),
-    'semantic':         ('语义排序开关', 'on / off', ('on', 'off')),
+    'blocklist':        ('黑名单覆盖', '逗号分隔域名, ! 前缀表白名单例外, off 关闭', None),
+    'market':           ('搜索市场', 'zh-CN / en-US 等 bing mkt 值 (仅 bing 消费)', None),
     'default_engines':  ('默认引擎组合', '逗号分隔: bing,sogou,baidu,google', None),
     'default_format':   ('默认输出格式', 'json / text / markdown', ('json', 'text', 'markdown')),
     'timeout':          ('请求超时秒数', '5 ~ 60 整数', int),

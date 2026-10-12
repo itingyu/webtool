@@ -56,6 +56,10 @@ def _do_search(args, cfg, filter_ad=True):
     _bl_cfg = cfg.get('blocklist') or ''
     if not args.blocklist and _bl_cfg:
         args.blocklist = _bl_cfg
+    # market 由 config 提供 (config set market en-US); 命令行不再有开关 ——
+    # 它只对 bing 生效 (baidu/sogou/marginalia 收了参数但函数体不用), 而
+    # bing 端点恒为 cn.bing.com, setmkt 影响有限, 不值得占一个命令行选项。
+    market = cfg.get('market') or 'zh-CN'
     engines = [e.strip() for e in (args.engine or cfg.get('default_engines')
                                    or default_engines()).split(',') if e.strip()]
     if args.format is None and cfg.get('default_format'):
@@ -93,7 +97,7 @@ def _do_search(args, cfg, filter_ad=True):
         if not fn:
             errors.append({'engine': eng, 'error': f'unknown engine, available: {",".join(_engines())}'})
             continue
-        ckey = f'{eng}|{qmap[eng]}|{_pull}|{args.market}'
+        ckey = f'{eng}|{qmap[eng]}|{_pull}|{market}'
         cached = None if args.no_cache else cache.get(cfg, 'search', ckey)
         if cached is not None:
             rs = cached
@@ -116,7 +120,7 @@ def _do_search(args, cfg, filter_ad=True):
                 proxy = cfg.get('proxy')
             try:
                 rs = fn(qmap[eng], max_results=_pull, proxy=proxy,
-                        timeout=cfg.get('timeout', 15), market=args.market)
+                        timeout=cfg.get('timeout', 15), market=market)
                 n_ad = sum(1 for r in rs if r.get('is_ad'))
                 if filter_ad:
                     rs = [r for r in rs if not r.get('is_ad')]
@@ -198,7 +202,7 @@ def _do_search(args, cfg, filter_ad=True):
                 proxy = cfg.get('proxy')
             extra, fetched = top_up(
                 eng, fn, qmap[eng], _want, min(_want, len(results)),
-                proxy, cfg.get('timeout', 15), args.market,
+                proxy, cfg.get('timeout', 15), market,
                 filter_ad=filter_ad,
                 is_blocked_fn=(None if _off
                                else lambda u, _b=(), _a=(): is_blocked(
@@ -283,44 +287,6 @@ def _do_search(args, cfg, filter_ad=True):
     render(out, args.format, 'search')
     return 0
 
-
-
-def _fetch_engines(args, cfg, engines, query, filter_ad):
-    """对指定 query 跑一轮多引擎抓取 (供 site/子命令复用, 返回原始结果)"""
-    rs_all, errs, ads = [], [], 0
-    for eng in engines:
-        spec = _engines().get(eng)
-        fn = spec['fn'] if spec else None
-        if not fn:
-            continue
-        ckey = f'{eng}|{query}|{args.max}|{args.market}'
-        cached = None if args.no_cache else cache.get(cfg, 'search', ckey)
-        if cached is not None:
-            rs = cached
-        else:
-            eproxy = (cfg.get('engine_proxy') or {}).get(eng)
-            hint = proxy_hint(eng)
-            if args.no_proxy:
-                proxy = None
-            elif eproxy is not None:
-                proxy = eproxy
-            elif hint == 'required' and not _proxy_alive(cfg):
-                continue
-            else:
-                proxy = cfg.get('proxy')
-            try:
-                rs = fn(query, max_results=args.max, proxy=proxy,
-                        timeout=cfg.get('timeout', 15), market=args.market)
-                n_ad = sum(1 for r in rs if r.get('is_ad'))
-                if filter_ad:
-                    rs = [r for r in rs if not r.get('is_ad')]
-                    ads += n_ad
-                cache.put(cfg, 'search', ckey, rs)
-            except Exception as e:
-                errs.append({'engine': eng, 'error': f'retry: {str(e)[:180]}'})
-                continue
-        rs_all.extend([dict(r, engine=eng) for r in rs])
-    return rs_all, errs, ads
 
 
 def _resolve_sogou_links(results, cfg):
