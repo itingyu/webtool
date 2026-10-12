@@ -8,19 +8,24 @@
 
 ```
 webtool/
-  cli/          L4 应用编排   app / config / plugins  —— 唯一可 import 任何层的层
-  feeds/        L3 业务流程   command / sources / parse / fetch / cards
+  cli/          L4 应用编排   app / config / plugins / sitesearch / zen / zenproto
+  feeds/        L3 业务流程   command / sources / parse / fetch / cards / feedhealth
   radar/        L3 业务流程   routes / rules / instances / official / template
                                            / race / instances_cfg
-  zen.py zenproto.py sitesearch.py fetch.py blocklist.py ...  —— L3/L1 单体模块
-  pipeline/     L2 合并输出   search / rank / merge / topup / qhint
+  pipeline/     L2 合并输出   search / rank / merge / topup / qhint / query_ops
   render/       L2 合并输出   render / hotrender / output
-  net/          L1 采集实现   transport / proxy / captcha / spa
-  engines/      L1 采集实现   baidu / bing / google / sites / hotsites ...
+  filters/      L2 结果过滤   blocklist / adfilter        —— 纯规则, 不出网
+  net/          L1 采集实现   transport / proxy / captcha / spa / fetch
+  engines/      L1 采集实现   baidu / bing / google / sites / hotsites
+                               extractors / customsites ...
   core/         L0 基础设施   plugins / config_data / cache / state / http
                                               probe / resilient
                 通用工具类     text / urls / jsonfmt
 ```
+
+包根只留 `__init__.py`——2026-10-12 起不再允许新的包根单文件模块（原
+`zen/zenproto/sitesearch/fetch/blocklist/adfilter/query_ops/extractors/customsites/feedhealth`
+已按层归位）。
 
 `radar/` 与 `feeds/` 是"业务包"的样板：一个能力域一个包，`__init__` 只做再导出，
 对外仍可 `import webtool.radar`。拆包的切分原则是**按数据源/职责切，不按函数个数切**——

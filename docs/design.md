@@ -10,15 +10,15 @@ V1 设计见下文第 1-4 节（历史决策记录）。当前代码结构以本
 ```
 src/webtool/
 ├── cli/                 # typer 声明式 CLI (app/config/plugins); 命令函数填 SimpleNamespace 复用 do_*(args, cfg)
+│   └── sitesearch / zen / zenproto   # 站内搜索调度 / LLM 对话编排 / OpenAI 兼容协议细节
 ├── feeds/               # RSS/Atom 订阅聚合
-│   └── command / sources / parse / fetch / cards
+│   └── command / sources / parse / fetch / cards / feedhealth
 ├── radar/               # RSSHub 路由查询与参数填充 (按数据源切: routes/rules/instances/official/template/race)
-├── zen.py + zenproto.py    # LLM 对话编排 + OpenAI 兼容协议细节
-├── fetch.py sitesearch.py blocklist.py adfilter.py
-├── pipeline/            # search 调度 / rank 榜单 / merge 排序去重 / topup 补量 / qhint 质量诊断
+├── pipeline/            # search 调度 / rank 榜单 / merge 排序去重 / topup 补量 / qhint 质量诊断 / query_ops
 ├── render/              # render 正文渲染 / hotrender 榜单分节 / output 落盘
-├── net/                 # transport 指纹传输 / proxy / captcha 冷却 / spa 数据提取
-├── engines/             # 各站适配器函数 (由 plugins.json 的 module 字段指向)
+├── filters/             # blocklist 站点黑名单 / adfilter 广告识别 (纯规则, 不出网)
+├── net/                 # transport 指纹传输 / proxy / captcha 冷却 / spa 数据提取 / fetch 正文抓取
+├── engines/             # 各站适配器函数 (由 plugins.json 的 module 字段指向) + extractors / customsites
 ├── core/                # L0 底座 + 通用工具类
 │   ├── plugins.py       # Registry: 七类插件 engine/site/hot/extractor/resolver/filter/transformer 统一注册表 (懒解析 + 三层来源)
 │   ├── config_data.py   # 配置合并: 包内 data/*.json + ~/.webtool/ 同名文件 (深合并/列表替换, 指纹判失效热生效)

@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 
 from webtool.core import urls
-from webtool.zenproto import (StickySession, _endpoints, build_body,
+from webtool.cli.zenproto import (StickySession, _endpoints, build_body,
                               build_headers, model_headers, parse_models,
                               parse_sse)
 

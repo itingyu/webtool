@@ -140,7 +140,7 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
 
 def _do(name):
     def fn(args, cfg):
-        from webtool import fetch
+        import webtool.net.fetch as fetch
         return getattr(fetch, f'do_{name}')(args, cfg)
     return fn
 
@@ -187,11 +187,11 @@ def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空
 def _entry_fn(name):
     def fn(args, cfg):
         import importlib
-        mod = {'zen': ('zen', 'do_zen'), 'fetch': ('fetch', 'do_fetch'),
-               'site': ('sitesearch', 'do_site'),
+        mod = {'zen': ('cli.zen', 'do_zen'), 'fetch': ('net.fetch', 'do_fetch'),
+               'site': ('cli.sitesearch', 'do_site'),
                'rank': ('pipeline.rank', 'do_rank'),
                'feed': ('feeds.command', 'do_feed')}[name]
-        m = importlib.import_module('.' + mod[0], package='webtool')
+        m = importlib.import_module('webtool.' + mod[0])
         return getattr(m, mod[1])(args, cfg)
     return fn
 
@@ -321,7 +321,7 @@ def blocklist_cmd(action: str = typer.Argument(..., help='show/add/remove/reset'
     a.action, a.domain, a.allow = action, domain, allow
 
     def fn(args, cfg):
-        from webtool import blocklist
+        import webtool.filters.blocklist as blocklist
         return blocklist.handle_cli(args)
     return _run(None, fn, None, None, False, False)
 

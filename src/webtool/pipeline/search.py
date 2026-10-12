@@ -56,7 +56,7 @@ def _do_search(args, cfg, filter_ad=True):
     _pull = max(args.max, 15)
 
     # 操作符路由: 每引擎按支持面拿到各自查询串; qmap 参与 cache key
-    from webtool.query_ops import apply as _apply_ops
+    from webtool.pipeline.query_ops import apply as _apply_ops
     qmap, unsupported = _apply_ops(
         args.query, engines, getattr(args, 'operators', 'passthrough'))
     if qmap is None:                                   # --operators strict 报错
@@ -107,7 +107,7 @@ def _do_search(args, cfg, filter_ad=True):
                     rs = [r for r in rs if not r.get('is_ad')]
                     ad_filtered += n_ad
                 else:
-                    from webtool.adfilter import mark_ads
+                    from webtool.filters.adfilter import mark_ads
                     mark_ads(rs)
                 cache.put(cfg, 'search', ckey, rs)
                 per_engine[eng] = 'fresh'
@@ -131,7 +131,7 @@ def _do_search(args, cfg, filter_ad=True):
     # 漂移 — 本就批内自适应, 跨配置不可比, 非回归
     from webtool.pipeline.merge import merge as _merge
     from webtool.core.plugins import table as _pt
-    from webtool.blocklist import filter_blocklist, is_blocked
+    from webtool.filters.blocklist import filter_blocklist, is_blocked
     # 过滤器走插件表, 顺序即优先级; blocklist 单列计数供 json 输出
     n_blocked = 0
     if not args.no_blocklist:
@@ -258,7 +258,7 @@ def _do_search(args, cfg, filter_ad=True):
                     for e, c in ch.items() if c == 'news']
         if degraded:
             out['degraded'] = degraded
-    from webtool.query_ops import describe as _describe_ops, parse as _parse_ops
+    from webtool.pipeline.query_ops import describe as _describe_ops, parse as _parse_ops
     if _parse_ops(args.query).has_operators:
         out['query_operators'] = {'used': _describe_ops(args.query),
                                   'stripped': {k: [f'{op}:{v}' for op, v in vs]

@@ -389,15 +389,15 @@
  },
  "extractor": {
   "trafilatura": {
-   "module": "webtool.extractors:extract_trafilatura",
+   "module": "webtool.engines.extractors:extract_trafilatura",
    "desc": "trafilatura 正文抽取 (markdown, 带元数据)"
   },
   "readability": {
-   "module": "webtool.extractors:extract_readability",
+   "module": "webtool.engines.extractors:extract_readability",
    "desc": "readability-lxml + html2text 兜底"
   },
   "inscriptis": {
-   "module": "webtool.extractors:extract_inscriptis",
+   "module": "webtool.engines.extractors:extract_inscriptis",
    "desc": "全文纯文本保底"
   }
  },
@@ -426,11 +426,11 @@
  },
  "filter": {
   "ad": {
-   "module": "webtool.adfilter:filter_ad",
+   "module": "webtool.filters.adfilter:filter_ad",
    "desc": "广告条目剔除 (标题/域名/URL 特征)"
   },
   "blocklist": {
-   "module": "webtool.blocklist:filter_blocked",
+   "module": "webtool.filters.blocklist:filter_blocked",
    "desc": "低质量站点剔除 (黑名单域名, 支持用户增删)"
   }
  },

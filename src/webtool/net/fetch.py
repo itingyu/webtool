@@ -9,7 +9,7 @@ import sys
 import time
 
 from webtool.core import cache
-from webtool import extractors
+import webtool.engines.extractors as extractors
 
 
 def do_fetch(args, cfg):

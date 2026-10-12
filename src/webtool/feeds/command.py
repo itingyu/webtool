@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from webtool.core import cache
 from webtool.core import jsonfmt
-from webtool import feedhealth
+import webtool.feeds.feedhealth as feedhealth
 from webtool.feeds.sources import (FEEDS_FILE, FEED_STATE_FILE,
                                    load_seed_feeds, load_user_feeds,
                                    save_user_feeds)

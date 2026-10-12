@@ -2,7 +2,7 @@
 
 `webtool site` 支持用 JSON 配置扩展站点搜索，无需写代码。
 
-实现见 `src/webtool/customsites.py`，调度入口 `src/webtool/sitesearch.py`。
+实现见 `src/webtool/engines/customsites.py`，调度入口 `src/webtool/cli/sitesearch.py`。
 
 ## 配置位置
 

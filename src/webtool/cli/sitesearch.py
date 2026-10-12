@@ -23,7 +23,7 @@ def _site_kwargs(args, spec):
 
 def do_site(args, cfg):
     if args.site in (None, 'list'):
-        from webtool.customsites import load_custom_sites
+        from webtool.engines.customsites import load_custom_sites
         rows = []
         for k, v in sites_table().items():
             rows.append({'site': k, 'desc': v['desc'], 'proxy_hint': v['proxy'], 'source': 'builtin'})
@@ -39,7 +39,7 @@ def do_site(args, cfg):
         args.query = ''
 
     # 自定义站点优先查 (允许覆盖内置)
-    from webtool.customsites import load_custom_sites, search_custom
+    from webtool.engines.customsites import load_custom_sites, search_custom
     customs = load_custom_sites()
     kind, spec = None, None
     if args.site in customs and not customs[args.site].get('_error'):

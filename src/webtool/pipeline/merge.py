@@ -10,7 +10,7 @@ import math
 import re
 from urllib.parse import urlparse, parse_qsl, urlencode
 
-from webtool.adfilter import is_ad
+from webtool.filters.adfilter import is_ad
 
 
 def _engine_base():
