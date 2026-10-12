@@ -5,8 +5,8 @@
 ## 安装
 
 ```bash
-pip install 'git+https://github.com/itingyu/webtool#egg=webtool[full]'
-# full = trafilatura 正文提取 + curl_cffi TLS 指纹 + pysocks 代理
+pip install 'git+https://github.com/itingyu/webtool'
+# 依赖含 trafilatura / curl_cffi / pysocks 等, 随安装自动装
 ```
 
 ## 命令
@@ -29,7 +29,7 @@ webtool proxy set http://127.0.0.1:2080       # 代理 (google 等被墙源必�
 ## 功能
 
 ### search
-- 引擎：bing（直连）/ sogou（直连）/ baidu（需 full）/ google（必须代理，429 降级 news RSS，链接已还原原文 URL）/ marginalia
+- 引擎：bing（直连）/ sogou（直连）/ baidu（直连）/ google（必须代理，429 降级 news RSS，链接已还原原文 URL）/ marginalia
 - `-e` 组合引擎；跳转链默认自动解码；query 精简（核心实体 + 意图词，优先英文）
 - 低质量批带 `quality_hint` 提示，按提示改词重搜
 

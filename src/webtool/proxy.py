@@ -71,11 +71,7 @@ def handle(args, cfg):
         from . import http as _http
         try:
             if val.startswith('socks'):
-                try:
-                    import socks  # noqa: F401
-                except ImportError:
-                    print('socks 代理需要 pysocks: pip install pysocks', file=sys.stderr)
-                    return 2
+                import socks  # noqa: F401
             opener = _http.build_opener(val)
             t0 = time.time()
             from .transport import headers_for as _hf

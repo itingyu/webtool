@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""webtool - Agent 友好的网页搜索/内容获取 CLI (零硬依赖, 纯 argparse, 无框架)
+"""webtool - Agent 友好的网页搜索/内容获取 CLI (纯 argparse, 无框架)
 
 参数标准化约定 (v1.6.1, 全子命令统一):
 - 通用短参: -n 条数 / -f 输出格式 / -o 输出文件 / -q 查询词 / -t 阈值 / -e 引擎

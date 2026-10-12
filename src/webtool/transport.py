@@ -23,18 +23,10 @@ import threading
 import time
 import urllib.parse
 
-try:
-    from curl_cffi import requests as _cr
-    HAS_CFFI = True
-except ImportError:
-    _cr = None
-    HAS_CFFI = False
+from curl_cffi import requests as _cr
+HAS_CFFI = True
 
 from . import captcha, state
-
-if not HAS_CFFI:                                   # pragma: no cover
-    raise ImportError(
-        'webtool 需要 curl_cffi (TLS 指纹模拟, 反爬核心): pip install curl_cffi')
 
 # ---------------- 浏览器指纹档案 (UA 与 impersonate 版本严格对齐) ----------------
 

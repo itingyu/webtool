@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "webtool"
 version = "1.8.0"
-description = "Agent-friendly web search & content fetch CLI: clean markdown/text/json, ad-free, token-efficient, zero hard deps"
+description = "Agent-friendly web search & content fetch CLI: clean markdown/text/json output"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
@@ -17,8 +17,14 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP",
 ]
 
-[project.optional-dependencies]
-full = ["trafilatura>=2.0", "readability-lxml", "html2text", "inscriptis", "pysocks", "curl_cffi>=0.16"]
+dependencies = [
+    "trafilatura>=2.0",
+    "readability-lxml",
+    "html2text",
+    "inscriptis",
+    "pysocks",
+    "curl_cffi>=0.16",
+]
 
 [project.scripts]
 webtool = "webtool.cli:main"
