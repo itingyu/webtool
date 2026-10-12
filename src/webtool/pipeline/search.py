@@ -6,7 +6,7 @@ import time
 from webtool.core import cache
 from webtool.core.plugins import table as _plugin_table
 from webtool.net.transport import _proxy_alive, proxy_hint  # noqa: F401 — 旧名再导出
-from webtool.filters.blocklist import filter_blocklist
+from webtool.filters.blocklist import filter_blocklist, is_blocked
 
 
 def _engines():
@@ -152,7 +152,8 @@ def _do_search(args, cfg, filter_ad=True):
     results = _merge(results, args.query,
                      use_semantic=not args.no_semantic,
                      dedupe=not args.no_dedupe,
-                     apply_blocklist=False, stats=stats)
+                     apply_blocklist=False, stats=stats,
+                     max_n=getattr(args, 'max', None))
     # dedup_removed 只算去重掉的; merge 里的剔除另由 stats 分项计数,
     # 混在一起会把 "黑名单过滤" 误报成 "重复合并"。
     dedup_removed = stats.get('dedup_removed', 0)
@@ -206,7 +207,8 @@ def _do_search(args, cfg, filter_ad=True):
             results = _merge(results, args.query,
                              use_semantic=not args.no_semantic,
                              dedupe=not args.no_dedupe,
-                             apply_blocklist=False, stats=stats)
+                             apply_blocklist=False, stats=stats,
+                             max_n=getattr(args, 'max', None))
             dedup_removed += stats.get('dedup_removed', 0)
 
     n_blocked = stats.get('blocked', 0)
@@ -226,24 +228,16 @@ def _do_search(args, cfg, filter_ad=True):
     for tname, tspec in _pt('transformer').items():
         results = tspec['fn'](results, {'args': args, 'cfg': cfg})
 
-    # 质量诊断: 结果集与 query 整体脱节 → 输出 query 优化建议 (不自动改写,
-    # 自动改词可能引入歧义, 改写权在用户; 这里只做检测 + 提醒)
-    quality_hint = None
-    if not args.no_semantic and not args.no_retry and _low_quality(results):
-        from webtool.pipeline.qhint import build_hint
-        quality_hint = build_hint(args.query, results)
-
     out = {'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'cache': per_engine, 'total': len(results), 'results': results,
            'dedup_removed': dedup_removed, 'blocked_by_blocklist': n_blocked,
            'dropped_by_floor': n_floor,
+           'weight_floor': stats.get('weight_floor', 0),
            'sorted_by': 'weight(semantic)' if not args.no_semantic else 'weight'}
     if topup_fetched:
         out['topup'] = {'fetched': topup_fetched,
                         'note': '翻页补拉(最多2页/引擎)'}
         out['requested'] = _want
-    if quality_hint:
-        out['quality_hint'] = quality_hint
 
     # 引擎通道自报 + 结果证据: 降级是静默的 (429 被引擎内部 catch 换通道,
     # 不进 errors), 消费方无法从结果反推"这批是全 Web 搜索还是新闻检索"。
@@ -282,16 +276,6 @@ def _do_search(args, cfg, filter_ad=True):
     render(out, args.format, 'search')
     return 0
 
-
-def _low_quality(results, query=None):
-    """质量诊断: 结果整体 sem 偏低 → query 与召回脱节
-
-    v1.4.2 起默认不过滤, 只标注 quality + hint; 剩余条数即全部结果。
-    """
-    from webtool.pipeline.qhint import need_retry
-    if not results:
-        return False
-    return need_retry({i: r.get('_sem', 0) for i, r in enumerate(results)})
 
 
 def _fetch_engines(args, cfg, engines, query, filter_ad):

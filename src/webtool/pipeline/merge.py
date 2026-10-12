@@ -106,7 +106,7 @@ def title_fingerprint(t):
 
 # ---------------- 权重重排 ----------------
 def rerank(results, query, use_semantic=True, apply_blocklist=True,
-          blocklist=None, stats=None):
+          blocklist=None, stats=None, max_n=None):
     """评分排序: merge() 的排序半程, 供多轮召回复用
 
     每条结果最终只带 title/url/snippet/weight/rank + 引擎字段:
@@ -180,20 +180,25 @@ def rerank(results, query, use_semantic=True, apply_blocklist=True,
     # 算完再过滤: prior=0 的广告与黑名单站 weight 必为 0, 在此一并剔除 ——
     # 它们进 merge 前不做剔除, 以便参与去重 (多引擎命中的同一页能完整合并
     # engines, 不留半条结果)。weight_floor 另兜底位置分与相关性双低的尾部。
-    floor = float(_merge_cfg().get('weight_floor') or 0)
     n_zero = sum(1 for r in results if r.get('_prior') == 0.0)
-    if floor > 0:
-        kept = [r for r in results if r['weight'] > floor]
-        if stats is not None:
-            stats['blocked'] = sum(1 for r in results
-                                   if r['weight'] <= floor and r.get('_prior') == 0.0)
-            stats['floor_dropped'] = len(results) - len(kept) - stats['blocked']
-        results = kept
-    elif n_zero:
-        # floor 关闭时仍必须剔除 prior=0 —— 那恒为 weight 0
-        results = [r for r in results if r.get('_prior') != 0.0]
+    # 阈值按 n 动态算: n = min(用户要的条数, 去重过滤后实际条数)。
+    # floor = √(pos(n) × base_avg) × 0.5, 即"排在第 n 位的结果可能拿到的
+    # 最低权重" —— 低于它的说明位置与相关性双低, 属尾部噪声。
+    # base_avg 已归入 pos, 此处沿用同一量纲; ×0.5 是 sem 的下限。
+    # n < 3 时不启用: 候选太少时任何阈值都是噪声 (n=2 时一条正常结果就可能
+    # 落在理论下界之下), 不如原样返回。
+    n = len(results)
+    if max_n:
+        n = min(max_n, n)
+    floor = (math.sqrt((1.0 / math.log2(n + 1)) * base_avg) * 0.5
+             if n >= 3 else 0.0)
+    kept = [r for r in results if r['weight'] > floor]
     if stats is not None:
-        stats.setdefault('blocked', n_zero)
+        stats['blocked'] = sum(1 for r in results
+                               if r['weight'] <= floor and r.get('_prior') == 0.0)
+        stats['floor_dropped'] = len(results) - len(kept) - stats['blocked']
+        stats['weight_floor'] = round(floor, 4)
+    results = kept
     # 中间量与重复项一并清掉: 对外只有 engines 一个来源字段, 且恒为数组
     # (单引擎也是单元素数组 —— 形状一致, 消费方无需分支判断)
     for i, r in enumerate(results):
@@ -204,7 +209,7 @@ def rerank(results, query, use_semantic=True, apply_blocklist=True,
     return results
 
 def merge(results, query, use_semantic=True, dedupe=True,
-         apply_blocklist=True, blocklist=None, stats=None):
+         apply_blocklist=True, blocklist=None, stats=None, max_n=None):
     """合并多引擎结果: 去重 → 评分 → 排序
 
     results: [{title,url,snippet,engine,rank,is_ad?}, ...]
@@ -221,7 +226,7 @@ def merge(results, query, use_semantic=True, dedupe=True,
         r.pop('_key_t', None)
     return rerank(results, query, use_semantic=use_semantic,
                   apply_blocklist=apply_blocklist, blocklist=blocklist,
-                  stats=stats)
+                  stats=stats, max_n=max_n)
 
 
 def _dedupe(results):

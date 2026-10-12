@@ -123,8 +123,6 @@ def search_cmd(query: str = typer.Argument(..., help='搜索词'),
                no_dedupe: bool = typer.Option(False, '--no-dedupe', help='关闭跨引擎去重'),
                no_semantic: bool = typer.Option(False, '--no-semantic',
                                                 help='关闭语义向量排序(纯位置权重)'),
-               no_retry: bool = typer.Option(False, '--no-retry',
-                                             help='关闭低召回自动重试(默认开启)'),
                operators: str = typer.Option('passthrough', '--operators',
                                              help='高级操作符路由: passthrough/strip/strict '
                                                   '(支持 site: intitle: inurl: -词)'),
@@ -136,7 +134,7 @@ def search_cmd(query: str = typer.Argument(..., help='搜索词'),
     a.update = None
     a.query, a.engine, a.max = query, engine, max
     a.market, a.no_resolve, a.keep_ad = market, no_resolve, keep_ad
-    a.no_dedupe, a.no_semantic, a.no_retry = no_dedupe, no_semantic, no_retry
+    a.no_dedupe, a.no_semantic = no_dedupe, no_semantic
     a.operators, a.block, a.allow, a.no_blocklist = operators, block, allow, no_blocklist
     a.no_ad = not keep_ad
 

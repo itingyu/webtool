@@ -116,9 +116,7 @@
    "aliyun.com",
    "chagushici.com"
   ],
-  "low_prior_value": 0.4,
-  "weight_floor": 0.3,
-  "_note_weight_floor": "实测真实结果权重集中在 0.47-0.95 (57 条样本 min 0.465); 0.30 低于实测下限, 只兜底异常值 (广告 weight=0 必过) 而非正常结果。调高会误杀。"
+  "low_prior_value": 0.7
  },
  "spa": {
   "extra_state_names": []

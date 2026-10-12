@@ -82,8 +82,6 @@ def _render_search(out, fmt, filters, degraded=None):
             print(f"\n---\n**过滤统计**: {'; '.join(filters)}")
         if out.get('errors'):
             print(f"\n⚠ 引擎错误: {json.dumps(out['errors'], ensure_ascii=False)}")
-        if out.get('quality_hint'):
-            print(f"\n> 💡 {out['quality_hint']}")
     else:  # text
         if degraded:
             print(f'⚠ {degraded}', file=sys.stderr)
@@ -103,8 +101,6 @@ def _render_search(out, fmt, filters, degraded=None):
             print('— ' + '; '.join(filters))
         if out.get('errors'):
             print('errors: ' + json.dumps(out['errors'], ensure_ascii=False), file=sys.stderr)
-        if out.get('quality_hint'):
-            print('hint: ' + out['quality_hint'], file=sys.stderr)
 
 
 # ---------- fetch ----------

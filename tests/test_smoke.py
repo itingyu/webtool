@@ -16,7 +16,7 @@ MODULES = [
     'webtool.core.plugins', 'webtool.core.config_data', 'webtool.core.cache', 'webtool.core.state', 'webtool.core.http', 'webtool.core.probe', 'webtool.core.resilient', 'webtool.core.text', 'webtool.core.urls', 'webtool.core.jsonfmt',
     'webtool.cli.app', 'webtool.cli.config', 'webtool.cli.plugins',
     'webtool.pipeline.search', 'webtool.pipeline.rank', 'webtool.pipeline.merge',
-    'webtool.pipeline.topup', 'webtool.pipeline.qhint',
+    'webtool.pipeline.topup',
     'webtool.net.transport', 'webtool.net.proxy', 'webtool.net.captcha', 'webtool.net.spa',
     'webtool.render.render', 'webtool.render.hotrender', 'webtool.render.output',
     'webtool.feeds.command', 'webtool.feeds.sources', 'webtool.feeds.parse', 'webtool.feeds.fetch', 'webtool.feeds.cards', 'webtool.radar', 'webtool.radar.race', 'webtool.radar.template',
@@ -202,6 +202,11 @@ _pw = _merge([_low, _mk('正常页3', 1, ['bing'])],
 _by_w = {r['title']: r['weight'] for r in _pw}
 check(0 < _by_w['搬运页'] < _by_w['正常页3'],
       f'prior low_prior 降权 ({_by_w["搬运页"]} < {_by_w["正常页3"]})')
+# low_prior_value 生效: 归一后搬运页恰为该配置值
+from webtool.core.config_data import load as _ld
+_lpv = _ld('merge', 'filters.json')['low_prior_value']
+check(abs(_by_w['搬运页'] - _lpv) < 1e-3,
+      f'low_prior_value 精确生效 ({_by_w["搬运页"]} == {_lpv})')
 # weight_floor 是兜底阈值: 实测真实结果权重集中在 0.47-0.95 (57 条样本
 # min 0.465), 故 0.30 只挡异常值。两个方向各测一次 ——
 # 相关结果即使排名靠后也不该被误杀;
@@ -211,13 +216,37 @@ _nf = _merge([_rel, _mk('正常页4', 1, ['bing'])], 'query', dedupe=False)
 _titles = [r['title'] for r in _nf]
 check('相关页' in _titles and '正常页4' in _titles,
       f'weight_floor 不误杀 ({_titles})')
-# 完全零相关 + 排名靠后的合成条目应被剔除 (兜底生效)
-_junk = _mk('零相关页', 30, ['bing'])
-_junk['snippet'] = 'zzz'
-_nf2 = _merge([_mk('正常页5', 1, ['bing']), _junk],
-              'query', dedupe=False)
-check('零相关页' not in [r['title'] for r in _nf2],
-      f'weight_floor 剔除零相关 ({[r["title"] for r in _nf2]})')
+# floor 按 n 动态算: √(pos(n)×base_avg)×0.5
+# n<3 不启用 —— 候选太少时阈值无意义
+def _junk():
+    j = _mk('零相关页', 30, ['bing'])
+    j['snippet'] = 'zzz'
+    return j
+_s2 = {}
+_o2 = _merge([_mk('正常页5', 1, ['bing']), _junk()], 'query', dedupe=False,
+             stats=_s2, max_n=None)
+check(_s2.get('weight_floor') == 0 and len(_o2) == 2,
+      f'n<3 不启用 floor ({_s2.get("weight_floor")}, {len(_o2)} 条)')
+# n>=3 启用: floor 生效, 零相关尾部在候选足够多时被剔除
+_s3 = {}
+_o3 = _merge([_mk(f'r{i}', i + 1, ['bing']) for i in range(10)] + [_junk()],
+             'query', dedupe=False, stats=_s3, max_n=None)
+check(_s3.get('weight_floor', 0) > 0 and '零相关页' not in [r['title'] for r in _o3],
+      f'n>=3 启用 floor 剔除零相关 (floor={_s3.get("weight_floor")}, '
+      f'dropped={_s3.get("floor_dropped")})')
+# max_n 限制 n: max_n=2 时即使候选 3 条也不启用
+_s4 = {}
+_merge([_mk('正常页6', 1, ['bing']), _junk(), _mk('第三页2', 2, ['bing'])],
+       'query', dedupe=False, stats=_s4, max_n=2)
+check(_s4.get('weight_floor') == 0, f'max_n=2 不启用 floor ({_s4.get("weight_floor")})')
+# floor 随 n 上升而下降 (候选越多, 尾部容忍越高)
+_fs = []
+for nn in (3, 10, 30):
+    _sx = {}
+    _merge([_mk(f'r{i}', i + 1, ['bing']) for i in range(nn)], 'query',
+           dedupe=False, stats=_sx, max_n=None)
+    _fs.append(_sx.get('weight_floor'))
+check(_fs[0] > _fs[1] > _fs[2], f'floor 随 n 递减 ({_fs})')
 
 print()
 if fails:
