@@ -2,24 +2,10 @@
 """结果合并: 去重 + 权重排序
 
 去重: URL 归一化 (去 utm/跟踪参数, 尾斜杠, http/https) + 标题指纹,
-     同一结果多引擎命中时保留信息最全的一条, 其他引擎作为 confirmations 计数。
-
-排序: 混合权重 = 引擎基础分 × 跨引擎共识加成 × 归一化名次衰减 × 语义乘区
-     语义向量: 本地 TF-IDF + 余弦相似度, 零依赖零下载,
-     特征 = query 词袋 vs (title+snippet) 词袋, 英文按词, 中文按 2-gram。
-
-权重公式 (v1.3 重排):
-  base(e):  google=0.95, bing=0.90, baidu=0.80, sogou=0.75
-  pos(e,r): 1 / log2(rank + 1)            # 第1名 1.0, 第2名 0.63, 第3名 0.5
-  agree(r): 1 + 0.35 * (命中引擎数 - 1)    # 多引擎共识加成
-  sem(r):   排序乘区 = 0.4 + 0.9 * sem_raw  (0.4-1.3, 区分度比旧版大三倍)
-  entity(r): query 英文实体 token 在 title 命中 ×1.6 / 仅 snippet ×1.15 / 0命中 ×0.45
-  prior(r):  域名先验 (词典/百科在实体 query 下 ×0.5, 见 REF_PRIOR)
-  final = base × pos × agree × sem × entity × prior × (0.2 if is_ad)
-
-  sem_raw 即 BM25 归一化分 (0-1), 仅用于排序; quality 标签亦基于 sem_raw
-  (断层自适应: poor = sem < max(0.12, top×0.35)),
-  输出字段 sem_score = round(sem_raw, 3) — 与旧版的压缩值含义不同。
+多引擎命中时保留信息最全的一条, 其他引擎计 confirmations。
+weight = base(引擎分) × pos(1/log2(rank+1)) × agree(1+0.35×(引擎数-1)) ×
+sem(0.4+0.9×BM25归一化分) × entity(英文实体命中) × prior(词典/百科先验) ×
+(0.2 if is_ad); quality 断层自适应: poor = sem < max(0.12, top×0.35)。
 """
 import math
 import re
@@ -75,7 +61,7 @@ def title_fingerprint(t):
     return s[:24]
 
 
-# ---------------- 权重重排 (v1.3) ----------------
+# ---------------- 权重重排 ----------------
 def rerank(results, query, use_semantic=True):
     """评分排序: merge() 的排序半程, 供多轮召回复用
 
@@ -90,7 +76,6 @@ def rerank(results, query, use_semantic=True):
         if not r.get('engines'):
             r['engines'] = [r.get('engine')] if r.get('engine') else []
 
-    # 单引擎时位置分一家独大 → 提高语义乘数 (双引擎共识分自然摊薄)
     n_engines_used = len({r['engine'] for r in results if r.get('engine')})
 
     if use_semantic:
@@ -105,11 +90,10 @@ def rerank(results, query, use_semantic=True):
         n_eng = len(r['engines'])
         agree = 1.0 + 0.35 * (n_eng - 1)
         raw = sem_scores[i]
-        # 排序乘区: 不再做 0.5 地板压缩, 区分度拉满; 上下限 0.4-1.3
+        # 排序乘区上下限 0.4-1.3
         sem = max(0.4, min(1.3, 0.4 + 0.9 * raw))
         if not use_semantic:
             sem = 1.0
-        # 实体命中: query 的英文 token 在 title 命中最强, 仅 snippet 弱化, 全未命中惩罚
         ent = 1.0
         if use_semantic:
             ent = _entity_factor(query, r)
@@ -122,10 +106,8 @@ def rerank(results, query, use_semantic=True):
         r['confirmations'] = n_eng
 
     results.sort(key=lambda r: -r['weight'])
-    # quality: 断层自适应标签 (v1.4) — 坏结果的特征不是 sem 绝对值低, 而是与
-    # 批内头部「断层」。cut = max(0.12, top*0.35): 0.12 下限防全垃圾批互相抬轿
-    # (全 0 分时 cut 仍是 0.12, 谁也逃不掉), 35% 相对线在正常批自动贴合分布,
-    # 英文页/短 query 的低重叠好结果 (sem 0.25-0.5) 不会被固定阈值误伤。
+    # quality: 断层自适应 — 坏结果是与批内头部断层, 而非绝对分低;
+    # 0.12 下限防全垃圾批互相抬轿, 35% 相对线贴合每批分布
     sems = [r['sem_score'] for r in results]
     top = max(sems) if sems else 0.0
     cut = max(0.12, top * 0.35)
@@ -199,8 +181,7 @@ def _dedupe(results):
             tgt = out[dup_idx]
             if r.get('engine') and r.get('engine') not in tgt['engines']:
                 tgt['engines'].append(r['engine'])
-            # 位置分/引擎基础分取最优: 哪个引擎把它排得越靠前越可信 (RRG 本意),
-            # 引擎基础分随之取最优引擎 (高的引擎把它排前面 = 该引擎更认可它)
+            # 位置分取最优: 排得越靠前的引擎越可信
             if r.get('rank') and (not tgt.get('rank') or r['rank'] < tgt['rank']):
                 tgt['rank'] = r['rank']
                 if r.get('engine'):
@@ -225,7 +206,7 @@ def _dedupe(results):
             out.append(r)
     return out
 
-# ---------------- 语义相关性 (本地 TF-IDF + 余弦, 零依赖) ----------------
+# ---------------- 语义相关性 (BM25, 零依赖) ----------------
 
 
 def _tokenize(s):
@@ -243,13 +224,10 @@ def _tokenize(s):
 
 
 def _semantic_scores(query, results):
-    """BM25 相关性: query vs title×2 + snippet; 返回归一化 0-1 (语料无关)
+    """BM25 相关性: query vs title×2 + snippet; 返回归一化 0-1。
 
-    v1.4 改用 BM25 替代 TF-IDF 余弦:
-    - 分数跨批稳定 (TF-IDF 的 IDF 基于候选集自身, 批内组成一变分数就漂移)
-    - 长度归一 (b=0.75): 长 snippet 不再被稀释, 短摘要不再占优
-    - 词频饱和 (k1=1.2): 标题重复堆词收益递减
-    归一化分母 = query 各 token 的理论最大 idf 之和, 与候选分布无关。
+    归一化分母 = query 各 token 的理论最大 idf 之和, 与候选分布无关,
+    分数跨批稳定。
     """
     q_tokens = _tokenize(query)
     if not q_tokens:

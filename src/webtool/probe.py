@@ -1,9 +1,5 @@
 # -*- coding: utf-8 -*-
-"""传输层探活: 轻量探测代理/直连连通性 (rank 自动降级用)
-
-探活请求同样带浏览器指纹 (chrome131 impersonate), 不裸奔 —
-出口网络/代理侧也会记录裸 HEAD 流量特征。
-"""
+"""传输层探活: 轻量探测代理/直连连通性 (rank 自动降级用)"""
 
 
 def head_probe(proxy=None, timeout=6):

@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Bing 搜索引擎: curl_cffi chrome 指纹 (浏览器级, 不触发反爬) HTML 通道
+"""Bing 搜索引擎: curl_cffi chrome 指纹 HTML 通道
 
-2026-10 实测排序一致性:
+通道对比:
 - urllib (HTTP/1.1 + Python TLS 指纹) 直连: 排序与浏览器主页不同, 走代理
   (www.bing.com 国外出口) 更是给出知乎/CSDN 提前的旧索引序
-- curl_cffi chrome 指纹直连 cn.bing.com: 与浏览器主页搜索前 N 名一致,
-  0.5s 间隔 5 连打零风控零验证, 排序稳定
-- 走代理访问 www.bing.com 会拿到国外版 www 内链页 → 不走代理, bing 国内
-  本来就可用, 恒直连
+- curl_cffi chrome 指纹直连 cn.bing.com: 排序与浏览器主页一致, 低频连打
+  未触发风控
+- 走代理访问 www.bing.com 会拿到国外版 www 内链页 → 恒直连
 
 RSS 通道保留为兜底 (curl_cffi 被限流时), 但 RSS 是独立索引, 排序与主页
 差异大, 仅在 HTML 失败时使用。
@@ -40,7 +39,7 @@ def _host(proxy):
 
 
 def _cffi_html(query, max_results, proxy, timeout, market, page):
-    """curl_cffi chrome 指纹: 浏览器级 TLS/HTTP2, bing 无感"""
+    """curl_cffi chrome 指纹 (TLS/HTTP2 与浏览器一致)"""
     q = urllib.parse.quote(query)
     first = (page - 1) * max_results + 1
     count = min(max_results, 30)

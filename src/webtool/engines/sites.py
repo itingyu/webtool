@@ -6,14 +6,13 @@
 2. 只收录有稳定公开 JSON/XML 接口的站点; 纯 HTML 爬站的不进
 3. 与 search 子命令分开: webtool site <site> <query>
 4. 失败信息带 hint, 代理策略继承全局配置
-5. 请求头走 transport 统一指纹: 浏览器站点用 XHR 指纹 (sec-fetch-mode: cors
-   + accept: application/json + origin/referer 推导), 开放 API 用 API 惯例头,
-   避免 header 与人行为不一致触发反爬
+5. 请求头走 transport 统一指纹: 浏览器站点用 XHR 指纹, 开放 API 用 API
+   惯例头, 避免 header 与行为不一致触发反爬
 
-UA 策略 (v1.8 反探测统一):
+UA 策略:
 - 全部出网走 transport 指纹档案 (curl_cffi impersonate + 同源 UA), 轮换池
   chrome131 win/mac/linux + safari18_4_ios, 同引擎同进程固定档案;
-- 开放 REST API (github/so/hn...) 同样用浏览器 UA — Python 默认 UA 是
+- 开放 REST API (github/so/hn...) 同样用浏览器 UA —— Python 默认 UA 是
   一级机器人特征; Accept-Language 按站点语言 (EN 站 API 用 en-US)
 """
 import json
@@ -33,7 +32,7 @@ def _headers(site_url, kind='api', extra=None):
     kind: 'api'  = 页面 JS 发起的 XHR/fetch 请求 (cors 模式)
           'nav'  = 直接导航打开 (document 模式)
           'rest' = 开放 REST API (github/arxiv...): 浏览器 UA + JSON Accept,
-                   不带 sec-fetch 浏览器专属头 (脚本直接调 API 的真实形态)
+                   不带 sec-fetch 浏览器专属头
     site_url: 请求目标 URL, 用于推导 Origin/Referer/sec-fetch-site
     """
     # urllib 兜底与 cffi 不同: 无 impersonate, UA 必须显式给 — 用档案 UA
@@ -282,9 +281,9 @@ def npm(q, limit=10, proxy=None, timeout=15):
 def _fetch(url, proxy, timeout, headers, profile=None, engine=None):
     """站点请求统一走 transport (浏览器指纹), engine=None 不做验证码处置
 
-    profile: 传输指纹档案名 (chrome131_win/mac/linux/android, safari18_4_ios...);
-    None 时由 transport 按引擎轮换 (_ROTATION 池, 同引擎同进程固定)。
-    engine 非 None 时启用反爬全套: 验证码检测/冷却/cookie 持久化/节奏控制。
+    profile: 传输指纹档案名; None 时由 transport 按引擎轮换 (同引擎同进程
+    固定)。engine 非 None 时启用反爬全套: 验证码检测/冷却/cookie 持久化/
+    节奏控制。
     """
     p = transport.PROFILES.get(profile) if isinstance(profile, str) else profile
     text, status, _via = transport.get(url, kind='plain', proxy=proxy,

@@ -2,12 +2,9 @@
 # -*- coding: utf-8 -*-
 """webtool - Agent 友好的网页搜索/内容获取 CLI (纯 argparse, 无框架)
 
-参数标准化约定 (v1.6.1, 全子命令统一):
+参数标准化约定 (全子命令统一):
 - 通用短参: -n 条数 / -f 输出格式 / -o 输出文件 / -q 查询词 / -t 阈值 / -e 引擎
-- 布尔开关一律 --no-* 关闭默认行为 (argparse 自动大小写敏感; 短参全小写)
-- 同义参数跨命令同名同义: --no-proxy/--no-cache/--max/--format 全局一致
-- search/fetch/site/rank 四个数据命令均支持 -o 落盘 (默认按 -f 补扩展名)
-- 大小写: 短参区分 ( -n 与 -N 不同, 后者不存在 ); -f 值不区分 (JSON==json)
+- 布尔开关一律 --no-* 关闭默认行为; 短参区分大小写, -f 值不区分
 """
 import argparse, json, sys, os, re, time
 

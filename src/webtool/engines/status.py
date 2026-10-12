@@ -57,8 +57,7 @@ def _test(args, cfg):
               f'{",".join(ENGINES)}', flush=True)
         return 2
     query = getattr(args, 'query', None) or 'python'
-    # google 是 required 代理引擎 (search 里会静默跳过), test 同样不白等 40s 超时:
-    # 直接标 skipped 并说明原因, 这才是体检命令该给的诊断
+    # required 引擎无可用代理时标 skipped, 不白等超时
     from ..search import ENGINE_PROXY_HINT, _proxy_alive
     out = []
     for name in names:

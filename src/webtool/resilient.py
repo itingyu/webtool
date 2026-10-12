@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
-"""fetch 的主获取通道: transport.get 浏览器指纹 → resilient 代理降级
+"""fetch 主获取通道: transport 浏览器指纹, cffi 全挂时内部落到 urllib。
 
-之前 fetch 走 resilient(http_get/urllib), 无 TLS 指纹, 不少站点对 urllib
-指纹直接回 JS 挑战页/壳页, 导致 "SPA 页拿不到正文"。现统一走 transport
-(桌面 Chrome 指纹, mobile=False), cffi 全挂时仍由 transport 内部落到 urllib。
 opener 参数保留兼容旧调用, 实际不再使用。
 """
 from . import transport

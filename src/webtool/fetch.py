@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""fetch: URL -> 纯净正文 (markdown/text/json/html)"""
+"""fetch: URL -> 纯净正文 (markdown/text/json/html)
+提取链: trafilatura → readability-lxml → html2text → 保底全文; 桌面指纹
+拿到壳页/过薄页时自动切移动指纹重试一次。
+"""
 import concurrent.futures as cf
 import json
 import re
@@ -144,7 +147,7 @@ def _looks_spa(html):
 
 
 # 导航壳页特征: 提取出的是导航栏/页脚级噪声 (app 下载页, 登录墙等),
-# 不是正文 —— 极短 + 模板词. 用于收紧 thin 判定.
+# 不是正文 —— 极短 + 模板词, 用于收紧 thin 判定
 _NAV_SHELL_RE = re.compile(
     r'打开APP|APP内打开|下载.{0,4}APP|打开.{0,4}应用|登录.{0,4}后.{0,6}(查看|继续)'
     r'|产品功能|隐私政策|权限列表|ICP备|粤ICP|京ICP', re.I)
@@ -160,11 +163,11 @@ def _is_nav_shell(content):
 
 
 def _extract(html, url):
-    """trafilatura -> readability-lxml -> html2text 三级提取"""
+    """trafilatura -> readability-lxml -> html2text -> 保底 四级提取"""
     meta = {}
-    # 0. JS-only 壳页预检: SPA 壳的提取产物是"您需要允许该网站执行 JavaScript"
-    #    一类提示词 + 极短文本, 会被误当正文返回 (status 200 + chars 115).
-    #    识别后提前短路, 返回空让上层走 hint (需要 JS 渲染), 不缓存垃圾.
+    # 0. JS-only 壳页预检: SPA 壳的提取产物是"请启用 JavaScript"一类提示词
+    #    + 极短文本, 会被误当正文。识别后提前短路返回空, 让上层走 hint,
+    #    不缓存垃圾。
     try:
         import re as _re
         from html import unescape as _un

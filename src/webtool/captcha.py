@@ -26,7 +26,7 @@ CAPTCHA_SIGNS = {
         ('contains', 'recaptcha'),
     ],
     'bing': [
-        ('contains', 'challenge-form'),   # DDG 同款 anomaly, bing 极少触发
+        ('contains', 'challenge-form'),   # DDG 同款 anomaly
     ],
     'generic': [
         ('title_contains', 'captcha'),

@@ -68,8 +68,8 @@ def _load_seed_feeds():
 def _seed_user_feeds(user):
     """把 seed 里用户还没有的源并入 ~/.webtool/feeds.json。
 
-    只增不覆盖: 用户 --add/--del 过的同名项以用户版本为准, seed 更新也不会
-    抹掉本地改动。写盘失败一律静默 —— 种子只是便利, 挂了不该让命令报错。
+    只增不覆盖: 用户 --add/--del 过的同名项以用户版本为准。写盘失败一律
+    静默 —— 种子只是便利, 挂了不该让命令报错。
     """
     seed = _load_seed_feeds()
     added = [k for k in seed if k not in user]
@@ -173,7 +173,7 @@ def parse_feed(txt, source_name=''):
 # ============================================================ 拉取
 
 def pull_one(name, url, n, proxy, timeout):
-    """拉单个 feed → 条目列表 (原序=发布时序; 头走 transport 统一指纹)"""
+    """拉单个 feed → 条目列表 (原序=发布时序; 请求头走 transport 统一指纹)"""
     from .engines.sites import _headers
     headers = _headers(url, 'nav', {
         'Accept': 'application/rss+xml, application/atom+xml, '
@@ -193,17 +193,13 @@ def _resolve_proxy(cfg, no_proxy):
 
 
 def _instance_candidates(preferred, explicit, cfg):
-    """拉数用的实例候选顺序: 显式指定 > 当前最快可用 > 其余可用。
+    """取数用实例候选顺序: 显式指定 > 当前最快可用 > 其余可用 > 未探测。
 
-    探活只验了一条路由, 不代表该实例支持所有路由 (实测 hub.slanker 跑
-    /36kr/newsflashes 正常但 /36kr/hot-list 503), 所以要多备几个。
+    探活只验了一条路由, 不代表该实例支持所有路由, 所以要多备几个候选。
     """
     from . import radar as _radar
-    # 探到有一个能用的就够: 全量探活要为每个挂掉的实例付一遍双轮超时
-    # (实测 slarker 单个 61s), 而紧接着的校验本来就是并发挨个试
     lst = _radar.instances(proxy=cfg.get('proxy'), need=1)
     alive = [it['instance'].rstrip('/') for it in lst if it['ok']]
-    # 没探到的也留着当候选 —— 未探测不等于不可用
     unknown = [it['instance'].rstrip('/') for it in lst
                if not it['ok'] and it.get('err') == '未探测']
     out = []
@@ -215,10 +211,10 @@ def _instance_candidates(preferred, explicit, cfg):
 
 
 def _out(*a, **kw):
-    """路由卡片的说明性输出走 stderr。
+    """路由卡片等说明性输出走 stderr。
 
-    cli 对 feed 走 redirect_stdout + emit, rc 非 0 时 emit 被跳过 —— 卡片若走
-    stdout 就会在出错时整段消失。真正的数据输出仍由 render_hot 写 stdout。
+    cli 对 feed 走 redirect_stdout + emit, rc 非 0 时 emit 被跳过, 卡片走
+    stdout 会在出错时整段消失。数据输出仍由 render_hot 写 stdout。
     """
     kw.setdefault('file', sys.stderr)
     print(*a, **kw)
@@ -265,22 +261,20 @@ def _sec_of(u):
 
 def _crosscheck(official, rss_url, section, n, cfg, timeout=None,
                 instances=None, base=None):
-    """同时拉官网 feed 与 RSSHub 路由, 交叉校验"官网给不给得了这个栏目"
+    """同时拉官网 feed 与 RSSHub 路由, 交叉校验官网能否给出该栏目。
 
-    官网侧一条请求, RSSHub 侧把候选实例全并发打一遍取先到的 —— 串行轮换实例
-    在实例挂掉时每个都要等满超时, 4 个实例就是 4 倍等待。
-
-    比对只取 URL 集合不比正文: RSSHub 的 link 常带 utm 之类尾参, _norm_u 已
-    剥掉; 标题改写比链接常见, URL 更稳。
+    官网侧一条请求; RSSHub 侧候选实例全并发取先到, 避免串行轮换时每个
+    挂掉的实例都等满超时。比对只取 URL 集合不比正文: RSSHub 的 link 常带
+    utm 之类尾参 (_norm_u 已剥掉), 且 URL 比标题稳定。
     """
     from . import radar as _radar
     off_url, _off_n, _buckets = official
     tmo = timeout or cfg.get('timeout', 20)
-    # 取数条数要比展示的 n 多, 否则两边窗口对不齐, 重叠率会被小样本放大
+    # 取数条数要比展示的 n 多, 否则两边窗口对不齐, 重叠率被小样本放大
     want = max(n, 10) * 3
 
     def pull(url, tag):
-        """返回 (items, ms)。直连优先再代理, 记的是成功那次的耗时。"""
+        """返回 (items, ms)。直连优先再代理, 记成功那次的耗时。"""
         t0 = time.perf_counter()
         for px in ([None] + ([cfg.get('proxy')] if cfg.get('proxy') else [])):
             try:
@@ -293,14 +287,11 @@ def _crosscheck(official, rss_url, section, n, cfg, timeout=None,
 
     cands = [c for c in (instances or []) if c] or [None]
     t_all = time.perf_counter()
-    # 多实例并发: 每个实例拼自己的前缀, 同一份路径。race() 收第一个成功的,
-    # 剩下那些挂的随进程退出, 不 join —— 否则要白等它们跑满双轮超时。
+    # RSSHub 多实例并发, race() 收第一个成功的; 挂的随进程退出, 不 join
     path = rss_path(rss_url)
     jobs = {c: (lambda c=c: pull(c.rstrip('/') + path, '_rss')) for c in cands}
-    # 官网和 RSSHub 各自是"一路", 竞争只在 RSSHub 的多个实例之间 —— 官网那条
-    # 几乎必然成功, 把它塞进同一个 race 会让它一马当先, RSSHub 根本来不及发
-    # (实测并发 4 个实例最后全被判 0 条)。所以官网单起一个线程, RSSHub 内部
-    # 才 race。
+    # 官网单起线程, RSSHub 内部才 race: 官网几乎必成功, 进同一 race 会让
+    # RSSHub 还没发出请求就被判结束
     import threading
     box = {}
 
@@ -323,7 +314,7 @@ def _crosscheck(official, rss_url, section, n, cfg, timeout=None,
     off_set = {_norm_u(i.get('url')) for i in hit if i.get('url')}
     rss_set = {_norm_u(i.get('url')) for i in rss_items if i.get('url')}
     overlap = len(off_set & rss_set)
-    # 一致率以 RSSHub 侧为分母: 它才是"这个栏目"的权威定义
+    # 一致率以 RSSHub 侧为分母: 它是该栏目的权威定义
     consist = (overlap / len(rss_set)) if rss_set else 0.0
 
     if not off_items:
@@ -366,12 +357,9 @@ def rss_path(full_url, base=None):
 def _print_route_cards(cards, kw, args, cfg):
     """渲染 feed radar 的路由卡片。
 
-    两种模式:
-      纯搜索 (无 --param/--example/--top/--pick/--add): 只列卡片, 模板原样,
-        带序号, 提示下一步怎么填参。
-      填参 (有上述任一): --pick 选定**一条**路由 → 卡片模板照原样打印 →
-        实参只灌进那一条 → 给出订阅 URL → 直接把该 URL 的数据拉出来渲染。
-        参数只作用于选中项, 不会改写模板, 也不影响其它候选路由。
+    纯搜索 (无 --param/--example/--top/--pick/--add) 只列卡片并提示下一步;
+    填参模式用 --pick 选定一条, 实参只灌进那一条, 输出订阅 URL 并直接拉数
+    渲染。参数只作用于选中项, 不改写模板, 不影响其它候选路由。
     """
     from . import radar as _radar
 
@@ -394,8 +382,8 @@ def _print_route_cards(cards, kw, args, cfg):
         base = _radar.best_instance(proxy=cfg.get('proxy'))
         _out(f'"{kw}" 命中 {len(cards)} 条路由  (按 heat 排序, --cat 可过滤分类)')
         _out(f'实例 {base}  (webtool feed instances 可看全部)\n')
-        # 顺带探一下这些站有没有官方 feed: 官方优先, RSSHub 只在官方给不了
-        # 目标栏目时才值得付实例可用性的代价 (探测有 7 天缓存)
+        # 顺带探官网 feed: 官方优先, RSSHub 只在官方给不了目标栏目时才值得
+        # 付实例可用性的代价 (探测有 7 天缓存)
         offs = _radar.official_feeds([c['domain'] for c in cards],
                                      proxy=cfg.get('proxy'))
         cov = _radar.official_coverage(offs.get(cards[0]['domain']), cards,
@@ -423,7 +411,7 @@ def _print_route_cards(cards, kw, args, cfg):
     _out(f'实例 {base}\n')
     _print_card(c, idx=idx + 1, base=base)
 
-    # 实参: --from-url 反推值 < --param 显式值; 模板本身不动
+    # 实参优先级: --from-url 反推值 < --param 显式值; 模板本身不动
     p2 = dict(c.get('guessed') or {})
     p2.update(params)
     if top_idx is not None:
@@ -449,7 +437,7 @@ def _print_route_cards(cards, kw, args, cfg):
     url = base + '/' + filled.lstrip('/')   # topFeeds 的 url 不保证带前导 /
     _out(f'  实参  {url}   ({src})\n')
 
-    # ---- 交叉校验: 官网 feed 和 RSSHub 路由都拉一遍, 比"给不给得了这个栏目" ----
+    # ---- 交叉校验: 官网 feed 与 RSSHub 路由都拉一遍, 比能否给出该栏目 ----
     fetch_url, fetch_note, xc = url, '', None
     off = _radar.official_feeds([c['domain']],
                                 proxy=cfg.get('proxy')).get(c['domain'])
@@ -463,8 +451,7 @@ def _print_route_cards(cards, kw, args, cfg):
                              base, getattr(args, 'instance', None), cfg))
         if sec_url:
             _out(f"  官网  {sec_url}   (栏目页, 非 feed)")
-        # 两边并发拉, 所以各自耗时接近、墙钟约等于其中之一 —— 这正是并发的
-        # 收益; 串行轮换 4 个实例要叠加 4 倍超时
+        # 两边并发, 墙钟约等于单边耗时; 串行轮换实例会叠加超时
         _out(f"  feed    {off[0]}")
         _out(f"          {xc['official_items']} 条"
              + (f" (其中 /{section} {xc['official_hit']} 条)" if section else "")
@@ -497,17 +484,16 @@ def _print_route_cards(cards, kw, args, cfg):
         _save_user_feeds(user)
         _out(f'✓ 已落 ~/.webtool/feeds.json: {name}\n')
 
-    # ---- 直接把填好参的数据拉出来 (参数只是用来取数, 不改模板) ----
-    # 公共实例是逐路由挑活的 (探活只验 /36kr/newsflashes, 别的路由可能 503),
-    # 所以这里不只试一个实例: 依次换未试过的可用实例, 直到出数据
-    # 路由名常是一长串 ("资讯, 快讯, 用户文章, ..."), 拿来当源名没法看
+    # ---- 直接把填好参的数据拉出来 (参数只用来取数, 不改模板) ----
+    # 公共实例逐路由可用性不同, 所以依次换未试过的可用实例直到出数据;
+    # 路由名常是一长串, 取首段清洗后当源名
     label = f"{c['site']}·{c['name']}".split(',')[0].split('、')[0].strip()
     src_name = re.sub(r'[^\w.\u4e00-\u9fff-]+', '_', label)[:28] or 'radar'
     route = {'template': c['template'], 'url': url, 'params': p2, 'via': src,
              'fetched_from': fetch_url, 'source': fetch_note or 'RSSHub',
              'crosscheck': xc, 'title': c['name'], 'site': c['site']}
 
-    # 校验已经把选中源拉下来了 —— 复用, 别为了取数再打一遍网络
+    # 校验已把选中源拉下来, 复用, 不为取数再打一遍网络
     reuse = ((xc or {}).get('official_items_data')
              if (xc or {}).get('use_official')
              else (xc or {}).get('rss_items_data'))
@@ -612,12 +598,12 @@ def _print_card(c, idx=None, base=None, official=None, coverage=None,
     if c.get('guessed'):
         _out('  反推  ' + ', '.join(f'{k}={v}' for k, v in c['guessed'].items()))
     if section_url:
-        # 官网栏目页: RSSHub 路径把"实例/<namespace>/"换成官网域名, 后段原样保留
-        # (/36kr/newsflashes → https://www.36kr.com/newsflashes)。
-        # 这是 HTML 栏目页, 不是 feed —— 两者别混, feed 另起一行标 feed。
+        # 官网栏目页: 把 RSSHub 路径里的 "实例/<namespace>/" 换成官网域名,
+        # 后段原样保留 (/36kr/newsflashes → https://www.36kr.com/newsflashes)。
+        # 这是 HTML 栏目页不是 feed, 两者别混, feed 另起一行标 feed。
         _out(f"  官网  {section_url}   (栏目页, 非 feed)")
     if official:
-        # 官方 feed 存在不等于给得了这个栏目; 判据是条目链接的栏目分布
+        # 官方 feed 存在不等于覆盖该栏目, 判据是条目链接的栏目分布
         url, items, buckets = official
         secs = ' / '.join(f'{k} {v}' for k, v in
                           sorted(buckets.items(), key=lambda kv: -kv[1])[:3])
@@ -873,7 +859,7 @@ def do_feed(args, cfg):
             nm, items, err = fu.result()
             if err:
                 errors[nm] = err
-                # 健康登记: 抓取失败即记录 (成功时自动消除)
+                # 健康登记: 失败记录, 成功自动消除
                 feedhealth.record(nm, specs[nm]['url'],
                                   feedhealth.classify_error(err))
             elif items:
@@ -898,8 +884,8 @@ def do_feed(args, cfg):
             fresh = [r for r in results[nm] if r.get('url') not in seen_urls]
             results[nm] = fresh
             if not fresh:
-                del results[nm]          # 全旧: 从 ok 里剔除, 避免空组噪音
-        # 更新已见状态 (合并最近 500 条 URL)
+                del results[nm]          # 全旧: 从 ok 里剔除
+        # 已见状态保留最近 500 条 URL
         for nm, items in results.items():
             urls = [r.get('url') for r in items if r.get('url')]
             old = list(seen_state.get(nm) or [])

@@ -1,13 +1,8 @@
 # -*- coding: utf-8 -*-
 """google news 跳转链解码: batchexecute 接口还原真实文章 URL
 
-原理 (2025+ 有效): article 页 c-wiz 节点带 data-n-a-id/ts/sg 三参数,
-POST 到 news.google.com/_/DotsSplashUi/data/batchexecute (f.req 携带
-Fbv4je+"garturlreq") 即返回真实 URL — 无需浏览器, 无需 JS 引擎,
-纯 HTTP; id 去重缓存 7 天。
-
-article 页本身 600KB, 此模块负责整条解析链:
-article link → 抓页面提参数 → batchexecute → 原文 URL
+article 页 c-wiz 节点带 data-n-a-id/ts/sg, POST batchexecute (f.req 携带
+Fbv4je+"garturlreq") 返回真实 URL; id 去重缓存 7 天。
 """
 import gzip
 import io
@@ -29,10 +24,8 @@ _TTL = 7 * 86400
 def _read_body(r, max_bytes=2 * 1024 * 1024):
     """读响应体并按 Content-Encoding 解压。
 
-    必须走这里而不是裸 r.read(): 本模块走 urllib 通道, urllib **不会**自动解
-    gzip —— 早期直接 decode('utf-8','ignore') 会把压缩字节当 utf-8 硬解, 得到
-    一堆垃圾, 于是 data-n-a-* 三参数永远匹配不上, 解码 100% 静默失败 (且因异常
-    被吞, 表现为"链接原样返回", 看起来像引擎不支持)。
+    本模块走 urllib 通道, urllib 不会自动解 gzip, 裸 r.read() 得到的压缩
+    字节会让 data-n-a-* 三参数全部匹配不上。
     """
     raw = r.read(max_bytes)
     if r.headers.get('Content-Encoding') == 'gzip':
@@ -63,7 +56,6 @@ def _cache_get(gid):
 def _cache_put(gid, url):
     b = dict(state.get_breaker('gnews_cache'))
     b[gid] = [url, time.time()]
-    # 上限保护: 只留最近 500 条
     if len(b) > 500:
         for k in sorted(b, key=lambda k: b[k][1])[:len(b) - 500]:
             b.pop(k, None)
@@ -87,11 +79,9 @@ def decode(link, proxy=None, timeout=15):
         return None
 
     op = build_opener(proxy)
-    # 反探测: urllib 通道也用 transport 指纹档案头 (UA 与全局轮换同源)
     _prof = _t.PROFILES[_t._pick_profile('gnews')]
     ua = _prof['ua']
     try:
-        # 1) article 页 → 三参数 (c-wiz data-n-a-*)
         req = urllib.request.Request(link, headers=_t.headers_for(
             'nav', link, full=True, profile=_prof))
         with op.open(req, timeout=timeout) as r:
@@ -114,7 +104,6 @@ def decode(link, proxy=None, timeout=15):
         _fail()
         return None
     except Exception as e:
-        # 不再静默: 解码失败是 google news 通道的核心故障, 必须留痕
         log.debug('gnews: 解码异常 %s: %s', type(e).__name__, e)
         _fail()
         return None

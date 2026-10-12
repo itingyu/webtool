@@ -3,11 +3,11 @@
 
 两个数据源, 主备关系:
 
-  1. 官方路由目录 docs.rsshub.app/routes.json (2069 站 / 3947 路由, 2026-10 实测)
+  1. 官方路由目录 docs.rsshub.app/routes.json (数千站 / 数千路由)
      每条路由带 parameters(参数枚举说明) / example(官方填好的路径) /
      topFeeds(真实实例 + 标题 + 源页面 URL) / features(踩坑标记) / heat(热度)。
-     这是唯一能"照着填参"的数据源 —— radar 规则库没有这些字段。
-     缓存 ~/.webtool/cache/rsshub_routes.json (TTL 7 天, 8.7MB)。
+     这是唯一能"照着填参"的数据源。
+     缓存 ~/.webtool/cache/rsshub_routes.json (TTL 7 天)。
 
   2. Radar 规则库 (任意公共实例 GET /api/radar/rules)
      只有 source(网页 URL 模式) → target(路由模板), 用于 --from-url 反推;
@@ -33,13 +33,11 @@ def race(jobs, ok=None, timeout=None, need=None):
     """并发跑 {key: callable}
 
     need=None: 等到第一个满足 ok 的就返回 (results 只含已完成的 key)。
-    need=N  : 等 N 个满足 ok 的 (实例探活用: 只想找一个能用的, 或者要全量清单)。
-    need=-1 : 等全部跑完 (要完整清单时必须显式要, 否则早退会把没回来的记成未知)。
+    need=N  : 等 N 个满足 ok 的。
+    need=-1 : 等全部跑完 (早退会把没回来的记成未知)。
 
-    用 daemon 线程而不是 ThreadPoolExecutor: 后者在解释器退出时会把所有
-    worker join 掉, 而我们恰恰是要放弃那些还没回来的慢/挂请求 —— 实测
-    放弃两个探活失败的实例, 进程仍被拖住 40s 等它们跑满双轮超时。
-    daemon 线程不阻塞退出, 慢的那几个直接随进程一起结束。
+    用 daemon 线程而不是 ThreadPoolExecutor: 后者在解释器退出时会 join 所有
+    worker, 而这里恰恰要放弃还没回来的慢/挂请求; daemon 线程不阻塞退出。
     """
     import threading
     ok = ok or (lambda r: bool(r))
@@ -77,7 +75,7 @@ def race(jobs, ok=None, timeout=None, need=None):
 RADAR_FILE = Path.home() / '.webtool' / 'cache' / 'radar_rules.json'
 RADAR_TTL = 7 * 86400
 
-# 公共实例 (顺序即默认优先级)。实测每天都在变, 别当常量信 —— 用 instances() 探活。
+# 公共实例 (顺序即默认优先级)。可用性每天在变, 别当常量信 —— 用 instances() 探活。
 _DEFAULT_INSTANCES = [
     'https://rsshub.rssforever.com',
     'https://hub.slarker.me',
@@ -284,11 +282,11 @@ def from_url(routes, url):
     """给定网页 URL, 用官方路由的 radar.source 模式反推候选路由
 
     source 形如 ['space.bilibili.com/:uid', 'bilibili.com/user/video'],
-    是 urlpattern 风格的通配。逐条正则匹配。
+    是 urlpattern 风格的通配, 逐条正则匹配。
 
-    注意 radar.target 是**相对 namespace** 的 (/user/dynamic/:uid, 不是全路径),
-    要拼上路由 key 的第一段 (namespace) 才是完整模板; 没有 target 的条目
-    (如 /bilibili/user/article/:uid 只有 source) 则由路由 key 去掉 namespace 反推。
+    注意 radar.target 是相对 namespace 的路径, 要拼上路由 key 的第一段
+    (namespace) 才是完整模板; 没有 target 的条目由路由 key 去掉 namespace
+    反推。
     """
     if not url:
         return []
@@ -306,9 +304,9 @@ def from_url(routes, url):
                           if mm), None)
                 if not m:
                     continue
-                # 一律用完整路由 key 而不是 radar.target: target 是它的有损投影
-                # (丢掉可选尾参, 如 /bilibili/user/video/:uid/:embed? → /bilibili/user/video/:uid),
-                # 而 key 的必填段在前, 从 URL 回填后剩下的可选段自然可以留空
+                # 一律用完整路由 key 而不是 radar.target: target 是有损投影
+                # (丢掉可选尾参), 而 key 的必填段在前, 从 URL 回填后剩下的
+                # 可选段自然可以留空
                 tmpl = '/' + rk.lstrip('/')
                 _ = target
                 groups = [g for g in m.groups() if g is not None]
@@ -409,12 +407,10 @@ def stats(rules):
 def instances(proxy=None, refresh=False, need=None, timeout=10):
     """实例列表 + 探活结果 [{instance, ok, ms, items, err}], 缓存 1 小时
 
-    公共实例的可用性逐日变化 (实测 rssforever 从可用变超时, isrss 变 403),
-    所以默认探测而不是信文档。
+    公共实例可用性逐日变化, 默认实探而不是信文档。
 
     need=N 时凑够 N 个可用实例就返回 —— 全量探活要等每个挂掉的实例跑满
-    直连+代理两轮超时 (单实例 2×timeout), best_instance 只是想找一个能用的,
-    没必要为这个等全场。
+    直连+代理两轮超时, 只想找一个能用的没必要等全场。
     """
     if not refresh and INSTANCES_FILE.exists():
         try:
@@ -454,8 +450,8 @@ def instances(proxy=None, refresh=False, need=None, timeout=10):
 
     jobs = {b: (lambda b=b: probe(b)) for b in _DEFAULT_INSTANCES}
     if need is None:
-        # 要全量清单 (`feed instances` 就是这个用法), 必须等全部回来, 否则
-        # 早退会把没探到的显示成 '未探测' —— 看着像挂了, 其实没问过
+        # 全量清单 (`feed instances` 用法) 必须等全部回来, 否则早退会把没探
+        # 到的显示成 '未探测' —— 看着像挂了, 其实没问过
         found = race(jobs, ok=lambda r: False, timeout=timeout * 3, need=-1)
     else:
         found = race(jobs, ok=lambda r: bool(r and r['ok']),
@@ -464,8 +460,7 @@ def instances(proxy=None, refresh=False, need=None, timeout=10):
                           'err': '未探测'})
            for b in _DEFAULT_INSTANCES]
     complete = all(x['err'] != '未探测' for x in out)
-    # 早退的部分结果也要落盘, 否则紧接着的一次全量调用会把刚省下的等待又付
-    # 一遍 (实测 best_instance 只要一个, 紧接着 _instance_candidates 要全部)
+    # 早退的部分结果也落盘, 否则紧接着的全量调用把刚省下的等待又付一遍
     INSTANCES_FILE.parent.mkdir(parents=True, exist_ok=True)
     INSTANCES_FILE.write_text(json.dumps(
         {'ts': time.time(), 'list': out, 'complete': complete},
@@ -487,9 +482,8 @@ _FEED_CT = ('rss', 'atom', 'xml')
 def _looks_like_feed(text):
     """是不是真 feed —— 只认 body, 不看 content-type。
 
-    不少站把 XML 挂成 text/html (实测 www.36kr.com/feed 才是 feed、
-    36kr.com/feed 返回 text/html), 而 SPA 壳页也是 text/html; 所以唯一的
-    可靠判据是开头有没有 feed 结构标记。
+    不少站把 XML 挂成 text/html, 而 SPA 壳页也是 text/html, 唯一可靠判据
+    是开头有没有 feed 结构标记。
     """
     head = (text or '')[:2000].lstrip()
     return (head.startswith('<?xml') or '<rss' in head or '<feed' in head
@@ -499,9 +493,8 @@ def _looks_like_feed(text):
 def _section_buckets(text, cap=40):
     """统计 feed 条目链接的一级栏目分布 → {栏目: 条数}
 
-    这是判断"官方 feed 给不给得了目标栏目"的依据: 36氪官网 feed 里
-    /newsflashes 20 条、/p 10 条, 所以快讯走官方就够, 不必借 RSSHub。
-    只看"有没有 feed"会把"有但不含该栏目"和"正好有该栏目"混为一谈。
+    判断"官方 feed 是否覆盖目标栏目"的依据: 只看"有没有 feed"会把
+    "有但不含该栏目"和"正好有该栏目"混为一谈。
     """
     links = re.findall(r'<link>\s*(?:<!\[CDATA\[)?(https?://[^<\]]+)',
                        text or '')
@@ -509,7 +502,7 @@ def _section_buckets(text, cap=40):
     for l in links:
         rest = re.sub(r'^https?://[^/]+/?', '', l.split('?')[0])
         if not rest or '/' not in rest:
-            continue          # channel 级 <link>http://36kr.com</link>, 不是条目
+            continue          # channel 级 <link>, 不是条目
         sec = rest.split('/')[0]
         out[sec] = out.get(sec, 0) + 1
         if len(out) > cap:
@@ -520,8 +513,7 @@ def _section_buckets(text, cap=40):
 def probe_official(domain, proxy=None, timeout=8):
     """探测某站是否有官方 feed, 返回 (url, items, 栏目分布) 或 (None, 0, {})
 
-    www 与裸域都试 —— 实测 36kr.com/feed 是 HTML, www.36kr.com/feed 才是 feed,
-    只试一种必然漏一半。
+    www 与裸域都试 —— 只试一种必然漏一半。
     """
     from . import transport
     domain = domain.strip().strip('/')
@@ -535,7 +527,7 @@ def probe_official(domain, proxy=None, timeout=8):
         for path in _FEED_PATHS:
             url = f'https://{host}{path}'
             try:
-                # transport.get 第三返回值是 via 不是 headers, 所以只嗅探 body
+                # transport.get 第三返回值是 via 不是 headers, 只嗅探 body
                 text, st, _ = transport.get(url, kind='plain', timeout=timeout,
                                             proxy=proxy, allow_fallback=False)
             except Exception:
@@ -550,13 +542,11 @@ def probe_official(domain, proxy=None, timeout=8):
 def official_section_url(card, filled=None):
     """由 RSSHub 路由反推官网栏目页 URL。
 
-    做法与用户直觉一致: 把 https://<实例>/<namespace>/<rest> 里的
-    "实例/<namespace>/" 整段换成官网域名, 后面部分原样保留 ——
-    /36kr/newsflashes → https://www.36kr.com/newsflashes。
+    把 https://<实例>/<namespace>/<rest> 里的 "实例/<namespace>/" 整段换成
+    官网域名, 后段原样保留 (/36kr/newsflashes → https://www.36kr.com/newsflashes)。
 
-    优先信 topFeeds[].site_url (那是官方自己给的真实源页面); 没有样例时才
-    退回 namespace 换域名那条启发式。注意启发式并不总成立: RSSHub 的
-    namespace 是路由命名空间, 不总是对应官网路径, 所以它只是兜底。
+    优先信 topFeeds[].site_url (官方给的真实源页面); 没有样例时才退回
+    namespace 换域名的启发式 —— namespace 不总对应官网路径, 只是兜底。
     """
     dom = (card.get('domain') or '').strip()
     for tf in card.get('top_feeds') or []:
@@ -604,8 +594,7 @@ def official_coverage(official, cards, from_url=None):
 def official_feeds(domains, proxy=None, refresh=False, max_sites=6):
     """批量探测官方 feed, 返回 {domain: (url, items)}; 结果缓存 7 天
 
-    只探命中路由的前几个站 —— 一个 RSSHub 站配一次 10 个请求, 全量 2069 站
-    不现实也没必要。
+    只探命中路由的前几个站 —— 每站一次 10 请求的探测, 全量站点不现实。
     """
     domains = [d for d in dict.fromkeys(domains or []) if d][:max_sites]
     if not domains:
@@ -649,13 +638,9 @@ def official_feeds(domains, proxy=None, refresh=False, max_sites=6):
 
 
 def best_instance(proxy=None, refresh=False, default=None):
-    """返回当前可用的实例前缀 (探活延迟最低的), 全挂则用内置兜底
-
-    延迟低的实例优先 —— 公共实例限流是按并发/频次算的, 顺手用快的那个。
-    """
+    """返回当前可用的实例前缀 (探活延迟最低的), 全挂则用内置兜底"""
     if default:
         return default.rstrip('/')
-    # 只探到有一个能用就够: 全量探活要为每个挂掉的实例付一遍双轮超时
     alive = [it for it in instances(proxy=proxy, refresh=refresh, need=1)
              if it['ok']]
     if not alive:

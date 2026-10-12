@@ -1,29 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Google 风格高级操作符: 解析 + 按引擎能力路由
+"""Google 风格操作符解析 + 按引擎能力路由 (site:/intitle:/inurl:/-word 排除)
 
-支持 4 个操作符:
-    site:example.com   只看某域
-    intitle:foo        标题含 foo
-    inurl:foo          URL 含 foo
-    -foo               排除 foo (全引擎通用语法, 非 site: 形式)
-
-为什么需要路由: 各引擎对操作符的支持面不同, 把没实现的操作符原样丢给引擎,
-引擎会当成普通词去搜, 返回一堆噪声 (看着"有结果"其实全跑偏)。三种策略:
-
-    passthrough  原样发给引擎 (默认, 保持旧行为)
-    strip        静默丢掉该引擎不支持的操作符, 其余保留
-    strict       有引擎不支持就直接报错退出, 不发请求
-
-支持面矩阵 (实测/文档已知, 会随引擎改版漂移, 保守取交集):
-    google   4 项全支持 (语法原生)
-    bing     4 项全支持
-    baidu    site/intitle/exclude 支持, inurl 不支持
-    sogou    site/intitle/exclude 支持, inurl 不支持
-    marginalia 全不支持 (自有语法, 操作符按字面量搜)
+没实现的操作符原样丢给引擎会被当普通词, 返回全跑偏的噪声。策略: passthrough
+原样透传 (默认) / strip 剔除不支持的 / strict 直接报错; 支持面见 SUPPORT,
+会随引擎改版漂移, 保守取交集。
 """
 import re
 
-# 操作符全名 → 是否需要冒号取值 (exclude 是 -word 形式, 无冒号)
 _OPERATORS = ('site', 'intitle', 'inurl')
 _OP_RE = re.compile(r'\b(site|intitle|inurl):(?:"([^"]+)"|(\S+))', re.I)
 # -word 排除: 前面不能是空白(否则是长破折号/负数), 且不能紧跟冒号(那是 -site:foo)

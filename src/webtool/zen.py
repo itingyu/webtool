@@ -1,35 +1,12 @@
 # -*- coding: utf-8 -*-
 """zen: OpenCode Zen 免费层客户端 (公开模式, 无需 API key)
-
 端点 https://opencode.ai/zen/v1/chat/completions, 未配置 OPENCODE_API_KEY 时
-服务端把 apiKey 替换成字面量 "public", 所以 Authorization 就是 "Bearer public"。
-
-免费层有一道形状校验, 门槛是实测出来的 (2026-10-12, 每项重复 3 次 × 3 模型):
-
-  原始 11 个工具 (name+description+完整 parameters)   23432 B  200
-  description 置空                                    6920 B  200
-  再去 $schema + 字段级 description                   3646 B  200
-  parameters 换空壳                                  1817 B  200
-  只留 bash + read, parameters={} 且无 description       412 B  200  ← 默认
-
-  tools 为空数组 / 省略该字段  → 403 FreeTierError (与 tool_choice 的值无关)
-  tools 里缺 bash 或缺 read    → 403 FreeTierError (名字要认得, 编造的名字不行)
-  缺 "type":"function" 包装或 parameters 键 → 400 invalid_request_error
-
-即: tool_choice 设成 none/auto/required 全都过, 分类器只认 tools 里有没有
-bash 和 read 这两个名字, 不看 description、不看参数 schema。
-
-所以默认只发两个空壳工具定义: 请求体省 98.2%, 顺带解决了原始实现里
-bash 工具描述硬编码本机路径 (/home/tq/.hermes-web-ui/...) 每次请求外传的
-问题。--full-tools 会退回原始的 11 个完整定义。
-
-请求体形状 (分类器看的就是这个):
-  messages[0].role == "system" / messages[-1].role == "user"
-  tools 非空且含 bash+read / tool_choice 存在 / stream == true
-
-解析: 纯标准库 urllib + 逐行 SSE。响应是流式, 所以用 read1() 而不是 read(n) ——
-后者会阻塞到攒满 n 字节, 流式就退化成最后一次性吐完。切行在**字节**层面做,
-整块 decode 再切会把被读边界截断的汉字永久写成 U+FFFD。
+apiKey 为字面量 "public"。免费层形状校验: tools 必须非空且含名为 bash 和 read
+的两个工具 (空壳 parameters={} 即可; 空/缺名 → 403 FreeTierError, 缺 function
+包装或 parameters 键 → 400), 分类器只认名字和形状, 不看 description/schema,
+tool_choice 值不影响; 默认只发这两个空壳, --full-tools 发全部 11 个 (已去敏)。
+请求体: messages[0]=system / messages[-1]=user / tools 含 bash+read /
+tool_choice 存在 / stream=true。解析: 纯标准库 urllib + 逐行 SSE, read1() 读流, 字节层面切行 (decode 再切会把跨读边界的汉字写成 U+FFFD)。
 """
 
 import json
@@ -56,9 +33,8 @@ MINIMAL_TOOL_NAMES = ("bash", "read")
 TOOL_CHOICES = ("none", "auto", "required")
 DEFAULT_SYSTEM = "You are a helpful assistant. Be brief."
 
-# 完整工具定义只在 --full-tools 时发送。**描述文本不随包分发** —— 原始实现
-# 里 bash 的描述硬编码了本机绝对路径 (/home/tq/.hermes-web-ui/...), 每次请求
-# 都在上传用户名和内部目录结构, 那不是工具说明是泄漏。
+# 完整工具定义只在 --full-tools 时发送。描述文本不随包分发: 原始实现的
+# bash 描述硬编码了本机绝对路径, 每次请求都外传内部目录结构。
 _FULL_TOOL_SPECS = [
     ('bash', 'Executes a given bash command.'),
     ('edit', 'Performs exact string replacements in files.'),
@@ -182,9 +158,8 @@ def build_body(model, prompt, system=None, tool_choice=None, full=False):
 def fetch_models(cfg, refresh=False, timeout=15.0, proxy=None):
     """实时拉 /v1/models (缓存 1h)。
 
-    刻意不内置名单: 实测 3 周内就有 4 个免费模型上架、9 个下架, 硬编码的
-    FREE_MODELS 十有八九是过期的。命名约定也只是启发式 —— 有的带 free 后缀
-    却是地区锁或协议不兼容, 真正的判据是 `zen --list-models --check` 实发一次。
+    刻意不内置名单: 免费模型上架/下架频繁, 硬编码名单很快过期。命名约定
+    也只是启发式 —— 真正的判据是 `zen --list-models --check` 实发一次。
     """
     from . import cache as _cache
     key = 'zen/models'
@@ -585,7 +560,7 @@ def _do_zen(args, cfg):
     if not prompt:
         print('用法: webtool zen "你的问题" [--model M]\n'
               '      webtool zen --list-models      # /v1/models 全部 id\n'
-              '      webtool zen --list-free --check  # 免费层 + 实测可用性\n'
+              '      webtool zen --list-free --check  # 免费层 + 逐个实调验证\n'
               '      webtool zen --show-body "问题"   # 看请求体, 不联网', file=sys.stderr)
         return 2
 
@@ -618,8 +593,7 @@ def _do_zen(args, cfg):
               % (c.get('name'), json.dumps(c.get('args', {}), ensure_ascii=False)),
               file=sys.stderr)
 
-    # stdout 只出最终结果 (流式过程走 stderr), 这样 -f/-o 的 emit 管线能统一
-    # 处理, 管道里 json 也不会被流污染
+    # stdout 只出最终结果 (流式过程走 stderr), 管道里 json 不会被流污染
     if fmt == 'json':
         print(json.dumps(_fmt_payload(res, args), indent=2, ensure_ascii=False))
     elif live and streamed:

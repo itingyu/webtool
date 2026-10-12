@@ -31,7 +31,6 @@ def render_rank(out, fmt, filters):
             print(f"\n筛选: `{out['query']}`"
                   + (f", 阈值 {out.get('threshold')}" if out.get('threshold') else '')
                   + (f", 剔除 {out['filtered_out']} 条" if out.get('filtered_out') else ''))
-        # -q 时先给清单 (-t>0 为重排序; -t 0 为源原序)
         if out.get('results'):
             mode = '跨源重排' if out.get('threshold') else '跨源清单 (原序)'
             print(f"\n### {mode} ({len(out['results'])})\n")

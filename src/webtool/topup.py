@@ -2,8 +2,8 @@
 """search 自动补量: 黑名单/广告/去重后不足 requested 时, 翻页补拉重过滤
 
 策略 (宁少勿滥, 有硬上限):
-- 触发: 过滤后总条数 < requested → 对有翻页能力的引擎补拉 page 2,3 (上限2页)
-- 补拉单页量 = need+4 (够用即可, 不白拉); 页间随机延迟 0.6-1.4s 防连打
+- 触发: 过滤后总条数 < requested → 对有翻页能力的引擎补拉 page 2,3 (上限 2 页)
+- 补拉单页量 = need+4; 页间随机延迟 0.6-1.4s 防连打
 - 补拉结果重新过 广告→黑名单 过滤链, 与首轮合并后再走一遍 merge 排序去重
 - 补拉失败/无更多结果 → 静默停 (尽力而为, 不算引擎 error)
 - 引擎签名无 page 参数 (sogou) 自动跳过; 最终凑不足就诚实返回短列表
@@ -34,7 +34,7 @@ def top_up(engine, fn, query, want, have_count, proxy, timeout, market,
     if need <= 0 or not _supports_page(fn):
         return [], 0
     rng = rng or random
-    fetch_n = min(want, need + 4)   # 单页拉取量: 够用即可, 不白拉整页
+    fetch_n = min(want, need + 4)
     extra = []
     fetched = 0
     for page in range(2, 2 + MAX_EXTRA_PAGES):
@@ -58,6 +58,6 @@ def top_up(engine, fn, query, want, have_count, proxy, timeout, market,
             rs = [r for r in rs if not is_blocked_fn(r.get('url', ''))]
         extra.extend(rs)
         if len(rs) < fetch_n // 2:
-            break            # 该页过滤后产量骤减 → 引擎没料了, 别再翻
+            break            # 该页过滤后产量骤减 → 引擎没料了, 不再翻页
         time.sleep(rng.uniform(*PAGE_DELAY))
     return extra, fetched

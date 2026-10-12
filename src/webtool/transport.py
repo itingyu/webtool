@@ -1,22 +1,9 @@
 # -*- coding: utf-8 -*-
-"""统一传输层: 浏览器级指纹 (curl_cffi 优先) + 降级重试 + 节奏控制 + 验证码处置
+"""统一传输层: curl_cffi 浏览器指纹 + 降级重试 + 节奏控制 + 验证码处置
 
-设计 (全量指纹策略, 无"可选依赖弱化版"):
-- curl_cffi impersonate=chrome: TLS/JA3/HTTP2/伪头序全套浏览器指纹。UA 与
-  impersonate 版本由本层对齐 (禁止单独漂移 UA — "UA 131 / JA3 137" 是自曝信号),
-  sec-ch-ua/accept-encoding 等指纹头也交给 impersonate 生成, 保证同源一致。
-- header 按 kind 分型, 对齐真人浏览器:
-    nav   页面导航: sec-fetch-dest=document / mode=navigate / user=?1,
-          upgrade-insecure-requests=1, priority: u=0, i
-    xhr   页面 JS 请求: dest=empty / mode=cors / priority: u=1, i,
-          accept: application/json, origin/referer 按目标页推导
-    api   公开 REST (github/arxiv...): API 惯例头, 不加浏览器指纹
-  sec-fetch-site 按目标↔referer 可注册域自动判定 (same-origin/same-site/cross-site)
-- 会话: UA+cookie 跨请求固定 (会话内 UA 漂移 = 教科书机器人特征), cookie
-  经 state 持久化 — SUID/BAIDUID 这类"回头客"会话本身是信任信号
-- 降级梯: 冷却检查 → 指数退避+换指纹新会话 → 代理↔直连互换; 每次被拦记
-  captcha 冷却 (state 持久化, 指数加长跨进程生效)
-- 节奏: 每引擎最小间隔 + 随机抖动, 预防性限速而非只有事后冷却
+UA 与 impersonate 版本严格对齐, header 按 kind 分型 (nav 页面导航 / xhr 页面
+JS 请求 / api 公开 REST), sec-fetch-site 按可注册域判定; cookie 经 state
+持久化; 被拦走 冷却→退避换指纹→代理直连互换 降级梯; 每引擎限速+抖动。
 """
 import random
 import threading
@@ -39,7 +26,6 @@ _ACCEPT_NAV = ('text/html,application/xhtml+xml,application/xml;q=0.9,'
                'application/signed-exchange;v=b3;q=0.7')
 
 PROFILES = {
-    # win 是主力 (权重高, 概率上最不像爬虫)
     'chrome131_win': {
         'impersonate': 'chrome131', 'ua': _UA131, 'sec_ch_ua': _SCU131,
         'platform': '"Windows"', 'mobile': '?0', 'accept_nav': _ACCEPT_NAV,
@@ -66,7 +52,7 @@ PROFILES = {
         'accept_nav': _ACCEPT_NAV,
     },
     # iOS Safari 档案: Safari 不发 sec-ch-ua client hints (Chromium 专属),
-    # headers_for(full=True) 按空值跳过 — 补齐此前被引用却缺失的档案
+    # headers_for(full=True) 按空值跳过
     'safari18_4_ios': {
         'impersonate': 'safari184_ios',
         'ua': ('Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) '
@@ -329,11 +315,11 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
         r = s.get(url, headers=h, timeout=timeout, allow_redirects=True)
         text = r.text[:max_bytes]
         if session is None:
-            _persist_cookies(s, engine)            # 每次成功都回写, 会话常青
+            _persist_cookies(s, engine)
         return text, r.status_code, 'cffi'
     except Exception as e:
         last_cffi_err = f'{type(e).__name__}: {str(e)[:150]}'
-    # --- 通道2: urllib + 显式全套指纹 (仅 cffi 自身崩溃时) ---
+    # 通道2: urllib (仅 cffi 自身崩溃时)
     from .http import http_get
     h = headers_for(kind, url, referer=referer, lang=lang, full=True,
                     extra=headers)
@@ -395,16 +381,11 @@ def session_get(url, session, *, kind='nav', referer=None, timeout=15,
 
 def warm_session(session, home, *, kind='nav', referer=None, timeout=10,
                  profile=None, max_bytes=512 * 1024):
-    """公共首页预热: 领会话 cookie + 让服务端看到一次落地导航
+    """公共首页预热: 领会话 cookie + 一次落地导航。
 
-    搜索引擎普遍要求"先落地首页再搜": SUID/SNUID (搜狗) / NID (google news) /
-    sugrec 行为链 (百度) 这类 cookie 只在首页响应里下发, 裸打搜索端点会被判成
-    "无来源的机器人查询"。各引擎的差异只在首页之后还要预热哪几个端点, 首个
-    首页预热统一走这里 — 指纹头由 headers_for 按 profile 生成, 与后续搜索
-    请求同源 (避免 UA/sec-fetch 跨请求漂移)。
-
-    返回是否成功, **不抛异常**: 预热是尽力而为, 拿不到 cookie 也要继续打搜索
-    (state 里已有持久 cookie 时, 预热失败反而是常态)。
+    SUID/SNUID/NID 这类 cookie 只在首页响应里下发, 裸打搜索端点会被判成
+    无来源的机器人查询。指纹头按 profile 生成, 与后续请求同源。
+    返回是否成功, 不抛异常: 预热尽力而为, 失败也要继续。
     """
     try:
         session_get(home, session, kind=kind, referer=referer,

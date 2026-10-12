@@ -43,9 +43,8 @@ def _proxy_alive(cfg, ttl=60):
 ENGINE_PROXY_HINT = {'bing': 'direct', 'sogou': 'direct',
                      'google': 'required', 'baidu': 'direct',
                      'marginalia': 'direct'}
-# 默认引擎组合: bing/sogou/baidu 三引擎 (免 key 直连, Web 检索主力);
-# google 不进默认: DC 代理出口普遍被 IP 级 reCAPTCHA 拦截只剩新闻通道,
-# marginalia 不进默认: 独立索引, 中文覆盖弱, 长尾补充源 (-e marginalia 显式加)
+# 默认组合 bing/sogou/baidu (免 key 直连); google 不进默认: DC 代理出口普遍被
+# IP 级 reCAPTCHA 拦截只剩新闻通道; marginalia 中文覆盖弱, 作长尾补充源
 DEFAULT_ENGINES = 'bing,sogou,baidu'
 
 
@@ -81,12 +80,10 @@ def _do_search(args, cfg, filter_ad=True):
     errors = []
     per_engine = {}
     ad_filtered = 0
-    # 首轮拉取量与 -n 解耦: 多拉进池 (top n 从大池里选, 质量更高);
-    # 引擎端各自有单页天花板 (bing 10 / baidu 20 / sogou 10), 超出白传无害
+    # 首轮多拉进池再选 top n; 引擎端各有单页上限, 超出无害
     _pull = max(args.max, 15)
 
-    # 高级操作符路由: 每个引擎按各自支持面拿到自己的查询串 (默认 passthrough
-    # = 原样透传, 与旧行为一致)。qmap 参与 cache key, 改写后不会串缓存。
+    # 操作符路由: 每引擎按支持面拿到各自查询串; qmap 参与 cache key
     from .query_ops import apply as _apply_ops
     qmap, unsupported = _apply_ops(
         args.query, engines, getattr(args, 'operators', 'passthrough'))
@@ -123,8 +120,7 @@ def _do_search(args, cfg, filter_ad=True):
             elif eproxy is not None:
                 proxy = eproxy          # 引擎级配置次之
             elif hint == 'required':
-                # google: 代理未配置或探活失败 → 静默跳过 (不算 error,
-                # 代理挂了不挂假错误, bing/sogou/baidu 直连照常)
+                # 代理未配置或探活失败 → 静默跳过, 不算 error
                 if not _proxy_alive(cfg):
                     continue
                 proxy = cfg.get('proxy')

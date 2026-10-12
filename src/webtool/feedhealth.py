@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """feed 源健康登记表: ~/.webtool/feed_health.json
 
-登记"官网 feed 挂了/被墙/壳化"的站点, 供 --health 查看、--retest 修复后复查;
-恢复后自动从登记表移除。来源两路:
+登记"官网 feed 挂了/被墙/壳化"的站点, 供 --health 查看、--retest 修复后
+复查; 恢复后自动从登记表移除。来源两路:
 1. 抓取失败时 cli 自动登记 (--health 时的 failed 即实时结果, 持久化在案)
-2. 人工登记: --mark NAME 原因说明  (如官方 403 改走 RSSHub 后备注路由)
+2. 人工登记: --mark NAME 原因说明 (如官方 403 改走 RSSHub 后备注路由)
 
 键: 源名或 URL; 值: {url, reason, status, last_seen, fails, since}
-状态语义: status = last observed HTTP 状态 ('403'/'404'/'dns'/'timeout'/
-'shell'JS壳/'parse'非XML/'ok')。
+status = last observed 状态 ('403'/'404'/'dns'/'timeout'/'shell'JS壳/
+'parse'非XML/'ok')。
 """
 import json
 import os
@@ -87,7 +87,7 @@ def classify_error(err_msg):
     if 'timed out' in s or 'timeout' in s.lower() or 'Timeout' in s:
         return 'timeout'
     if '非 RSS/Atom XML' in s or '解析失败' in s:
-        # JS 壳页特征: HTML 而非 XML
+        # JS 壳页返回 HTML 而非 XML
         return 'shell' if ('enablejs' in s or '<html' in s.lower()
                            or 'HTML' in s) else 'parse'
     return 'parse'

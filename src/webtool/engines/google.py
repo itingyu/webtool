@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """Google 引擎: Web HTML 优先 (需代理), news RSS 降级, 结果带 quality 标注
 
-2026-10 实测: 数据中心代理出口 IP 对 www.google.com/search 触发 IP 级
-reCAPTCHA (429 + 'unusual traffic', consent cookie/TLD/参数变体均无效,
-纯 HTTP 不可解) — 429 时自动降级 news.google.com RSS (同 IP 全端点 200,
-跳转链需浏览器打开, 靠 title 内 source 后缀供二次定位)。
+数据中心代理出口 IP 对 www.google.com/search 会触发 IP 级 reCAPTCHA
+(429 + 'unusual traffic', consent cookie/TLD/参数变体均无效, 纯 HTTP 不可解)
+— 429 时自动降级 news.google.com RSS (同 IP 全端点 200, 跳转链需浏览器
+打开, 靠 title 内 source 后缀供二次定位)。
 
-v1.6: web 通道改走 transport 统一指纹 (此前 urllib 指纹是 DC 出口被秒 429
-的帮凶之一, 值得用 chrome 指纹重测); consent cookie (SOCS) 预置排除欧盟
-同意墙变量; 冷却记忆持久化 (state)。
+web 通道走 transport 统一指纹; consent cookie (SOCS) 预置排除欧盟同意墙
+变量; 冷却记忆持久化 (state)。
 
 news RSS 是新闻检索不是全 Web 搜索:
 - 结果带 channel='news' 标注, 消费方 (agent) 可据此判断覆盖面
@@ -37,10 +36,10 @@ def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1
     """google 通道: 有代理 → web(常被IP级reCAPTCHA拦)→news RSS 自动降级;
     无代理 → news RSS 直连 (国内网络通常不可达, 报错带处置建议)
 
-    代理优先级: engine_proxy.google > 全局 proxy. 2026-10-10 实测:
-    web 端点即使 chrome131 指纹+SOCS+udm14 也全量 429 (reCAPTCHA Enterprise,
-    IP 级, 纯HTTP无解) — news RSS 通道是主力, 结果标 channel=news,
-    news.google.com 文章链经 batchexecute 自动还原真实 URL.
+    代理优先级: engine_proxy.google > 全局 proxy. web 端点即使 chrome131
+    指纹+SOCS+udm14 也大概率被 IP 级 reCAPTCHA 拦 (纯 HTTP 无解) —
+    news RSS 通道是主力, 结果标 channel=news, news.google.com 文章链经
+    batchexecute 自动还原真实 URL.
     """
     _LAST.update(channel=None, degraded_from=None, reason=None)
     if proxy:

@@ -24,7 +24,7 @@ def do_site(args, cfg):
         print(json.dumps(rows, ensure_ascii=False, indent=1))
         return 0
     if args.query is None:
-        args.query = ''          # 热榜类适配器允许空 query (weibo/baidu/toutiao/lobsters/github_trend...)
+        args.query = ''
 
     # 自定义站点优先查 (允许覆盖内置)
     from .customsites import load_custom_sites, search_custom
@@ -79,13 +79,12 @@ def do_site(args, cfg):
     # --block/--allow 仍保留用于临时域名补充
     n_blocked = 0
 
-    # 质量排序 + 标注 (与 search 一致: v1.4.2 起默认不剔除, quality 仅标注)
+    # quality 仅标注不剔除, 与 search 一致
     from .merge import merge as _merge
     n_before = len(results)
     results = _merge(results, args.query, use_semantic=cfg.get('semantic') != 'off', dedupe=cfg.get('dedupe') != 'off')
     dedup_removed = n_before - len(results)
 
-    # 组装 filters 说明 (黑名单/去重/权重三行)
     filters = []
     if n_blocked:
         filters.append(f'黑名单剔除 {n_blocked} 条 (--no-blocklist 关闭)')

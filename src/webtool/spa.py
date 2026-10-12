@@ -98,21 +98,19 @@ def _collect_states(html):
         blob = m.group(1).strip()
         if not blob or len(blob) > _MAX_SCRIPT:
             continue
-        # a) URL 编码 JSON (头条 RENDER_DATA 形态)
+        # URL 编码 JSON
         if blob[:3] in ('%7B', '%7b', '%5B', '%5b'):
             try:
                 out.append(('urlencoded-json', json.loads(urllib.parse.unquote(blob))))
             except Exception:
                 pass
             continue
-        # b) window.__XXX__ = {...}
         wm = _STATE_RE.search(blob)
         if wm:
             obj = _loads_tail(blob[wm.end():])
             if obj is not None:
                 out.append((wm.group(1), obj))
             continue
-        # c) <script type="application/json">
         if re.search(r'type\s*=\s*["\']application/(?:ld\+)?json["\']',
                      m.group(0)[:200], re.I):
             try:
@@ -131,7 +129,7 @@ def _loads_tail(tail):
     base = tail[min(starts):]
     cands = [base]
     pos = base.rfind('}')
-    for _ in range(3):          # 形如 {...};window.x=... 的尾部
+    for _ in range(3):
         if pos <= 0:
             break
         cands.append(base[:pos + 1])
@@ -182,7 +180,6 @@ def _as_content(val):
         return _html_to_md(s)
     plain = re.sub(r'\s+', ' ', s).strip()
     sample = plain[:2000]
-    # 可读字符占比 (排除二进制噪声)
     printable = sum(c.isprintable() and not c.isspace() for c in sample)
     if printable / max(len(sample), 1) < 0.6:
         return None
@@ -232,7 +229,6 @@ def _as_items(arr, base_url):
     for it in dicts:
         row = record(it)
         if row is None:
-            # 元素内部下钻: 收集所有像条目的子 dict, 取字段最全的
             cands = [r for _, v in _walk(it, max_depth=4)
                      if isinstance(v, dict) and v is not it
                      for r in [record(v)] if r]

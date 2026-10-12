@@ -1,11 +1,7 @@
 # -*- coding: utf-8 -*-
-"""webtool site 国际站点组 (oversites.py): 与 moresites 同约定, 全走反探测指纹通道
+"""webtool site 站点: sov2ex (V2EX 全文检索), 与 moresites 同约定, 走指纹通道。
 
-- so_v2ex:sov2ex 搜索 (V2EX 全文检索)
-- 热榜类 (reddit/hn_official/lobsters/github_trend) 已迁至 engines/hotsites.py,
-  由 rank 命令使用 (webtool rank hn_official github_trend ...)
-
-- 代理: 这些站直连可达 (本环境); 若环境受限, site 分发器会按 proxy hint 走代理
+热榜类源 (reddit/hn_official/lobsters/github_trend) 在 engines/hotsites.py。
 """
 
 import json
@@ -22,7 +18,7 @@ def _clean(s):
     return re.sub(r'\s+', ' ', s).strip()
 
 _sites = _sys.modules.get('webtool.engines.sites')
-if _sites is None:                      # 独立导入: 补一次完整 sites 加载 (半初始化时由 _lazy_extend 容错)
+if _sites is None:
     from . import sites as _sites
     _sites = _sys.modules['webtool.engines.sites']
 

@@ -1,11 +1,8 @@
 # -*- coding: utf-8 -*-
-"""webtool rank 榜单源适配器 (hotsites.py): 热榜/趋势类, 从 site 体系迁入
+"""webtool rank 榜单源适配器: 热榜/趋势类
 
-与 engines/sites.py (站内搜索) 分工: 本模块的源是「榜单优先」型,
-- search: False  榜单接口不支持关键词, rank 命令拉全榜后本地 BM25 语义筛选
-- search: True   站点/接口支持关键词, query 直接透传适配器
-
-全部走 transport._fetch 反探测指纹通道 (XHR 头同源构造 + 真 TLS 指纹)。
+search: False 的源不支持关键词, rank 拉全榜后本地 BM25 筛选;
+search: True 的源 query 直接透传。全部走 transport 指纹通道。
 """
 import json
 import re
@@ -73,7 +70,6 @@ def toutiao(q, limit=10, proxy=None, timeout=15):
     txt, st, _ = _fetch(url, proxy, timeout, headers,
                         profile='chrome131_android')
     if txt.count('RENDER_DATA') == 0 or len(txt) < 6000:
-        # 档案被降级 (极少数情况): 换 iOS 指纹再试
         txt, st, _ = _fetch(url, proxy, timeout, headers,
                             profile='safari18_4_ios')
     o = spa.first_state(txt)

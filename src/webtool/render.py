@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """统一输出格式化: search/site/fetch 共用
 
-三格式对齐 (Agent 无论选哪种都能拿到同样信息):
+三格式对齐 (无论选哪种都能拿到同样信息):
 - json:  机器可读, 全字段
 - text:  人类/Agent 易读纯文本, 元信息以 [key: value] 行内嵌
 - markdown: 结构化 md, 表格+清单, 适合直接投喂 LLM
@@ -27,7 +27,7 @@ def _fmt_filters(out):
 
 
 def _fmt_degraded(out):
-    """引擎降级说明 -> 单行字符串 (降级是静默的, 必须显式回显否则无从判断)"""
+    """引擎降级说明 -> 单行字符串 (降级是静默的, 必须显式回显)"""
     dg = out.get('degraded')
     return '引擎降级: ' + '; '.join(dg) if dg else None
 
@@ -35,7 +35,7 @@ def _fmt_degraded(out):
 def render(out, fmt, kind):
     """kind: 'search' | 'site' | 'fetch'; fmt: 'json' | 'text' | 'markdown'"""
     filters = _fmt_filters(out)
-    # 无过滤动作时也回显一行, 保持三格式过滤统计始终在场 (0 过滤可查证)
+    # 无过滤动作时也回显一行, 保持过滤统计在三格式里始终在场 (0 可查证)
     if not filters:
         filters = ['无过滤动作 (0 剔除)']
     out['filters_applied'] = filters

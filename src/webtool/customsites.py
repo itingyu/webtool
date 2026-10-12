@@ -1,33 +1,10 @@
 # -*- coding: utf-8 -*-
-"""自定义站点扩展: ~/.webtool/sites/*.json
+"""自定义站点扩展: ~/.webtool/sites/*.json (JSON 适配器 = 搜索URL模板 + 提取规则)
 
-内置站点在 engines/sites.py; 用户把新的站点适配器写成 JSON 即可扩展,
-无需改代码。JSON 适配器 = {搜索URL模板 + 提取规则}, 覆盖常见 JSON API 形态。
-
-格式 (一个文件可含多个站点):
-{
-  "v2ex": {
-    "desc": "V2EX 主题",
-    "url": "https://www.sov2ex.com/api/search?q={query}&size={limit}",
-    "proxy": "direct",                      // direct | proxy | auto (默认 auto)
-    "headers": {"Referer": "https://example.com/"},  // 可选, 覆盖默认头 (UA 默认已是
-                                                     // transport 指纹档案 UA, 勿手写)
-    "results_path": "hits/*/_source",       // 结果数组所在 JSON 路径, / 分层;
-                                            // "*" = 通配: 对数组每项继续下钻 (ES hits 结构)
-    "fields": {                             // 结果字段映射, {xx} 引用 + |strip_html
-      "title": "title",
-      "url": "https://www.v2ex.com/t/{id}",
-      "snippet": "content|strip_html",
-      "score": "{_score}"
-    }
-  }
-}
-
-url 模板变量: {query}(URL编码后的搜索词), {limit}, {page}(从1起)
-字段值支持:
-- "path/to/field"       结果对象的 JSON 路径 (支持嵌套 "hits/*/x" 与模板 "{id}")
-- "https://xx/t/{id}"   模板拼接 (引用结果字段)
-- "content|strip_html"  管道后处理: strip_html / trunc200 / date_ts / date_iso
+一个文件可含多个站点, 每站字段: desc / url ({query}{limit}{page}) /
+proxy (direct|proxy|auto, 默认 auto) / headers 可选 / results_path (JSON
+路径, "*" 对数组每项下钻) / fields (值支持 "path"、"{id}" 模板拼接、
+"path|strip_html|trunc200|date_ts|date_iso" 管道后处理)。
 """
 import json
 import os
@@ -124,7 +101,6 @@ def _dig(obj, path):
 
 
 def _render(tpl, item):
-    # 管道后处理: "path|strip_html|trunc200"
     parts = tpl.split('|')
     path, pipes = parts[0].strip(), parts[1:]
 
@@ -140,7 +116,6 @@ def _render(tpl, item):
     if val is None:
         return None
     val = str(val)
-    # 模板变量 {field} (支持嵌套路径 {_source/id})
     val = re.sub(r'\{([\w/]+)\}', sub, val)
     for p in pipes:
         val = _pipe(val, p)
@@ -153,13 +128,13 @@ def _pipe(v, p):
         return re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', v)).strip()
     if p == 'trunc200':
         return v[:200]
-    if p == 'date_ts':                      # unix 秒 → 日期
+    if p == 'date_ts':
         try:
             import datetime
             return datetime.datetime.fromtimestamp(int(v)).strftime('%Y-%m-%d')
         except Exception:
             return v
-    if p == 'date_iso':                     # ISO → 日期
+    if p == 'date_iso':
         return v[:10]
     if p.startswith('prefix:'):
         return p[7:] + v

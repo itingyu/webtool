@@ -1,15 +1,7 @@
-"""webtool site 第二批: 真·关键词搜索型适配器 (对齐用户要求: 站点搜索不单热榜)
+"""webtool site 第二批: 关键词搜索型适配器, 全走指纹通道。
 
-全部走 transport/_fetch 反探测指纹通道 (XHR 头同源构造 + 真 TLS 指纹):
-- csdn_so    CSDN 问答搜索 (so.csdn.net API, 免登录)
-- juejin2    掘金综合搜索 (recommend 接口, 涵盖文章/沸点/课程)
-- bili2      B站视频搜索 (web-interface/search/all/v2, 需简单 buvid cookie)
-- ithome_so  IT之家关键词搜索 (api.ithome.com/json/search)
-- douban     豆瓣内容搜索 (www.douban.com/j/search, 免登录)
-- sohu_so    搜狐资讯搜索 (search.sohu.com API)
-- wallhaven  壁纸搜索 (C 指纹可达; q 支持颜色/分类语法透传)
-- gh_search  GitHub 代码/仓库关键词搜索 (api.github.com, 与 trend 区分)
-- wp_media   Wikipedia 多语言搜索增强 (走 zh/en 自动重试)
+csdn_so (CSDN 问答) / juejin2 (掘金) / bili2 (B站, 需 buvid cookie) /
+douban (HTML 版免登录) / gh_search (GitHub 仓库)。
 """
 
 import json
@@ -167,14 +159,6 @@ def douban(q, limit=10, proxy=None, timeout=15):
     return out[:limit]
 
 
-# sohu_so 已移除: search.sohu.com/meta 返回空数据 (status:-1), odin blockdata 502,
-# 无可用公开搜索接口.
-
-# ============================================================ GitHub 仓库搜索
-
-
-# ============================================================ GitHub 仓库搜索
-
 def gh_search(q, limit=10, proxy=None, timeout=15):
     """GitHub 仓库关键词搜索 (api.github.com; q 语法透传 stars:>1000 language:python)"""
     if not (q or '').strip():
@@ -199,8 +183,6 @@ def gh_search(q, limit=10, proxy=None, timeout=15):
 
 
 # ============================================================ 注册表
-
-# ithome_so 已移除 (api 404 / so 域 DNS 不可达); 热榜通道 moresites.ithome 仍可用.
 
 NEW2_SITES = {
     'csdn_so':    {'fn': csdn_so,    'desc': 'CSDN 问答搜索', 'proxy': 'direct'},

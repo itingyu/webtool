@@ -5,15 +5,13 @@
 1. PC 主力 (www.sogou.com/web): chrome131 Win 指纹 + state 持久 cookie
    (SUID/SNUID 回头客会话) + 导航预热 + 换会话梯度重试; PC 版结果带摘要
 2. PC 兜底: urllib 全套显式指纹会话
-3. 移动端 (m.sogou.com): Android 指纹 — 2026-10-10 实测 PC 端对 DC/无历史
-   IP 会随机弹 antispider 滑块 (5384B 固定页), 移动端风控显著更松, 且结果
-   href 的 url= 参数直出真实地址, 无需二次跳转解析; 缺点是移动端无摘要
+3. 移动端 (m.sogou.com): Android 指纹 —— PC 端对数据中心/无历史 IP 会弹
+   antispider 滑块, 移动端风控更松, 且结果 href 的 url= 参数直出真实地址,
+   无需二次跳转解析; 缺点是移动端无摘要
 
-实测注意 (2026-10-10, 数据中心 IP):
-- PC 端已对无历史 IP 常态 403 (nginx 硬拦), 移动端随机弹滑块, IP 频繁连打
-  后全站记名 (PC 403 + m 站滑块), 数分钟后逐步解封 — IP 信誉问题, 非代码
-  问题; 住宅 IP / 低频使用下 PC 通道是主力
-- 被拦处置: captcha 冷却 (state 持久化) + 换新会话/新指纹重试
+数据中心 IP 下 PC 端可能常态 403, 移动端随机弹滑块, 频繁连打后全站记名,
+数分钟后逐步解封 —— 是 IP 信誉问题, 住宅 IP / 低频使用下 PC 通道是主力。
+被拦处置: captcha 冷却 (state 持久化) + 换新会话/新指纹重试。
 """
 import re
 import time

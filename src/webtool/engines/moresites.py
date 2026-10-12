@@ -1,21 +1,17 @@
 # -*- coding: utf-8 -*-
-"""webtool site 搜索站点: thepaper/eastmoney
+"""webtool site 站点: thepaper/eastmoney, 全走 transport 指纹通道。
 
-设计 (对齐用户要求: 站内搜索务必带反探测指纹):
-- 全部走 transport.get(真浏览器 TLS 指纹 + XHR 头同源构造), 不用 urllib
-- 知乎/头条/微博/百度/IT之家热榜及 reddit/hn/lobsters/github_trend
-  已迁至 engines/hotsites.py, 由 rank 命令使用 (webtool rank ...)
-- 36kr: 移动/桌面全线被火山引擎 JS 挑战拦截 (纯 HTTP 拿不到数据), 不进内置表
+热榜类源在 engines/hotsites.py (rank 命令用); 36kr 被火山引擎 JS 挑战
+拦截 (纯 HTTP 拿不到数据), 不进内置表。
 """
 import json
 import re
 import urllib.parse
 
 import sys as _sys
-# 循环导入规避: sites 在尾部 _lazy_extend() 里导入本模块,
-# 此时sites模块已部分初始化 (SITES/工具函数已就绪), 从 sys.modules 直接取
+# sites 在尾部 _lazy_extend() 里导入本模块 (半初始化), 从 sys.modules 直接取
 _sites = _sys.modules.get('webtool.engines.sites')
-if _sites is None:                      # 独立导入本模块时 (非经 sites), 正常导入
+if _sites is None:
     from . import sites as _sites
 from .. import transport
 from .sites import _headers, _mk, _fetch

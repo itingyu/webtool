@@ -1,19 +1,9 @@
 # -*- coding: utf-8 -*-
 """跨进程持久状态: ~/.webtool/state.json
 
-为什么需要: CLI 每次调用都是新进程, 内存里的冷却/熔断/cookie 一退出就丢:
-- 冷却形同虚设 (90s 冷却只在本进程内有意义, 下次调用照打验证页)
-- cookie 每次冷启动重新预热, 而 SUID/BAIDUID 这类「回头客」会话本身就是
-  信任信号 — 持久化后比每次冷启动更像真人
-
-内容:
-- captcha:  各引擎冷却 {until, hits} (指数加长真正跨调用生效)
-- cookies:  各引擎会话 cookie (curl_cffi jar 导出, 原子写盘)
-- breakers: gnews 解码熔断 / 代理降级记忆
-- probe:    代理探活缓存
-
-写盘策略: 锁内变更 + tmp+rename 原子替换; 所有接口带 try/except,
-state 坏了只影响性能不影响功能。
+CLI 每次调用都是新进程, 冷却/熔断/cookie 必须落盘才能跨调用生效,
+回头客会话持久化更可信。写盘: 锁内变更 + tmp+rename 原子替换, 接口全带
+try/except, state 坏了只影响性能不影响功能。
 """
 import json
 import os
@@ -22,7 +12,7 @@ import threading
 import time
 
 PATH = os.path.expanduser('~/.webtool/state.json')
-TTL = {'cookies': 14 * 86400,          # cookie 保两周, 过期自动丢弃
+TTL = {'cookies': 14 * 86400,
        'probe': 60}
 
 _lock = threading.RLock()   # 可重入: save_* → load() 嵌套持锁

@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
-"""磁盘缓存: 搜索 60s / 正文 10s / 跳转解析 10min 分桶 TTL
+"""磁盘缓存: 分桶 TTL (search 60s / fetch 10s / resolve 600s / hot 120s)
 
-TTL 语义 (2026-10-11 调整): 缓存主要防「短窗口内重复查询/重复抓取」——
-1) 省时 2) 避免对反爬引擎暴露重复行为模式. 数据新鲜度优先于流量节省:
-search/fetch 档位短, 数据基本实时; resolve 是永久事实映射, 仍给 10min;
-hot (rank 榜单) 120s, 平衡多源并行拉取成本与榜单新鲜度.
+防短窗口内重复查询/抓取, 也避免对反爬引擎暴露重复行为模式; 新鲜度优先,
+resolve 是稳定映射故给 10min。
 """
 import hashlib
 import json

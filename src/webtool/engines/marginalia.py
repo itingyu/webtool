@@ -1,13 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Marginalia 引擎: 独立索引 (非 Google 系), 非商业小站/老网页覆盖好, 免 key
+"""Marginalia 引擎: 独立索引 (非 Google 系), 小站/老网页长尾, 免 key
 
-2026-10-10 攻关实录 (数据中心 IP 实测):
-- marginaalia 新 UI 对高频 bot 有 'Wait A Moment' 挑战, 但纯 HTTP 可解:
-  GET(挑战页) → 提取 sst= token 链接 → 等 2s → GET(发 sst-SE cookie) →
-  再 GET(带 cookie) → 放行。整个握手 ≤3 跳, 实测 3/3 query 全过
-- 结果结构: h2>a(title) + a(url 重复) + p(摘要), 免二次跳转解析
-- 特点: 独立爬取索引 (crawler-ips 公开), 结果与 Google/Bing 差异大,
-  适合做长尾补充源; 中文覆盖弱 (索引以英文技术内容为主)
+高频访问有 'Wait A Moment' 挑战, 纯 HTTP 握手可解 (sst token + cookie 重放);
+结果结构 h2>a(title) + p(摘要); 中文覆盖弱 (索引以英文技术内容为主)。
 """
 import re
 import time
@@ -51,7 +46,6 @@ def _fetch_result_main(url, proxy, timeout):
         main = t[i:t.find('</main>')] if i > 0 else t
         if 'Wait A Moment' not in main:
             return main
-        # 提取 sst 续链 (challenge 页/页脚都有)
         m = (re.search(r'href="(/search\?[^"]*sst=[^"]+)"', main)
              or re.search(r'href="(/search\?[^"]*sst=[^"]+)"', t))
         if not m:
@@ -72,7 +66,6 @@ def _parse(main, max_results):
         if not title:
             continue
         seen.add(u)
-        # 摘要: 结果块内 <p class="mt-2 ..."> 节点
         after = main[m.end():m.end() + 3000]
         sn = re.search(r'<p class="mt-2[^"]*"[^>]*>(.*?)</p>', after, re.S)
         snippet = _text(sn.group(1))[:200] if sn else ''

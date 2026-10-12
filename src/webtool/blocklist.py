@@ -17,14 +17,14 @@ import os
 import re
 from urllib.parse import urlparse
 
-# ---- 内置黑名单: 内容农场 / SEO 模板站 / 低质量聚合 (2026-10 整理, 10-11 扩充) ----
+# ---- 内置黑名单: 内容农场 / SEO 模板站 / 低质量聚合 ----
 DEFAULT_BLOCKLIST = [
     # CSDN 系: 博客正文被折叠要登录, 大量搬运/营销号
     'csdn.net', 'cdnbaidujc.com',
     # SEO 农场 / 模板采集站
     'jb51.net',           # 脚本之家: 大量无署名搬运
     'huaweicloud.com',    # 云社区采集文
-    'aliyun.com',         # 开发者社区同上 (保留 ask.aliyun? 后缀匹配会全拦, 值得)
+    'aliyun.com',         # 开发者社区采集文
     '51cto.com',          # 采集/营销号混合
     'easylearn.baidu.com',
     'baijiahao.baidu.com',
@@ -34,12 +34,12 @@ DEFAULT_BLOCKLIST = [
     'dazhuanlan.com', 'xiaoheiseo.com',
     # 资源站引流的假下载页
     'win7xzb.com', 'pc6.com', 'downxia.com', 'greenxiazai.com',
-    # 傍品牌/克隆洗稿站 (2026-10-11 实测甄别)
+    # 傍品牌/克隆洗稿站
     'baibaidu.com',       # 傍 baidu 品牌的万年历站, 按日批量生成模板页
     'pythonlang.cn',      # 整站克隆 python.org 中文版, 冒充官网
     'cainiaojc.com',      # 自称"菜鸟教程"克隆 runoob 洗稿, 非 runoob 官方
-    # 词典/字典泛匹配页: 单字/单词释义页对实体 query 是纯噪声 (技术实体 query 高频污染源)
-    # 注: youdao.com 后缀匹配会连主站一起拦 — 有道主站本身也是词典壳, 拦掉无害
+    # 词典泛匹配页: 单词释义页对实体 query 是纯噪声
+    # youdao.com 后缀匹配连主站一起拦, 主站本身也是词典壳, 拦掉无害
     'hanyuguoxue.com', 'chagushici.com', 'hgcha.com', 'gushici.net',
     'iciba.com', 'youdao.com',
     # 百科/词典: 技术与实体 query 下的高频噪声源 (泛匹配页)
@@ -48,10 +48,6 @@ DEFAULT_BLOCKLIST = [
     'zhihu.com',
 ]
 
-# 用户自定义持久黑名单 (~/.webtool/blocklist.json)
-# 默认不带 zhihu: 如需屏蔽 run: webtool blocklist add zhihu.com
-
-# 域名规范化: 小写, 去 www. 前缀
 def _norm_host(host):
     host = (host or '').lower().strip()
     if host.startswith('www.'):

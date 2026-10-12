@@ -1,34 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Google 429 挑战 (reCAPTCHA no-js form) 攻坚模块
+"""Google 429 挑战 (reCAPTCHA no-js form) 处置模块
 
-背景 (2026-10-10 实测): DC 代理出口访问 /search → 302 /sorry/index 挑战页:
-  <form id="captcha-form" action="index" method="post">
-    input q=<反爬令牌> + continue=<原URL>
-    g-recaptcha data-sitekey=6LfwuyUT... data-callback=submitCallback data-s=<会话token>
-
-已还原的完整验证链路 (本模块实现到第 4 步, 第 5 步卡 botguard 评分):
-  1. GET /search?.. → 302 /sorry/index (429), 页面含 q 令牌 + data-s
-  2. anchor: POST 参数 co 必须 base64(origin) 去 padding (urlencode 形式会被
-     ErrorMain "Invalid domain" 拒绝), /recaptcha/api2/anchor 返回 recaptcha-token
-  3. enterprise 流: /recaptcha/enterprise/anchor?...&s=<data-s> 也发 token
-  4. 表单提交: POST /sorry/index {q, continue, g-recaptcha-response=<token>}
-     — token 被服务器消费 (data-s 换新), 但评分不过 → 再次 429
-  5. 评分依据 = botguard.bg: 浏览器内 VM 执行 DOM/API 探针 + scrypt POW
-     (recaptcha__en.js 内 window.botguard.bg + globalThis.scrypt) 生成环境
-     blob. 无真实浏览器执行环境 → blob 为空/低分 → token 判废. anchor token
-     本身可无限领取 (无 IP 限制), 但过不了 /sorry 的消费校验.
-
-结论: 纯 HTTP 无法通过 botguard 评分 (需实现 botguard VM + DOM 探针模拟,
-工作量数百人月且每 2 周随 releases 轮换). 本模块保留已打通的 1-4 步代码,
-并提供策略: 低频单发 (IP 信誉好时 google 偶发放行) + 识别"直接放行窗口".
-
-dukpy 补充实验 (2026-10-10, 见 /var/minis/workspace/BOTGUARD_NOTES.md):
-- bframe frame.Main.init 在 DOM 桩上可完整跑通, setup 消息拓扑已验证
-- anchor Main.init 卡 UI 渲染层; botguard VM 需要 WASM/scrypt, dukpy 无此能力
-- reload 协议实测: 无 bgdata blob 时响应 )]}'\n["rresp",null,...,0] (0=不发挑战)
-
-如果未来 google 把 nojs 流程的评分放宽 (或用户配置了住宅代理), solve()
-会自动生效 — 对上层透明.
+实现到表单提交一步: anchor 可取 recaptcha-token, 但评分依赖 botguard.bg
+(浏览器内 VM + scrypt POW) 生成的环境 blob, 纯 HTTP 过不了评分, 提交仍 429。
+保留表单重放与 anchor-token 两条路径, 评分放宽后 solve() 自动生效。
 """
 import base64
 import re
@@ -109,7 +84,7 @@ def solve(session, html, challenge_url, timeout=12, attempts=2):
     if not chal:
         return False, None, 'not-challenge'
 
-    # 1) 侥幸路径: 有些边缘节点对 q 令牌时效校验宽松, 直接重放表单
+    # 部分边缘节点对 q 令牌时效校验宽松, 直接重放表单可过
     for _ in range(attempts):
         try:
             r = _post_sorry(session, chal, challenge_url, timeout, token=None)
@@ -120,7 +95,7 @@ def solve(session, html, challenge_url, timeout=12, attempts=2):
             pass
         time.sleep(1.2)
 
-    # 2) anchor-token 路径 (2026-10: token 可取但 botguard 评分不过, 保留等放宽)
+    # anchor-token: token 可取但 botguard 评分不过, 保留等评分放宽
     token = _anchor_token(session, chal, challenge_url, timeout)
     if token:
         time.sleep(2.0)          # 模拟人从加载到提交的间隔

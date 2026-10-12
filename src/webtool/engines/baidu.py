@@ -1,19 +1,8 @@
 # -*- coding: utf-8 -*-
-"""百度搜索引擎: TLS 指纹模拟 (curl_cffi) + 多步预热 + 验证页处置
+"""百度搜索: curl_cffi TLS 指纹 + 多步预热 + 验证页处置
 
-核心突破 (2026-10-09 实测): python-urllib 的 TLS 握手指纹(JA3)被百度识别,
-即使完整 cookie+Referer 也会弹安全验证页 (1438B)。用 curl_cffi 的
-impersonate='chrome' 模拟 Chrome 完整 TLS/JA3/HTTP2 指纹后:
-- Session 首页领 cookie 后搜索: 5/5 成功率 (多 query 连续验证)
-
-多步预热 (浏览器形态, transport 层统一管理指纹/cookie/节奏/降级梯):
-1. GET 首页领 BAIDUID/BAIDUID_BFESS (+ state 持久化, 回头客会话是信任信号)
-2. GET sugrec 联想词接口 — 浏览器输入时真实调用的 XHR, 让服务端看到
-   "输入→联想→搜索" 的完整行为链
-3. 带 Referer/完整导航头 GET /s
-
-链接解析: <h3 title><a href="baidu.com/link?url=.."> → 302 Location
-广告: result-op 聚合卡片 → is_ad=True
+urllib 的 JA3 指纹会触发安全验证页, 必须走浏览器指纹。预热: 首页领
+BAIDUID → sugrec 行为链 → 带会话 cookie 搜索; result-op 卡片标 is_ad。
 """
 import re
 import time
@@ -62,14 +51,12 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, page=1):
 
 def _get_html(url, proxy, timeout):
     """多步预热 → 搜索 (验证码检测/降级梯/节奏全在 transport.get)"""
-    # 步骤1+2: 首页领 cookie + sugrec 行为链预热 (失败不致命, 继续搜)
     try:
         warm, wprof = transport._new_session('chrome131_win', proxy, 'baidu')
         transport.warm_session(warm, BAIDU + '/', profile=wprof, timeout=timeout)
         transport.session_get(f'{BAIDU}/sugrec?prod=pc&wd={urllib.parse.quote("百")}',
                               warm, kind='xhr', referer=BAIDU + '/',
                               profile=wprof, timeout=timeout)
-        # 步骤3: 带着会话 cookie 搜索
         text, status = transport.session_get(
             url, warm, kind='nav', referer=BAIDU + '/', timeout=timeout)
         blocked, _ = captcha.detect('baidu', text)
@@ -80,7 +67,6 @@ def _get_html(url, proxy, timeout):
         captcha.mark_blocked('baidu')
     except Exception:
         pass
-    # 兜底: transport 统一通道 (含降级梯)
     text, _status, via = transport.get(url, kind='nav', referer=BAIDU + '/',
                                        proxy=proxy, timeout=timeout,
                                        engine='baidu')
@@ -94,7 +80,6 @@ def _snippet(seg):
           or re.search(r'class="[^"]*content-right[^"]*"[^>]*>(.*?)</(?:div|span)>', seg, re.S))
     if ab:
         return _unescape(re.sub(r'<[^>]+>', '', ab.group(1))).strip()[:300]
-    # 新版: 块内最长纯文本节点即摘要 (标题/来源都在 40 字以内, 摘要更长)
     cands = re.findall(r'>([^<>{}]{40,200})<', seg)
     if cands:
         return _unescape(max(cands, key=len)).strip()[:300]
@@ -131,8 +116,7 @@ def _resolve_one(link, proxy, timeout):
     if not real:
         return None
     n = urllib.parse.urlparse(real).netloc.lower()
-    # 真目标在百度系子域 (百家号/贴吧/知道/百科) 是合法解出结果 — 不能按
-    # 'baidu.com in netloc' 误杀; 只有「还停在 www.baidu.com/link」= 没跳走 = 失败
+    # 百度系子域 (百家号/贴吧/百科) 是合法解出结果; 还停在 www.baidu.com/link 才是失败
     if n == 'www.baidu.com' and '/link' in urllib.parse.urlparse(real).path:
         return None
     # 302 Location 出现非 ASCII 乱码 = token 过期/风控假响应, 当失败处理

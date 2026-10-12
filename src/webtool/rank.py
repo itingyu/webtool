@@ -21,7 +21,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import cache
 from .engines.hotsites import HOT_SITES, DEFAULT_HOT_SOURCES
 
-# 代理探活结果缓存 (进程内): {proxy_url: True/False}, 避免每源都探一遍
 _proxy_alive = {}
 
 
@@ -159,7 +158,7 @@ def do_rank(args, cfg):
     # ---------- 语义筛选/重排 ----------
     filtered_out = 0
     if q:
-        # 1) 支持搜索的源已站内过滤; 不支持的源在本地做 BM25 阈值筛 (跨源统一)
+        # 不支持站内搜索的源在本地做 BM25 阈值筛
         from .merge import _semantic_scores
         pool = []
         for nm in names:
@@ -178,7 +177,7 @@ def do_rank(args, cfg):
                 print(f'warn: threshold {threshold} 筛空全榜, 回退全量',
                       file=sys.stderr)
         if threshold > 0:
-            # 2) 跨源 BM25 重排 + 标注 sem_score (仅语义筛选模式)
+            # 跨源 BM25 重排 + 标注 sem_score
             scores = _semantic_scores(q, pool)
             for i, r in enumerate(pool):
                 r['sem_score'] = round(scores.get(i, 0.0), 3)
@@ -186,7 +185,7 @@ def do_rank(args, cfg):
             for i, r in enumerate(pool):
                 r['rank'] = i + 1
         else:
-            # -t 0: 不过滤不重排, 按源原序 (榜单位次即真实热度位次)
+            # -t 0: 按源原序 (榜单位次即热度位次)
             for i, r in enumerate(pool):
                 r['rank'] = i + 1
         flat = pool

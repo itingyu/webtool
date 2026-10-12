@@ -1,13 +1,8 @@
 # -*- coding: utf-8 -*-
-"""HTTP 底层: urllib 兜底通道 (transport 的降级备胎)
+"""HTTP 底层: urllib 兜底通道 (transport 的降级备胎) + 老式 socks 代理。
 
-主力通道在 transport.py (curl_cffi 浏览器指纹)。本模块仅服务:
-1. transport 的 urllib 兜底 (cffi 自身崩溃时)
-2. 老式 socks 代理 (pysocks)
-不再承担搜索引擎主路径。
-
-反探测: http_get 未显式给 UA 时自动套 transport 指纹档案的浏览器 UA
-(含 Accept-Language), 禁止裸 Python-urllib 指纹出网。
+http_get 未显式给 UA 时自动套 transport 指纹档案的浏览器 UA,
+禁止裸 Python-urllib 指纹出网。
 """
 import gzip
 import io
