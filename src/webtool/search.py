@@ -7,6 +7,7 @@ import sys
 import time
 
 from webtool import cache
+from webtool.transport import _proxy_alive, proxy_hint  # noqa: F401 — 旧名再导出
 from webtool.adfilter import is_ad, mark_ads
 from webtool.plugins import table as _plugin_table
 
@@ -15,34 +16,6 @@ def _engines():
     """引擎表 (name -> spec); 每次现取插件表, 清单改动即时生效"""
     return _plugin_table('engine')
 
-_PROBE_CACHE = None
-def _proxy_alive(cfg, ttl=60):
-    """全局代理 TCP 探活, 结果缓存 ttl 秒. 代理未配置返回 False."""
-    global _PROBE_CACHE
-    if not cfg.get('proxy'):
-        return False
-    now = time.time()
-    if _PROBE_CACHE and now - _PROBE_CACHE[0] < ttl:
-        return _PROBE_CACHE[1]
-    from urllib.parse import urlparse
-    p = urlparse(cfg['proxy'])
-    try:
-        s = socket.create_connection((p.hostname, p.port or 8080), timeout=1.5)
-        s.close()
-        ok = True
-    except OSError:
-        ok = False
-    _PROBE_CACHE = (now, ok)
-    return ok
-
-
-# 各引擎代理建议来自插件清单 engine.*.params.proxy_hint:
-# None=跟随全局; 'required'=必须代理; 'direct'=建议直连
-# google 为 required — 代理未配置或探活失败(进程挂/端口不通)都静默跳过, 不搜谷歌
-def proxy_hint(engine):
-    """按插件元数据取代理策略, 未声明的引擎保守跟随全局"""
-    spec = _engines().get(engine) or {}
-    return spec.get('proxy_hint')
 
 
 def default_engines():
