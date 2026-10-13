@@ -20,6 +20,7 @@ import sys
 import time
 
 from webtool.stock import master as _master
+from webtool.stock import rawapi as _raw
 from webtool.stock import srv as _srv
 
 
@@ -126,6 +127,32 @@ def _act_risk(args, cfg):
     return _master.do_risk(args.codes)
 
 
+def _act_api(args, cfg):
+    """通用入口: 调 api_client 任一方法 (服务端 24 工具未覆盖的能力)"""
+    return _raw.call(args.method, _args_dict(args))
+
+
+def _act_api_list(args, cfg):
+    ms = _raw.methods_by_source()
+    return {'count': sum(len(v) for v in ms.values()),
+            'by_source': {k: len(v) for k, v in ms.items()},
+            'methods': ms}
+
+
+def _act_holder(args, cfg):
+    """股东研究 (东财) —— 持仓变动/机构调研, 比服务端 top_holders 更细"""
+    code = _code(args)
+    mkt = 'SH' if code.startswith('6') else ('SZ' if code[0] in '03' else 'BJ')
+    return _raw.call('em_shareholder_research', {'code': f'{mkt}{code}'})
+
+
+def _act_forecast(args, cfg):
+    """盈利预测 (东财) + 主营构成 (em_business_analysis) 交叉"""
+    code = _code(args)
+    mkt = 'SH' if code.startswith('6') else ('SZ' if code[0] in '03' else 'BJ')
+    return _raw.call('em_profit_forecast', {'code': f'{mkt}{code}'})
+
+
 def _act_report(args, cfg):
     return _master.do_report(code=_code(args, required=False), pool=args.pool,
                              news=list(args.texts or []) or None)
@@ -203,6 +230,13 @@ def _act_health(args, cfg):
             out['mcp'].update(ok=False, err=f'{type(e).__name__}: {e}')
     else:
         out['mcp']['err'] = f'服务端不可用 (STOCK_MCP_HOME 可覆盖路径)'
+    out['raw'] = {}
+    out['raw']['home'] = _raw.HOME
+    out['raw']['found'] = _raw.available()
+    if out['raw']['found']:
+        out['raw'].update(ok=True, methods=len(_raw.methods()))
+    else:
+        out['raw']['err'] = f'api_client 不可用 (STOCK_API_HOME 可覆盖)'
     out['ok'] = bool(out['master'].get('ok') or out['mcp'].get('ok'))
     return out
 
@@ -215,7 +249,20 @@ ACTIONS = {
     'report': _act_report, 'excel': _act_excel, 'sentiment': _act_sentiment,
     'diagram': _act_diagram,
     'mcp': _act_mcp, 'tools': _act_tools, 'health': _act_health,
+    'api': _act_api, 'api-list': _act_api_list,
+    'holder': _act_holder, 'forecast': _act_forecast,
 }
+
+def _args_dict(args):
+    """把 --arg k=v 收成 dict (纯数字留字符串, 同 mcp 动作的口径)"""
+    params = {}
+    for kv in (getattr(args, 'params', None) or ()):
+        if '=' not in kv:
+            raise ValueError(f'--arg 需要 k=v 形式, 收到 {kv!r}')
+        k, _, v = kv.partition('=')
+        params[k.strip()] = _coerce(v)
+    return params
+
 
 USAGE = """用法: webtool stock <动作> [参数]
 
@@ -242,8 +289,14 @@ MCP 动作 (透传调用服务端 24 个工具)
   mcp <工具名> [--arg k=v]     透传调用, 例: webtool stock mcp stock_indicators --arg symbol=600519
   tools [关键词]               列工具清单
 
+原始 API (api_client 151 方法, 8 数据源 —— 服务端未覆盖的能力)
+  api-list                     按数据源分组列全部方法
+  api <方法名> [--arg k=v]     直接调任一方法, 例: webtool stock api ths_stockpage_finance --arg code=600519
+  holder <代码>                股东研究 (东财 持仓变动/机构调研)
+  forecast <代码>              盈利预测 (东财)
+
 元动作
-  health                       两侧探活
+  health                       三侧探活 (master / 服务端 / 原始 API)
 """
 
 
@@ -284,6 +337,9 @@ def do_stock(args, cfg):
     except _srv.SrvError as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
+    except _raw.RawApiError as e:
+        print(f'error: {e}', file=sys.stderr)
+        return 1
     except ValueError as e:
         print(f'error: {e}', file=sys.stderr)
         return 2
@@ -303,6 +359,10 @@ def _render(out, fmt, action):
     if fmt == 'json':
         print(json.dumps(out, ensure_ascii=False, indent=1))
         return
+    if action in ('api', 'forecast', 'api-list'):
+        # api_client 的接口形态千差万别 (含本身就返回 HTML 的), 那个"本该是
+        # 列表却回了原始 HTML"的守卫对它不适用, 会把正常响应误报成未解析。
+        note = None
     if note:
         print(f'⚠ {note}', file=sys.stderr)
     if fmt == 'markdown':
@@ -680,9 +740,95 @@ def _text_flow(out):
         print(f'{k}: {json.dumps(v, ensure_ascii=False)[:300] if isinstance(v, (dict, list)) else v}')
 
 
+def _text_raw(out, action=''):
+    """原始 API 载荷: 摘要 + 键结构, 不倾倒原始 JSON。
+
+    api_client 返回的数据量动辄几十 KB (股东研究一家 34KB), 全量印出来
+    既刷屏又淹掉重点。这里只给: 状态 / 来源 / 各键的条目数与首条要点。
+    要全量用 -f json。
+    """
+    if not isinstance(out, dict):
+        print(json.dumps(out, ensure_ascii=False)[:2000])
+        return
+    if action == 'api-list':
+        print(f"api_client 共 {out.get('count')} 个方法 (按数据源):")
+        for src, ms in (out.get('methods') or {}).items():
+            print(f"  {src}({len(ms)}): {' '.join(ms[:6])}{' …' if len(ms) > 6 else ''}")
+        return
+    print(f"ok={out.get('ok')}" + (f"  源={out['source']}" if out.get('source') else '')
+          + (f"  {out['raw_size']} 字符" if out.get('raw_size') else ''))
+    if out.get('error'):
+        print(f'  错误: {out["error"]}')
+        return
+    data = out.get('data')
+    if not isinstance(data, dict):
+        print(json.dumps(data, ensure_ascii=False)[:1000])
+        return
+    for k, v in data.items():
+        if isinstance(v, list):
+            if not v:
+                print(f'  {k}: (空)')
+            else:
+                first = v[0]
+                hint = (', '.join(list(first)[:5]) + '…'
+                        if isinstance(first, dict) else str(first)[:60])
+                print(f'  {k}: {len(v)} 条  首条字段[{hint}]')
+        elif isinstance(v, dict):
+            print(f'  {k}: {{}} {len(v)} 键 {list(v)[:5]}')
+        elif v not in (None, '', []):
+            print(f'  {k}: {str(v)[:80]}')
+
+
+def _text_holder(out):
+    """股东研究: 摘要 + 前十大股东表 + 股东户数趋势 (这是最该先看的两块)"""
+    if not isinstance(out, dict) or not out.get('ok'):
+        _text_raw(out)
+        return
+    data = out.get('data') or {}
+    gdrs = data.get('gdrs') or []
+    if gdrs:
+        print('股东户数 (每报告期):')
+        for g in gdrs[:6]:
+            print(f"  {(g.get('END_DATE') or '')[:10]}  户数{g.get('HOLDER_TOTAL_NUM'):,}  "
+                  f"户均持股{g.get('AVG_FREE_SHARES')}  集中度{g.get('HOLD_FOCUS')}")
+    sd = data.get('sdgd') or []
+    if sd:
+        print(f"\n前十大股东 ({sd[0].get('END_DATE', '')[:10]}):")
+        for h in sd[:10]:
+            print(f"  {h.get('HOLDER_RANK')}. {str(h.get('HOLDER_NAME'))[:28]}  "
+                  f"{h.get('HOLD_NUM_RATIO')}%  变动 {h.get('HOLD_NUM_CHANGE')}")
+    jg = data.get('jgcc') or []
+    if jg:
+        print(f'\n机构持股 ({(jg[0].get("REPORT_DATE") or "")[:10]}):')
+        for j in jg[:5]:
+            print(f"  {j.get('ORG_TYPE')}  机构{j.get('TOTAL_ORG_NUM')}家  "
+                  f"占流通股{j.get('TOTAL_SHARES_RATIO')}%")
+    _text_raw_tail(out)
+
+
+def _text_raw_tail(out):
+    """给摘要渲染收尾: 剩下的键用条数说明 (不重复已展示的大块)"""
+    data = out.get('data') or {}
+    shown = {'gdrs', 'sdgd', 'jgcc', 'sdltgd'}
+    rest = [k for k in data if k not in shown]
+    if rest:
+        parts = [f'{k}({len(data[k])})' if isinstance(data[k], (list, dict)) else k
+                 for k in rest]
+        print(f"\n其余字段: {', '.join(parts)}  (用 -f json 看全量)")
+
+
 def _text(out, action):
     if action in ('news', 'announcement', 'financials', 'mcp'):
         _text_srv(out, note_only=bool(_unresolved(out)))
+        return
+    if action == 'holder':
+        _text_holder(out)
+        return
+    if action in ('api', 'forecast', 'api-list'):
+        # 不跑 _unresolved 守卫: 那守卫针对 news/announcement 那类"本该给列表
+        # 却回了原始 HTML"的情况。api_client 有些接口(如 ths_stockpage_finance)
+        # 本身就返回 HTML 表格, 套同一个守卫会误报成"未解析"。
+        _text_raw(out, action)
         return
     if action == 'analyze':
         _text_analyze(out)

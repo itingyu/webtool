@@ -163,10 +163,15 @@ webtool stock diagram 600519 --kind logic --name 贵州茅台 --thesis "稀缺�
 webtool stock diagram --kind chain --name 白酒 --driver 高粱 --mid 酿造 --catalyst 提价
 webtool stock mcp --tool stock_kline --arg symbol=600519 --arg period=day
 webtool stock tools                             # 24 工具清单
-webtool stock health                            # 两侧探活
+webtool stock api-list                          # api_client 151 方法 (按数据源)
+webtool stock api --method ths_rank_cxfl         # 直接调任一低阶方法
+webtool stock holder 600519                     # 股东研究 (东财)
+webtool stock forecast 600519                   # 盈利预测 (东财)
+webtool stock health                            # 三侧探活
 ```
 
 - **两侧都不复制业务逻辑**，只是进程内 import；skill 未装时 `stock health` 报 unavailable，不拖垮 webtool 其他命令。路径可用 `STOCK_MASTER_HOME` / `STOCK_MCP_HOME` 覆盖
+- **第三侧：`api_client` 151 个低阶方法**（`shared/股票/API调研/`，8 数据源：ths/sina/xueqiu/em/gtimg/tencent/cninfo/sse/csindex/ef）。服务端只把其中 56 个聚合成 24 个高阶工具，另外 96 个（股东研究/盈利预测/研报日历/早盘晚报/板块多维排行/分钟线/产业链分类…）通过 `webtool stock api <方法>` 直接调。`STOCK_API_HOME` 可覆盖路径
 - **工具清单读服务端 `TOOLS` 注册表**，服务端增删工具 webtool 自动跟上；本地表只在服务端 import 不了时兜底
 - **口径纪律照搬 stock-master**：涨停池输出必带真实数据日（该接口对无效日期会静默回旧数据）；北向 `status=3` 或接口回填额度上限一律标 ⚠「未取得」，**禁止当 0**；MCP 回了原始 HTML 未解析出条目时显式标注，不把 100KB 噪声当结果
 - `--arg` 的值猜类型时**纯数字一律留字符串**（600519 是代码不是整数），与 `webtool mcp` 的口径不同

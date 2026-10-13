@@ -159,7 +159,14 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 - `engines/sites.py` 的 `_mk/_fetch/_headers` 被 6 个模块跨文件复用（customsites / sitesearch /
   feeds.fetch / hotsites / moresites / moresites2 / oversites），暂留私有名；
   真要复用得按规范去掉 `_` 并下沉到 `core` 或 `engines/base.py`
-- **`stock/` 是桥接层，不实现业务逻辑，且全链路纯进程内**。两侧口径都归各自维护方：
+- **`stock/` 是桥接层，不实现业务逻辑，且全链路纯进程内**。三侧口径都归各自维护方：
+  - **第三侧 `rawapi.py`** 桥 `/var/minis/shared/股票/API调研/api_client.py` 的
+    **151 个低阶方法**（`STOCK_API_HOME` 可覆盖），8 大数据源 ths/sina/xueqiu/em/
+    gtimg/tencent/cninfo/sse/csindex/ef。服务端只把其中 56 个聚合成 24 个高阶工具，
+    另外 96 个（股东研究/盈利预测/研报日历/早盘晚报/板块多维排行/分钟线/产业链分类）
+    从 `webtool stock api <方法>` 直接调
+  - `rawapi.call` **按签名校验参数**：多传参数直接报错而不是吞掉 —— 静默丢弃参数
+    等于让调用方以为生效了，实际跑的是默认值
   stock-master 在 `/var/minis/skills/stock-master`（`STOCK_MASTER_HOME` 可覆盖），
   stock 数据服务端在 `/var/minis/mcp-servers/stock_mcp_server.py`（`STOCK_MCP_HOME`
   可覆盖）。**全程不起子进程、不经 MCP 协议**：

@@ -27,10 +27,12 @@ webtool search "查询词" -e exa                # Exa 语义搜索 (MCP, 免 ke
 webtool stock quote 600519 创业板指            # 实时行情 (桥 stock-master + stock MCP)
 webtool stock analyze 600519                  # 单股深度 (技术面 + 100 分制评分 + 信号)
 webtool stock screen --min-score 70           # 短线选股 (含剔除清单)
-webtool stock tools                           # stock MCP 24 工具清单
+webtool stock tools                           # 服务端 24 工具清单
 webtool stock report 600519                   # 成稿研报 (markdown)
 webtool stock sentiment --text "业绩超预期"     # 消息面打分 -100~+100
-webtool stock health                          # 两侧桥接探活
+webtool stock api-list                       # api_client 151 方法 (8 数据源, 按源分组)
+webtool stock holder 600519                  # 股东研究 (东财)
+webtool stock health                         # 三侧桥接探活
 webtool config set default_engines bing,sogou
 ```
 
@@ -139,6 +141,15 @@ webtool stock excel --excel picks.xlsx        # 选股池导出 xlsx (4 sheet, �
 webtool stock sentiment 600519                # 该股新闻消息面打分; 也可 --text "..." 直接打分
 webtool stock diagram --kind tree             # mermaid: tree 决策树 / logic 投资逻辑 / chain 产业链
                                           #   chain: --name 产业链 --driver 上游 --mid 中游 --catalyst 下游
+
+# 第三侧: api_client 151 个低阶方法 (shared/股票/API调研/, 8 大数据源)
+# 服务端只聚合了 56 个成 24 个高阶工具; 其余 96 个（股东研究/盈利预测/研报日历/
+# 早盘晚报/板块多维排行/分钟线/产业链分类…）从这里直接调
+webtool stock api-list                        # 按数据源分组列全部方法
+webtool stock api --method ths_rank_cxfl --arg sort_type=1   # 调任一方法
+webtool stock api --method sina_kline_min --arg symbol=sh600519 --arg scale=5
+webtool stock holder 600519                   # 股东研究摘要 (户数趋势/前十大/机构)
+webtool stock forecast 600519                 # 盈利预测 (东财)
 webtool stock mcp --tool stock_kline --arg symbol=600519
 webtool stock tools                           # 24 工具清单;  health  # 两侧探活
 ```
@@ -147,6 +158,8 @@ webtool stock tools                           # 24 工具清单;  health  # 两�
 - **纯进程内**：单次调用 0.1-2s（原先每次起子进程 2.5-2.9s）。直接调服务端 `TOOLS` 里的 handler 函数，没有 JSON-RPC 也没有 content 信封序列化。stock-master 的两个子进程出口（`minis-mcp-cli` / `webtool search`）在运行时被注入成进程内实现，不改 skill 文件
 - **工具清单读服务端 `TOOLS` 注册表**，服务端增删工具自动跟上
 - **失败语义**：handler 抛异常或返回 `ok=False` 都按"调用失败"处理（stderr + 退出码 1），不会崩进程
+- **`api` 动作的 text 只给摘要**（状态/来源/各键条目数），不倾倒原始 JSON —— 股东研究一家返回 34KB。全量用 `-f json`。`holder` 有专门的摘要渲染（户数趋势 + 前十大 + 机构持股）
+- **`api` 动作不套"未解析"守卫** —— api_client 有些接口（如 `ths_stockpage_finance`）本身就返回 HTML 表格，套 news 那个守卫会误报
 - **report / diagram / excel 原样透传**（成稿 markdown、mermaid 源码、落盘确认），不再包 JSON 或表格 —— 这些产出本来就是给人直接看的。sentiment 分数带符号印出（`+12` 而非 `12`），方向是消息面的关键信息
 - **`report` / `excel` 跑短线池会扫全市场**（约 70 秒），别放进交互式调用；`excel` 缺 openpyxl 会明确报错而非静默不出文件
 - **口径纪律**：涨停池必带真实数据日（该接口对无效日期会静默回旧数据）；北向 `status=3` 或接口回填额度上限一律标 ⚠「未取得」，**禁止当 0**；MCP 回了原始 HTML 未解析出条目时显式标注，不把 100KB 噪声当结果
