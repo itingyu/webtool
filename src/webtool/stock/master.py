@@ -62,7 +62,7 @@ def _patch_inproc(c):
     stock-master 的 clients.mcp() 每次 `subprocess.run(["minis-mcp-cli", ...])`
     (约 2.5s/次), clients.web_search() 每次 `subprocess.run(["webtool", "search", ...])`
     (webtool 自己起自己, 纯浪费)。这里在模块上覆盖这两个函数, 让它们走
-    stock/mcp.py 的进程内通道与 webtool 自己的 search:
+    stock/srv.py 的进程内通道与 webtool 自己的 search:
 
       - 产物形状完全一致 ({"ok","source","data",...} / {"ok","query","results"})
       - 只在 webtool 进程内生效, 不改 skill 文件 —— skill 有自己的维护流程,
@@ -76,10 +76,10 @@ def _patch_inproc(c):
     c._webtool_inproc = True
 
     def _mcp(tool, **kwargs):
-        from webtool.stock import mcp as _m
+        from webtool.stock import srv as _srv
         try:
-            return _m.call(tool, kwargs)
-        except _m.McpError as e:
+            return _srv.call(tool, kwargs)
+        except _srv.SrvError as e:
             _log(f'MCP {tool} 失败: {e}', level='WARN')
             return {'ok': False, 'err': str(e)}
 

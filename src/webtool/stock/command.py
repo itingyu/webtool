@@ -20,7 +20,7 @@ import sys
 import time
 
 from webtool.stock import master as _master
-from webtool.stock import mcp as _mcp
+from webtool.stock import srv as _srv
 
 
 def _norm_fmt(v, default='text'):
@@ -125,7 +125,7 @@ def _act_risk(args, cfg):
 
 def _act_mcp(args, cfg):
     if not getattr(args, 'tool', None):
-        names = sorted(_mcp.tool_names())
+        names = sorted(_srv.tool_names())
         raise ValueError(
             f'mcp 动作需要 --tool 指定工具名, 可用: {", ".join(names[:6])} ... '
             f'(完整清单: webtool stock tools)')
@@ -135,11 +135,11 @@ def _act_mcp(args, cfg):
             raise ValueError(f'--arg 需要 k=v 形式, 收到 {kv!r}')
         k, _, v = kv.partition('=')
         params[k.strip()] = _coerce(v)
-    return _mcp.do_call(args.tool, params, timeout=args.timeout)
+    return _srv.do_call(args.tool, params, timeout=args.timeout)
 
 
 def _act_tools(args, cfg):
-    return _mcp.do_tools(args.keyword or '')
+    return _srv.do_tools(args.keyword or '')
 
 
 def _act_health(args, cfg):
@@ -160,14 +160,14 @@ def _act_health(args, cfg):
     else:
         out['master']['err'] = f'未装在 {home} (可用 STOCK_MASTER_HOME 覆盖)'
 
-    out['mcp']['server'] = f'{_mcp.SERVER_HOME}/{_mcp.SERVER_MOD}.py'
-    out['mcp']['found'] = _mcp.available()
+    out['mcp']['server'] = f'{_srv.SERVER_HOME}/{_srv.SERVER_MOD}.py'
+    out['mcp']['found'] = _srv.available()
     if out['mcp']['found']:
         t0 = time.time()
         try:
-            _mcp.call('stock_health_check', {})
+            _srv.call('stock_health_check', {})
             out['mcp'].update(ok=True, took_ms=int((time.time() - t0) * 1000),
-                              tools=len(_mcp.tool_names()))
+                              tools=len(_srv.tool_names()))
         except Exception as e:                              # noqa: BLE001
             out['mcp'].update(ok=False, err=f'{type(e).__name__}: {e}')
     else:
@@ -242,7 +242,7 @@ def do_stock(args, cfg):
     except _master.MasterMissing as e:
         print(f'error: {e}', file=sys.stderr)
         return 2
-    except _mcp.McpError as e:
+    except _srv.SrvError as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
     except ValueError as e:
@@ -419,7 +419,7 @@ def _text_item(it):
             print(f'  {k}: {v}')
 
 
-def _text_mcp(out, note_only=False):
+def _text_srv(out, note_only=False):
     """服务端载荷的 text 渲染: 结构化则列条目, 未解析只给提示。
 
     载荷固定是 {"ok", "source", "data"(可能是 dict / 字符串化 JSON / raw html)}。
@@ -527,7 +527,7 @@ def _text_flow(out):
 
 def _text(out, action):
     if action in ('news', 'announcement', 'financials', 'mcp'):
-        _text_mcp(out, note_only=bool(_unresolved(out)))
+        _text_srv(out, note_only=bool(_unresolved(out)))
         return
     if action == 'risk':
         _text_risk(out if isinstance(out, dict) else {})

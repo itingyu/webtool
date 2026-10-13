@@ -1,4 +1,4 @@
-"""集成 stock 数据服务端的 24 个工具 (原 stock MCP server 的能力)
+"""集成 stock 数据服务端的 24 个工具 (源自 stock MCP server, 但不走 MCP 协议)
 
 **纯进程内, 且不经 MCP 协议**: 服务端模块就在本机 /var/minis/mcp-servers/
 stock_mcp_server.py, 它的 `TOOLS` 注册表里每项自带 handler 函数 ——
@@ -8,10 +8,12 @@ stock_mcp_server.py, 它的 `TOOLS` 注册表里每项自带 handler 函数 —�
 也正因如此 `TOOLS` 就是工具清单的单一事实来源 —— 服务端增删工具 webtool 自动跟上,
 本地那份 TOOLS 只是服务端 import 不了时的兜底。
 
-⚠️ 与 `webtool mcp` 那套 HTTP 通道 (net/mcpclient.py) 是两件不同的事 —— 那条是给
-通用 MCP server (HTTP) 用的, 这里不需要它。
+模块名从 mcp.py 改为 srv.py (2026-10): 已不走 MCP 协议, 叫 mcp 会误导。
 
-失败语义 (与原 MCP 路径一致): handler 抛异常或返回 ok=False → McpError。
+⚠️ 与 `webtool mcp` 那套通用 MCP 客户端 (cli/mcp.py + net/mcpclient.py) 是两件
+不同的事 —— 那条走 JSON-RPC over HTTP, 这里直调 handler, 两者不共用代码。
+
+失败语义: handler 抛异常或返回 ok=False → SrvError。
 skill 侧的包装函数 (clients.mcp 等) 捕获后仍拿到 {"ok":False,"err":...},
 调用方 (command.py) 转成退出码 1 + stderr。
 """
@@ -54,7 +56,7 @@ TOOLS = {
 RESERVED = ('tools', 'call')
 
 
-class McpError(RuntimeError):
+class SrvError(RuntimeError):
     """通道不可用 / 超时 / 协议异常。业务级错误 (工具返回 isError) 不走这里"""
 
 
@@ -88,7 +90,7 @@ def call(tool, params=None, timeout=60):
     """调一个 stock MCP 工具, 返回工具自己的 JSON (dict) 或原始 text (str)
 
     纯进程内直调 handler: 注册表 TOOLS 里每项自带 handler 函数, 调它拿到的就是
-    工具自己的 dict, 不经 MCP 信封。失败抛 McpError ——
+    工具自己的 dict, 不经 MCP 信封。失败抛 SrvError ——
     调用方 (command.py) 转成退出码 1 并把原因走 stderr, 不静默返回空
     (Agent 拿到空会以为"查无此项")。
     """
@@ -99,12 +101,12 @@ def call(tool, params=None, timeout=60):
         # handler 会为参数非法等直接抛 (如 normalize 失败)。原 _call_tool 捕获后
         # 包成 isError 响应, 语义是"调用失败"而非"进程崩了" —— 这里保持一致,
         # 否则 news/flow 等动作会因单只票的参数问题整条命令崩掉。
-        raise McpError(f'{tool} 调用失败: {type(e).__name__}: {e}') from e
+        raise SrvError(f'{tool} 调用失败: {type(e).__name__}: {e}') from e
     if not isinstance(res, dict):
         return res
     if res.get('ok') is False:
-        # 保持与 MCP 路径一致的失败语义: 抛 McpError 而不是把 {"ok":false} 当结果返回
-        raise McpError(f'{tool} 返回错误: {res.get("err") or res.get("error") or res}')
+        # 失败语义: 抛 SrvError 而不是把 {"ok":false} 当结果返回
+        raise SrvError(f'{tool} 返回错误: {res.get("err") or res.get("error") or res}')
     return res
 
 
@@ -112,14 +114,14 @@ def _handler(tool):
     """按名字取 handler 函数。注册表是唯一事实来源 —— 服务端增删工具自动跟上。"""
     mod = _server_mod()
     if mod is None:
-        raise McpError(f'stock 数据服务端不可用: {SERVER_HOME}/{SERVER_MOD}.py 导入失败 '
+        raise SrvError(f'stock 数据服务端不可用: {SERVER_HOME}/{SERVER_MOD}.py 导入失败 '
                        f'(STOCK_MCP_HOME 可覆盖路径)')
     for t in getattr(mod, 'TOOLS', []) or []:
         if isinstance(t, dict) and t.get('name') == tool:
             h = t.get('handler')
             if callable(h):
                 return h
-    raise McpError(f'未知工具: {tool} (webtool stock tools 列全部)')
+    raise SrvError(f'未知工具: {tool} (webtool stock tools 列全部)')
 
 
 def tool_names():
@@ -152,5 +154,5 @@ def do_tools(keyword=''):
 def do_call(tool, params=None, timeout=60):
     """透传调任意 stock_* 工具 (stock 工具不在 TOOLS 表里时用这条逃生口)"""
     if tool in RESERVED:
-        raise McpError(f'{tool!r} 是子命令动作名, 不是 MCP 工具名')
+        raise SrvError(f'{tool!r} 是子命令动作名, 不是 MCP 工具名')
     return call(tool, params, timeout=timeout)

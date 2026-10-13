@@ -163,7 +163,7 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   stock-master 在 `/var/minis/skills/stock-master`（`STOCK_MASTER_HOME` 可覆盖），
   stock 数据服务端在 `/var/minis/mcp-servers/stock_mcp_server.py`（`STOCK_MCP_HOME`
   可覆盖）。**全程不起子进程、不经 MCP 协议**：
-  - 服务端 `TOOLS` 注册表每项自带 `handler` 函数 —— `stock/mcp.py` 直接调 handler，
+  - 服务端 `TOOLS` 注册表每项自带 `handler` 函数 —— `stock/srv.py` 直接调 handler，
     拿到的是工具自己的 dict，**没有 content 信封的序列化往返**（`_call_tool` 那条路
     会把结果 dumps 成字符串再塞进 MCP content 再被解析回来，多一轮序列化 + 解析）
   - stock-master 自己的两个子进程出口（`clients.mcp()` 起 `minis-mcp-cli`、
@@ -174,7 +174,7 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   - skill 缺失只让 stock 动作退 2，不影响 webtool 其余命令（所以桥接必须在函数内
     import，不能放模块级）
 - **失败语义要与原 MCP 路径一致**：handler 抛异常（如 `normalize` 失败）或返回
-  `ok=False` → 抛 `McpError`。skill 侧包装函数捕获后仍拿到 `{"ok":False,"err":...}`
+  `ok=False` → 抛 `SrvError`。skill 侧包装函数捕获后仍拿到 `{"ok":False,"err":...}`
   —— 直调 handler 若不捕获，单只票参数非法会整条命令崩掉
 - **`web_search` 的进程内实现走 `cli.app.main(argv)`**，不直接调 `pipeline.search.do_search`
   —— 后者要 29 个字段的 args 对象，自己拼等于复制一份 CLI 契约，迟早漂移
