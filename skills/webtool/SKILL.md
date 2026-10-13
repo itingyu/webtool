@@ -1,7 +1,7 @@
 ---
 name: webtool
-description: 网页搜索与内容获取 CLI。多引擎搜索 + 榜单聚合 rank（知乎/微博/抖音/B站/HN/GitHub Trending 等 19 源）+ 18 站点站内搜索 site + RSS 订阅 feed（RSSHub 路由库 radar 查询填参、增量、坏源登记）+ zen 免费层 LLM 对话 + 正文提取转 markdown/text/json。当用户提到「搜索网页 / 查资料 / 抓网页正文 / 热榜 / 榜单 / 订阅 / RSS / 站内搜索 / 问大模型 / webtool」时触发。
-version: 1.8.0
+description: 网页搜索与内容获取 CLI。多引擎搜索（含 exa 语义搜索）+ 榜单聚合 rank（知乎/微博/抖音/B站/HN/GitHub Trending 等 19 源）+ 18 站点站内搜索 site + RSS 订阅 feed（RSSHub 路由库 radar 查询填参、增量、坏源登记）+ zen 免费层 LLM 对话 + 通用 MCP 客户端 mcp + 正文提取转 markdown/text/json。当用户提到「搜索网页 / 查资料 / 抓网页正文 / 热榜 / 榜单 / 订阅 / RSS / 站内搜索 / 问大模型 / MCP / exa / webtool」时触发。
+version: 1.10.0
 ---
 
 # webtool
@@ -11,6 +11,7 @@ version: 1.8.0
 ```sh
 webtool search "LLM leaderboard" -n 5       # 多引擎, 默认 bing,sogou,baidu
 webtool search "query" -e marginalia         # 长尾独立索引 (小站/老网页)
+webtool search "查询词" --preset zh            # 引擎组合预设 (webtool engines presets 列)
 webtool fetch <url> --max-chars 3000         # 正文提取 → markdown (-f text/json/html)
 webtool rank                                 # 榜单清单 (19 源)
 webtool rank zhihu weibo -q "汽车"           # 语义筛选 + 跨源重排 (-t 0 只列清单)
@@ -21,21 +22,26 @@ webtool feed instances                       # 公共实例探活
 webtool feed health                          # 坏源登记表
 webtool site github fastapi                  # 站内搜索 (18 站点, site list 查全部)
 webtool zen "问题"                           # 免费层 LLM 对话, 无需 key
+webtool mcp list exa                         # 通用 MCP 客户端, 列端点工具
+webtool search "查询词" -e exa                # Exa 语义搜索 (MCP, 免 key)
 webtool config set default_engines bing,sogou
 ```
 
 ## search
 
-- 引擎：bing（直连）/ sogou（直连）/ baidu（直连）/ google（**必须代理**，429 自动降级 news RSS，结果 `channel: news` 且链接已还原原文 URL，直接 fetch）/ marginalia
+- 引擎：bing（直连）/ sogou（直连）/ baidu（直连）/ so360（直连）/ google（**必须代理**，429 自动降级 news RSS，结果 `channel: news` 且链接已还原原文 URL，直接 fetch）/ marginalia（直连）/ exa、parallel、firecrawl（MCP 语义搜索，均匿名免 key，均**默认不开**）
+- `-e` 组合引擎；`--preset zh|en|direct` 用引擎组合预设（`webtool engines presets` 列），优先级低于 `-e`。`direct` 组全免代理，代理不可用时首选
+- 语义引擎按需加：`-e parallel`（最快，返回 JSON 带日期）/ `-e exa`（召回条数常最多）/ `-e firecrawl`（search 免费 500 次/月，scrape 能过 JS 渲染）；均与关键词引擎重叠少，补英文/技术长尾最划算
 - `-e` 逗号分隔组合；跳转链默认自动解码（`--no-resolve` 关）
 - query 精简：核心实体 + 意图词；优先英文；中文用引擎习惯叫法（`大模型` 而非 `大语言模型`）
-- 低质量批带 `💡 quality_hint`，按提示改词重搜
+- 结果已按 `prior × √(pos×base_avg) × sem` 加权排序，尾部低质由 `weight_floor` 挡掉；`-f json` 看 `weight` / `engines`（交叉验证数）
 
 ## fetch
 
 - HTML → markdown/text/json/html；SPA 壳页自动收割内嵌 SSR state，拿不到时显式报错
 - 按 UA 分流的站点：`--profile chrome131_android`（或 `safari18_4_ios`）切移动指纹重试
 - `--url-file` 批量；`--raw` 跳过提取；`--with-metadata` 附标题/作者/日期
+- `--via local|auto|parallel|exa|firecrawl` 选正文通道：默认 `local`（纯本地提取链，**不花配额**）；`auto` 仅在确定性硬失败（JS 壳/导航壳/空正文）时兜底远程 reader；指定通道则直接走其远程 fetch。JS 渲染页拿不到正文时用 `auto` 或 `--via firecrawl`（过 JS 最稳），别反复换 profile 硬试
 
 ## rank
 
@@ -81,6 +87,30 @@ webtool zen "问题" --sticky             # 复用 ses_id (默认关)
 - `--sticky` 复用 ses_id，默认关：实测 Zen 免费层 `cached_tokens` 恒为 0，开不开耗时无差异，别当提速手段
 - JSON 里 `usage_available` = 上游是否返回用量；`false` 且 `ok: true` 是"调用成功但端点不给统计"，不是故障
 - 换端点改 `~/.webtool/zen.json` 的 `chat_url` / `models_url`，mtime 热生效；协议固定 OpenAI 形状
+
+## mcp
+
+通用 MCP 客户端（JSON-RPC 2.0 over Streamable HTTP，纯 stdlib，不绑死任何 server）。
+
+```sh
+webtool search "LLM 榜单" -e exa -n 3          # Exa 已并入 search 引擎池 (免 key)
+webtool fetch https://a.com https://b.com      # 抓正文 (等价于原 exa fetch)
+webtool mcp probe exa                             # 端点体检
+webtool mcp list exa                               # 列工具 (name/描述/必填/可选参数)
+webtool mcp call exa web_search_exa --arg query="..." --arg numResults=3
+webtool mcp call https://my.site/mcp my_tool '{}' # 任意端点
+```
+
+- **Exa 已并入 `search` 引擎池，没有独立的 `webtool exa` 命令**：原 `exa search` → `webtool search -e exa`；原 `exa fetch` → `webtool fetch`；原 `exa list` → `webtool mcp list exa`
+- 端点声明（url / verbs / proxy / api_key_env）在 `data/mcp.json`，`engines/exa.py` 引擎与 `webtool mcp` 共用同一份数据
+- 端点别名可自建：`~/.webtool/mcp.json` → `{"mcp":{"别名":{"url":"...","api_key_env":"MY_KEY","verbs":{...}}}}`
+- key 只经环境变量名映射，配置文件不存明文；免 key 服务不发认证头
+- **exa 已声明 `proxy:direct`**：免 key 配额按出口 IP 计，走全局代理必 429、直连才稳；其余端点默认跟随全局配置，`--no-proxy` 可临时覆盖
+- **传参两条通道可并存**：`--arg k=v`（可多次，值按 JSON 字面量猜 int/bool/null/数组，含空格/中文/URL 原样保留）或位置 JSON；同给时 `--arg` 覆盖
+- **先 `probe`/`list` 再 `call`**：免 key 与带 key 暴露的工具集可能不同（实测 exa 免 key 仅 `web_search_exa` + `web_fetch_exa`，带域名/日期过滤的 `web_search_advanced_exa` 需 key）
+- 免 key 有真实限额，**响应头无任何预告**，只能撞 429 才知道；配额**按出口 IP 计**（所以 exa 声明了 `proxy:direct`）。撞 429 先怀疑走了代理，去掉即恢复；仍受限则配 `EXA_API_KEY`（自动生效，`--apikey` 可临时覆盖）
+- `list` / `probe` 不消耗搜索额度，只有 `call` 计
+- 失败走 stderr + 退出码 1，错误体原样带出
 
 ## 通用约定
 

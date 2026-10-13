@@ -9,14 +9,16 @@
 ```
 webtool/
   cli/          L4 应用编排   app / config / plugins / sitesearch / zen / zenproto
+                               mcp (通用 MCP 客户端)
   feeds/        L3 业务流程   command / sources / parse / fetch / cards / feedhealth
   radar/        L3 业务流程   routes / rules / instances / official / template
                                            / race / instances_cfg
   pipeline/     L2 合并输出   search / rank / merge / topup / qhint / query_ops
   render/       L2 合并输出   render / hotrender / output
   filters/      L2 结果过滤   blocklist / adfilter        —— 纯规则, 不出网
-  net/          L1 采集实现   transport / proxy / captcha / spa / fetch
+  net/          L1 采集实现   transport / proxy / captcha / spa / fetch / mcpclient`
   engines/      L1 采集实现   baidu / bing / google / sites / hotsites
+                               exa / parallel / firecrawl (MCP 语义引擎)
                                extractors / customsites ...
   core/         L0 基础设施   plugins / config_data / cache / state / http
                                               probe / resilient
@@ -87,7 +89,8 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   与诊断逻辑的执行顺序耦合）。
 
   `text`/`markdown` 同口径：md 不再显示 `✕N` 与 `⚠poor`（引擎名列出几个就是几个，
-  权重低自然看得出差）。**顶层 `quality_hint` 是整次查询的诊断结论，一律保留。**
+  权重低自然看得出差）。顶层 `quality_hint` 已随 7b2feca 一并移除（判定信息改由
+  `weight` / `engines` / `dropped_by_floor` 承载），文档里别再提。
 
 ## 2. 导入
 
@@ -100,8 +103,14 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 
 - **逻辑进代码，数据进 JSON，调参进 config**：
   - 抓取/解析逻辑 → 模块函数，经 `plugins.json` 声明成插件（engine/site/hot/extractor/resolver/filter/transformer 七类，签名见 `plugins.SIGNATURES`）
-  - 纯数据表（域名、指纹、TTL、实例列表）→ `data/*.json`（`filters.json` / `plugins.json` / `instances.json` / `zen.json` / `feeds.seed.json`），用户用 `~/.webtool/` 同构文件覆盖，mtime 热生效
-  - 运行时调参（开关联动多模块）→ `webtool config set`（白名单在 `cli/config.py`）
+  - **引擎预设**（`plugins.json` 的 `presets` 段）走 `config_data.load`，**不走插件注册表** —— preset
+  是纯数据没有 module/params 可执行字段，注册表那套 fn 解析用不上；同文件意味着用户覆盖
+  `plugins.json` 时引擎与预设一起生效。优先级 `--engine` > `--preset` > `config.default_engines` >
+  清单默认开启项；未知 preset 退 2 不静默回退（静默回退会让用户以为跑了 A 组其实跑了默认组）
+ - 新增搜索引擎的门槛：必须**免 key**、**HTTP 直连**、**HTML 里能拿到真实 URL**。实测 perplexity /
+  metaso 是 SPA（要浏览器渲染）、duckduckgo 直连 DNS 污染且代理返回反爬挑战页、brave 直连 DNS 污染
+  且代理 429 —— 这类都接不进来，别浪费一轮去试
+ - 改引擎解析后验证必须带 `--no-cache`（搜索结果默认缓存 30s，会让你以为改动没生效）  - 运行时调参（开关联动多模块）→ `webtool config set`（白名单在 `cli/config.py`）
 - 新增"看起来该配置化"的东西前先问：它是数据吗？改它需要重跑算法基准吗？数据才进 JSON
 - 模块级**禁止缓存插件表/配置快照**——一律调用点现取（`_plugin_table(kind)` / `config_data.load`），这是热更新名实相符的前提
 
@@ -124,6 +133,25 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 - `Registry.items()` 返回 dict——遍历要 `.items().items()`；直接 `for k, v in reg.items()` 会把 key 字符串解包报错（smoke 有契约测试锁死）
 - 探活统一走 `core.probe.proxy_ok`；`pipeline/rank.py` 的 `_proxy_ok` 是它上面加了进程内缓存的薄包装
 - `pipeline/search.py` 的 `proxy_hint/_proxy_alive` 同理是兼容再导出，实现在 `net/transport.py`
+- **MCP 端点既可以只是 `mcp` 的调用目标，也可以直接充当搜索引擎或 fetch 兜底通道**。
+  `engines/parallel.py` 与 `engines/firecrawl.py` 是样板：`engines/exa.py`（三者同源）
+  端点声明（url / verbs / proxy / api_key_env）全部读 `data/mcp.json`，与 `webtool mcp` 共用同一份数据，
+  engines 层不 import `cli/`（L1 不得反向依赖 L4），只 import `net/mcpclient` 出网 + `core/config_data` 读声明。
+  要让某个 MCP 端点进 `search` 引擎池，实现 `search(query, max_results, proxy, timeout, market, **_)` 返回
+  `[{rank, title, url, snippet}]`，再在 `data/plugins.json` 的 `engine` 段登记 `module` + `enabled_by_default`。
+  端点侧的 `verbs` 映射不写死在代码里 —— 新端点声明 `verbs` 即可复用。要支持新协议的端点才写新的 `cli/<name>.py`，别把协议塞进引擎里
+- **同一个 MCP 端点的 `web_fetch` 返回形状按端点不同，必须在 `net/fetch.py::_reader_text` 分派**，
+  别写死一种：firecrawl 回 `{"markdown": ...}`、parallel 回 `{"results":[{excerpts:[...]}]}`、
+  exa 回已拼好的 markdown 纯文本。新增通道时**先实测形状**再写分支，并在该通道的 docstring 注明是否已用真 key 验证过
+  （无 key 的端点只能按公开文档推定 —— 这种代码要明说"未实测"，别让人误以为已验证）。
+  入参形状同样按端点不同，见 `_reader_arg`
+- **MCP 端点的代理策略**由 `data/mcp.json` 声明，缺省跟随全局配置（同其余命令），
+  `"proxy":"direct"` 强制直连。exa 声明了 `direct`：免 key 配额按出口 IP 计，走全局代理
+  等于用别人的配额池（实测同一命令带代理必 429、直连稳定通过）。这是**端点特性不是
+  MCP 通用约定** —— 别把整个 MCP 层都改成默认直连，否则被墙的端点接不上。
+  命令侧解析在 `cli/mcp.py::_proxy_for`；引擎侧（`engines/exa.py`）因拿不到 `args.no_proxy`，
+  由自己按端点声明强制 `proxy=None`，两处逻辑同源但各按自己的调用形状落地
+- **管理命令返回 rc!=0 时，`cli.app._run` 会丢弃 stdout 缓冲**（只保留退出码）。`plugins check` 失败即看不到内容，是既有问题。`cli/mcp.py` 因此把失败输出走 stderr —— 新写管理命令若有"失败也要给信息"的需求，同样走 stderr
 - `engines/sites.py` 的 `_mk/_fetch/_headers` 被 6 个模块跨文件复用（customsites / sitesearch /
   feeds.fetch / hotsites / moresites / moresites2 / oversites），暂留私有名；
   真要复用得按规范去掉 `_` 并下沉到 `core` 或 `engines/base.py`

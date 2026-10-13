@@ -26,19 +26,43 @@ webtool feed health                           # 坏源登记表
 webtool site github fastapi                   # 站内搜索 (18 站点)
 webtool zen "问题"                            # OpenCode Zen 免费层对话, 无需 key
 webtool proxy set http://127.0.0.1:2080       # 代理 (google 等被墙源必须)
+webtool search "LLM 榜单" -e exa                # Exa 语义搜索 (MCP, 免 key)
+webtool mcp list exa                            # 列 MCP 端点的工具
 ```
 
 ## 功能
 
 ### search
-- 引擎：bing（直连）/ sogou（直连）/ baidu（直连）/ google（必须代理，429 降级 news RSS，链接已还原原文 URL）/ marginalia
+- 引擎：bing（直连）/ sogou（直连）/ baidu（直连）/ so360（直连）/ google（必须代理，429 降级 news RSS，链接已还原原文 URL）/ marginalia（直连）/ exa（MCP 语义搜索，免 key，**默认不开**）/ parallel（MCP 语义搜索，**匿名免 key**，**默认不开**）/ firecrawl（MCP 搜索，**匿名免 key**，**默认不开**）
+  - `exa` 走 Exa MCP 的 `web_search_exa`，强制直连（免 key 配额按出口 IP 计，走代理必 429），不进默认组合，按需 `-e exa` 或加进 preset。
+  - `parallel` 走 Parallel Search MCP 的 `web_search`，**匿名免 key 可用**（fast 模式），注册后每月 $5 循环额度（$1/1000 请求 ≈ 5000 次/月），配 `PARALLEL_API_KEY` 自动生效。返回 JSON 含 `publish_date`，比 exa 的纯文本更好解析，实测也更快（1.4–2.0s vs 2.6s）。
+  - `firecrawl` 走 Firecrawl MCP 的 `firecrawl_search`，**匿名免 key 可用**，免费层 500 次/月 search 或 1000 页 scrape，配 `FIRECRAWL_API_KEY` 自动生效。它的 `firecrawl_scrape` 能过 JS 渲染页，是 `fetch --via` 的最佳兜底通道。
+  - 三者召回都是**语义**而非关键词，与 bing/sogou 重叠少，作为长尾与英文技术内容的补充源最划算。实测召回各有胜负（同一查询 exa 条数更多、parallel 更快且带日期），按需挑或并用。
 - `-e` 组合引擎；跳转链默认自动解码；query 精简（核心实体 + 意图词，优先英文）
-- 低质量批带 `quality_hint` 提示，按提示改词重搜
+- 结果按 `prior × √(pos×base_avg) × sem` 加权排序，尾部低质由 `weight_floor` 挡掉；`-f json` 看 `weight` 与 `engines`（交叉验证数）
+- `--preset <组>` 用引擎组合预设，省得手拼 `-e`。优先级 `--engine` > `--preset` > `config.default_engines` > 清单里默认开启的引擎
+
+  ```bash
+  webtool engines presets                         # 列预设
+  webtool search "查询词" --preset zh              # bing,sogou,baidu,so360（全部免代理）
+  webtool search "query" --preset en              # bing,google,marginalia（含需代理的 google）
+  webtool search "查询词" --preset direct          # 全部免代理，代理挂了也能用
+  ```
+
+  预设定义在 `plugins.json` 的 `presets` 段（`{"zh": {"desc": "...", "engines": [...]}}`），用户可在 `~/.webtool/plugins.json` 同构增删。用了 `--preset` 时 `-f json` 会回写 `preset` 与 `engines_used`，便于复现"这批跑的是哪组"；未知 preset 直接退 2 并列出可用名，**不静默回退**（否则用户以为跑了 A 组其实跑了默认组）
 
 ### fetch
 - HTML → markdown/text/json/html；SPA 壳页收割内嵌 SSR state，拿不到时显式报错
 - 按 UA 分流的站点：`--profile chrome131_android` 切移动指纹重试
 - `--url-file` 批量；`--raw`；`--with-metadata`
+- `--via <通道>` 选取正文的来源：
+  | 通道 | 行为 |
+  |---|---|
+  | `local`（默认） | 只走本地提取链，**不消耗任何端点配额** |
+  | `auto` | 本地链先跑；仅当确定性硬失败（JS 渲染壳 / 导航壳 / 空正文）才兜底调远程 reader |
+  | `parallel` \| `exa` \| `firecrawl` | 直接走对应 MCP 的 `web_fetch`/`scrape`，跳过本地链 |
+
+  远程 reader 用浏览器集群取页，能过 JS 渲染与大部分反爬，但每次调用消耗端点额度，故默认不启用、也不自动触发。`--via auto` 成功兜底时会在结果里带 `via_local_error` 说明本地为什么失败。
 
 ### rank
 19 源：zhihu / weibo / baidu / douyin / douyin_hot / toutiao / toutiao_hot / bili_hot / bili_rank / bili_word / tieba / sina_hot / douban_movie / netease_music / ithome / hn_official / github_trend / lobsters / reddit。
@@ -78,6 +102,29 @@ webtool zen "问题" --show-body        # 只打请求体, 不出网 (排查用)
 
 - JSON 里的 `usage_available` = 上游是否返回用量；`false` 且 `ok: true` 是「调用成功但端点不给统计」，不是故障
 - 换端点改 `~/.webtool/zen.json` 的 `chat_url` / `models_url`（mtime 热生效），协议固定 OpenAI 形状
+
+### mcp
+通用 MCP（Model Context Protocol）客户端，**不绑死任何 server**——JSON-RPC 2.0 over Streamable HTTP，纯 stdlib 实现，不引 SDK。
+
+```bash
+webtool search "LLM 榜单" -e exa -n 3           # Exa 走 search 引擎池 (见 search 段)
+webtool fetch https://a.com https://b.com       # 抓正文 (等价于原 exa fetch)
+webtool mcp probe exa                           # 端点通不通体检
+webtool mcp list exa                             # 列工具 (name/描述/必填/可选参数)
+webtool mcp call exa web_search_exa --arg query="..." --arg numResults=3
+webtool mcp call https://my.site/mcp my_tool '{}' # 任意 URL 直接传
+```
+
+**Exa、Parallel、Firecrawl 都已并入 `search` 引擎池**（`webtool search -e exa` / `-e parallel` / `-e firecrawl`），不再有独立的 `webtool exa` 命令 —— 原 `exa search` 用引擎替代，`exa fetch` / `exa list` 分别由 `webtool fetch` 与 `webtool mcp list exa` 覆盖。端点声明（url / verbs / proxy / api_key_env）在 `data/mcp.json`，三个 `engines/*.py` 与 `webtool mcp`、`webtool fetch --via` 共用同一份数据。三者均匿名免 key：Exa 撞限额返回 429 并提示配 `EXA_API_KEY`；Parallel 注册后每月 $5 额度，配 `PARALLEL_API_KEY` 生效；Firecrawl 免费层 500 次/月 search 或 1000 页 scrape，配 `FIRECRAWL_API_KEY` 生效。
+
+- 端点别名在 `src/webtool/data/mcp.json`，用户可建 `~/.webtool/mcp.json` 同构覆盖：`{"mcp":{"my_srv":{"url":"...","api_key_env":"MY_KEY","verbs":{"search":"..."}}}}`
+- **代理策略**：端点可声明 `"proxy":"direct"` 强制直连（同 site 插件的 `proxy_hint` 约定）。exa 免 key 配额按**出口 IP** 计，走全局代理等于蹭别人的配额池——实测同一命令带代理必 429、直连稳定通过，故端点表已声明 `direct`。其余端点缺省跟随全局配置，`--no-proxy` 可临时覆盖
+- key 一律经**环境变量名**映射，配置文件不存明文；免 key 服务不发认证头
+- **传参两条通道，可并存**：`--arg k=v`（可多次；值按 JSON 字面量猜 `int`/`bool`/`null`/数组，含空格/中文/URL 的原样保留）或位置 JSON `'{"k":"v"}'`；两者同时给时 `--arg` 覆盖同名键
+- `--tools a,b` 下发工具白名单（`?tools=`），缩小 Agent 选择面
+- **先 `probe` / `list` 再 `call`**：免 key 与带 key 暴露的工具集可能不同（实测 exa 免 key 只有 `web_search_exa` + `web_fetch_exa`，带过滤的 `web_search_advanced_exa` 需 key）
+- 失败走 stderr 并返回退出码 1，错误体原样带出（如 429 限额提示会告诉你 key 怎么配）
+- 内核在 `net/mcpclient.py`，已抽出 `parse_response` / `parse_sse_message` 两个纯函数，可被其他 MCP 源直接复用
 
 ## 通用约定
 
