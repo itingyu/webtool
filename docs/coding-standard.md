@@ -189,6 +189,13 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   印绝对值会被读成"强利好"
 - **`chain` 图的上游/中游/下游分别对应 `--driver` / `--mid` / `--catalyst`**，
   不复用 `--risk`：产业链图没有"风险"概念，拿 risks 当中游是语义错配
+- **`screen` 三个池的返回结构不同**：只有 short 池带 `passed_count`/`failed_count`/
+  `min_score_threshold`/`industry_dispersion` 和 `position_tag`，mid/long 池只给
+  `passed`/`failed` 列表且 `industry` 是 `[{ind_code,ind_name,ind_type}]` 数组。
+  计数走 `_screen_counts`（有计数字段优先，否则用列表长度），行业列走 `_industry_cell`
+  （数组只取 `ind_type==1` 的一级行业名）—— 直接读 `passed_count` 会渲染成"通过 None"
+- **`analyze` 的 text 走 `_text_analyze`**：结论先行（评分/信号/三档入场/止损），
+  默认吐裸 JSON 会把"能不能买、什么价买"埋在 20 行里；程序读字段用 `-f json`
 - 已知残留：`announcement` 动作会起 1 个 `curl` 子进程，来自服务端依赖
   `/var/minis/shared/股票/API调研/api_client.py::np_notice_ann`（东财公告接口）——
   是数据层自己的实现，不在 webtool 桥接范围内

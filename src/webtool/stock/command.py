@@ -341,18 +341,19 @@ def _md(out, action):
         _passthrough(out, 'md' if action == 'diagram' else 'report')
         return
     if action == 'screen' and isinstance(out, dict):
-        print(f"## 选股池 — 通过 {out.get('passed_count')} / 剔除 {out.get('failed_count')}"
-              f", 门槛 {out.get('min_score_threshold')}\n")
+        p_cnt, f_cnt, passed, failed = _screen_counts(out)
+        thr = out.get('min_score_threshold')
+        print(f"## 选股池 — 通过 {p_cnt} / 剔除 {f_cnt}"
+              + (f", 门槛 {thr}" if thr is not None else '') + '\n')
         print('| 代码 | 名称 | 分 | 行业 | 位置 | 现价 | 突破 | 回踩 | 观察 | 止损 | 目标1 | 目标2 |')
         print('|---|---|---|---|---|---|---|---|---|---|---|---|')
-        for p in out.get('passed') or []:
+        for p in passed:
             t = p.get('technical') or {}
-            print('| ' + _k(p.get('code'), p.get('name'), p.get('score'), p.get('industry'),
-                            p.get('position_tag'), t.get('current_price'),
-                            t.get('entry_breakout'), t.get('entry_pullback'),
-                            t.get('entry_observing'), t.get('hard_stop'),
-                            t.get('target_1'), t.get('target_2')) + ' |')
-        failed = out.get('failed') or []
+            print('| ' + _k(p.get('code'), p.get('name'), p.get('score'),
+                            _industry_cell(p.get('industry')), p.get('position_tag'),
+                            t.get('current_price'), t.get('entry_breakout'),
+                            t.get('entry_pullback'), t.get('entry_observing'),
+                            t.get('hard_stop'), t.get('target_1'), t.get('target_2')) + ' |')
         if failed:
             print('\n### 剔除清单\n')
             print('| 代码 | 名称 | 闸门 | 原因 |')
@@ -407,6 +408,37 @@ def _items_of(data, depth=6):
     return None
 
 
+def _text_analyze(out):
+    """单股深度: 结论先行 (评分/信号), 再给三档入场价与止损。
+
+    这份数据的消费者是人或 Agent 读结论, 不是程序读字段 —— 默认吐裸 JSON
+    会把最关键的"能不能买、什么价买"埋在 20 行里。程序要字段用 -f json。
+    """
+    if not isinstance(out, dict):
+        print(json.dumps(out, ensure_ascii=False))
+        return
+    t = out.get('technical') or {}
+    q = out.get('quote') or {}
+    bd = out.get('score_breakdown') or {}
+    print(f"{out.get('code')} {out.get('name')} — {out.get('signal')} "
+          f"(综合 {out.get('score')}/100)")
+    if bd:
+        print('  ' + '  '.join(f'{k.split("(")[0]}:{v}' for k, v in bd.items()))
+    print(f"  现价 {q.get('current')} ({q.get('percent')}%)  PE {q.get('pe_ttm')}  "
+          f"PB {q.get('pb')}  流通 {q.get('float_market_capital_yi')}亿")
+    if t:
+        print(f"  三档入场  突破 {t.get('entry_breakout')} / 回踩 {t.get('entry_pullback')} / "
+              f"观察 {t.get('entry_observing')}")
+        print(f"  止损 {t.get('hard_stop')}  目标 {t.get('target_1')} / {t.get('target_2')}")
+        print(f"  MA5 {t.get('ma5')} MA20 {t.get('ma20')} MA60 {t.get('ma60')}  "
+              f"RSI6 {t.get('rsi6')}  量比 {t.get('vol_ratio')}")
+    for w in out.get('warnings') or []:
+        print(f'  ⚠ {w}')
+    prof = out.get('profile') or {}
+    if prof.get('main_business'):
+        print(f"  主营 {str(prof['main_business'])[:60]}")
+
+
 def _text_sentiment(out):
     """消息面打分: 结论先行 (分数 + 倾向), 再列命中词。
 
@@ -417,10 +449,16 @@ def _text_sentiment(out):
         print(json.dumps(out, ensure_ascii=False))
         return
     s = out.get('score')
+    n = out.get('news_count', 0)
+    if not n:
+        # 0 条 ≠ 中性。个股新闻源解析不出时打分器会给 0 分, 直接印"消息面 0 (中性)"
+        # 会让调用方误以为"查过了没消息", 实际是根本没取到新闻。
+        print('消息面 未取得 — 0 条输入 (新闻源未解析出条目, 或未指定 --text)')
+        return
     s_txt = f'{s:+g}' if isinstance(s, (int, float)) else '未取得'
     tone = '利好' if isinstance(s, (int, float)) and s > 0 else (
         '利空' if isinstance(s, (int, float)) and s < 0 else '中性')
-    print(f"消息面 {s_txt} ({tone}) — {out.get('news_count', 0)} 条, "
+    print(f"消息面 {s_txt} ({tone}) — {n} 条, "
           f"正面 {out.get('positive_count', 0)} / 负面 {out.get('negative_count', 0)}")
     hits = out.get('hits')
     if isinstance(hits, dict):
@@ -461,25 +499,59 @@ def _text_risk(out):
             print(f'    - {h.get("keyword")}: {h.get("title")}')
 
 
+def _screen_counts(out):
+    """通过/剔除计数。
+
+    short 池自带 passed_count/failed_count, mid/long 池只给 passed/failed 列表
+    —— 直接读 *_count 会让 mid 池渲染成 "通过 None"。列表长度为唯一可靠来源,
+    有计数字段时以它为准 (short 池的 list 可能被截断)。
+    """
+    passed, failed = out.get('passed') or [], out.get('failed') or []
+    return (out.get('passed_count') if out.get('passed_count') is not None else len(passed),
+            out.get('failed_count') if out.get('failed_count') is not None else len(failed),
+            passed, failed)
+
+
+def _industry_cell(v):
+    """行业列。short 池给字符串, mid/long 给 [{ind_code,ind_name,...}] 数组。
+
+    数组直接塞进表格会打印整坨 dict, 这里只取一级行业名 (ind_type==1)。
+    """
+    if not v:
+        return '—'
+    if isinstance(v, str):
+        return v
+    if isinstance(v, list):
+        names = [x.get('ind_name') for x in v
+                 if isinstance(x, dict) and x.get('ind_name') and x.get('ind_type') == 1]
+        return '/'.join(names) if names else (v[0].get('ind_name') if v and isinstance(v[0], dict) else str(v)[:20])
+    return str(v)[:20]
+
+
 def _text_screen(out):
     """选股池 text: 通过标的给三档入场价与硬止损, 剔除的必须带原因。
 
     剔除清单不能省 —— 调用方要判断"为什么没看到某只票", 只给通过名单等于
     让 Agent 以为它不存在。
     """
-    passed = out.get('passed') or []
-    failed = out.get('failed') or []
-    print(f"通过 {out.get('passed_count', len(passed))} / 剔除 {out.get('failed_count', len(failed))}"
-          f"  门槛 {out.get('min_score_threshold')}  行业分散 {out.get('industry_dispersion')}")
+    p_cnt, f_cnt, passed, failed = _screen_counts(out)
+    extra = ''
+    if out.get('min_score_threshold') is not None:
+        extra += f"  门槛 {out.get('min_score_threshold')}"
+    if out.get('industry_dispersion') is not None:
+        extra += f"  行业分散 {out.get('industry_dispersion')}"
+    print(f"通过 {p_cnt} / 剔除 {f_cnt}{extra}")
     if passed:
         print('\n通过:')
         for p in passed:
             t = p.get('technical') or {}
-            print(f"  [{p.get('code')}] {p.get('name')}  分{p.get('score')}  {p.get('industry') or ''}"
-                  f"  {p.get('position_tag') or ''}")
-            print(f"      现价{t.get('current_price')} 突破{t.get('entry_breakout')} "
-                  f"回踩{t.get('entry_pullback')} 观察{t.get('entry_observing')} "
-                  f"止损{t.get('hard_stop')} 目标{t.get('target_1')}/{t.get('target_2')}")
+            tag = p.get('position_tag')
+            print(f"  [{p.get('code')}] {p.get('name')}  分{p.get('score')}"
+                  f"  {_industry_cell(p.get('industry'))}{'  ' + tag if tag else ''}")
+            if t:
+                print(f"      现价{t.get('current_price')} 突破{t.get('entry_breakout')} "
+                      f"回踩{t.get('entry_pullback')} 观察{t.get('entry_observing')} "
+                      f"止损{t.get('hard_stop')} 目标{t.get('target_1')}/{t.get('target_2')}")
     if failed:
         print('\n剔除:')
         for f in failed:
@@ -611,6 +683,9 @@ def _text_flow(out):
 def _text(out, action):
     if action in ('news', 'announcement', 'financials', 'mcp'):
         _text_srv(out, note_only=bool(_unresolved(out)))
+        return
+    if action == 'analyze':
+        _text_analyze(out)
         return
     if action == 'risk':
         _text_risk(out if isinstance(out, dict) else {})
