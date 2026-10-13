@@ -182,6 +182,13 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   进程内直调通道互不相通
 - **工具清单的单一事实来源是服务端的 `TOOLS` 注册表**，不是本地表。本地 `TOOLS` 只是
   服务端 import 不了时的兜底；`do_tools`/`tool_names` 都优先读服务端，新增减工具不用改 webtool
+- **原样透传类动作**（`report` / `diagram` / `excel`）不套 json/表格渲染 —— 它们
+  产出的是成稿 markdown、mermaid 源码、落盘确认，本来就是给人直接看的东西，再包一层
+  结构化输出反而破坏可读性。这类走 `command.py::_passthrough`
+- **`sentiment` 的分数必须带符号印出**（`+12` 而非 `12`）—— 消息面的关键信息是方向，
+  印绝对值会被读成"强利好"
+- **`chain` 图的上游/中游/下游分别对应 `--driver` / `--mid` / `--catalyst`**，
+  不复用 `--risk`：产业链图没有"风险"概念，拿 risks 当中游是语义错配
 - 已知残留：`announcement` 动作会起 1 个 `curl` 子进程，来自服务端依赖
   `/var/minis/shared/股票/API调研/api_client.py::np_notice_ann`（东财公告接口）——
   是数据层自己的实现，不在 webtool 桥接范围内

@@ -153,6 +153,14 @@ webtool stock financials 600519                 # 核心财务指标
 webtool stock analyze 600519                    # 单股深度
 webtool stock screen --pool short --min-score 70  # short(1-5日)/mid(3-6月)/long(6-18月)
 webtool stock risk 600623                       # 风险核查 (重组/减持/立案/预亏)
+webtool stock report 600519                     # 成稿研报 (markdown, 单股)
+webtool stock report --pool short               # 短线池研报 (慢: 跑全市场)
+webtool stock excel --excel picks.xlsx --min-score 70   # 选股池导出 xlsx (4 sheet)
+webtool stock sentiment 600519                  # 该股新闻的消息面打分 -100~+100
+webtool stock sentiment --text "业绩超预期"       # 或直接对给定文本打分
+webtool stock diagram --kind tree               # mermaid 决策树
+webtool stock diagram 600519 --kind logic --name 贵州茅台 --thesis "稀缺性"
+webtool stock diagram --kind chain --name 白酒 --driver 高粱 --mid 酿造 --catalyst 提价
 webtool stock mcp --tool stock_kline --arg symbol=600519 --arg period=day
 webtool stock tools                             # 24 工具清单
 webtool stock health                            # 两侧探活

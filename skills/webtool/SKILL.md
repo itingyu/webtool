@@ -28,6 +28,8 @@ webtool stock quote 600519 创业板指            # 实时行情 (桥 stock-mas
 webtool stock analyze 600519                  # 单股深度 (技术面 + 100 分制评分 + 信号)
 webtool stock screen --min-score 70           # 短线选股 (含剔除清单)
 webtool stock tools                           # stock MCP 24 工具清单
+webtool stock report 600519                   # 成稿研报 (markdown)
+webtool stock sentiment --text "业绩超预期"     # 消息面打分 -100~+100
 webtool stock health                          # 两侧桥接探活
 webtool config set default_engines bing,sogou
 ```
@@ -132,6 +134,11 @@ webtool stock financials 600519               # 核心财务指标
 webtool stock analyze 600519                  # 单股深度 (三档入场价 + 硬止损 + 评分)
 webtool stock screen --pool short --min-score 70   # short/mid/long 三池
 webtool stock risk 600623                     # 风险核查 (重组/减持/立案/预亏)
+webtool stock report 600519                   # 成稿研报 (markdown; --pool short 出短线池研报)
+webtool stock excel --excel picks.xlsx        # 选股池导出 xlsx (4 sheet, 需 openpyxl)
+webtool stock sentiment 600519                # 该股新闻消息面打分; 也可 --text "..." 直接打分
+webtool stock diagram --kind tree             # mermaid: tree 决策树 / logic 投资逻辑 / chain 产业链
+                                          #   chain: --name 产业链 --driver 上游 --mid 中游 --catalyst 下游
 webtool stock mcp --tool stock_kline --arg symbol=600519
 webtool stock tools                           # 24 工具清单;  health  # 两侧探活
 ```
@@ -140,6 +147,8 @@ webtool stock tools                           # 24 工具清单;  health  # 两�
 - **纯进程内**：单次调用 0.1-2s（原先每次起子进程 2.5-2.9s）。直接调服务端 `TOOLS` 里的 handler 函数，没有 JSON-RPC 也没有 content 信封序列化。stock-master 的两个子进程出口（`minis-mcp-cli` / `webtool search`）在运行时被注入成进程内实现，不改 skill 文件
 - **工具清单读服务端 `TOOLS` 注册表**，服务端增删工具自动跟上
 - **失败语义**：handler 抛异常或返回 `ok=False` 都按"调用失败"处理（stderr + 退出码 1），不会崩进程
+- **report / diagram / excel 原样透传**（成稿 markdown、mermaid 源码、落盘确认），不再包 JSON 或表格 —— 这些产出本来就是给人直接看的。sentiment 分数带符号印出（`+12` 而非 `12`），方向是消息面的关键信息
+- **`report` / `excel` 跑短线池会扫全市场**（约 5 分钟），别放进交互式调用；`excel` 缺 openpyxl 会明确报错而非静默不出文件
 - **口径纪律**：涨停池必带真实数据日（该接口对无效日期会静默回旧数据）；北向 `status=3` 或接口回填额度上限一律标 ⚠「未取得」，**禁止当 0**；MCP 回了原始 HTML 未解析出条目时显式标注，不把 100KB 噪声当结果
 - `--arg` 纯数字一律留字符串（600519 是代码，整数会被 MCP schema 拒）—— 与 `webtool mcp` 口径不同
 - `screen` 输出必含**剔除清单与闸门原因**，只给通过名单会让调用方以为没被选中的票不存在

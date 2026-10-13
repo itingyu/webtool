@@ -208,3 +208,99 @@ def do_risk(codes):
     if isinstance(codes, str):
         return rc.scan(codes)
     return rc.scan_many(list(codes))
+
+
+def do_report(code=None, pool=None, news=None):
+    """成稿研报 (markdown)。code=单股报告, pool=短线池报告
+
+    报告模板在 research.report_writer, 口径全在那边; 这里只做取数 + 拼装:
+    单股报告要先跑 analyze (报告模板吃的是 analyze 的输出)。
+    """
+    rw = mod('research.report_writer')
+    if code:
+        analysis = do_analyze(code)
+        items = news if news is not None else _news_texts(code)
+        return {'kind': 'single', 'code': code,
+                'report': rw.single_stock_report(analysis, news=items)}
+    if pool == 'short':
+        result = do_screen('short')
+        return {'kind': 'short_screen', 'report': rw.short_screen_report(result)}
+    raise ValueError('report 需要 --code (单股报告) 或 --pool short (短线池报告)')
+
+
+def do_excel(path, pool='short', min_score=60):
+    """选股池导出 xlsx。openpyxl 不在环境里则明确报错, 不静默不出文件"""
+    try:
+        import openpyxl                              # noqa: F401
+    except ImportError:
+        raise ValueError('导出 xlsx 需要 openpyxl (apk add py3-openpyxl)')
+    result = do_screen('short', min_score=min_score)
+    mod('export.short_screen_excel').build_from_screen(result, path, meta={'source': 'webtool stock screen'})
+    return {'ok': True, 'path': path, 'passed': len(result.get('passed') or []),
+            'failed': len(result.get('failed') or [])}
+
+
+def do_sentiment(texts):
+    """消息面打分 (-100~+100)。texts: 字符串列表, 或 [{"title"/"text"}]"""
+    return mod('sentiment.news_scorer').score(list(texts))
+
+
+def do_diagram(kind, code=None, name=None, thesis=None,
+               drivers=None, risks=None, catalysts=None, mid=None):
+    """mermaid 图: logic(投资逻辑) / tree(决策树) / chain(产业链)
+
+    chain 的上游/中游/下游分别对应 drivers/mid/catalysts —— 产业链图没有
+    "风险"概念, 拿 risks 去当中游是语义错配, 所以单独用 --mid。
+
+    logic 缺参数会画得空洞, 但那是调用方的事 —— 该由人给的判断不该由工具猜。
+    """
+    lr = mod('visualization.logic_renderer')
+    if kind == 'tree':
+        return {'kind': kind, 'md': lr.decision_tree()}
+    if kind == 'chain':
+        if not name:
+            raise ValueError('chain 需要 --name (产业链名)')
+        return {'kind': kind, 'md': lr.industry_chain(
+            name, drivers or [], mid or [], catalysts or [])}
+    if kind == 'logic':
+        if not (code and name):
+            raise ValueError('logic 需要 --code 与 --name')
+        return {'kind': kind, 'md': lr.investment_logic(
+            code, name, thesis or '', drivers or [], risks or [], catalysts or [])}
+    raise ValueError(f'未知图类型: {kind} (可用: logic / tree / chain)')
+
+
+def _news_texts(code, limit=10):
+    """取个股新闻的纯文本, 供消息面打分 / 研报附新闻。
+
+    服务端载荷可能是 items / data.list 等不同嵌套, 且同花顺那条路会回原始
+    HTML 未解析 —— 两种情况都取不到可用文本, 此时返回空列表让下游按"无新闻"
+    处理, 不把 HTML 塞进打分器。
+    """
+    r = do_news(code, limit)
+    out = []
+    for it in (_items(r) or []):
+        if isinstance(it, str):
+            out.append(it)
+        elif isinstance(it, dict):
+            t = it.get('title') or it.get('text')
+            if t:
+                out.append(t)
+    return out
+
+
+def _items(payload):
+    """从服务端载荷里挖条目列表 (广度优先下钻 items/list/rows)。"""
+    queue = [(payload, 0)]
+    while queue:
+        node, d = queue.pop(0)
+        if not isinstance(node, dict) or d > 6:
+            continue
+        for k in ('items', 'list', 'rows'):
+            v = node.get(k)
+            if isinstance(v, list):
+                return v
+        for v in node.values():
+            if isinstance(v, dict):
+                queue.append((v, d + 1))
+    return None

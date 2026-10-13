@@ -67,14 +67,17 @@ def _table_of(data):
 
 # ---------- 动作表 ----------
 
-def _code(args):
+def _code(args, required=True):
     """单股动作取代码: 用位置参数 codes 的第一项。
 
     这些动作只对一只股票, 但 CLI 统一用 codes 位置参数收 (quote/check/risk 是
     多股), 这里取首个并校验 —— 没给就报错退 2, 不把空代码丢给数据源。
+    required=False 用于 report/diagram 这类既可单股又可不带代码的动作。
     """
     codes = getattr(args, 'codes', None) or []
     if not codes:
+        if not required:
+            return None
         raise ValueError('需要一个股票代码, 例: webtool stock analyze 600519')
     return codes[0]
 
@@ -121,6 +124,34 @@ def _act_screen(args, cfg):
 
 def _act_risk(args, cfg):
     return _master.do_risk(args.codes)
+
+
+def _act_report(args, cfg):
+    return _master.do_report(code=_code(args, required=False), pool=args.pool,
+                             news=list(args.texts or []) or None)
+
+
+def _act_excel(args, cfg):
+    if not args.excel:
+        raise ValueError('excel 需要 --excel 指定输出路径, 例: --excel picks.xlsx')
+    return _master.do_excel(args.excel, pool='short', min_score=args.min_score)
+
+
+def _act_sentiment(args, cfg):
+    items = list(args.texts or [])
+    if not items:
+        # 没给 --text 就理解为"给这只票的新闻打分", 省一次取新闻的重复输入
+        items = _master._news_texts(_code(args))
+    return _master.do_sentiment(items)
+
+
+def _act_diagram(args, cfg):
+    return _master.do_diagram(args.kind or 'tree', code=_code(args, required=False),
+                              name=args.name, thesis=args.thesis,
+                              drivers=list(args.drivers or []),
+                              risks=list(args.risks or []),
+                              catalysts=list(args.catalysts or []),
+                              mid=list(getattr(args, 'mid', None) or []))
 
 
 def _act_mcp(args, cfg):
@@ -181,6 +212,8 @@ ACTIONS = {
     'calendar': _act_calendar, 'flow': _act_flow, 'news': _act_news,
     'announcement': _act_announcement, 'financials': _act_financials,
     'analyze': _act_analyze, 'screen': _act_screen, 'risk': _act_risk,
+    'report': _act_report, 'excel': _act_excel, 'sentiment': _act_sentiment,
+    'diagram': _act_diagram,
     'mcp': _act_mcp, 'tools': _act_tools, 'health': _act_health,
 }
 
@@ -198,6 +231,12 @@ USAGE = """用法: webtool stock <动作> [参数]
   analyze <代码>               单股深度 (技术面+评分+决策信号+画像)
   screen [--pool short|mid|long] [--min-score N]  选股池
   risk <代码...>               风险核查 (重组/减持/立案/预亏)
+  report <代码> | --pool short  成稿研报 (markdown, 单股/短线池)
+  excel --excel 路径 [--min-score N]   选股池导出 xlsx (需 openpyxl)
+  sentiment <代码> | --text "..."      消息面打分 -100~+100 (不给 --text 则给该股新闻打分)
+  diagram --kind logic|tree|chain [...] mermaid 图
+             tree  无参; logic 需 --code --name --thesis;
+             chain 需 --name --driver(上游) --mid(中游) --catalyst(下游)
 
 MCP 动作 (透传调用服务端 24 个工具)
   mcp <工具名> [--arg k=v]     透传调用, 例: webtool stock mcp stock_indicators --arg symbol=600519
@@ -272,6 +311,19 @@ def _render(out, fmt, action):
         _text(out, action)
 
 
+# ---- 原样透传类动作 ----
+# report / diagram / excel 产出的是"可直接给人看的东西" (成稿 markdown /
+# mermaid 源码 / 已落盘文件), 再包一层 JSON 或表格反而破坏可读性 —— 直接出。
+
+def _passthrough(out, key):
+    if isinstance(out, dict) and out.get(key):
+        print(out[key])
+    elif isinstance(out, dict):
+        print(json.dumps(out, ensure_ascii=False, indent=1))
+    else:
+        print(out)
+
+
 def _k(*row):
     """表格行: None → '—' (缺数据显式占位, 不印 0)"""
     return ' | '.join('—' if v is None or v == '' else str(v) for v in row)
@@ -285,6 +337,9 @@ def _table(head, rows):
 
 
 def _md(out, action):
+    if action in ('report', 'diagram'):
+        _passthrough(out, 'md' if action == 'diagram' else 'report')
+        return
     if action == 'screen' and isinstance(out, dict):
         print(f"## 选股池 — 通过 {out.get('passed_count')} / 剔除 {out.get('failed_count')}"
               f", 门槛 {out.get('min_score_threshold')}\n")
@@ -350,6 +405,34 @@ def _items_of(data, depth=6):
             if isinstance(v, dict):
                 queue.append((v, d + 1))
     return None
+
+
+def _text_sentiment(out):
+    """消息面打分: 结论先行 (分数 + 倾向), 再列命中词。
+
+    分数必须带符号显式印出 (+12 / -8), 不给绝对值 —— 消息面的关键信息是
+    方向, 印成 12 会被读成"强利好"。
+    """
+    if not isinstance(out, dict):
+        print(json.dumps(out, ensure_ascii=False))
+        return
+    s = out.get('score')
+    s_txt = f'{s:+g}' if isinstance(s, (int, float)) else '未取得'
+    tone = '利好' if isinstance(s, (int, float)) and s > 0 else (
+        '利空' if isinstance(s, (int, float)) and s < 0 else '中性')
+    print(f"消息面 {s_txt} ({tone}) — {out.get('news_count', 0)} 条, "
+          f"正面 {out.get('positive_count', 0)} / 负面 {out.get('negative_count', 0)}")
+    hits = out.get('hits')
+    if isinstance(hits, dict):
+        # 结构是 {"正": [命中词...], "负": [...]} 分组, 不是扁平的列表
+        for tone, words in hits.items():
+            if words:
+                print(f'  [{tone}] {"、".join(str(w) for w in words)}')
+    elif hits:
+        for h in hits:
+            print(f'  - {h.get("keyword") if isinstance(h, dict) else h}')
+    if out.get('summary'):
+        print(out['summary'])
 
 
 def _text_risk(out):
@@ -534,6 +617,18 @@ def _text(out, action):
         return
     if action == 'flow':
         _text_flow(out)
+        return
+    if action in ('report', 'diagram'):
+        _passthrough(out, 'md' if action == 'diagram' else 'report')
+        return
+    if action == 'excel':
+        if isinstance(out, dict) and out.get('ok'):
+            print(f"已导出 {out.get('path')} — 通过 {out.get('passed')} / 剔除 {out.get('failed')}")
+        else:
+            print(json.dumps(out, ensure_ascii=False))
+        return
+    if action == 'sentiment':
+        _text_sentiment(out)
         return
     if action == 'quote':
         for q in out:
