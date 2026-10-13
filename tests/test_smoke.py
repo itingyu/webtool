@@ -29,6 +29,7 @@ MODULES = [
     'webtool.engines.sogou', 'webtool.engines.baidu',
     'webtool.engines.google', 'webtool.engines.marginalia', 'webtool.engines.so360',
     'webtool.net.mcpclient', 'webtool.cli.mcp', 'webtool.engines.exa',
+    'webtool.stock.master', 'webtool.stock.mcp', 'webtool.stock.command',
 ]
 
 fails = []

@@ -1,7 +1,7 @@
 ---
 name: webtool
-description: 网页搜索与内容获取 CLI。多引擎搜索（含 exa 语义搜索）+ 榜单聚合 rank（知乎/微博/抖音/B站/HN/GitHub Trending 等 19 源）+ 18 站点站内搜索 site + RSS 订阅 feed（RSSHub 路由库 radar 查询填参、增量、坏源登记）+ zen 免费层 LLM 对话 + 通用 MCP 客户端 mcp + 正文提取转 markdown/text/json。当用户提到「搜索网页 / 查资料 / 抓网页正文 / 热榜 / 榜单 / 订阅 / RSS / 站内搜索 / 问大模型 / MCP / exa / webtool」时触发。
-version: 1.10.0
+description: 网页搜索与内容获取 CLI。多引擎搜索（含 exa 语义搜索）+ 榜单聚合 rank（知乎/微博/抖音/B站/HN/GitHub Trending 等 19 源）+ 18 站点站内搜索 site + RSS 订阅 feed（RSSHub 路由库 radar 查询填参、增量、坏源登记）+ zen 免费层 LLM 对话 + 通用 MCP 客户端 mcp + 股票能力 stock（实时行情/涨停池/选股池/单股深度/风险核查/公告财务，桥接 stock-master + stock MCP）+ 正文提取转 markdown/text/json。当用户提到「搜索网页 / 查资料 / 抓网页正文 / 热榜 / 榜单 / 订阅 / RSS / 站内搜索 / 问大模型 / MCP / exa / 股票行情 / 涨停 / 选股 / 个股分析 / 资金流 / webtool」时触发。
+version: 1.11.0
 ---
 
 # webtool
@@ -24,6 +24,11 @@ webtool site github fastapi                  # 站内搜索 (18 站点, site lis
 webtool zen "问题"                           # 免费层 LLM 对话, 无需 key
 webtool mcp list exa                         # 通用 MCP 客户端, 列端点工具
 webtool search "查询词" -e exa                # Exa 语义搜索 (MCP, 免 key)
+webtool stock quote 600519 创业板指            # 实时行情 (桥 stock-master + stock MCP)
+webtool stock analyze 600519                  # 单股深度 (技术面 + 100 分制评分 + 信号)
+webtool stock screen --min-score 70           # 短线选股 (含剔除清单)
+webtool stock tools                           # stock MCP 24 工具清单
+webtool stock health                          # 两侧桥接探活
 webtool config set default_engines bing,sogou
 ```
 
@@ -111,6 +116,31 @@ webtool mcp call https://my.site/mcp my_tool '{}' # 任意端点
 - 免 key 有真实限额，**响应头无任何预告**，只能撞 429 才知道；配额**按出口 IP 计**（所以 exa 声明了 `proxy:direct`）。撞 429 先怀疑走了代理，去掉即恢复；仍受限则配 `EXA_API_KEY`（自动生效，`--apikey` 可临时覆盖）
 - `list` / `probe` 不消耗搜索额度，只有 `call` 计
 - 失败走 stderr + 退出码 1，错误体原样带出
+
+## stock
+
+桥接两侧股票能力，不复制业务逻辑：**stock-master 桥**（进程内 import，行情/涨停池/选股/风险）与 **stock MCP 桥**（子进程，公告/财务/股东/K线等 24 工具）。
+
+```sh
+webtool stock quote 600519 600036 创业板指      # 行情 (指数别名可用)
+webtool stock pool --only-buy                 # 涨停池 (连板/封单/行业)
+webtool stock check 600519 300913             # 可买性 (创业板/科创板会标不可买)
+webtool stock calendar --n 5                  # 交易日历
+webtool stock flow --scope industry           # 资金流 (industry/individual/north)
+webtool stock news 600519                     # 新闻;  announcement 600519  # 公告
+webtool stock financials 600519               # 核心财务指标
+webtool stock analyze 600519                  # 单股深度 (三档入场价 + 硬止损 + 评分)
+webtool stock screen --pool short --min-score 70   # short/mid/long 三池
+webtool stock risk 600623                     # 风险核查 (重组/减持/立案/预亏)
+webtool stock mcp --tool stock_kline --arg symbol=600519
+webtool stock tools                           # 24 工具清单;  health  # 两侧探活
+```
+
+- **两侧都只做桥接**：数据源与口径归 stock-master 与 stock MCP 维护。skill 缺失只让 stock 动作退 2，不影响 webtool 其他命令
+- **口径纪律**：涨停池必带真实数据日（该接口对无效日期会静默回旧数据）；北向 `status=3` 或接口回填额度上限一律标 ⚠「未取得」，**禁止当 0**；MCP 回了原始 HTML 未解析出条目时显式标注，不把 100KB 噪声当结果
+- `--arg` 纯数字一律留字符串（600519 是代码，整数会被 MCP schema 拒）—— 与 `webtool mcp` 口径不同
+- `screen` 输出必含**剔除清单与闸门原因**，只给通过名单会让调用方以为没被选中的票不存在
+- 退出码：0 成功 / 1 数据动作失败 / 2 用法错误
 
 ## 通用约定
 

@@ -28,6 +28,13 @@ webtool zen "问题"                            # OpenCode Zen 免费层对话, 
 webtool proxy set http://127.0.0.1:2080       # 代理 (google 等被墙源必须)
 webtool search "LLM 榜单" -e exa                # Exa 语义搜索 (MCP, 免 key)
 webtool mcp list exa                            # 列 MCP 端点的工具
+webtool stock quote 600519 创业板指              # 实时行情 (桥接 stock-master + stock MCP)
+webtool stock analyze 600519                    # 单股深度 (技术面+100分制评分+决策信号)
+webtool stock pool --only-buy                   # 涨停池 (只留可买板块)
+webtool stock screen --min-score 70             # 短线选股 (含剔除清单)
+webtool stock flow --scope industry             # 资金流榜单
+webtool stock tools                             # stock MCP 24 个工具清单
+webtool stock health                            # 两侧桥接探活
 ```
 
 ## 功能
@@ -125,6 +132,35 @@ webtool mcp call https://my.site/mcp my_tool '{}' # 任意 URL 直接传
 - **先 `probe` / `list` 再 `call`**：免 key 与带 key 暴露的工具集可能不同（实测 exa 免 key 只有 `web_search_exa` + `web_fetch_exa`，带过滤的 `web_search_advanced_exa` 需 key）
 - 失败走 stderr 并返回退出码 1，错误体原样带出（如 429 限额提示会告诉你 key 怎么配）
 - 内核在 `net/mcpclient.py`，已抽出 `parse_response` / `parse_sse_message` 两个纯函数，可被其他 MCP 源直接复用
+
+### stock
+把**股票能力**收进 webtool，两座桥：
+
+- **stock-master 桥**（进程内 import）：行情 / 涨停池 / 可买性 / 交易日历 / 资金流 / 单股深度 / 选股池 / 风险核查。数据源与口径仍由 stock-master 维护（腾讯/东财/雪球/同花顺多源 fallback）
+- **stock MCP 桥**（子进程）：宿主以 `minis-mcp-cli` 暴露的 24 个工具，公告 / 财务三表 / 股东 / K线 / IPO / 分红 / 两融 / 指数成分
+
+```bash
+webtool stock quote 600519 600036 创业板指       # 行情 (指数别名可用)
+webtool stock pool --date last --only-buy       # 涨停池, 只留可买板块
+webtool stock check 600519 300913               # 可买性核查 (创业板/科创板会标不可买)
+webtool stock calendar --n 5                    # 交易日历
+webtool stock flow --scope north                # 北向 (industry/individual/north)
+webtool stock news 600519 -n 5                  # 个股新闻
+webtool stock announcement 600519               # 公告
+webtool stock financials 600519                 # 核心财务指标
+webtool stock analyze 600519                    # 单股深度
+webtool stock screen --pool short --min-score 70  # short(1-5日)/mid(3-6月)/long(6-18月)
+webtool stock risk 600623                       # 风险核查 (重组/减持/立案/预亏)
+webtool stock mcp --tool stock_kline --arg symbol=600519 --arg period=day
+webtool stock tools                             # 24 工具清单
+webtool stock health                            # 两侧探活
+```
+
+- **两侧都不复制业务逻辑**，只是 import 桥 / 子进程桥；skill 未装时 `stock health` 报 unavailable，不拖垮 webtool 其他命令。路径可用 `STOCK_MASTER_HOME` 覆盖
+- **口径纪律照搬 stock-master**：涨停池输出必带真实数据日（该接口对无效日期会静默回旧数据）；北向 `status=3` 或接口回填额度上限一律标 ⚠「未取得」，**禁止当 0**；MCP 回了原始 HTML 未解析出条目时显式标注，不把 100KB 噪声当结果
+- `--arg` 的值猜类型时**纯数字一律留字符串**（600519 是代码不是整数），与 `webtool mcp` 的口径不同
+- `screen` 的 text 输出必含**剔除清单与闸门原因** —— 只给通过名单会让调用方以为没被选中的票不存在
+- 退出码：0 成功 / 1 数据动作失败 / 2 用法错误
 
 ## 通用约定
 

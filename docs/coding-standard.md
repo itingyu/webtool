@@ -11,6 +11,8 @@ webtool/
   cli/          L4 应用编排   app / config / plugins / sitesearch / zen / zenproto
                                mcp (通用 MCP 客户端)
   feeds/        L3 业务流程   command / sources / parse / fetch / cards / feedhealth
+  stock/        L3 业务流程   master (桥 stock-master skill) / mcp (桥 stock MCP)
+                               command (动作分发 + 渲染)
   radar/        L3 业务流程   routes / rules / instances / official / template
                                            / race / instances_cfg
   pipeline/     L2 合并输出   search / rank / merge / topup / qhint / query_ops
@@ -58,14 +60,16 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 （曾加过 csv，因 CSV 公式注入风险与字段转义复杂度撤除——抓来的字段是不可信文本，
 导出表格必然引出「是否要防注入」的长期负担，而实际用途以 json 为主。）
 
-| 格式 | search | site | rank | feed | fetch | zen | engines/plugins/cache/config |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| json | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| text | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| markdown | ✅ | ✅ | ✅ | ✅ | ✅ | ~ | ✅ |
+| 格式 | search | site | rank | feed | fetch | zen | stock | engines/plugins/cache/config |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| json | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| text | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| markdown | ✅ | ✅ | ✅ | ✅ | ✅ | ~ | ~ | ✅ |
 
 - `zen`：只有模型清单（`--list-models` / `--list-free`）接 json；对话输出本身是流式
   文本，markdown 无结构可渲染，回落 text
+- `stock`：quote/pool/tools/screen 有表格结构，markdown 出表；analyze/screen/risk 的
+  未解析 MCP 载荷回落 text（见 stock 段的形状约定）
 
 约定：
 
@@ -155,5 +159,20 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 - `engines/sites.py` 的 `_mk/_fetch/_headers` 被 6 个模块跨文件复用（customsites / sitesearch /
   feeds.fetch / hotsites / moresites / moresites2 / oversites），暂留私有名；
   真要复用得按规范去掉 `_` 并下沉到 `core` 或 `engines/base.py`
+- **`stock/` 是桥接层，不实现业务逻辑**。两侧口径都归各自维护方：stock-master 在
+  `/var/minis/skills/stock-master`（`STOCK_MASTER_HOME` 可覆盖），stock MCP 由宿主以
+  `minis-mcp-cli` 暴露（`MINIS_MCP_CLI` 可覆盖）。两条通道与 `webtool mcp` 的 HTTP 通道
+  **互不相通**，别拿 `net/mcpclient.py` 去调 stock MCP。反过来也别把 stock 逻辑写进
+  stock-master —— skill 有自己的 7 步维护流程和自检。skill 缺失只让 stock 动作退 2，
+  不影响 webtool 其余命令（所以桥接必须在函数内 import，不能放模块级）
+- **stock MCP 的载荷形状按工具不同，`stock/command.py` 靠 `_items_of`（广度优先下钻
+  `items/list/rows`）统一认领**：news 是 `data.items`，announcement 是 `data.data.list`，
+  capital_flow north 是 `data.data.data.{hk2sh,...}`（无列表）。**认不出就标注不猜** ——
+  同花顺 stockpage 是 SPA，MCP 解析不出列表会回 100KB 原始 HTML，印出来等于把噪声
+  当结果
+- **stock 的 `--arg` 类型推断与 `cli/mcp.py` 有意不同**：纯数字一律留字符串（600519 是
+  A股代码，整数会被 MCP schema 拒）。改这段前先确认不是在给非代码字段传数字
+- **`stock/command.py::_render` 对未解析载荷只在 text/markdown 标 stderr 警告**，
+  json 保持原样 —— 程序消费方可能自己要那份 html，不该由渲染层替它决定丢弃
 - 打包数据在包根 `src/webtool/data/`（不在 `core/` 下），`core.config_data.DATA_DIR`
   指向它；`pyproject` 的 `package-data` 按此配

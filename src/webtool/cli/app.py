@@ -215,6 +215,7 @@ def _entry_fn(name):
         mod = {'zen': ('cli.zen', 'do_zen'), 'fetch': ('net.fetch', 'do_fetch'),
                'site': ('cli.sitesearch', 'do_site'),
                'rank': ('pipeline.rank', 'do_rank'),
+               'stock': ('stock.command', 'do_stock'),
                'feed': ('feeds.command', 'do_feed')}[name]
         m = importlib.import_module('webtool.' + mod[0])
         return getattr(m, mod[1])(args, cfg)
@@ -414,6 +415,38 @@ def plugins_cmd(action: str = typer.Argument('list', help='list/check/reload/ena
         from webtool.cli import plugins as _plug_cmd
         return _plug_cmd.handle(args)
     return _run(None, fn, fmt, output, False, False)
+
+
+# ---------- stock ----------
+
+@app.command('stock')
+def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar/flow/news/'
+                                                        'announcement/financials/analyze/'
+                                                        'screen/risk/mcp/tools/health'),
+              codes: list[str] = typer.Argument(None, help='股票代码 (quote/check/risk 用, 可多个)'),
+              date: str = typer.Option(None, '--date', help='数据日 (pool/calendar; last=上一交易日)'),
+              only_buy: bool = typer.Option(False, '--only-buy', help='pool 只留可买板块'),
+              scope: str = typer.Option('industry', '--scope',
+                                        help='flow 资金流口径: industry/individual/north'),
+              pool: str = typer.Option('short', '--pool',
+                                       help='screen 池: short(1-5日)/mid(3-6月)/long(6-18月)'),
+              min_score: int = typer.Option(60, '--min-score', help='screen 技术面分门槛 (short 池)'),
+              limit: int = typer.Option(10, '-n', '--limit', help='news/announcement 条数'),
+              n: int = typer.Option(3, '--n', help='calendar 往后几个交易日'),
+              tool: str = typer.Option(None, '--tool', help='mcp 动作的 stock 工具名, 如 stock_indicators'),
+              params: list[str] = typer.Option(None, '--arg', metavar='K=V',
+                                               help='mcp 动作参数, 可多次; 值按 JSON 字面量猜类型'),
+              keyword: str = typer.Option('', '--keyword', help='tools 动作按关键词筛工具'),
+              timeout: float = typer.Option(60.0, '--timeout', help='mcp 动作子进程超时秒'),
+              fmt: str = Fmt, output: str = Output):
+    """股票能力: 桥接 stock-master 脚本层 + stock MCP 24 tool (webtool stock health 探活)"""
+    a = _CTX['args']
+    a.action, a.codes, a.date = action, list(codes or []), date
+    a.only_buy, a.scope, a.pool, a.min_score = only_buy, scope, pool, min_score
+    a.limit, a.n = limit, n
+    a.tool, a.params, a.keyword, a.timeout = tool, params, keyword, timeout
+    # stock 不走 net 层, 无代理/缓存概念; 仍走 _run 统一 -f/-o 与退出码
+    return _run(None, _entry_fn('stock'), fmt, output, False, False)
 
 
 def main(argv=None):
