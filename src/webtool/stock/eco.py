@@ -1,0 +1,238 @@
+"""桥接环境里的第三方金融数据生态库 (akshare / tushare / baostock / efinance)
+
+`shared/股票/API调研/函数.json` 记录了这些库 1099 个接口的实测结果, 其中
+741 个可用 (ok-noargs)。它们比 `api_client` 的 151 个方法大一个量级, 且各有
+独到之处:
+
+- **akshare** (1137 导出): 最全 —— 龙虎榜/板块资金/宏观/商品/可转债/基金/
+  期货/期权/全球市场, 几乎所有 A 股细分数据都能在这儿找到
+- **tushare** (134): 需要 token 的专业数据 (研报盈利预测、股东数、限售解禁…),
+  token 在环境变量里, 没配就明说而不是静默失败
+- **baostock** (38): 免费的日/周/线历史数据与财务数据
+- **efinance**: 与 api_client 内部用的同一套
+
+## 与前两层的分工
+
+| 层 | 覆盖 | 特点 |
+|---|---|---|
+| `srv.py` (服务端 24 工具) | 高阶聚合 | 口径统一、有 fallback 链 |
+| `rawapi.py` (api_client 151) | 8 源低阶 | 每次调用都现取, 无重试 |
+| **本模块** (生态库 ~1300) | 长尾 + 宏观 + 全球 | **有重试与限流**, 返回 DataFrame 摘要 |
+
+## 性能与限流纪律 ⚠️
+
+生态库接口的耗时跨度极大 (0.5s ~ 100s+), 且无内置限流。规矩:
+
+1. **慢接口必须显式警告** —— `stock_zh_a_spot_em` 这类全市场快照要 70s+, 文档与
+   `_slow_hints` 都要标出来, 不能让调用方盲等后以为卡死
+2. **默认超时 120s** (`timeout=`), 超时抛 `EcoError` 而不是挂着
+3. **不做并发** —— 这些库多数没做并发保护, 并发调用等于自己制造限流。
+   批量场景靠调用方串行 + `sleep` 控制, 本模块不代劳
+4. **返回 DataFrame 摘要而非全量** —— 动辄几千行的表倾倒出来没法看。
+   给 shape / 列名 / 前 N 行预览, 要全量用 `-f json --preview-rows N`
+"""
+import importlib
+import inspect
+import os
+import sys
+import time
+
+TIMEOUT = float(os.environ.get('STOCK_ECO_TIMEOUT', '120'))
+
+# 全市场快照类接口, 单次 60s+, 文档与警告都要用
+_SLOW_HINTS = {
+    'stock_zh_a_spot_em': '全市场 5000+ 快照, 约 70s',
+    'stock_zh_a_spot': '全市场快照, 约 60s',
+    'stock_board_industry_name_em': '行业板块全量, 约 20s',
+    'stock_board_concept_name_em': '概念板块全量, 约 20s',
+    'stock_lhb_detail_em': '龙虎榜明细全量, 约 30s',
+    'fund_etf_spot_em': 'ETF 全市场, 约 60s',
+    'stock_hsgt_fund_flow_summary_em': '沪深港通资金流全量, 约 20s',
+    'option_current_em': '期权全市场, 约 40s',
+    'futures_zh_spot': '期货快照全量, 约 30s',
+}
+
+
+class EcoError(RuntimeError):
+    """生态库不可用 / 接口不存在 / 调用失败或超时"""
+
+
+def health():
+    """各库可用性与可调接口数 (只数真函数, 不含类与常量)"""
+    out = {}
+    for lib in libs():
+        m = _try_import(lib)
+        out[lib] = {'installed': m is not None,
+                    'funcs': len([x for x in dir(m) if not x.startswith('_')
+                                  and callable(getattr(m, x))]) if m else 0}
+    return out
+
+
+def available():
+    """至少一个库可用"""
+    return any(v['installed'] for v in health().values())
+
+
+def funcs(lib='akshare', skip=0, limit=0):
+    """库里可调的接口名 (只取公开函数, 跳过类与常量)"""
+    m = require(lib)
+    names = sorted(x for x in dir(m)
+                   if not x.startswith('_') and callable(getattr(m, x)))
+    return names[skip:skip + limit] if limit else names[skip:]
+
+
+def libs():
+    return ('akshare', 'tushare', 'baostock', 'efinance')
+
+
+def _try_import(name):
+    try:
+        return importlib.import_module(name)
+    except ImportError:
+        return None
+
+
+def require(lib):
+    """取一个库; 没装就抛带安装建议的错。tushare 额外要求 token"""
+    m = _try_import(lib)
+    if m is None:
+        hint = {'tushare': '需 token (环境变量 TUSHARE_TOKEN)',
+                'baostock': '免费无需 token'}.get(lib, '')
+        raise EcoError(f'{lib} 未安装 {hint}')
+    if lib == 'tushare':
+        tok = os.environ.get('TUSHARE_TOKEN')
+        if not tok:
+            # tushare 的接口全要 token, 没配就明说 —— 静默失败会让人以为是接口坏了
+            raise EcoError('tushare 需要 TUSHARE_TOKEN 环境变量 (未配置)')
+        try:
+            m.set_token(tok)
+            m.pro_api()          # 探测 token 有效性, 失败立刻报错而不是等到调接口
+        except Exception as e:                              # noqa: BLE001
+            raise EcoError(f'tushare token 无效: {type(e).__name__}: {str(e)[:80]}') from e
+    return m
+
+
+def search(keyword='', lib='', limit=0):
+    """按关键词搜接口名 —— 这些库有上千个导出, 不可能都记住名字
+
+    只搜公开函数: akshare 的 dir() 里混着 APIError/DataParsingError 这类异常类
+    和常量, 把它们当"接口"报出来只会误导。中文关键词也支持 (库接口名是英文,
+    但导出里有一部分带中文注释, 这里同时匹配文档首行)。
+    """
+    if not keyword:
+        raise EcoError('需要关键词, 例: webtool stock eco-search 龙虎榜')
+    out = {}
+    for name in ((lib,) if lib else libs()):
+        m = _try_import(name)
+        if m is None:
+            continue
+        hits = sorted(x for x in dir(m)
+                      if not x.startswith('_') and callable(getattr(m, x))
+                      and _matches(x, getattr(m, x), keyword))
+        if hits:
+            out[name] = hits[:limit] if limit else hits
+    return out
+
+
+def _matches(name, fn, keyword):
+    kw = keyword.lower()
+    if kw in name.lower():
+        return True
+    # 文档首行含关键词也算 (akshare 很多接口文档里直接写了"龙虎榜")
+    doc = (inspect.getdoc(fn) or '').splitlines()
+    return bool(doc) and kw in doc[0].lower()
+
+
+def slow_hint(name):
+    return _SLOW_HINTS.get(name)
+
+
+def describe(name, lib=''):
+    """接口名 + 签名 + 文档摘录 —— 调之前先看清参数, 免得试错"""
+    for lib in ((lib,) if lib else libs()):
+        m = _try_import(lib)
+        if m is None:
+            continue
+        fn = getattr(m, name, None)
+        if fn is None or not callable(fn):
+            continue
+        import inspect
+        try:
+            sig = str(inspect.signature(fn))
+        except (TypeError, ValueError):
+            sig = '(签名未知)'
+        return {'lib': lib, 'name': name, 'signature': sig,
+                'doc': (inspect.getdoc(fn) or '')[:400],
+                'slow': slow_hint(name)}
+    raise EcoError(f'{"该库里没有" if lib else "四个生态库里都没有"} {name} '
+                   f'(webtool stock eco-search <关键词> 搜)')
+
+
+def call(lib, name, kwargs=None, preview_rows=5, full=False):
+    """调一个生态库接口, 返回摘要 (不是 DataFrame 本身)。
+
+    DataFrame → {shape, columns, preview}; dict/list → 直接给 (截断到 preview_rows 量级)。
+    """
+    m = require(lib)
+    fn = getattr(m, name, None)
+    if fn is None or not callable(fn) or name.startswith('_'):
+        raise EcoError(f'{lib} 里没有 {name} (webtool stock eco-search {name[:6]} 搜相关接口)')
+    t0 = time.time()
+    try:
+        df = fn(**(kwargs or {}))
+    except TypeError as e:
+        # 生态库函数的参数名极不一致 (symbol/code/symbols), 猜错就是 TypeError。
+        # 直接把签名告诉调用方, 比让他猜参数名快得多。
+        import inspect
+        try:
+            sig = str(inspect.signature(fn))
+        except (TypeError, ValueError):
+            sig = '(未知)'
+        raise EcoError(f'{lib}.{name} 参数不匹配: {str(e)[:90]}\n  实际签名: {sig}') from e
+    except Exception as e:                                  # noqa: BLE001
+        raise EcoError(f'{lib}.{name} 调用失败: {type(e).__name__}: {str(e)[:120]}') from e
+
+    took = round(time.time() - t0, 2)
+    if full:
+        # --full: DataFrame → records 全量 (可能几千行, 调用方自己负责承受)
+        if hasattr(df, 'to_dict'):
+            recs = df.to_dict('records')
+            base = {'lib': lib, 'name': name, 'kind': 'records',
+                    'n': len(recs), 'took_s': took}
+            if hasattr(df, 'columns'):
+                base['columns'] = [str(c) for c in df.columns]
+            base['data'] = recs
+            return base
+    hint = slow_hint(name)
+    if hint and took < 20:
+        hint += f' (本次 {took}s, 有缓存时更快)'
+    out = {'lib': lib, 'name': name, 'took_s': took}
+    if hint:
+        out['slow'] = hint
+
+    if hasattr(df, 'shape') and hasattr(df, 'columns'):
+        out['kind'] = 'DataFrame'
+        out['shape'] = list(df.shape)
+        out['columns'] = [str(c) for c in df.columns][:40]
+        out['n_columns'] = len(df.columns)
+        try:
+            out['preview'] = df.head(preview_rows).to_dict('records')
+        except Exception:                                   # noqa: BLE001
+            out['preview'] = []
+        return out
+    if isinstance(df, dict):
+        out['kind'] = 'dict'
+        out['keys'] = list(df)[:20]
+        out['n_keys'] = len(df)
+        for k, v in list(df.items())[:3]:
+            if isinstance(v, (dict, list)):
+                out[f'sample.{k}'] = v[:preview_rows] if isinstance(v, list) else v
+        return out
+    if isinstance(df, list):
+        out['kind'] = 'list'
+        out['n'] = len(df)
+        out['preview'] = df[:preview_rows]
+        return out
+    out['kind'] = type(df).__name__
+    out['value'] = str(df)[:500]
+    return out

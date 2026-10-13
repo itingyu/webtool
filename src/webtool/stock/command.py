@@ -19,6 +19,7 @@ import json
 import sys
 import time
 
+from webtool.stock import eco as _eco
 from webtool.stock import master as _master
 from webtool.stock import rawapi as _raw
 from webtool.stock import srv as _srv
@@ -153,6 +154,48 @@ def _act_forecast(args, cfg):
     return _raw.call('em_profit_forecast', {'code': f'{mkt}{code}'})
 
 
+def _act_eco(args, cfg):
+    """生态库通用入口: akshare(1137) / tushare(134) / baostock(38) / efinance(9)
+
+    与 api 动作的区别: 这几个库返回 DataFrame, 这里只做形状摘要 + 前几行预览,
+    要全量用 --full。
+    """
+    if not args.method:
+        raise ValueError('eco 需要 --method 指定接口名 '
+                         '(webtool stock eco-search <关键词> 搜, eco-list 看全部)')
+    return _eco.call(args.lib, args.method, _args_dict(args), full=args.full)
+
+
+def _act_eco_search(args, cfg):
+    # 关键词走位置参数 (例: webtool stock eco-search 龙虎榜), 与 api/eco 的
+    # --method 是两件事 —— 后者指定要调的接口, 这里指定要搜什么
+    kw = (list(args.codes or []) or [''])[0]
+    try:
+        hits = _eco.search(kw, lib=args.lib, limit=args.limit)
+    except _eco.EcoError as e:
+        raise ValueError(str(e)) from e
+    return {'keyword': kw, 'count': sum(len(v) for v in hits.values()), 'libraries': hits}
+
+
+def _act_eco_list(args, cfg):
+    lib = args.lib or 'akshare'
+    if args.method:
+        out = _eco.describe(args.method, lib)
+        out['count'] = len(_eco.funcs(lib))
+        return out
+    names = _eco.funcs(lib, limit=args.limit)
+    return {'library': lib, 'count': len(_eco.funcs(lib)),
+            'funcs': names, 'truncated': len(names) < out_count(lib)}
+
+
+def _act_eco_health(args, cfg):
+    return _eco.health()
+
+
+def out_count(lib):
+    return len(_eco.funcs(lib))
+
+
 def _act_report(args, cfg):
     return _master.do_report(code=_code(args, required=False), pool=args.pool,
                              news=list(args.texts or []) or None)
@@ -237,6 +280,7 @@ def _act_health(args, cfg):
         out['raw'].update(ok=True, methods=len(_raw.methods()))
     else:
         out['raw']['err'] = f'api_client 不可用 (STOCK_API_HOME 可覆盖)'
+    out['eco'] = _eco.health()
     out['ok'] = bool(out['master'].get('ok') or out['mcp'].get('ok'))
     return out
 
@@ -251,6 +295,8 @@ ACTIONS = {
     'mcp': _act_mcp, 'tools': _act_tools, 'health': _act_health,
     'api': _act_api, 'api-list': _act_api_list,
     'holder': _act_holder, 'forecast': _act_forecast,
+    'eco': _act_eco, 'eco-search': _act_eco_search,
+    'eco-list': _act_eco_list, 'eco-health': _act_eco_health,
 }
 
 def _args_dict(args):
@@ -288,6 +334,12 @@ USAGE = """用法: webtool stock <动作> [参数]
 MCP 动作 (透传调用服务端 24 个工具)
   mcp <工具名> [--arg k=v]     透传调用, 例: webtool stock mcp stock_indicators --arg symbol=600519
   tools [关键词]               列工具清单
+
+生态库 (akshare 1137 / tushare 134 / baostock 38 / efinance 9 —— 全生态)
+  eco --lib akshare --method <接口> [--arg k=v] [--full]  直接调, 默认给形状+前几行
+  eco-search <关键词> [--lib akshare]    在生态库里搜接口 (按关键词, 例: 龙虎榜/lhb/hsgt)
+  eco-list [接口名] [--lib akshare]       列接口 (给了名字则给签名/文档)
+  eco-health                             各库可用性与接口数
 
 原始 API (api_client 151 方法, 8 数据源 —— 服务端未覆盖的能力)
   api-list                     按数据源分组列全部方法
@@ -340,6 +392,9 @@ def do_stock(args, cfg):
     except _raw.RawApiError as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
+    except _eco.EcoError as e:
+        print(f'error: {e}', file=sys.stderr)
+        return 1
     except ValueError as e:
         print(f'error: {e}', file=sys.stderr)
         return 2
@@ -357,7 +412,7 @@ def _render(out, fmt, action):
     # 可能自己要那份 html, 但不该由我们替它决定丢弃。
     note = _unresolved(out)
     if fmt == 'json':
-        print(json.dumps(out, ensure_ascii=False, indent=1))
+        print(_j(out, 10 ** 9))
         return
     if action in ('api', 'forecast', 'api-list'):
         # api_client 的接口形态千差万别 (含本身就返回 HTML 的), 那个"本该是
@@ -817,7 +872,96 @@ def _text_raw_tail(out):
         print(f"\n其余字段: {', '.join(parts)}  (用 -f json 看全量)")
 
 
+def _j(v, n=200):
+    """json.dumps 兜底 —— akshare/efinance 的列里常有 datetime.date、numpy 标量。
+
+    这些类型不是 JSON 原生, 直接 dumps 会 TypeError 崩掉整条命令, 而崩在
+    渲染层尤其冤 (数据已经取到了)。所以统一走这里, 非原生类型转字符串。
+    """
+    def default(o):
+        for attr in ('isoformat', 'item'):        # date/datetime → 字符串, numpy 标量 → python
+            m = getattr(o, attr, None)
+            if callable(m):
+                try:
+                    return m()
+                except Exception:                  # noqa: BLE001
+                    pass
+        return str(o)
+    try:
+        return json.dumps(v, ensure_ascii=False, default=default)
+    except (TypeError, ValueError):
+        return str(v)[:n]
+
+
+def _text_eco(out):
+    """生态库返回: 形状摘要 + 前几行预览 (DataFrame 转 dict 前 N 行)。
+
+    akshare 很多接口返回几千行 (全市场快照 5923×23), 直接印会刷屏 —— 默认只给
+    形状与预览, --full 才给全量。
+    """
+    if not isinstance(out, dict):
+        print(_j(out, 2000))
+        return
+    if out.get('ok') is False:
+        print(f"error: {out.get('error')}")
+        return
+    print(f"[{out.get('lib')}.{out.get('name')}] {out.get('kind')}"
+          f" shape={out.get('shape')}  {out.get('took_s')}s"
+          + (f"  列={out['columns']}" if out.get('columns') else ''))
+    for i, row in enumerate(out.get('preview') or []):
+        print(f'  {i + 1}. {_j(row)}')
+    if out.get('truncated'):
+        print(f"  …共 {out.get('shape')} 行, --full 取全量")
+
+
+def _text_eco_list(out):
+    if not isinstance(out, dict):
+        print(json.dumps(out, ensure_ascii=False))
+        return
+    lib, n = out.get('library'), out.get('count')
+    if 'signature' in out:
+        print(f"{lib}.{out.get('name')}  ({out.get('lib')} 共 {n} 个接口)")
+        print(f"  签名: {out['signature']}")
+        doc = (out.get('doc') or '').strip().splitlines()
+        for line in doc[:6]:
+            print(f'  {line}')
+        return
+    print(f"{lib} 共 {n} 个接口")
+    for f in out.get('funcs') or []:
+        print(f'  {f}')
+    if out.get('truncated'):
+        print('  …用 --limit 调整, 或 eco-search <关键词> 精确找')
+
+
+def _text_eco_search(out):
+    if not isinstance(out, dict):
+        print(json.dumps(out, ensure_ascii=False))
+        return
+    if not out.get('libraries'):
+        print(f"无匹配: {out.get('keyword')}")
+        return
+    print(f"\"{out.get('keyword')}\" 匹配 {out.get('count')} 个:")
+    for lib, names in out['libraries'].items():
+        print(f"  {lib} ({len(names)}): {' '.join(names[:8])}{' …' if len(names) > 8 else ''}")
+
+
 def _text(out, action):
+    if action == 'eco':
+        _text_eco(out)
+        return
+    if action == 'eco-list':
+        _text_eco_list(out)
+        return
+    if action == 'eco-search':
+        _text_eco_search(out)
+        return
+    if action == 'eco-health':
+        for lib, st in (out or {}).items():
+            if st.get('installed'):
+                print(f"  ✓ {lib}: {st.get('funcs')} 个接口")
+            else:
+                print(f"  ✗ {lib}: 未安装")
+        return
     if action in ('news', 'announcement', 'financials', 'mcp'):
         _text_srv(out, note_only=bool(_unresolved(out)))
         return

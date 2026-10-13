@@ -437,7 +437,9 @@ def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar
               params: list[str] = typer.Option(None, '--arg', metavar='K=V',
                                                help='mcp 动作参数, 可多次; 值按 JSON 字面量猜类型'),
               keyword: str = typer.Option('', '--keyword', help='tools 动作按关键词筛工具'),
-              method: str = typer.Option(None, '--method', help='api 动作要调的 api_client 方法名'),
+              method: str = typer.Option(None, '--method', help='api/eco 动作要调的方法或接口名'),
+              lib: str = typer.Option('akshare', '--lib', help='eco 动作的库: akshare/tushare/baostock/efinance'),
+              full: bool = typer.Option(False, '--full', help='eco 动作返回完整数据 (默认只给形状+预览)'),
               text: list[str] = typer.Option(None, '--text', metavar='文本',
                                              help='sentiment 打分的文本, 可多次'),
               excel: str = typer.Option(None, '--excel', help='excel 动作的输出 xlsx 路径'),
@@ -457,6 +459,7 @@ def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar
     a.limit, a.n = limit, n
     a.tool, a.params, a.keyword, a.timeout = tool, params, keyword, timeout
     a.method = method
+    a.lib, a.full = lib, full
     a.texts = list(text or [])
     a.excel, a.kind, a.name, a.thesis = excel, kind, name, thesis
     a.drivers = list(driver or [])

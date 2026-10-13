@@ -160,7 +160,16 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   feeds.fetch / hotsites / moresites / moresites2 / oversites），暂留私有名；
   真要复用得按规范去掉 `_` 并下沉到 `core` 或 `engines/base.py`
 - **`stock/` 是桥接层，不实现业务逻辑，且全链路纯进程内**。三侧口径都归各自维护方：
-  - **第三侧 `rawapi.py`** 桥 `/var/minis/shared/股票/API调研/api_client.py` 的
+  - **第四侧 `eco.py`** 桥生态库：**akshare 1099 / tushare 124 / baostock 29 / efinance**
+  （返回 DataFrame）。覆盖 `API调研/函数.json` 记录的 akshare 生态，含宏观、另类数据、
+  期货、基金、外汇等 api_client 完全没有的领域。`webtool stock eco <接口>` 调，
+  默认给 shape + 列名 + 前 5 行 —— akshare 很多接口返回几千行（`stock_zh_a_spot_em`
+  全市场快照 5923×23，实测 **76 秒**），直接印会刷屏，`--full` 才给全量。
+  `eco-search` 按中英文关键词搜（中文能命中是因为 akshare 很多接口文档首行写了中文）
+- **生态库的数据列里常有 `datetime.date` / numpy 标量**，不是 JSON 原生类型。
+  渲染层一律走 `command.py::_j` 兜底序列化 —— 直接 `json.dumps` 会 TypeError
+  **崩在渲染层**，而那时数据其实已经取到了，白跑一次网络请求
+- **第三侧 `rawapi.py`** 桥 `/var/minis/shared/股票/API调研/api_client.py` 的
     **151 个低阶方法**（`STOCK_API_HOME` 可覆盖），8 大数据源 ths/sina/xueqiu/em/
     gtimg/tencent/cninfo/sse/csindex/ef。服务端只把其中 56 个聚合成 24 个高阶工具，
     另外 96 个（股东研究/盈利预测/研报日历/早盘晚报/板块多维排行/分钟线/产业链分类）

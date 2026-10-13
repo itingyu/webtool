@@ -31,6 +31,8 @@ webtool stock tools                           # 服务端 24 工具清单
 webtool stock report 600519                   # 成稿研报 (markdown)
 webtool stock sentiment --text "业绩超预期"     # 消息面打分 -100~+100
 webtool stock api-list                       # api_client 151 方法 (8 数据源, 按源分组)
+webtool stock eco-search 龙虎榜              # 在 akshare 1099 个接口里搜 (支持中文)
+webtool stock eco --method stock_zh_a_hist --arg symbol=600519   # 生态库调用
 webtool stock holder 600519                  # 股东研究 (东财)
 webtool stock health                         # 三侧桥接探活
 webtool config set default_engines bing,sogou
@@ -142,6 +144,13 @@ webtool stock sentiment 600519                # 该股新闻消息面打分; 也
 webtool stock diagram --kind tree             # mermaid: tree 决策树 / logic 投资逻辑 / chain 产业链
                                           #   chain: --name 产业链 --driver 上游 --mid 中游 --catalyst 下游
 
+# 第四侧: 生态库 (akshare 1099 / tushare 124 / baostock 29)
+# 覆盖宏观/另类数据/期货/基金/外汇等 api_client 没有的领域, 返回 DataFrame
+# 默认给 shape + 前 5 行预览 (全市场快照这类接口动辄几千行), --full 取全量
+webtool stock eco-health                     # 各库可用性与接口数
+webtool stock eco-list stock_zh_a_hist        # 看接口签名与文档
+#   注意: akshare 有些接口很慢 (stock_zh_a_spot_em 全市场快照约 76s), --full 慎用
+
 # 第三侧: api_client 151 个低阶方法 (shared/股票/API调研/, 8 大数据源)
 # 服务端只聚合了 56 个成 24 个高阶工具; 其余 96 个（股东研究/盈利预测/研报日历/
 # 早盘晚报/板块多维排行/分钟线/产业链分类…）从这里直接调
@@ -159,6 +168,8 @@ webtool stock tools                           # 24 工具清单;  health  # 两�
 - **工具清单读服务端 `TOOLS` 注册表**，服务端增删工具自动跟上
 - **失败语义**：handler 抛异常或返回 `ok=False` 都按"调用失败"处理（stderr + 退出码 1），不会崩进程
 - **`api` 动作的 text 只给摘要**（状态/来源/各键条目数），不倾倒原始 JSON —— 股东研究一家返回 34KB。全量用 `-f json`。`holder` 有专门的摘要渲染（户数趋势 + 前十大 + 机构持股）
+- **`eco` 返回含 `datetime.date` / numpy 标量**，渲染层走 `command.py::_j` 做 JSON
+  兜底转换 —— 直接 `json.dumps` 会 TypeError 崩在渲染层（数据其实已经取到了）
 - **`api` 动作不套"未解析"守卫** —— api_client 有些接口（如 `ths_stockpage_finance`）本身就返回 HTML 表格，套 news 那个守卫会误报
 - **report / diagram / excel 原样透传**（成稿 markdown、mermaid 源码、落盘确认），不再包 JSON 或表格 —— 这些产出本来就是给人直接看的。sentiment 分数带符号印出（`+12` 而非 `12`），方向是消息面的关键信息
 - **`report` / `excel` 跑短线池会扫全市场**（约 70 秒），别放进交互式调用；`excel` 缺 openpyxl 会明确报错而非静默不出文件
