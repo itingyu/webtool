@@ -27,9 +27,27 @@ def do_fetch(args, cfg):
     results = []
     proxy = cfg.get('fetch_proxy') if cfg.get('fetch_proxy') is not None else cfg.get('proxy')
     timeout = cfg.get('timeout', 15)
+    via = (getattr(args, 'via', None) or 'local').lower()
+    if via not in _VIA_CHANNELS:
+        print(f'unknown --via {via!r}, available: {",".join(sorted(_VIA_CHANNELS))}',
+              file=sys.stderr)
+        return 2
 
     def work(u):
-        return _fetch_one(u, args, cfg, proxy, timeout)
+        # 显式指定远程通道时直接走 reader, 不试本地链 (用户已表明意图)
+        if via in _MCP_CHANNELS:
+            return _fetch_via_mcp(u, args, cfg, via, timeout)
+        local = _fetch_one(u, args, cfg, proxy, timeout)
+        # auto: 仅在本地链明确搞不定时才花配额, 不做启发式猜测
+        if via == 'auto' and _needs_reader(local):
+            for ch in _MCP_CHANNELS:
+                if ch == 'auto':
+                    continue
+                got = _fetch_via_mcp(u, args, cfg, ch, timeout, prior=local)
+                if not got.get('error'):
+                    got['via_local_error'] = local.get('error', '')
+                    return got
+        return local
 
     if single:
         results = [work(urls[0])]
@@ -45,9 +63,120 @@ def do_fetch(args, cfg):
     return 0
 
 
+_VIA_CHANNELS = ('local', 'auto', 'parallel', 'exa', 'firecrawl')
+_MCP_CHANNELS = ('parallel', 'exa', 'firecrawl')
+
+
+def _needs_reader(local):
+    """本地链是否明确搞不定 —— 只认确定性硬失败信号, 不做启发式猜测。
+
+    这三个信号都是"纯 HTTP 拿不到正文"的既定事实, 也是远程 reader 真正
+    擅长 (JS 渲染 / 反爬 / 付费墙) 的场景。内容薄但非壳页的不算 —— 那多半
+    是页面本身短, 花配额去重读大概率也白花。
+    """
+    if local.get('error'):
+        return True
+    content = local.get('content') or ''
+    return not content or _is_nav_shell(content)
+
+
+def _reader_arg(channel, url):
+    """各端点 web_fetch 的参数形状不同"""
+    return {'firecrawl': {'url': url}}.get(channel, {'urls': [url]})
+
+
+def _reader_text(channel, raw):
+    """把 web_fetch 的返回转成正文。
+
+    三个端点形状不同, 必须分派:
+    - firecrawl 返回 JSON ({markdown: "..."})
+    - parallel 返回 JSON ({results:[{title, excerpts:[...]}]}), 要取出 excerpts
+    - exa 返回已拼好的 markdown 纯文本, 原样用
+    """
+    raw = (raw or '').strip()
+    if not raw:
+        return ''
+    if channel not in ('parallel', 'firecrawl'):
+        return raw
+    try:
+        d = json.loads(raw)
+    except (TypeError, ValueError):
+        return raw                      # 非 JSON 就当纯文本, 不丢内容
+    if not isinstance(d, dict):
+        return raw
+    if channel == 'firecrawl':
+        md = d.get('markdown')
+        if isinstance(md, str) and md.strip():
+            return md
+        data = d.get('data')
+        if isinstance(data, dict):
+            md = data.get('markdown')
+            if isinstance(md, str) and md.strip():
+                return md
+        return raw
+    items = d.get('results') if isinstance(d, dict) else (d if isinstance(d, list) else [])
+    parts = []
+    for it in (items or []):
+        if not isinstance(it, dict):
+            continue
+        title = (it.get('title') or '').strip()
+        ex = it.get('excerpts') or []
+        if isinstance(ex, str):
+            ex = [ex]
+        body = '\n\n'.join(x.strip() for x in ex if isinstance(x, str) and x.strip())
+        if not body:
+            continue
+        parts.append(f'# {title}\n{body}' if title else body)
+    return '\n\n---\n\n'.join(parts)
+
+
+def _fetch_via_mcp(url, args, cfg, channel, timeout, prior=None):
+    """走 MCP 端点的 web_fetch 拿 token-efficient markdown。
+
+    与本地链的差别: 对方用浏览器集群取回页面, 能过 JS 渲染与大部分反爬;
+    代价是每次调用消耗端点配额 (Parallel 匿名免 key 但有速率上限)。
+    """
+    t0 = time.time()
+    tool_arg = _reader_arg(channel, url)
+    try:
+        from webtool.net import mcpclient as mc
+        r = mc.call_verb(channel, 'fetch', tool_arg,
+                         timeout=max(timeout or 0, 30))
+    except Exception as e:
+        return {'url': url, 'via': f'mcp:{channel}', 'took_ms': int((time.time() - t0) * 1000),
+                'error': f'mcp 调用失败: {str(e)[:200]}'}
+    took = int((time.time() - t0) * 1000)
+    if 'error' in r:
+        code = (r['error'] or {}).get('code')
+        msg = r['error'].get('message') if isinstance(r['error'], dict) else str(r['error'])
+        out = {'url': url, 'via': f'mcp:{channel}', 'took_ms': took,
+               'error': f'{channel} reader 失败 (code={code}): {str(msg)[:200]}'}
+        if prior and prior.get('error'):
+            out['via_local_error'] = prior['error']
+        out['hint'] = ('远程 reader 需要网络与端点配额; 可试 --via local 走本地提取链, '
+                       '或换 URL')
+        return out
+    content = _reader_text(channel, r.get('text'))
+    if r.get('is_error') or not content:
+        out = {'url': url, 'via': f'mcp:{channel}', 'took_ms': took, 'chars': 0,
+               'content': '', 'error': f'{channel} reader 返回空正文'}
+        if prior and prior.get('error'):
+            out['via_local_error'] = prior['error']
+        return out
+    if args.max_chars and len(content) > args.max_chars:
+        content = content[:args.max_chars] + '\n…[truncated]'
+    out = {'url': url, 'via': f'mcp:{channel}', 'took_ms': took,
+           'chars': len(content), 'content': content,
+           'extract': f'mcp-{channel}-web_fetch'}
+    if prior and prior.get('error'):
+        out['via_local_error'] = prior['error']
+    return out
+
+
 def _fetch_one(url, args, cfg, proxy, timeout):
     t0 = time.time()
-    ckey = f'{url}|{args.format}|{args.max_chars}'
+    # via 进 key: 同一 URL 走本地链与走远程 reader 是两种产出, 共用缓存会串
+    ckey = f'{url}|{args.format}|{args.max_chars}|{getattr(args, "via", "") or "local"}'
     cached = None if (args.no_cache or args.raw) else cache.get(cfg, 'fetch', ckey)
     if cached is not None:
         cached['cache'] = 'hit'

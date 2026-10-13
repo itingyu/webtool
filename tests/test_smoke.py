@@ -27,7 +27,8 @@ MODULES = [
     'webtool.engines.hotsites', 'webtool.engines.sites',
     'webtool.engines.status', 'webtool.engines.bing',
     'webtool.engines.sogou', 'webtool.engines.baidu',
-    'webtool.engines.google', 'webtool.engines.marginalia',
+    'webtool.engines.google', 'webtool.engines.marginalia', 'webtool.engines.so360',
+    'webtool.net.mcpclient', 'webtool.cli.mcp', 'webtool.engines.exa',
 ]
 
 fails = []
@@ -247,6 +248,241 @@ for nn in (3, 10, 30):
            dedupe=False, stats=_sx, max_n=None)
     _fs.append(_sx.get('weight_floor'))
 check(_fs[0] > _fs[1] > _fs[2], f'floor 随 n 递减 ({_fs})')
+
+# 10. MCP 客户端: SSE 解析 / 双协议自适应 / URL 拼接 / 端点表 (纯离线, 不出网)
+from webtool.net import mcpclient as _mc
+_sse_cases = [
+    ('text/event-stream', 'event: message\ndata: {"a":1}\n\n', {'a': 1}, 'SSE 常规帧'),
+    ('application/json', '{"a":1}', {'a': 1}, '纯 JSON'),
+    ('text/plain', 'data: {"a":2}\n\n', {'a': 2}, 'body 前缀嗅探兜底'),
+    ('text/event-stream; charset=utf-8', ': keepalive\n\ndata: {"b":1}\n\n',
+     {'b': 1}, '跳过 : 注释行'),
+    ('text/event-stream', 'event: x\ndata: {"m":1}\n\ndata: {"m":2}\n\n',
+     {'m': 2}, '多帧取最后一个'),
+    ('text/event-stream', 'data: {"multi":\ndata: 1}\n\n', {'multi': 1}, '多行 data 拼接'),
+]
+_bad = [d for ct, body, want, d in _sse_cases if _mc.parse_response(ct, body) != want]
+check(not _bad, f'SSE/JSON 双协议解析 {len(_sse_cases)} 例全对 (错: {_bad or "无"})')
+# 非 JSON 的 data 帧不抛异常, 退回原始结构 (诊断信息不能被吞)
+_raw = _mc.parse_sse_message('event: message\ndata: not-json\n\n')
+check(_raw.get('data') == 'not-json' and 'raw' in _raw, 'SSE 解析失败退回原始结构')
+# URL 拼接: 端点自带 query 时用 & 而不是再拼 ?
+_ucases = [('https://x.com/mcp', '', 'https://x.com/mcp'),
+           ('https://x.com/mcp', 'a,b', 'https://x.com/mcp?tools=a,b'),
+           ('https://x.com/mcp?v=1', 'a,b', 'https://x.com/mcp?v=1&tools=a,b')]
+_bad = [d for base, tf, want in _ucases if _mc.build_url(base, tf) != want]
+check(not _bad, f'build_url 白名单拼接 {len(_ucases)} 例全对 (错: {_bad or "无"})')
+# 空 key 不发认证头 (免 key 通道); 有 key 只发 x-api-key (实测三头冗余)
+check('x-api-key' not in _mc.build_headers(''), '无 key 不发认证头')
+check(_mc.build_headers('k').get('x-api-key') == 'k', '有 key 发 x-api-key')
+# UA 与上游 exa-search 一致 (Minis/1.0), 避免同一客户端出现两种指纹
+check(_mc.build_headers('')['User-Agent'] == 'Minis/1.0',
+      f"UA 与上游一致 ({_mc.build_headers('')['User-Agent']})")
+# 内置端点表可装载且 URL 合规
+from webtool.core.config_data import load as _ld2
+_mcps = _ld2('mcp', 'mcp.json')
+check(bool(_mcps) and all(str(s.get('url', '')).startswith('https://')
+                          for s in _mcps.values()),
+      f'mcp.json 端点表装载 ({len(_mcps)} 项)')
+
+# 11. MCP 拆参: 位置 JSON 与 --arg 合并, 值按 JSON 字面量猜类型
+from webtool.cli.mcp import _build_args as _BA, _coerce as _CO
+_bcases = [('', None, {}),
+           ('{"query":"x","n":3}', None, {'query': 'x', 'n': 3}),
+           ('', ['query=hi', 'numResults=5', 'flag=true', 'nil=null'],
+            {'query': 'hi', 'numResults': 5, 'flag': True, 'nil': None}),
+           ('', ['q=webtool MCP 客户端', 'url=https://a.com/x?y=1&z=2'],
+            {'q': 'webtool MCP 客户端', 'url': 'https://a.com/x?y=1&z=2'}),
+           ('', ['urls=["https://a.com","https://b.com"]'],
+            {'urls': ['https://a.com', 'https://b.com']}),
+           ('{"query":"old","keep":1}', ['query=new'], {'query': 'new', 'keep': 1}),
+           ('', ['q=a=b'], {'q': 'a=b'})]
+_bad = [d for raw, pairs, want in _bcases if _BA(raw, pairs) != want]
+check(not _bad, f'参数组装 {len(_bcases)} 例全对 (错: {_bad or "无"})')
+# 非法输入一律返回 None (不抛), 由调用方退 2
+check(all(_BA(x, y) is None for x, y in (('{bad', None), ('[1,2]', None),
+                                         ('', ['noeq']), ('', ['=v']))),
+      '非法参数组装退 None')
+
+from types import SimpleNamespace as _SN
+
+# 12. exa 引擎: 端点声明 + 文本解析 + 强制直连 + numResults 封顶
+from webtool.engines import exa as _exa
+_espec = _exa._spec('exa')
+_verbs = (_espec or {}).get('verbs') or {}
+check(set(_verbs) >= {'search'}, f'exa 声明 search 动词 ({sorted(_verbs)})')
+check(_espec.get('proxy') == 'direct', '端点表声明 proxy:direct (配额按出口 IP 计)')
+_eng_exa_spec = __import__('webtool.core.plugins', fromlist=['table']).table('engine').get('exa') or {}
+check(_eng_exa_spec.get('entry') == 'webtool.engines.exa:search',
+      f'exa 引擎注册到插件表 ({_eng_exa_spec.get("entry")})')
+check(_eng_exa_spec.get('params', {}).get('enabled_by_default') is False,
+      'exa 不进默认引擎 (免 key 配额按 IP 计, 不宜默认开)')
+# 纯文本 → 标准结果结构
+_txt = ('Title: 甲文档\nURL: https://a.com/1\nPublished: N/A\nAuthor: N/A\n'
+        'Highlights:\n甲的正文摘要\n第二行\n\n'
+        'Title: 乙文档\nURL: https://b.com/2\nPublished: N/A\nAuthor: N/A\n'
+        'Highlights:\n乙的正文\n\n'
+        'Title: 重复\nURL: https://a.com/1\nHighlights:\n应被去重\n')
+_parsed = _exa._parse(_txt, 10)
+check([r['title'] for r in _parsed] == ['甲文档', '乙文档'],
+      f'按 Title 切块并按 URL 去重 ({[r["title"] for r in _parsed]})')
+check(_parsed and _parsed[0]['url'] == 'https://a.com/1'
+      and '甲的正文摘要' in _parsed[0]['snippet'],
+      'title/url/snippet 三段抽取正确')
+check(len(_exa._parse(_txt, 1)) == 1, 'max_results 截断生效')
+check(_exa._parse('', 5) == [] and _exa._parse('Title: 无URL\n', 5) == [],
+      '空文本/缺 URL 不产出条目')
+check(all(len(r['snippet']) <= 300 for r in _exa._parse(_txt, 10)),
+      'snippet 长度受上限约束')
+# 组装参数 + 强制直连: 传入 proxy 也必须以 proxy=None 出网
+_seen = {}
+_orig = _exa._mc.call_tool
+def _fake(url, tool, args=None, **kw):
+    _seen.update(url=url, tool=tool, args=args, **kw)
+    return {'text': _txt, 'is_error': False, 'raw': {}}
+_exa._mc.call_tool = _fake
+try:
+    _rs = _exa.search('q', max_results=25, proxy='http://127.0.0.1:2080', timeout=15)
+    check(_seen['tool'] == 'web_search_exa', f'调 web_search_exa ({_seen["tool"]})')
+    check(_seen['args'] == {'query': 'q', 'numResults': _exa._MAX_UPSTREAM},
+          f'numResults 封顶 {_exa._MAX_UPSTREAM} ({_seen["args"]})')
+    check(_seen['proxy'] is None, f'强制直连不走全局代理 ({_seen["proxy"]})')
+    check(_seen['timeout'] >= _exa._MIN_TIMEOUT,
+          f'timeout 有下限 {_exa._MIN_TIMEOUT} ({_seen["timeout"]})')
+    check(len(_rs) == 2, f'search 返回解析结果 ({len(_rs)})')
+finally:
+    _exa._mc.call_tool = _orig
+# 端点报错 / 上游错误 / 空结果 要抛, 由管线记入 errors
+def _raise_err(*_a, **kw):
+    return {'error': {'code': -1, 'message': 'boom'}}
+for _ret, _frag in ((_raise_err, 'boom'),
+                    (lambda *a, **k: {'error': {'code': 429, 'message': 'too many'}}, '429'),
+                    (lambda *a, **k: {'text': '', 'is_error': False, 'raw': {}}, '空结果'),
+                    (lambda *a, **k: {'text': 'x', 'is_error': True}, 'Exa 返回错误')):
+    _exa._mc.call_tool = _ret
+    try:
+        _exa.search('q', max_results=3, timeout=15)
+        check(False, f'异常路径应抛出 ({_frag})')
+    except RuntimeError as e:
+        check(_frag in str(e), f'异常路径抛出可读错误 ({_frag})')
+    except Exception as e:
+        check(False, f'异常类型应为 RuntimeError ({type(e).__name__})')
+_exa._mc.call_tool = _orig
+# 引擎预设: --engine > --preset > cfg.default_engines > 默认开启的引擎
+from webtool.pipeline.search import resolve_engines as _RE, presets as _PS
+_ps = _PS()
+check(set(_ps) >= {'zh', 'en', 'direct'}, f'预设表装载 ({sorted(_ps)})')
+from webtool.core.plugins import table as _TBL
+_eng_tbl = _TBL('engine')
+_bad = [n for n, s in _ps.items()
+        if not (s.get('engines') and all(e in _eng_tbl for e in s['engines']))]
+check(not _bad, f'预设引用的引擎都存在 (坏: {_bad or "无"})')
+_cfg_e = {'default_engines': 'bing,sogou'}
+check(_RE(_SN(engine=None, preset='zh'), _cfg_e) == ('bing,sogou,baidu,so360', 'zh'),
+      '--preset 展开为引擎组')
+check(_RE(_SN(engine='bing', preset='zh'), _cfg_e) == ('bing', None),
+      '--engine 优先于 --preset 且不记 preset')
+check(_RE(_SN(engine=None, preset=None), _cfg_e) == ('bing,sogou', None),
+      '无 preset 用 cfg.default_engines')
+check(_RE(_SN(engine=None, preset=None), {})[1] is None, '无任何配置时不记 preset')
+try:
+    _RE(_SN(engine=None, preset='__nope__'), _cfg_e)
+    check(False, '未知 preset 应抛 SystemExit')
+except SystemExit as e:
+    check(e.code == 2, f'未知 preset 退 2 (实得 {e.code})')
+# 代理策略: 端点表给 exa 声明 proxy:direct (免 key 配额按 IP 计, 走代理必 429)
+from webtool.cli.mcp import _proxy_for as _PF
+_cfg_proxy = {'proxy': 'http://127.0.0.1:2080'}
+_a_direct = _SN(no_proxy=False)
+_a_noproxy = _SN(no_proxy=True)
+check(_PF({'proxy': 'direct'}, _a_direct, _cfg_proxy) is None,
+      '端点声明 proxy:direct → 强制直连 (不走全局代理)')
+check(_PF({}, _a_direct, _cfg_proxy) == 'http://127.0.0.1:2080',
+      '端点未声明 → 跟随全局配置')
+check(_PF({'proxy': 'direct'}, _a_noproxy, _cfg_proxy) is None,
+      '--no-proxy 同样强制直连')
+check(_PF({}, _a_noproxy, _cfg_proxy) is None, '--no-proxy 覆盖全局配置')
+
+# 13. parallel 引擎 + fetch --via 远程 reader 兜底判定
+from webtool.engines import parallel as _par
+from webtool.net import mcpclient as _mc
+from webtool.core.plugins import table as _TBL2
+_par._eng_par_spec = _TBL2('engine').get('parallel') or {}
+_pspec = _mc.endpoint('parallel')
+check(set((_pspec.get('verbs') or {})) >= {'search', 'fetch'},
+      f'parallel 声明 search/fetch ({sorted(_pspec.get("verbs") or {})})')
+check(_pspec.get('url') == 'https://search.parallel.ai/mcp', 'parallel 端点 URL 正确')
+check(_par._eng_par_spec.get('entry') == 'webtool.engines.parallel:search',
+      f'parallel 引擎注册到插件表 ({_par._eng_par_spec.get("entry")})')
+# 双必填参数: objective 原样, search_queries 派生 2-3 个且不重复
+_sqs, _obj = _par._queries('latest python 3.14 release notes')
+check(_obj == 'latest python 3.14 release notes', f'objective 原样传 ({_obj!r})')
+check(2 <= len(_sqs) <= 3, f'search_queries 派生 2-3 条 ({_sqs})')
+check(len(set(_sqs)) == len(_sqs), 'search_queries 无重复')
+_sqs2, _ = _par._queries('A股')
+check(len(_sqs2) == 1, f'中文无空格 query 不硬造变体 ({_sqs2})')
+# JSON 解析: publish_date 可能 null, excerpts 是数组
+_pj = ('{"results":[{"url":"https://a.com","title":"甲","publish_date":null,'
+       '"excerpts":["甲正文"]},{"url":"https://b.com","title":"乙",'
+       '"publish_date":"2026-07-28","excerpts":["乙正文1","乙正文2"]},'
+       '{"url":"https://a.com","title":"重复","excerpts":["x"]}]}')
+_pparsed = _par._parse(_pj, 10)
+check([r['title'] for r in _pparsed] == ['甲', '乙'], f'JSON 解析+去重 ({len(_pparsed)})')
+check('publish_date' not in _pparsed[0], 'publish_date 为 null 时不塞字段')
+check(_pparsed[1].get('publish_date') == '2026-07-28', '有日期则保留')
+check(_par._parse('not json', 10) == [] and _par._parse('', 10) == [], '非 JSON/空文本不产出')
+check(len(_par._parse(_pj, 1)) == 1, 'max_results 截断生效')
+# reader 返回分派: parallel 出 JSON 需解包, exa 出 markdown 原样
+from webtool.net import fetch as _ft
+_pr = ('{"results":[{"title":"T","excerpts":["正文A","正文B"]}]}')
+check(_ft._reader_text('parallel', _pr) == '# T\n正文A\n\n正文B', 'parallel JSON 解包为正文')
+check(_ft._reader_text('exa', '# 标题\n正文') == '# 标题\n正文', 'exa markdown 原样透传')
+check(_ft._reader_text('parallel', 'plain text') == 'plain text', 'parallel 非 JSON 当纯文本')
+check(_ft._reader_text('parallel', '') == '', '空返回得空串')
+# auto 兜底只认确定性硬失败信号
+_long = ('完整正文' * 40)
+check(not _ft._needs_reader({'content': _long}), '正常长正文不触发 reader')
+check(_ft._needs_reader({'error': 'JS-only shell page'}), 'JS 壳页触发 reader')
+check(_ft._needs_reader({'content': ''}), '空正文触发 reader')
+check(_ft._needs_reader({'content': '打开APP 产品功能 隐私政策 京ICP备123号'}), '导航壳触发 reader')
+check(_ft._needs_reader({'content': '短'}), '过短正文触发 reader (与既有 thin 判定一致)')
+check(set(_ft._VIA_CHANNELS) >= {'local', 'auto', 'parallel', 'exa', 'firecrawl'},
+      f'--via 通道表 ({sorted(_ft._VIA_CHANNELS)})')
+
+# 14. firecrawl: keyless MCP + 单字段参数 + MCP 容器形状 + scrape 解包
+from webtool.engines import firecrawl as _fc
+_fspec = _mc.endpoint('firecrawl')
+check((_fspec.get('verbs') or {}).get('search') == 'firecrawl_search',
+      'firecrawl search 映射到 firecrawl_search')
+check((_fspec.get('verbs') or {}).get('fetch') == 'firecrawl_scrape',
+      'firecrawl fetch 映射到 firecrawl_scrape')
+_fes = _TBL2('engine').get('firecrawl') or {}
+check(_fes.get('entry') == 'webtool.engines.firecrawl:search',
+      f'firecrawl 引擎注册 ({_fes.get("entry")})')
+# MCP 把结果裹在 data.web, REST 是裸 data 数组 —— 两种容器都要认
+_fj = ('{"success":true,"data":{"web":[{"url":"https://a.com","title":"甲",'
+       '"description":"甲摘要","position":1},{"url":"https://a.com","title":"重",'
+       '"description":"应去重"},{"url":"https://b.com","title":"乙"}]}}')
+_fp = _fc._parse(_fj, 10)
+check([r['title'] for r in _fp] == ['甲', '乙'], f'data.web 容器解析+去重 ({len(_fp)})')
+check(_fp[0]['snippet'] == '甲摘要' and _fp[1]['snippet'] == 'https://b.com',
+      'description 作摘要, 缺失时用 url 兜底')
+check([r['title'] for r in _fc._parse(_fj.replace('"web"', '"results"'), 10)] == ['甲', '乙'],
+      '兼容其他容器键名')
+check(len(_fc._parse(_fj, 1)) == 1, 'firecrawl max_results 截断')
+check(_fc._parse('{"success":false}', 10) == [] and _fc._parse('bad', 10) == [],
+      'success:false / 非 JSON 不产出')
+check(_fc._items([{'url': 'x'}]) == [{'url': 'x'}], '_items 兼容裸数组(REST 形状)')
+check(_ft._reader_text('firecrawl', '{"markdown":"# T\\n正文"}') == '# T\n正文',
+      'firecrawl scrape 解包 markdown')
+check(_ft._reader_text('firecrawl', '{"data":{"markdown":"嵌套"}}') == '嵌套',
+      'firecrawl 兼容 data.markdown 嵌套')
+check(_ft._reader_arg('firecrawl', 'https://x.com') == {'url': 'https://x.com'},
+      'firecrawl scrape 用 url 字段(非 urls)')
+check(_ft._reader_arg('parallel', 'https://x.com') == {'urls': ['https://x.com']},
+      'parallel/reader 用 urls 数组')
+check('firecrawl' in _ft._VIA_CHANNELS and 'firecrawl' in _ft._MCP_CHANNELS,
+      'firecrawl 已进 --via 通道表')
 
 print()
 if fails:

@@ -11,6 +11,7 @@
 import io
 import sys
 from contextlib import redirect_stdout
+from typing import List
 
 import typer
 
@@ -111,7 +112,9 @@ def _main(ctx: typer.Context,
 @app.command('search')
 def search_cmd(query: str = typer.Argument(..., help='搜索词'),
                engine: str = typer.Option(None, '-e', '--engine',
-                                          help='逗号分隔: bing,sogou,baidu,google,marginalia (默认 bing,sogou,baidu)'),
+                                          help='逗号分隔: bing,sogou,baidu,so360,google,marginalia'),
+               preset: str = typer.Option(None, '--preset',
+                                          help='引擎组合预设 (webtool engines presets 查看); 优先级低于 --engine'),
                max: int = typer.Option(8, '-n', '--max', help='每引擎结果数'),
                fmt: str = Fmt, output: str = Output,
                no_proxy: bool = NoProxy, no_cache: bool = NoCache,
@@ -124,7 +127,7 @@ def search_cmd(query: str = typer.Argument(..., help='搜索词'),
     """多引擎网页搜索"""
     a = _CTX['args']
     a.update = None
-    a.query, a.engine, a.max = query, engine, max
+    a.query, a.engine, a.preset, a.max = query, engine, preset, max
     a.operators, a.blocklist = operators, blocklist
     a.no_ad = True
 
@@ -147,11 +150,16 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
                                                  help='json 格式附带标题/作者/日期'),
               profile: str = typer.Option(None, '--profile',
                                           help='传输指纹档案: chrome131_win/mac/linux/android, '
-                                               'safari18_4_ios 等 (移动站/拿不到数据时试 android/ios)')):
+                                               'safari18_4_ios 等 (移动站/拿不到数据时试 android/ios)'),
+              via: str = typer.Option('local', '--via',
+                                      help='取正文通道: local=本地提取链(默认, 免配额) / '
+                                           'auto=本地失败时兜底远程 reader / '
+                                           'parallel|exa=直接走对应 MCP 的 web_fetch')):
     """抓取 URL 并提取正文"""
     a = _CTX['args']
     a.url, a.url_file = url, url_file
     a.max_chars, a.raw, a.with_metadata, a.profile = max_chars, raw, with_metadata, profile
+    a.via = via
     return _run('data', _do('fetch'), fmt, output, no_cache, no_proxy)
 
 
@@ -303,7 +311,7 @@ def proxy_cmd(action: str = typer.Argument(..., help='get/set/unset/test'),
 
 
 @app.command('engines')
-def engines_cmd(action: str = typer.Argument('list', help='list=清单+冷却状态; test=实发体检'),
+def engines_cmd(action: str = typer.Argument('list', help='list=清单+冷却状态; test=实发体检; presets=引擎组合预设'),
                 name: str = typer.Argument(None, help='test 时的引擎名; 省略=全部引擎'),
                 check: bool = typer.Option(False, '--check', help='实发一次测试请求 (等价 engines test)'),
                 query: str = typer.Option('python', '--query', help='test 用的测试词'),
@@ -313,9 +321,40 @@ def engines_cmd(action: str = typer.Argument('list', help='list=清单+冷却状
     a.action, a.name, a.check, a.query = action, name, check, query
 
     def fn(args, cfg):
+        if args.action == 'presets':
+            import json as _j
+            from webtool.pipeline.search import presets as _p
+            rows = [{'preset': k, 'desc': v.get('desc', ''),
+                     'engines': ','.join(v.get('engines', []))}
+                    for k, v in _p().items()]
+            print(_j.dumps(rows, ensure_ascii=False, indent=1))
+            return 0
         from webtool.engines.status import status
         return status(args, cfg)
     return _run(None, fn, fmt, output, False, False)
+
+
+@app.command('mcp')
+def mcp_cmd(action: str = typer.Argument('list', help='list=列工具; probe=端点体检; call=调工具'),
+            target: str = typer.Argument(..., help='MCP 端点 URL, 或 ~/.webtool/mcp.json 里的别名'),
+            tool: str = typer.Argument(None, help='call 时的工具名'),
+            arguments: str = typer.Argument(None, help="call 时的 JSON 参数, 如 '{\"query\":\"x\"}'"),
+            params: List[str] = typer.Option(None, '--arg', metavar='K=V',
+                                             help='call 时的拆开参数, 可多次; 值按 JSON 字面量猜类型'),
+            key_env: str = typer.Option('', '--key-env', help='从哪个环境变量读 API key'),
+            tools: str = typer.Option('', '--tools', help='工具白名单, 逗号分隔 (?tools=)'),
+            timeout: float = typer.Option(45.0, '--timeout', help='单次请求超时秒'),
+            fmt: str = Fmt, output: str = Output, no_proxy: bool = NoProxy):
+    """通用 MCP 客户端 (不绑死具体 server)"""
+    a = _CTX['args']
+    a.action, a.target, a.tool, a.arguments = action, target, tool, arguments
+    a.params = params
+    a.key_env, a.tools, a.timeout = key_env, tools, timeout
+
+    def fn(args, cfg):
+        from webtool.cli.mcp import do_mcp
+        return do_mcp(args, cfg)
+    return _run(None, fn, fmt, output, False, no_proxy)
 
 
 @app.command('cache')

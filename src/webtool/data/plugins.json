@@ -1,438 +1,503 @@
 {
- "hot": {
-  "zhihu": {
-   "module": "webtool.engines.hotsites:zhihu_hot",
-   "desc": "知乎热榜",
-   "search": false,
-   "params": {
-    "default_on": true
-   }
+  "hot": {
+    "zhihu": {
+      "module": "webtool.engines.hotsites:zhihu_hot",
+      "desc": "知乎热榜",
+      "search": false,
+      "params": {
+        "default_on": true
+      }
+    },
+    "weibo": {
+      "module": "webtool.engines.hotsites:weibo",
+      "desc": "微博热搜",
+      "search": false,
+      "params": {
+        "default_on": true
+      }
+    },
+    "baidu": {
+      "module": "webtool.engines.hotsites:baidu",
+      "desc": "百度热搜",
+      "search": false,
+      "params": {
+        "default_on": true
+      }
+    },
+    "douyin": {
+      "module": "webtool.engines.hotsites:douyin",
+      "desc": "抖音热搜词榜 (50词)",
+      "search": false,
+      "params": {
+        "default_on": true
+      }
+    },
+    "douyin_hot": {
+      "module": "webtool.engines.hotsites:douyin_hot",
+      "desc": "抖音热点榜 (事件聚合+视频数)",
+      "search": false,
+      "params": {
+        "default_on": true
+      }
+    },
+    "toutiao_hot": {
+      "module": "webtool.engines.hotsites:toutiao_hot",
+      "desc": "今日头条热榜 (官方 hot-board)",
+      "search": false,
+      "params": {
+        "default_on": false
+      }
+    },
+    "bili_hot": {
+      "module": "webtool.engines.hotsites:bili_hot",
+      "desc": "B站热门视频榜",
+      "search": false,
+      "params": {
+        "default_on": false
+      }
+    },
+    "bili_rank": {
+      "module": "webtool.engines.hotsites:bili_rank",
+      "desc": "B站全站排行榜 (质量周榜)",
+      "search": false,
+      "params": {
+        "default_on": false
+      }
+    },
+    "bili_word": {
+      "module": "webtool.engines.hotsites:bili_word",
+      "desc": "B站搜索热词 (20词)",
+      "search": false,
+      "params": {
+        "default_on": false
+      }
+    },
+    "tieba": {
+      "module": "webtool.engines.hotsites:tieba",
+      "desc": "百度贴吧热议榜 (30话题)",
+      "search": false,
+      "params": {
+        "default_on": false
+      }
+    },
+    "sina_hot": {
+      "module": "webtool.engines.hotsites:sina_hot",
+      "desc": "新浪新闻热榜",
+      "search": false,
+      "params": {
+        "default_on": false
+      }
+    },
+    "douban_movie": {
+      "module": "webtool.engines.hotsites:douban_movie",
+      "desc": "豆瓣热门电影 (评分+链接)",
+      "search": false,
+      "params": {
+        "default_on": false
+      }
+    },
+    "netease_music": {
+      "module": "webtool.engines.hotsites:netease_music",
+      "desc": "网易云新歌榜 (100首)",
+      "search": false,
+      "params": {
+        "default_on": false
+      }
+    },
+    "ithome": {
+      "module": "webtool.engines.hotsites:ithome",
+      "desc": "IT之家资讯榜",
+      "search": false,
+      "params": {
+        "default_on": false
+      }
+    },
+    "hn_official": {
+      "module": "webtool.engines.hotsites:hn_official",
+      "desc": "Hacker News 热榜",
+      "search": false,
+      "params": {
+        "default_on": false
+      }
+    },
+    "github_trend": {
+      "module": "webtool.engines.hotsites:github_trend",
+      "desc": "GitHub Trending (近7日)",
+      "search": true,
+      "params": {
+        "default_on": false
+      }
+    },
+    "lobsters": {
+      "module": "webtool.engines.hotsites:lobsters",
+      "desc": "Lobsters 热帖",
+      "search": false,
+      "params": {
+        "default_on": false
+      }
+    },
+    "toutiao": {
+      "module": "webtool.engines.hotsites:toutiao",
+      "desc": "今日头条推荐 feed (移动指纹, 非热榜)",
+      "search": false,
+      "params": {
+        "default_on": false
+      }
+    },
+    "reddit": {
+      "module": "webtool.engines.hotsites:reddit",
+      "desc": "Reddit r/<sub> 热帖 (需代理; 本环境 IP 受限)",
+      "search": true,
+      "params": {
+        "default_on": false
+      }
+    }
   },
-  "weibo": {
-   "module": "webtool.engines.hotsites:weibo",
-   "desc": "微博热搜",
-   "search": false,
-   "params": {
-    "default_on": true
-   }
+  "engine": {
+    "bing": {
+      "module": "webtool.engines.bing:search",
+      "desc": "Bing HTML 主通道+RSS兜底, chrome指纹, 国内 cn. 直连",
+      "base": 0.9,
+      "params": {
+        "proxy_hint": "direct",
+        "ops": [
+          "site",
+          "intitle",
+          "inurl",
+          "exclude"
+        ],
+        "enabled_by_default": true,
+        "captcha_signs": [
+          [
+            "contains",
+            "challenge-form"
+          ]
+        ],
+        "cooldown": 30,
+        "rate": 0.5
+      }
+    },
+    "sogou": {
+      "module": "webtool.engines.sogou:search",
+      "desc": "搜狗: PC优先(chrome指纹)→移动端(Android指纹,直出真实URL)",
+      "base": 0.75,
+      "params": {
+        "proxy_hint": "direct",
+        "ops": [
+          "site",
+          "intitle",
+          "exclude"
+        ],
+        "enabled_by_default": true,
+        "captcha_signs": [
+          [
+            "contains",
+            "antispider"
+          ],
+          [
+            "title_contains",
+            "验证码"
+          ],
+          [
+            "contains",
+            "seccodeimage"
+          ],
+          [
+            "contains",
+            "403 forbidden"
+          ],
+          [
+            "len_lt",
+            1300
+          ]
+        ],
+        "cooldown": 30,
+        "rate": 0.8
+      }
+    },
+    "google": {
+      "module": "webtool.engines.google:search",
+      "desc": "Google: web(需代理,常IP级reCAPTCHA)→news RSS 自动降级+文章链还原",
+      "base": 0.95,
+      "params": {
+        "proxy_hint": "required",
+        "ops": [
+          "site",
+          "intitle",
+          "inurl",
+          "exclude"
+        ],
+        "enabled_by_default": false,
+        "captcha_signs": [
+          [
+            "contains",
+            "unusual traffic"
+          ],
+          [
+            "contains",
+            "www.google.com/sorry"
+          ],
+          [
+            "contains",
+            "recaptcha"
+          ]
+        ],
+        "cooldown": 300,
+        "rate": 1.0
+      }
+    },
+    "baidu": {
+      "module": "webtool.engines.baidu:search",
+      "desc": "百度网页, 多步预热(cookie+sugrec行为链), 反爬严(滑块)",
+      "base": 0.8,
+      "params": {
+        "proxy_hint": "direct",
+        "ops": [
+          "site",
+          "intitle",
+          "exclude"
+        ],
+        "enabled_by_default": true,
+        "captcha_signs": [
+          [
+            "title_contains",
+            "百度安全验证"
+          ],
+          [
+            "contains",
+            "wappass.baidu.com"
+          ],
+          [
+            "contains",
+            "mkdjump_v2"
+          ],
+          [
+            "len_lt",
+            2000
+          ]
+        ],
+        "cooldown": 90,
+        "rate": 1.2
+      }
+    },
+    "so360": {
+      "module": "webtool.engines.so360:search",
+      "desc": "360 搜索, 国内直连, 中文长尾补充",
+      "params": {
+        "proxy_hint": "direct",
+        "ops": [],
+        "enabled_by_default": true
+      }
+    },
+    "marginalia": {
+      "module": "webtool.engines.marginalia:search",
+      "desc": "Marginalia 独立索引, 小站/老网页长尾, 免key直连, sst挑战自动解",
+      "params": {
+        "proxy_hint": "direct",
+        "ops": [],
+        "enabled_by_default": true
+      }
+    },
+    "exa": {
+      "module": "webtool.engines.exa:search",
+      "desc": "Exa 语义搜索(MCP), 免key直连, 英文/技术长尾强; 配额按出口IP计",
+      "params": {
+        "proxy_hint": "direct",
+        "ops": [],
+        "enabled_by_default": false
+      }
+    },
+    "parallel": {
+      "module": "webtool.engines.parallel:search",
+      "desc": "Parallel 语义搜索(MCP), 匿名免key, 每月$5额度; 返回JSON含publish_date",
+      "params": {
+        "proxy_hint": "direct",
+        "ops": [],
+        "enabled_by_default": false
+      }
+    },
+    "firecrawl": {
+      "module": "webtool.engines.firecrawl:search",
+      "desc": "Firecrawl 搜索(MCP), keyless可用, 免费层500次/月; scrape可过JS渲染",
+      "params": {
+        "proxy_hint": "direct",
+        "ops": [],
+        "enabled_by_default": false
+      }
+    }
   },
-  "baidu": {
-   "module": "webtool.engines.hotsites:baidu",
-   "desc": "百度热搜",
-   "search": false,
-   "params": {
-    "default_on": true
-   }
+  "site": {
+    "github": {
+      "module": "webtool.engines.sites:github",
+      "desc": "GitHub 仓库",
+      "proxy": "direct"
+    },
+    "so": {
+      "module": "webtool.engines.sites:stackoverflow",
+      "desc": "Stack Overflow",
+      "proxy": "direct"
+    },
+    "hn": {
+      "module": "webtool.engines.sites:hackernews",
+      "desc": "Hacker News (Algolia API)",
+      "proxy": "direct"
+    },
+    "wikipedia": {
+      "module": "webtool.engines.sites:wikipedia",
+      "desc": "维基百科 (lang 参数可换 en/zh)",
+      "proxy": "proxy",
+      "params": {
+        "args": [
+          "lang"
+        ]
+      }
+    },
+    "arxiv": {
+      "module": "webtool.engines.sites:arxiv",
+      "desc": "arXiv 论文",
+      "proxy": "direct"
+    },
+    "csdn": {
+      "module": "webtool.engines.sites:csdn",
+      "desc": "CSDN 博客",
+      "proxy": "direct"
+    },
+    "juejin": {
+      "module": "webtool.engines.sites:juejin",
+      "desc": "掘金",
+      "proxy": "direct"
+    },
+    "bilibili": {
+      "module": "webtool.engines.sites:bilibili",
+      "desc": "B站视频",
+      "proxy": "direct"
+    },
+    "sspai": {
+      "module": "webtool.engines.sites:sspai",
+      "desc": "少数派",
+      "proxy": "direct"
+    },
+    "npm": {
+      "module": "webtool.engines.sites:npm",
+      "desc": "npm 包",
+      "proxy": "direct"
+    },
+    "thepaper": {
+      "module": "webtool.engines.moresites:thepaper",
+      "desc": "澎湃新闻搜索",
+      "proxy": "direct"
+    },
+    "eastmoney": {
+      "module": "webtool.engines.moresites:eastmoney",
+      "desc": "东方财富资讯搜索",
+      "proxy": "direct"
+    },
+    "sov2ex": {
+      "module": "webtool.engines.oversites:sov2ex",
+      "desc": "V2EX 全文搜索 (sov2ex)",
+      "proxy": "direct"
+    },
+    "csdn_so": {
+      "module": "webtool.engines.moresites2:csdn_so",
+      "desc": "CSDN 问答搜索",
+      "proxy": "direct"
+    },
+    "juejin2": {
+      "module": "webtool.engines.moresites2:juejin2",
+      "desc": "掘金文章搜索",
+      "proxy": "direct"
+    },
+    "bili2": {
+      "module": "webtool.engines.moresites2:bili2",
+      "desc": "B站视频综合搜索",
+      "proxy": "direct"
+    },
+    "douban": {
+      "module": "webtool.engines.moresites2:douban",
+      "desc": "豆瓣内容搜索 (图书/影剧等)",
+      "proxy": "direct"
+    },
+    "gh_search": {
+      "module": "webtool.engines.moresites2:gh_search",
+      "desc": "GitHub 仓库搜索 (q 语法透传)",
+      "proxy": "direct"
+    }
   },
-  "douyin": {
-   "module": "webtool.engines.hotsites:douyin",
-   "desc": "抖音热搜词榜 (50词)",
-   "search": false,
-   "params": {
-    "default_on": true
-   }
+  "presets": {
+    "zh": {
+      "desc": "中文优先, 国内直连四件套",
+      "engines": [
+        "bing",
+        "sogou",
+        "baidu",
+        "so360"
+      ]
+    },
+    "en": {
+      "desc": "英文优先, 含 google (需代理)",
+      "engines": [
+        "bing",
+        "google",
+        "marginalia"
+      ]
+    },
+    "direct": {
+      "desc": "全部免代理, 代理不可用时的兜底",
+      "engines": [
+        "bing",
+        "sogou",
+        "baidu",
+        "so360",
+        "marginalia"
+      ]
+    }
   },
-  "douyin_hot": {
-   "module": "webtool.engines.hotsites:douyin_hot",
-   "desc": "抖音热点榜 (事件聚合+视频数)",
-   "search": false,
-   "params": {
-    "default_on": true
-   }
+  "extractor": {
+    "trafilatura": {
+      "module": "webtool.engines.extractors:extract_trafilatura",
+      "desc": "trafilatura 正文抽取 (markdown, 带元数据)"
+    },
+    "readability": {
+      "module": "webtool.engines.extractors:extract_readability",
+      "desc": "readability-lxml + html2text 兜底"
+    },
+    "inscriptis": {
+      "module": "webtool.engines.extractors:extract_inscriptis",
+      "desc": "全文纯文本保底"
+    }
   },
-  "toutiao_hot": {
-   "module": "webtool.engines.hotsites:toutiao_hot",
-   "desc": "今日头条热榜 (官方 hot-board)",
-   "search": false,
-   "params": {
-    "default_on": false
-   }
+  "resolver": {
+    "sogou": {
+      "module": "webtool.engines.sogou:resolve_link",
+      "desc": "搜狗 /link 跳转链解码",
+      "match": [
+        "sogou.com/link"
+      ]
+    },
+    "baidu": {
+      "module": "webtool.engines.baidu:_resolve_one",
+      "desc": "百度 /link? 跳转链解码",
+      "match": [
+        "baidu.com/link?"
+      ]
+    },
+    "gnews": {
+      "module": "webtool.engines.google:resolve_link",
+      "desc": "Google News articles 链解码还原原文",
+      "match": [
+        "~news\\.google\\.com.*/articles/"
+      ]
+    }
   },
-  "bili_hot": {
-   "module": "webtool.engines.hotsites:bili_hot",
-   "desc": "B站热门视频榜",
-   "search": false,
-   "params": {
-    "default_on": false
-   }
+  "filter": {
+    "ad": {
+      "module": "webtool.filters.adfilter:filter_ad",
+      "desc": "广告条目剔除 (标题/域名/URL 特征)"
+    },
+    "blocklist": {
+      "module": "webtool.filters.blocklist:filter_blocked",
+      "desc": "低质量站点剔除 (黑名单域名, 支持用户增删)"
+    }
   },
-  "bili_rank": {
-   "module": "webtool.engines.hotsites:bili_rank",
-   "desc": "B站全站排行榜 (质量周榜)",
-   "search": false,
-   "params": {
-    "default_on": false
-   }
-  },
-  "bili_word": {
-   "module": "webtool.engines.hotsites:bili_word",
-   "desc": "B站搜索热词 (20词)",
-   "search": false,
-   "params": {
-    "default_on": false
-   }
-  },
-  "tieba": {
-   "module": "webtool.engines.hotsites:tieba",
-   "desc": "百度贴吧热议榜 (30话题)",
-   "search": false,
-   "params": {
-    "default_on": false
-   }
-  },
-  "sina_hot": {
-   "module": "webtool.engines.hotsites:sina_hot",
-   "desc": "新浪新闻热榜",
-   "search": false,
-   "params": {
-    "default_on": false
-   }
-  },
-  "douban_movie": {
-   "module": "webtool.engines.hotsites:douban_movie",
-   "desc": "豆瓣热门电影 (评分+链接)",
-   "search": false,
-   "params": {
-    "default_on": false
-   }
-  },
-  "netease_music": {
-   "module": "webtool.engines.hotsites:netease_music",
-   "desc": "网易云新歌榜 (100首)",
-   "search": false,
-   "params": {
-    "default_on": false
-   }
-  },
-  "ithome": {
-   "module": "webtool.engines.hotsites:ithome",
-   "desc": "IT之家资讯榜",
-   "search": false,
-   "params": {
-    "default_on": false
-   }
-  },
-  "hn_official": {
-   "module": "webtool.engines.hotsites:hn_official",
-   "desc": "Hacker News 热榜",
-   "search": false,
-   "params": {
-    "default_on": false
-   }
-  },
-  "github_trend": {
-   "module": "webtool.engines.hotsites:github_trend",
-   "desc": "GitHub Trending (近7日)",
-   "search": true,
-   "params": {
-    "default_on": false
-   }
-  },
-  "lobsters": {
-   "module": "webtool.engines.hotsites:lobsters",
-   "desc": "Lobsters 热帖",
-   "search": false,
-   "params": {
-    "default_on": false
-   }
-  },
-  "toutiao": {
-   "module": "webtool.engines.hotsites:toutiao",
-   "desc": "今日头条推荐 feed (移动指纹, 非热榜)",
-   "search": false,
-   "params": {
-    "default_on": false
-   }
-  },
-  "reddit": {
-   "module": "webtool.engines.hotsites:reddit",
-   "desc": "Reddit r/<sub> 热帖 (需代理; 本环境 IP 受限)",
-   "search": true,
-   "params": {
-    "default_on": false
-   }
-  }
- },
- "engine": {
-  "bing": {
-   "module": "webtool.engines.bing:search",
-   "desc": "Bing HTML 主通道+RSS兜底, chrome指纹, 国内 cn. 直连",
-   "base": 0.9,
-   "params": {
-    "proxy_hint": "direct",
-    "ops": [
-     "site",
-     "intitle",
-     "inurl",
-     "exclude"
-    ],
-    "enabled_by_default": true,
-    "captcha_signs": [
-     [
-      "contains",
-      "challenge-form"
-     ]
-    ],
-    "cooldown": 30,
-    "rate": 0.5
-   }
-  },
-  "sogou": {
-   "module": "webtool.engines.sogou:search",
-   "desc": "搜狗: PC优先(chrome指纹)→移动端(Android指纹,直出真实URL)",
-   "base": 0.75,
-   "params": {
-    "proxy_hint": "direct",
-    "ops": [
-     "site",
-     "intitle",
-     "exclude"
-    ],
-    "enabled_by_default": true,
-    "captcha_signs": [
-     [
-      "contains",
-      "antispider"
-     ],
-     [
-      "title_contains",
-      "验证码"
-     ],
-     [
-      "contains",
-      "seccodeimage"
-     ],
-     [
-      "contains",
-      "403 forbidden"
-     ],
-     [
-      "len_lt",
-      1300
-     ]
-    ],
-    "cooldown": 30,
-    "rate": 0.8
-   }
-  },
-  "google": {
-   "module": "webtool.engines.google:search",
-   "desc": "Google: web(需代理,常IP级reCAPTCHA)→news RSS 自动降级+文章链还原",
-   "base": 0.95,
-   "params": {
-    "proxy_hint": "required",
-    "ops": [
-     "site",
-     "intitle",
-     "inurl",
-     "exclude"
-    ],
-    "enabled_by_default": false,
-    "captcha_signs": [
-     [
-      "contains",
-      "unusual traffic"
-     ],
-     [
-      "contains",
-      "www.google.com/sorry"
-     ],
-     [
-      "contains",
-      "recaptcha"
-     ]
-    ],
-    "cooldown": 300,
-    "rate": 1.0
-   }
-  },
-  "baidu": {
-   "module": "webtool.engines.baidu:search",
-   "desc": "百度网页, 多步预热(cookie+sugrec行为链), 反爬严(滑块)",
-   "base": 0.8,
-   "params": {
-    "proxy_hint": "direct",
-    "ops": [
-     "site",
-     "intitle",
-     "exclude"
-    ],
-    "enabled_by_default": true,
-    "captcha_signs": [
-     [
-      "title_contains",
-      "百度安全验证"
-     ],
-     [
-      "contains",
-      "wappass.baidu.com"
-     ],
-     [
-      "contains",
-      "mkdjump_v2"
-     ],
-     [
-      "len_lt",
-      2000
-     ]
-    ],
-    "cooldown": 90,
-    "rate": 1.2
-   }
-  },
-  "marginalia": {
-   "module": "webtool.engines.marginalia:search",
-   "desc": "Marginalia 独立索引, 小站/老网页长尾, 免key直连, sst挑战自动解",
-   "params": {
-    "proxy_hint": "direct",
-    "ops": [],
-    "enabled_by_default": true
-   }
-  }
- },
- "site": {
-  "github": {
-   "module": "webtool.engines.sites:github",
-   "desc": "GitHub 仓库",
-   "proxy": "direct"
-  },
-  "so": {
-   "module": "webtool.engines.sites:stackoverflow",
-   "desc": "Stack Overflow",
-   "proxy": "direct"
-  },
-  "hn": {
-   "module": "webtool.engines.sites:hackernews",
-   "desc": "Hacker News (Algolia API)",
-   "proxy": "direct"
-  },
-  "wikipedia": {
-   "module": "webtool.engines.sites:wikipedia",
-   "desc": "维基百科 (lang 参数可换 en/zh)",
-   "proxy": "proxy",
-   "params": {
-    "args": [
-     "lang"
-    ]
-   }
-  },
-  "arxiv": {
-   "module": "webtool.engines.sites:arxiv",
-   "desc": "arXiv 论文",
-   "proxy": "direct"
-  },
-  "csdn": {
-   "module": "webtool.engines.sites:csdn",
-   "desc": "CSDN 博客",
-   "proxy": "direct"
-  },
-  "juejin": {
-   "module": "webtool.engines.sites:juejin",
-   "desc": "掘金",
-   "proxy": "direct"
-  },
-  "bilibili": {
-   "module": "webtool.engines.sites:bilibili",
-   "desc": "B站视频",
-   "proxy": "direct"
-  },
-  "sspai": {
-   "module": "webtool.engines.sites:sspai",
-   "desc": "少数派",
-   "proxy": "direct"
-  },
-  "npm": {
-   "module": "webtool.engines.sites:npm",
-   "desc": "npm 包",
-   "proxy": "direct"
-  },
-  "thepaper": {
-   "module": "webtool.engines.moresites:thepaper",
-   "desc": "澎湃新闻搜索",
-   "proxy": "direct"
-  },
-  "eastmoney": {
-   "module": "webtool.engines.moresites:eastmoney",
-   "desc": "东方财富资讯搜索",
-   "proxy": "direct"
-  },
-  "sov2ex": {
-   "module": "webtool.engines.oversites:sov2ex",
-   "desc": "V2EX 全文搜索 (sov2ex)",
-   "proxy": "direct"
-  },
-  "csdn_so": {
-   "module": "webtool.engines.moresites2:csdn_so",
-   "desc": "CSDN 问答搜索",
-   "proxy": "direct"
-  },
-  "juejin2": {
-   "module": "webtool.engines.moresites2:juejin2",
-   "desc": "掘金文章搜索",
-   "proxy": "direct"
-  },
-  "bili2": {
-   "module": "webtool.engines.moresites2:bili2",
-   "desc": "B站视频综合搜索",
-   "proxy": "direct"
-  },
-  "douban": {
-   "module": "webtool.engines.moresites2:douban",
-   "desc": "豆瓣内容搜索 (图书/影剧等)",
-   "proxy": "direct"
-  },
-  "gh_search": {
-   "module": "webtool.engines.moresites2:gh_search",
-   "desc": "GitHub 仓库搜索 (q 语法透传)",
-   "proxy": "direct"
-  }
- },
- "extractor": {
-  "trafilatura": {
-   "module": "webtool.engines.extractors:extract_trafilatura",
-   "desc": "trafilatura 正文抽取 (markdown, 带元数据)"
-  },
-  "readability": {
-   "module": "webtool.engines.extractors:extract_readability",
-   "desc": "readability-lxml + html2text 兜底"
-  },
-  "inscriptis": {
-   "module": "webtool.engines.extractors:extract_inscriptis",
-   "desc": "全文纯文本保底"
-  }
- },
- "resolver": {
-  "sogou": {
-   "module": "webtool.engines.sogou:resolve_link",
-   "desc": "搜狗 /link 跳转链解码",
-   "match": [
-    "sogou.com/link"
-   ]
-  },
-  "baidu": {
-   "module": "webtool.engines.baidu:_resolve_one",
-   "desc": "百度 /link? 跳转链解码",
-   "match": [
-    "baidu.com/link?"
-   ]
-  },
-  "gnews": {
-   "module": "webtool.engines.google:resolve_link",
-   "desc": "Google News articles 链解码还原原文",
-   "match": [
-    "~news\\.google\\.com.*/articles/"
-   ]
-  }
- },
- "filter": {
-  "ad": {
-   "module": "webtool.filters.adfilter:filter_ad",
-   "desc": "广告条目剔除 (标题/域名/URL 特征)"
-  },
-  "blocklist": {
-   "module": "webtool.filters.blocklist:filter_blocked",
-   "desc": "低质量站点剔除 (黑名单域名, 支持用户增删)"
-  }
- },
- "transformer": {}
+  "transformer": {}
 }

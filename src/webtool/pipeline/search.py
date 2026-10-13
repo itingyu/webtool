@@ -4,6 +4,7 @@ import sys
 import time
 
 from webtool.core import cache
+from webtool.core import config_data
 from webtool.core.plugins import table as _plugin_table
 from webtool.net.transport import _proxy_alive, proxy_hint  # noqa: F401 — 旧名再导出
 from webtool.filters.blocklist import filter_blocklist, is_blocked
@@ -12,6 +13,37 @@ from webtool.filters.blocklist import filter_blocklist, is_blocked
 def _engines():
     """引擎表 (name -> spec); 每次现取插件表, 清单改动即时生效"""
     return _plugin_table('engine')
+
+
+def presets():
+    """引擎预设表 (name -> {desc, engines}); 与引擎表同文件不同段。
+
+    走 config_data 而不是插件注册表 —— preset 是纯数据配置, 没有 module/params
+    可执行字段, 注册表那套 fn 解析用不上。同文件意味着用户覆盖
+    ~/.webtool/plugins.json 时引擎与预设一起生效。
+    """
+    return config_data.load('presets', 'plugins.json')
+
+
+def resolve_engines(args, cfg):
+    """引擎优先级: --engine > --preset > cfg.default_engines > 默认开启的引擎。
+
+    返回 (逗号串, 用的 preset 名或 None)。preset 名不存在直接退 2 —— 静默
+    回退到默认组合会让用户以为跑了 A 组其实跑了 B 组。
+    """
+    explicit = (getattr(args, 'engine', '') or '').strip()
+    if explicit:
+        return ','.join(e.strip() for e in explicit.split(',') if e.strip()), None
+    name = (getattr(args, 'preset', '') or '').strip()
+    if name:
+        spec = presets().get(name)
+        if not spec:
+            print(f'error: 未知 preset {name!r}, 可用: '
+                  f'{", ".join(presets()) or "(无)"}', file=sys.stderr)
+            raise SystemExit(2)
+        engs = spec.get('engines') or []
+        return ','.join(engs), name
+    return cfg.get('default_engines') or default_engines(), None
 
 
 
@@ -60,8 +92,8 @@ def _do_search(args, cfg, filter_ad=True):
     # 它只对 bing 生效 (baidu/sogou/marginalia 收了参数但函数体不用), 而
     # bing 端点恒为 cn.bing.com, setmkt 影响有限, 不值得占一个命令行选项。
     market = cfg.get('market') or 'zh-CN'
-    engines = [e.strip() for e in (args.engine or cfg.get('default_engines')
-                                   or default_engines()).split(',') if e.strip()]
+    _eng_spec, _preset_used = resolve_engines(args, cfg)
+    engines = [e.strip() for e in _eng_spec.split(',') if e.strip()]
     if args.format is None and cfg.get('default_format'):
         args.format = cfg['default_format']
     if cfg.get('cache') == 'off':
@@ -245,6 +277,11 @@ def _do_search(args, cfg, filter_ad=True):
            'dropped_by_floor': n_floor,
            'weight_floor': stats.get('weight_floor', 0),
            'sorted_by': 'weight'}
+    # 实际跑了哪组引擎要可观测: --preset 时不写出来, 消费方无法从结果反推
+    # "这批用的是 zh 组还是我临时 --engine 拼的", 出问题也没法复现。
+    if _preset_used:
+        out['preset'] = _preset_used
+        out['engines_used'] = engines
     if topup_fetched:
         out['topup'] = {'fetched': topup_fetched,
                         'note': '翻页补拉(最多2页/引擎)'}
