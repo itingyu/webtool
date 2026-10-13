@@ -1,0 +1,1165 @@
+{
+ "books": [
+  {
+   "file": "东财reportName逆向.md",
+   "category": "东财-datacenter",
+   "desc": "东财 datacenter-web 的 122 个 reportName: 完整请求参数表 + 返回字段列序映射 + 源码位置",
+   "lines": 4632,
+   "bytes": 147930,
+   "h2": [
+    "1. `PRT_BLOCKTRADE_MARKET_STA`",
+    "2. `PRT_MUTUAL_ORG_STA`",
+    "3. `RPTA_APP_ACCUMDETAILS`",
+    "4. `RPTA_APP_IPOAPPLY`",
+    "5. `RPTA_WEB_GETHGLIST_NEW`",
+    "6. `RPTA_WEB_MARGIN_DAILYTRADE`",
+    "7. `RPTA_WEB_RATE`",
+    "8. `RPTA_WEB_YJ_BD`",
+    "9. `RPTA_WEB_YJ_JH`",
+    "10. `RPTA_WEB_ZDHT_LIST`",
+    "11. `RPT_BILLBOARD_TRADEALL`",
+    "12. `RPT_BLOCKTRADE_ACSTA`",
+    "13. `RPT_BLOCKTRADE_OPERATEDEPTSTATISTICS`",
+    "14. `RPT_BLOCKTRADE_OPERATEDEPT_RANK`",
+    "15. `RPT_BLOCKTRADE_STA`",
+    "16. `RPT_BOND_CB_LIST`",
+    "17. `RPT_COOPFREEHOLDER`",
+    "18. `RPT_COOPFREEHOLDERS_ANALYSIS`",
+    "19. `RPT_COOPHOLDERS_ANALYSIS`",
+    "20. `RPT_CSDC_INDUSTRY_STATISTICS`",
+    "21. `RPT_CSDC_LIST`",
+    "22. `RPT_CSDC_STATISTICS`",
+    "23. `RPT_CUSTOM_DMSK_HOLDERS_JOIN_HOLDER_SHAREANALYSIS`",
+    "24. `RPT_CUSTOM_F10_EH_FREEHOLDERS_JOIN_FREEHOLDER_SHAREANALYSIS`",
+    "25. `RPT_CUSTOM_SUSPEND_DATA_INTERFACE`",
+    "26. `RPT_DAILYBILLBOARD_DETAILSNEW`",
+    "27. `RPT_DATA_BLOCKTRADE`",
+    "28. `RPT_DMSK_FN_BALANCE`",
+    "29. `RPT_DMSK_FN_CASHFLOW`",
+    "30. `RPT_DMSK_FN_INCOME`",
+    "31. `RPT_DMSK_HOLDERS`",
+    "32. `RPT_DMSK_TS_STOCKEVALUATE`",
+    "33. `RPT_DMSK_TS_STOCKNEW`",
+    "34. `RPT_ECONOMICVALUE_AUSTRALIA`",
+    "35. `RPT_ECONOMICVALUE_BRITAIN`",
+    "36. `RPT_ECONOMICVALUE_CA`",
+    "37. `RPT_ECONOMICVALUE_CH`",
+    "38. `RPT_ECONOMICVALUE_GER`",
+    "39. `RPT_ECONOMICVALUE_HK`",
+    "40. `RPT_ECONOMICVALUE_JPAN`",
+    "41. `RPT_ECONOMICVALUE_USA`",
+    "42. `RPT_ECONOMY_ASSET_INVEST`",
+    "43. `RPT_ECONOMY_BOOM_INDEX`",
+    "44. `RPT_ECONOMY_CPI`",
+    "45. `RPT_ECONOMY_CURRENCY_SUPPLY`",
+    "46. `RPT_ECONOMY_CUSTOMS`",
+    "47. `RPT_ECONOMY_DEPOSIT_RESERVE`",
+    "48. `RPT_ECONOMY_FAITH_INDEX`",
+    "49. `RPT_ECONOMY_FDI`",
+    "50. `RPT_ECONOMY_FOREX_DEPOSIT`",
+    "51. `RPT_ECONOMY_FOREX_LOAN`",
+    "52. `RPT_ECONOMY_GDP`",
+    "53. `RPT_ECONOMY_GOLD_CURRENCY`",
+    "54. `RPT_ECONOMY_GOODS_INDEX`",
+    "55. `RPT_ECONOMY_HOUSE_PRICE`",
+    "56. `RPT_ECONOMY_INCOME`",
+    "57. `RPT_ECONOMY_INDUS_GROW`",
+    "58. `RPT_ECONOMY_PMI`",
+    "59. `RPT_ECONOMY_PPI`",
+    "60. `RPT_ECONOMY_RMB_LOAN`",
+    "61. `RPT_ECONOMY_STOCK_STATISTICS`",
+    "62. `RPT_ECONOMY_TAX`",
+    "63. `RPT_ECONOMY_TOTAL_RETAIL`",
+    "64. `RPT_EXECUTIVE_HOLD_DETAILS`",
+    "65. `RPT_F10_EH_FREEHOLDERS`",
+    "66. `RPT_FCI_PERFORMANCEE`",
+    "67. `RPT_FREEHOLDERS_BASIC_INFO`",
+    "68. `RPT_FUTUOPT_GOLDSIL`",
+    "69. `RPT_FUTU_POSITIONCODE`",
+    "70. `RPT_GDZY_ZYJG_SUM`",
+    "71. `RPT_GENERALMEETING_DETAIL`",
+    "72. `RPT_GOODWILL_INDUSTATISTICS`",
+    "73. `RPT_GOODWILL_MARKETSTATISTICS`",
+    "74. `RPT_GOODWILL_STOCKDETAILS`",
+    "75. `RPT_GOODWILL_STOCKPREDICT`",
+    "76. `RPT_HOLDERNUMLATEST`",
+    "77. `RPT_HOLDERNUM_DET`",
+    "78. `RPT_HOLDERS_BASIC_INFO`",
+    "79. `RPT_IMP_INTRESTRATEN`",
+    "80. `RPT_INDUSTRY_INDEX`",
+    "81. `RPT_IPO_ALLOTMENT`",
+    "82. `RPT_IPO_DECORGNEWEST`",
+    "83. `RPT_IPO_INFOALLNEW`",
+    "84. `RPT_IPO_REVIEW`",
+    "85. `RPT_IPO_TUTRECORD`",
+    "86. `RPT_KCB_IPO`",
+    "87. `RPT_LHB_BOARDDATE`",
+    "88. `RPT_LICO_FN_CPD`",
+    "89. `RPT_LIFTDAY_STA`",
+    "90. `RPT_LIFT_GD`",
+    "91. `RPT_LIFT_STAGE`",
+    "92. `RPT_MAINDATA_MAIN_POSITIONDETAILS`",
+    "93. `RPT_MUTUAL_BOARD_HOLDRANK_WEB`",
+    "94. `RPT_MUTUAL_DEAL_HISTORY`",
+    "95. `RPT_MUTUAL_HOLDSTOCKNDATE_STA`",
+    "96. `RPT_MUTUAL_HOLD_DET`",
+    "97. `RPT_MUTUAL_QUOTA`",
+    "98. `RPT_MUTUAL_STOCK_HOLDRANKS`",
+    "99. `RPT_MUTUAL_STOCK_NORTHSTA`",
+    "100. `RPT_NEEQ_ISSUEINFO_LIST`",
+    "101. `RPT_OPERATEDEPT_ACTIVE`",
+    "102. `RPT_OPERATEDEPT_LIST_STATISTICS`",
+    "103. `RPT_OPERATEDEPT_TRADE_DETAILSNEW`",
+    "104. `RPT_ORGANIZATION_SEATNEW`",
+    "105. `RPT_ORGANIZATION_TRADE_DETAILS`",
+    "106. `RPT_ORGOP_ALL`",
+    "107. `RPT_ORG_SURVEY`",
+    "108. `RPT_ORG_SURVEYNEW`",
+    "109. `RPT_PERFORMANCE`",
+    "110. `RPT_PUBLIC_BS_APPOIN`",
+    "111. `RPT_PUBLIC_OP_NEWPREDICT`",
+    "112. `RPT_RATEDEPT_RETURNT_RANKING`",
+    "113. `RPT_SEO_DETAIL`",
+    "114. `RPT_SHAREBONUS_DET`",
+    "115. `RPT_SHARE_HOLDER_INCREASE`",
+    "116. `RPT_STOCK_HISTORYMARK`",
+    "117. `RPT_STOCK_MARKETFOCUS`",
+    "118. `RPT_STOCK_OPEN_DATA`",
+    "119. `RPT_STOCK_PARTICIPATION`",
+    "120. `RPT_TENHOLDERS_COOPHOLDERS`",
+    "121. `RPT_VALUEANALYSIS_DET`",
+    "122. `RPT_WEB_RESPREDICT`"
+   ]
+  },
+  {
+   "file": "东财端点与token说明.md",
+   "category": "东财-机制",
+   "desc": "两个 datacenter 端点差异、三个硬编码 token、companyType 探测、quoteColumns 注入",
+   "lines": 87,
+   "bytes": 3098,
+   "h2": [
+    "一、两个 datacenter 端点，行为不同",
+    "二、三个固定 token（源码硬编码）",
+    "三、`companyType` — F10 接口的必备参数",
+    "四、`quoteColumns` — 行情字段注入",
+    "五、沙盒可用性结论（2026-10-13 实测）"
+   ]
+  },
+  {
+   "file": "东财行情类逆向.md",
+   "category": "东财-push2行情",
+   "desc": "push2/push2his 8 个行情端点, 行情字段码表, 调用点索引",
+   "lines": 223,
+   "bytes": 7518,
+   "h2": [
+    "1. `push2.eastmoney.com/api/qt/clist/get`",
+    "2. `push2.eastmoney.com/api/qt/stock/get`",
+    "3. `push2.eastmoney.com/api/qt/ulist.np/get`",
+    "4. `push2.eastmoney.com/api/qt/stock/trends2/get`",
+    "5. `push2.eastmoney.com/api/qt/kamtbs.rtmin/get`",
+    "6. `push2his.eastmoney.com/api/qt/stock/kline/get`",
+    "7. `push2his.eastmoney.com/api/qt/stock/fflow/daykline/get`",
+    "8. `push2his.eastmoney.com/api/qt/stock/trends2/get`"
+   ]
+  },
+  {
+   "file": "东财F10逆向.md",
+   "category": "东财-F10",
+   "desc": "三表接口 zcfzbDateAjaxNew + zcfzbAjaxNew/lrb/xjll, companyType 探测流程, dates 批量取数",
+   "lines": 104,
+   "bytes": 3327,
+   "h2": [
+    "关键前置：companyType 探测",
+    "接口一：取报告期列表",
+    "接口二：取三表数据",
+    "降级逻辑"
+   ]
+  },
+  {
+   "file": "新浪同花顺巨潮逆向.md",
+   "category": "新浪/同花顺/巨潮",
+   "desc": "新浪 json_v2 方法表, 同花顺子域与 hexin-v, 巨潮 POST 参数, 腾讯/百度/乐咕",
+   "lines": 111,
+   "bytes": 5613,
+   "h2": [
+    "新浪财经",
+    "同花顺 10jqka.com.cn",
+    "巨潮资讯 cninfo.com.cn",
+    "百度股市通 / 乐咕乐股 / 集思录",
+    "腾讯财经"
+   ]
+  },
+  {
+   "file": "逆向-宏观海外.md",
+   "category": "宏观/海外",
+   "desc": "246 个宏观接口: 中美欧日加澳英德瑞港, 全球央行利率, 汇率, 8 个后端模板",
+   "lines": 2050,
+   "bytes": 105499,
+   "h2": [
+    "通用说明",
+    "一、中国宏观",
+    "二、汇率（currency/）",
+    "三、美国宏观",
+    "四、欧元区宏观",
+    "五、加拿大 / 澳大利亚（东方财富 B 类）",
+    "六、英国 / 德国 / 日本 / 瑞士 / 中国香港",
+    "七、全球央行利率（金十）",
+    "八、全球商品 / ETF 持仓",
+    "九、其他宏观数据源",
+    "十、统计汇总"
+   ]
+  },
+  {
+   "file": "逆向-衍生品固收.md",
+   "category": "期货/期权/债券/基金",
+   "desc": "269 个接口: 4 类共用端点簇, 日期格式, K线字段序, 验签要求",
+   "lines": 1927,
+   "bytes": 131942,
+   "h2": [
+    "通用说明",
+    "一、期货",
+    "二、期权",
+    "三、债券",
+    "四、基金",
+    "五、覆盖统计与坑点汇总",
+    "六、补充接口（其余源码函数）"
+   ]
+  }
+ ],
+ "reportNames": [
+  {
+   "reportName": "PRT_BLOCKTRADE_MARKET_STA",
+   "func": "stock_dzjy_sctj()",
+   "src": "stock/stock_dzjy_em.py:12"
+  },
+  {
+   "reportName": "PRT_MUTUAL_ORG_STA",
+   "func": "stock_hsgt_institution_statistics_em(market: str = \"北向持股\",\n    start_date: str = \"20220601\",\n    end_date: str = \"20220609\",)",
+   "src": "stock_feature/stock_hsgt_em.py:777"
+  },
+  {
+   "reportName": "RPTA_APP_ACCUMDETAILS",
+   "func": "_get_page_num_gpzy_market_pledge_ratio_detail(filter: str = None)",
+   "src": "stock_feature/stock_gpzy_em.py:169"
+  },
+  {
+   "reportName": "RPTA_APP_IPOAPPLY",
+   "func": "stock_dxsyl_em()",
+   "src": "stock_feature/stock_dxsyl_em.py:17"
+  },
+  {
+   "reportName": "RPTA_WEB_GETHGLIST_NEW",
+   "func": "stock_repurchase_em()",
+   "src": "stock/stock_repurchase_em.py:13"
+  },
+  {
+   "reportName": "RPTA_WEB_MARGIN_DAILYTRADE",
+   "func": "stock_margin_account_info()",
+   "src": "stock_feature/stock_margin_em.py:14"
+  },
+  {
+   "reportName": "RPTA_WEB_RATE",
+   "func": "macro_china_lpr()",
+   "src": "economic/macro_china.py:1011"
+  },
+  {
+   "reportName": "RPTA_WEB_YJ_BD",
+   "func": "energy_oil_hist()",
+   "src": "energy/energy_oil_em.py:12"
+  },
+  {
+   "reportName": "RPTA_WEB_YJ_JH",
+   "func": "energy_oil_detail(date: str = \"20220517\")",
+   "src": "energy/energy_oil_em.py:47"
+  },
+  {
+   "reportName": "RPTA_WEB_ZDHT_LIST",
+   "func": "stock_zdhtmx_em(start_date: str = \"20200819\", end_date: str = \"20230819\")",
+   "src": "stock_feature/stock_zdhtmx_em.py:13"
+  },
+  {
+   "reportName": "RPT_BILLBOARD_TRADEALL",
+   "func": "stock_lhb_stock_statistic_em(symbol: str = \"近一月\")",
+   "src": "stock_feature/stock_lhb_em.py:136"
+  },
+  {
+   "reportName": "RPT_BLOCKTRADE_ACSTA",
+   "func": "stock_dzjy_hygtj(symbol: str = \"近三月\")",
+   "src": "stock/stock_dzjy_em.py:294"
+  },
+  {
+   "reportName": "RPT_BLOCKTRADE_OPERATEDEPTSTATISTICS",
+   "func": "stock_dzjy_hyyybtj(symbol: str = \"近3日\")",
+   "src": "stock/stock_dzjy_em.py:401"
+  },
+  {
+   "reportName": "RPT_BLOCKTRADE_OPERATEDEPT_RANK",
+   "func": "stock_dzjy_yybph(symbol: str = \"近三月\")",
+   "src": "stock/stock_dzjy_em.py:483"
+  },
+  {
+   "reportName": "RPT_BLOCKTRADE_STA",
+   "func": "stock_dzjy_mrtj(start_date: str = \"20220105\", end_date: str = \"20220105\")",
+   "src": "stock/stock_dzjy_em.py:212"
+  },
+  {
+   "reportName": "RPT_BOND_CB_LIST",
+   "func": "bond_zh_cov()",
+   "src": "bond/bond_zh_cov.py:308"
+  },
+  {
+   "reportName": "RPT_COOPFREEHOLDER",
+   "func": "stock_gdfx_free_holding_teamwork_em(symbol: str = \"社保\")",
+   "src": "stock_feature/stock_gdfx_em.py:891"
+  },
+  {
+   "reportName": "RPT_COOPFREEHOLDERS_ANALYSIS",
+   "func": "stock_gdfx_free_holding_statistics_em(date: str = \"20210630\",)",
+   "src": "stock_feature/stock_gdfx_em.py:14"
+  },
+  {
+   "reportName": "RPT_COOPHOLDERS_ANALYSIS",
+   "func": "stock_gdfx_holding_statistics_em(date: str = \"20210930\")",
+   "src": "stock_feature/stock_gdfx_em.py:118"
+  },
+  {
+   "reportName": "RPT_CSDC_INDUSTRY_STATISTICS",
+   "func": "stock_gpzy_industry_data_em()",
+   "src": "stock_feature/stock_gpzy_em.py:449"
+  },
+  {
+   "reportName": "RPT_CSDC_LIST",
+   "func": "stock_gpzy_pledge_ratio_em(date: str = \"20240906\")",
+   "src": "stock_feature/stock_gpzy_em.py:87"
+  },
+  {
+   "reportName": "RPT_CSDC_STATISTICS",
+   "func": "stock_gpzy_profile_em()",
+   "src": "stock_feature/stock_gpzy_em.py:20"
+  },
+  {
+   "reportName": "RPT_CUSTOM_DMSK_HOLDERS_JOIN_HOLDER_SHAREANALYSIS",
+   "func": "stock_gdfx_holding_analyse_em(date: str = \"20230331\")",
+   "src": "stock_feature/stock_gdfx_em.py:788"
+  },
+  {
+   "reportName": "RPT_CUSTOM_F10_EH_FREEHOLDERS_JOIN_FREEHOLDER_SHAREANALYSIS",
+   "func": "stock_gdfx_free_holding_analyse_em(date: str = \"20230930\")",
+   "src": "stock_feature/stock_gdfx_em.py:690"
+  },
+  {
+   "reportName": "RPT_CUSTOM_SUSPEND_DATA_INTERFACE",
+   "func": "stock_tfp_em(date: str = \"20240426\")",
+   "src": "stock_feature/stock_tfp_em.py:12"
+  },
+  {
+   "reportName": "RPT_DAILYBILLBOARD_DETAILSNEW",
+   "func": "stock_lhb_detail_em(start_date: str = \"20230403\", end_date: str = \"20230417\")",
+   "src": "stock_feature/stock_lhb_em.py:13"
+  },
+  {
+   "reportName": "RPT_DATA_BLOCKTRADE",
+   "func": "stock_dzjy_mrmx(symbol: str = \"基金\", start_date: str = \"20220104\", end_date: str = \"20220104\")",
+   "src": "stock/stock_dzjy_em.py:71"
+  },
+  {
+   "reportName": "RPT_DMSK_FN_BALANCE",
+   "func": "stock_zcfz_em(date: str = \"20240331\")",
+   "src": "stock_feature/stock_report_em.py:19"
+  },
+  {
+   "reportName": "RPT_DMSK_FN_CASHFLOW",
+   "func": "stock_xjll_em(date: str = \"20240331\")",
+   "src": "stock_feature/stock_report_em.py:437"
+  },
+  {
+   "reportName": "RPT_DMSK_FN_INCOME",
+   "func": "stock_lrb_em(date: str = \"20240331\")",
+   "src": "stock_feature/stock_report_em.py:301"
+  },
+  {
+   "reportName": "RPT_DMSK_HOLDERS",
+   "func": "stock_gdfx_holding_detail_em(date: str = \"20230331\", indicator: str = \"个人\", symbol: str = \"新进\")",
+   "src": "stock_feature/stock_gdfx_em.py:594"
+  },
+  {
+   "reportName": "RPT_DMSK_TS_STOCKEVALUATE",
+   "func": "stock_comment_detail_zlkp_jgcyd_em(symbol: str = \"600000\")",
+   "src": "stock_feature/stock_comment_em.py:119"
+  },
+  {
+   "reportName": "RPT_DMSK_TS_STOCKNEW",
+   "func": "stock_comment_em()",
+   "src": "stock_feature/stock_comment_em.py:18"
+  },
+  {
+   "reportName": "RPT_ECONOMICVALUE_AUSTRALIA",
+   "func": "macro_australia_retail_rate_monthly()",
+   "src": "economic/macro_australia.py:13"
+  },
+  {
+   "reportName": "RPT_ECONOMICVALUE_BRITAIN",
+   "func": "macro_uk_core(symbol: str = \"EMG00010348\")",
+   "src": "economic/macro_uk.py:12"
+  },
+  {
+   "reportName": "RPT_ECONOMICVALUE_CA",
+   "func": "macro_canada_new_house_rate()",
+   "src": "economic/macro_canada.py:13"
+  },
+  {
+   "reportName": "RPT_ECONOMICVALUE_CH",
+   "func": "macro_swiss_core(symbol: str = \"EMG00341602\")",
+   "src": "economic/macro_swiss.py:12"
+  },
+  {
+   "reportName": "RPT_ECONOMICVALUE_GER",
+   "func": "macro_germany_core(symbol: str = \"EMG00179154\")",
+   "src": "economic/macro_germany.py:11"
+  },
+  {
+   "reportName": "RPT_ECONOMICVALUE_HK",
+   "func": "macro_china_hk_core(symbol: str = \"EMG00341602\")",
+   "src": "economic/macro_china_hk.py:12"
+  },
+  {
+   "reportName": "RPT_ECONOMICVALUE_JPAN",
+   "func": "macro_japan_core(symbol: str = \"EMG00341602\")",
+   "src": "economic/macro_japan.py:12"
+  },
+  {
+   "reportName": "RPT_ECONOMICVALUE_USA",
+   "func": "macro_usa_phs()",
+   "src": "economic/macro_usa.py:78"
+  },
+  {
+   "reportName": "RPT_ECONOMY_ASSET_INVEST",
+   "func": "macro_china_gdzctz()",
+   "src": "economic/macro_china.py:2673"
+  },
+  {
+   "reportName": "RPT_ECONOMY_BOOM_INDEX",
+   "func": "macro_china_enterprise_boom_index()",
+   "src": "economic/macro_china.py:1137"
+  },
+  {
+   "reportName": "RPT_ECONOMY_CPI",
+   "func": "macro_china_cpi()",
+   "src": "economic/macro_china.py:2424"
+  },
+  {
+   "reportName": "RPT_ECONOMY_CURRENCY_SUPPLY",
+   "func": "macro_china_money_supply()",
+   "src": "economic/macro_china.py:2341"
+  },
+  {
+   "reportName": "RPT_ECONOMY_CUSTOMS",
+   "func": "macro_china_hgjck()",
+   "src": "economic/macro_china.py:2722"
+  },
+  {
+   "reportName": "RPT_ECONOMY_DEPOSIT_RESERVE",
+   "func": "macro_china_reserve_requirement_ratio()",
+   "src": "economic/macro_china.py:3095"
+  },
+  {
+   "reportName": "RPT_ECONOMY_FAITH_INDEX",
+   "func": "macro_china_xfzxx()",
+   "src": "economic/macro_china.py:2965"
+  },
+  {
+   "reportName": "RPT_ECONOMY_FDI",
+   "func": "macro_china_fdi()",
+   "src": "economic/macro_china.py:202"
+  },
+  {
+   "reportName": "RPT_ECONOMY_FOREX_DEPOSIT",
+   "func": "macro_china_wbck()",
+   "src": "economic/macro_china.py:2916"
+  },
+  {
+   "reportName": "RPT_ECONOMY_FOREX_LOAN",
+   "func": "macro_china_whxd()",
+   "src": "economic/macro_china.py:2866"
+  },
+  {
+   "reportName": "RPT_ECONOMY_GDP",
+   "func": "macro_china_gdp()",
+   "src": "economic/macro_china.py:2499"
+  },
+  {
+   "reportName": "RPT_ECONOMY_GOLD_CURRENCY",
+   "func": "macro_china_fx_gold()",
+   "src": "economic/macro_china.py:2189"
+  },
+  {
+   "reportName": "RPT_ECONOMY_GOODS_INDEX",
+   "func": "macro_china_qyspjg()",
+   "src": "economic/macro_china.py:107"
+  },
+  {
+   "reportName": "RPT_ECONOMY_HOUSE_PRICE",
+   "func": "macro_china_new_house_price(city_first: str = \"北京\", city_second: str = \"上海\")",
+   "src": "economic/macro_china.py:1058"
+  },
+  {
+   "reportName": "RPT_ECONOMY_INCOME",
+   "func": "macro_china_czsr()",
+   "src": "economic/macro_china.py:2813"
+  },
+  {
+   "reportName": "RPT_ECONOMY_INDUS_GROW",
+   "func": "macro_china_gyzjz()",
+   "src": "economic/macro_china.py:3050"
+  },
+  {
+   "reportName": "RPT_ECONOMY_PMI",
+   "func": "macro_china_pmi()",
+   "src": "economic/macro_china.py:2621"
+  },
+  {
+   "reportName": "RPT_ECONOMY_PPI",
+   "func": "macro_china_ppi()",
+   "src": "economic/macro_china.py:2576"
+  },
+  {
+   "reportName": "RPT_ECONOMY_RMB_LOAN",
+   "func": "macro_china_new_financial_credit()",
+   "src": "economic/macro_china.py:2141"
+  },
+  {
+   "reportName": "RPT_ECONOMY_STOCK_STATISTICS",
+   "func": "macro_china_stock_market_cap()",
+   "src": "economic/macro_china.py:2255"
+  },
+  {
+   "reportName": "RPT_ECONOMY_TAX",
+   "func": "macro_china_national_tax_receipts()",
+   "src": "economic/macro_china.py:1205"
+  },
+  {
+   "reportName": "RPT_ECONOMY_TOTAL_RETAIL",
+   "func": "macro_china_consumer_goods_retail()",
+   "src": "economic/macro_china.py:3179"
+  },
+  {
+   "reportName": "RPT_EXECUTIVE_HOLD_DETAILS",
+   "func": "stock_hold_management_detail_em()",
+   "src": "stock/stock_hold_control_em.py:13"
+  },
+  {
+   "reportName": "RPT_F10_EH_FREEHOLDERS",
+   "func": "stock_gdfx_free_holding_detail_em(date: str = \"20210930\")",
+   "src": "stock_feature/stock_gdfx_em.py:504"
+  },
+  {
+   "reportName": "RPT_FCI_PERFORMANCEE",
+   "func": "stock_yjkb_em(date: str = \"20211231\")",
+   "src": "stock_feature/stock_yjyg_em.py:16"
+  },
+  {
+   "reportName": "RPT_FREEHOLDERS_BASIC_INFO",
+   "func": "stock_gdfx_free_holding_change_em(date: str = \"20210930\")",
+   "src": "stock_feature/stock_gdfx_em.py:221"
+  },
+  {
+   "reportName": "RPT_FUTUOPT_GOLDSIL",
+   "func": "futures_comex_inventory(symbol: str = \"黄金\")",
+   "src": "futures/futures_comex_em.py:14"
+  },
+  {
+   "reportName": "RPT_FUTU_POSITIONCODE",
+   "func": "futures_inventory_em(symbol: str = \"a\")",
+   "src": "futures/futures_inventory_em.py:13"
+  },
+  {
+   "reportName": "RPT_GDZY_ZYJG_SUM",
+   "func": "stock_gpzy_distribute_statistics_company_em()",
+   "src": "stock_feature/stock_gpzy_em.py:311"
+  },
+  {
+   "reportName": "RPT_GENERALMEETING_DETAIL",
+   "func": "stock_gddh_em()",
+   "src": "stock_feature/stock_gddh_em.py:13"
+  },
+  {
+   "reportName": "RPT_GOODWILL_INDUSTATISTICS",
+   "func": "stock_sy_hy_em(date: str = \"20240930\")",
+   "src": "stock_feature/stock_sy_em.py:385"
+  },
+  {
+   "reportName": "RPT_GOODWILL_MARKETSTATISTICS",
+   "func": "stock_sy_profile_em()",
+   "src": "stock_feature/stock_sy_em.py:18"
+  },
+  {
+   "reportName": "RPT_GOODWILL_STOCKDETAILS",
+   "func": "stock_sy_jz_em(date: str = \"20240630\")",
+   "src": "stock_feature/stock_sy_em.py:192"
+  },
+  {
+   "reportName": "RPT_GOODWILL_STOCKPREDICT",
+   "func": "stock_sy_yq_em(date: str = \"20240630\")",
+   "src": "stock_feature/stock_sy_em.py:83"
+  },
+  {
+   "reportName": "RPT_HOLDERNUMLATEST",
+   "func": "stock_zh_a_gdhs(symbol: str = \"20230930\")",
+   "src": "stock_feature/stock_gdhs.py:14"
+  },
+  {
+   "reportName": "RPT_HOLDERNUM_DET",
+   "func": "stock_zh_a_gdhs_detail_em(symbol: str = \"000001\")",
+   "src": "stock_feature/stock_gdhs.py:129"
+  },
+  {
+   "reportName": "RPT_HOLDERS_BASIC_INFO",
+   "func": "stock_gdfx_holding_change_em(date: str = \"20210930\")",
+   "src": "stock_feature/stock_gdfx_em.py:312"
+  },
+  {
+   "reportName": "RPT_IMP_INTRESTRATEN",
+   "func": "rate_interbank(market: str = \"上海银行同业拆借市场\",\n    symbol: str = \"Shibor人民币\",\n    indicator: str = \"隔夜\",)",
+   "src": "interest_rate/interbank_rate_em.py:13"
+  },
+  {
+   "reportName": "RPT_INDUSTRY_INDEX",
+   "func": "macro_china_bank_financing()",
+   "src": "economic/macro_china.py:1240"
+  },
+  {
+   "reportName": "RPT_IPO_ALLOTMENT",
+   "func": "stock_pg_em()",
+   "src": "stock_feature/stock_zf_pg.py:98"
+  },
+  {
+   "reportName": "RPT_IPO_DECORGNEWEST",
+   "func": "stock_ipo_declare_em()",
+   "src": "stock_fundamental/stock_ipo_declare.py:15"
+  },
+  {
+   "reportName": "RPT_IPO_INFOALLNEW",
+   "func": "stock_register_all_em()",
+   "src": "stock_fundamental/stock_register_em.py:15"
+  },
+  {
+   "reportName": "RPT_IPO_REVIEW",
+   "func": "stock_ipo_review_em()",
+   "src": "stock_fundamental/stock_ipo_review.py:17"
+  },
+  {
+   "reportName": "RPT_IPO_TUTRECORD",
+   "func": "stock_ipo_tutor_em()",
+   "src": "stock_fundamental/stock_ipo_tutor.py:17"
+  },
+  {
+   "reportName": "RPT_KCB_IPO",
+   "func": "stock_register_db()",
+   "src": "stock_fundamental/stock_register_em.py:458"
+  },
+  {
+   "reportName": "RPT_LHB_BOARDDATE",
+   "func": "stock_lhb_stock_detail_date_em(symbol: str = \"600077\")",
+   "src": "stock_feature/stock_lhb_em.py:722"
+  },
+  {
+   "reportName": "RPT_LICO_FN_CPD",
+   "func": "stock_yjbb_em(date: str = \"20200331\")",
+   "src": "stock_feature/stock_yjbb_em.py:15"
+  },
+  {
+   "reportName": "RPT_LIFTDAY_STA",
+   "func": "stock_restricted_release_summary_em(symbol: str = \"全部股票\", start_date: str = \"20221101\", end_date: str = \"20221209\")",
+   "src": "stock_fundamental/stock_restricted_em.py:13"
+  },
+  {
+   "reportName": "RPT_LIFT_GD",
+   "func": "stock_restricted_release_stockholder_em(symbol: str = \"600000\", date: str = \"20200904\")",
+   "src": "stock_fundamental/stock_restricted_em.py:300"
+  },
+  {
+   "reportName": "RPT_LIFT_STAGE",
+   "func": "stock_restricted_release_detail_em(start_date: str = \"20221202\", end_date: str = \"20241202\")",
+   "src": "stock_fundamental/stock_restricted_em.py:105"
+  },
+  {
+   "reportName": "RPT_MAINDATA_MAIN_POSITIONDETAILS",
+   "func": "stock_report_fund_hold_detail(symbol: str = \"008286\", date: str = \"20220331\")",
+   "src": "stock/stock_fund_hold.py:109"
+  },
+  {
+   "reportName": "RPT_MUTUAL_BOARD_HOLDRANK_WEB",
+   "func": "stock_hsgt_board_rank_em(symbol: str = \"北向资金增持行业板块排行\", indicator: str = \"今日\")",
+   "src": "stock_feature/stock_hsgt_em.py:1189"
+  },
+  {
+   "reportName": "RPT_MUTUAL_DEAL_HISTORY",
+   "func": "stock_hsgt_hist_em(symbol: str = \"北向资金\")",
+   "src": "stock_feature/stock_hsgt_em.py:1069"
+  },
+  {
+   "reportName": "RPT_MUTUAL_HOLDSTOCKNDATE_STA",
+   "func": "__stock_hsgt_individual_zh_a_em(symbol: str = \"002008\")",
+   "src": "stock_feature/stock_hsgt_em.py:1422"
+  },
+  {
+   "reportName": "RPT_MUTUAL_HOLD_DET",
+   "func": "stock_hsgt_individual_detail_em(symbol: str = \"002008\",\n    start_date: str = \"20220130\",\n    end_date: str = \"20220330\",)",
+   "src": "stock_feature/stock_hsgt_em.py:1526"
+  },
+  {
+   "reportName": "RPT_MUTUAL_QUOTA",
+   "func": "stock_hsgt_fund_flow_summary_em()",
+   "src": "stock_feature/stock_hsgt_em.py:17"
+  },
+  {
+   "reportName": "RPT_MUTUAL_STOCK_HOLDRANKS",
+   "func": "stock_hsgt_stock_statistics_em(symbol: str = \"北向持股\",\n    start_date: str = \"20240110\",\n    end_date: str = \"20240110\",)",
+   "src": "stock_feature/stock_hsgt_em.py:335"
+  },
+  {
+   "reportName": "RPT_MUTUAL_STOCK_NORTHSTA",
+   "func": "stock_hsgt_hold_stock_em(market: str = \"沪股通\", indicator: str = \"5日排行\")",
+   "src": "stock_feature/stock_hsgt_em.py:170"
+  },
+  {
+   "reportName": "RPT_NEEQ_ISSUEINFO_LIST",
+   "func": "stock_xgsglb_em(symbol: str = \"全部股票\")",
+   "src": "stock_feature/stock_dxsyl_em.py:127"
+  },
+  {
+   "reportName": "RPT_OPERATEDEPT_ACTIVE",
+   "func": "stock_lhb_hyyyb_em(start_date: str = \"20220324\", end_date: str = \"20220324\")",
+   "src": "stock_feature/stock_lhb_em.py:432"
+  },
+  {
+   "reportName": "RPT_OPERATEDEPT_LIST_STATISTICS",
+   "func": "stock_lhb_traderstatistic_em(symbol: str = \"近一月\")",
+   "src": "stock_feature/stock_lhb_em.py:647"
+  },
+  {
+   "reportName": "RPT_OPERATEDEPT_TRADE_DETAILSNEW",
+   "func": "stock_lhb_yyb_detail_em(symbol: str = \"10188715\")",
+   "src": "stock_feature/stock_lhb_em.py:903"
+  },
+  {
+   "reportName": "RPT_ORGANIZATION_SEATNEW",
+   "func": "stock_lhb_jgstatistic_em(symbol: str = \"近一月\")",
+   "src": "stock_feature/stock_lhb_em.py:334"
+  },
+  {
+   "reportName": "RPT_ORGANIZATION_TRADE_DETAILS",
+   "func": "stock_lhb_jgmmtj_em(start_date: str = \"20240417\", end_date: str = \"20240430\")",
+   "src": "stock_feature/stock_lhb_em.py:225"
+  },
+  {
+   "reportName": "RPT_ORGOP_ALL",
+   "func": "stock_gsrl_gsdt_em(date: str = \"20230808\")",
+   "src": "stock/stock_gsrl_em.py:12"
+  },
+  {
+   "reportName": "RPT_ORG_SURVEY",
+   "func": "stock_jgdy_detail_em(date: str = \"20241211\")",
+   "src": "stock_feature/stock_jgdy_em.py:107"
+  },
+  {
+   "reportName": "RPT_ORG_SURVEYNEW",
+   "func": "stock_jgdy_tj_em(date: str = \"20220101\")",
+   "src": "stock_feature/stock_jgdy_em.py:15"
+  },
+  {
+   "reportName": "RPT_PERFORMANCE",
+   "func": "stock_qsjy_em(date: str = \"20200731\")",
+   "src": "stock_feature/stock_qsjy_em.py:12"
+  },
+  {
+   "reportName": "RPT_PUBLIC_BS_APPOIN",
+   "func": "stock_yysj_em(symbol: str = \"沪深A股\", date: str = \"20200331\")",
+   "src": "stock_feature/stock_yjyg_em.py:222"
+  },
+  {
+   "reportName": "RPT_PUBLIC_OP_NEWPREDICT",
+   "func": "stock_yjyg_em(date: str = \"20200331\")",
+   "src": "stock_feature/stock_yjyg_em.py:134"
+  },
+  {
+   "reportName": "RPT_RATEDEPT_RETURNT_RANKING",
+   "func": "stock_lhb_yybph_em(symbol: str = \"近一月\")",
+   "src": "stock_feature/stock_lhb_em.py:511"
+  },
+  {
+   "reportName": "RPT_SEO_DETAIL",
+   "func": "stock_qbzf_em()",
+   "src": "stock_feature/stock_zf_pg.py:17"
+  },
+  {
+   "reportName": "RPT_SHAREBONUS_DET",
+   "func": "stock_fhps_em(date: str = \"20231231\")",
+   "src": "stock_feature/stock_fhps_em.py:14"
+  },
+  {
+   "reportName": "RPT_SHARE_HOLDER_INCREASE",
+   "func": "stock_ggcg_em(symbol: str = \"全部\")",
+   "src": "stock_feature/stock_gdzjc_em.py:14"
+  },
+  {
+   "reportName": "RPT_STOCK_HISTORYMARK",
+   "func": "stock_comment_detail_zhpj_lspf_em(symbol: str = \"600000\")",
+   "src": "stock_feature/stock_comment_em.py:150"
+  },
+  {
+   "reportName": "RPT_STOCK_MARKETFOCUS",
+   "func": "stock_comment_detail_scrd_focus_em(symbol: str = \"600000\")",
+   "src": "stock_feature/stock_comment_em.py:187"
+  },
+  {
+   "reportName": "RPT_STOCK_OPEN_DATA",
+   "func": "stock_account_statistics_em()",
+   "src": "stock_feature/stock_account_em.py:13"
+  },
+  {
+   "reportName": "RPT_STOCK_PARTICIPATION",
+   "func": "stock_comment_detail_scrd_desire_em(symbol: str = \"600000\",)",
+   "src": "stock_feature/stock_comment_em.py:225"
+  },
+  {
+   "reportName": "RPT_TENHOLDERS_COOPHOLDERS",
+   "func": "stock_gdfx_holding_teamwork_em(symbol: str = \"社保\")",
+   "src": "stock_feature/stock_gdfx_em.py:954"
+  },
+  {
+   "reportName": "RPT_VALUEANALYSIS_DET",
+   "func": "stock_value_em(symbol: str = \"300766\")",
+   "src": "stock_feature/stock_value_em.py:13"
+  },
+  {
+   "reportName": "RPT_WEB_RESPREDICT",
+   "func": "stock_profit_forecast_em(symbol: str = \"\")",
+   "src": "stock_fundamental/stock_profit_forecast_em.py:14"
+  }
+ ],
+ "endpoints": [
+  "http://api.fund.eastmoney.com/f10/JJGG",
+  "http://biz.finance.sina.com.cn/forex/forex.php",
+  "http://bond.sse.com.cn/",
+  "http://data.10jqka.com.cn/funds/{hyzjl|ggzjl}/",
+  "http://data.10jqka.com.cn/ipo/{xgsgyzq|xgfxq}/",
+  "http://data.10jqka.com.cn/macro/finance/",
+  "http://data.10jqka.com.cn/market/longhu/",
+  "http://dict.openctp.cn/instruments?types=option",
+  "http://fund.10jqka.com.cn/data/fundnewfound/",
+  "http://fundf10.eastmoney.com/jjgg_{symbol}_2.html",
+  "http://fundf10.eastmoney.com/jjgg_{symbol}_{2|3|4}.html",
+  "http://openctp.cn/fees.html",
+  "http://portal.dce.com.cn/publicweb/quotesdata/dayQuotesCh.html",
+  "http://portal.dce.com.cn/publicweb/quotesdata/exportDayQuotesChData.html",
+  "http://query.sse.com.cn/commonExcelDd.do",
+  "http://query.sse.com.cn/commonQuery.do",
+  "http://quotes.sina.cn/mac/view/vMacExcle.php",
+  "http://vip.stock.finance.sina.com.cn/fund_center/data/jsonp.php/IO.XSRV2.CallbackList[",
+  "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData",
+  "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeStockCountSimple",
+  "http://vip.stock.finance.sina.com.cn/quotes_service/view/js/qihuohangqing.js",
+  "http://webapi.cninfo.com.cn/",
+  "http://webapi.cninfo.com.cn/api/sysapi/p_sysapi1120",
+  "http://webapi.cninfo.com.cn/api/sysapi/p_sysapi1121",
+  "http://webapi.cninfo.com.cn/api/sysapi/p_sysapi1122",
+  "http://webapi.cninfo.com.cn/api/sysapi/p_sysapi1123",
+  "http://webapi.cninfo.com.cn/api/sysapi/p_sysapi1124",
+  "http://webapi.cninfo.com.cn/api/sysapi/p_sysapi1152",
+  "http://www.ccidx.com/CCI-ZZZS/index/getDateLine?indexId={code}",
+  "http://www.cffex.com.cn/quote_IO.txt",
+  "http://www.cffex.com.cn/sj/jscs/{YYYY}/{MM}/{DD}/{YYYYMMDD}_1.csv",
+  "http://www.chinamoney.com.cn/ags/ms/cm-u-md-bond/CbMktMakQuot",
+  "http://www.czce.com.cn/cn/DFSStaticFiles/Future/{YYYY}/{YYYYMMDD}/FutureDataWhsheet.xlsx",
+  "http://www.czce.com.cn/cn/DFSStaticFiles/Option/{year}/OptionDataAllHistory/{symbol}OPTIONS{year}.txt",
+  "http://www.czce.com.cn/cn/DFSStaticFiles/Option/{}/{}/OptionDataDaily.txt",
+  "http://www.czce.com.cn/cn/jysj/cdrb/H770310index_1.htm",
+  "http://www.dce.com.cn/dcereport/publicweb/dailystat/dayQuotes",
+  "http://www.dce.com.cn/dcereport/publicweb/dailystat/wbillWeeklyQuotes",
+  "http://www.dce.com.cn/publicweb/quotesdata/memberDealPosiQuotes.html",
+  "http://www.sse.com.cn/",
+  "http://www.sse.com.cn/assortment/options/disclo/preinfo/",
+  "http://www.szse.cn/api/report/ShowReport?SHOWTYPE=xlsx&CATALOGID=ysplbrb&TABKEY=tab1&random=...",
+  "http://zhuce.nafmii.org.cn/fans/publicQuery/releFileProjDataGrid",
+  "https://16.push2.eastmoney.com/api/qt/clist/get",
+  "https://2.push2.eastmoney.com/api/qt/clist/get",
+  "https://23.push2.eastmoney.com/api/qt/clist/get",
+  "https://88.push2.eastmoney.com/api/qt/clist/get",
+  "https://api-one-wscn.awtmt.com/apiv1/finance/macrodatas",
+  "https://api.currencyscoop.com/v1/*",
+  "https://api.currencyscoop.com/v1/convert",
+  "https://api.currencyscoop.com/v1/currencies",
+  "https://api.currencyscoop.com/v1/historical",
+  "https://api.currencyscoop.com/v1/latest",
+  "https://api.currencyscoop.com/v1/timeseries",
+  "https://api.fund.eastmoney.com/FundGuZhi/GetFundGZList",
+  "https://api.fund.eastmoney.com/FundNetValue/GetLCJJJZ",
+  "https://api.fund.eastmoney.com/FundRank/GetHbRankList",
+  "https://api.fund.eastmoney.com/FundRank/GetLcRankList",
+  "https://api.fund.eastmoney.com/f10/HYPZ/",
+  "https://api.fund.eastmoney.com/f10/lsjz",
+  "https://api.fund.eastmoney.com/pinzhong/LJSYLZS",
+  "https://basic.10jqka.com.cn/basicapi/finance/index/v1/app_data/",
+  "https://biz.finance.sina.com.cn/forex/forex.php?startdate=2012-01-01&enddate=2021-06-14&money_code=EUR&type=0",
+  "https://bond.finance.sina.com.cn/hq/gb/daily?symbol={code}",
+  "https://cdn.jin10.com/data_center/reports/*.json",
+  "https://cdn.jin10.com/data_center/reports/baker.json",
+  "https://cdn.jin10.com/data_center/reports/cftc_1.json",
+  "https://cdn.jin10.com/data_center/reports/cftc_2.json",
+  "https://cdn.jin10.com/data_center/reports/cftc_3.json",
+  "https://cdn.jin10.com/data_center/reports/cftc_4.json",
+  "https://cdn.jin10.com/data_center/reports/cme_3.json",
+  "https://cdn.jin10.com/data_center/reports/lme_position.json",
+  "https://cdn.jin10.com/data_center/reports/lme_stock.json",
+  "https://cdn.jin10.com/data_center/reports/usa_oil.json",
+  "https://cdn.jin10.com/dc/reports/dc_*_all.js?v={ts}&_={ts2}",
+  "https://cdn.jin10.com/dc/reports/dc_hk_market_info_all.js?v=1578755471",
+  "https://cdn.jin10.com/dc/reports/dc_shibor_all.js?v=1578755058",
+  "https://cdn.jin10.com/dc/reports/energy.json",
+  "https://cdn.jin10.com/dc/reports/rmb.json",
+  "https://currencyscoop.com/api-documentation",
+  "https://danjuanfunds.com/djapi/fund/base/quote/data/index/analysis/{symbol}",
+  "https://danjuanfunds.com/djapi/fund/detail/675091",
+  "https://danjuanfunds.com/djapi/fund/detail/{symbol}",
+  "https://danjuanfunds.com/djapi/fund/performance/{symbol}",
+  "https://danjuanfunds.com/djapi/fund/{symbol}",
+  "https://danjuanfunds.com/djapi/fundx/base/fund/achievement/{symbol}",
+  "https://danjuanfunds.com/djapi/fundx/base/fund/profit/ratio/{symbol}",
+  "https://danjuanfunds.com/djapi/fundx/base/fund/record/asset/percent",
+  "https://data.10jqka.com.cn/ipo/kzz/",
+  "https://data.10jqka.com.cn/macro/finance/",
+  "https://data.10jqka.com.cn/macro/loan/",
+  "https://data.10jqka.com.cn/macro/rmb/",
+  "https://data.10jqka.com.cn/macro/{finance|loan|rmb}/",
+  "https://data.eastmoney.com/cjsj/ckzbj.html",
+  "https://data.eastmoney.com/cjsj/cpi.html",
+  "https://data.eastmoney.com/cjsj/czsr.html",
+  "https://data.eastmoney.com/cjsj/fdi.html",
+  "https://data.eastmoney.com/cjsj/foreign_0_12.html",
+  "https://data.eastmoney.com/cjsj/foreign_0_5.html",
+  "https://data.eastmoney.com/cjsj/gdp.html",
+  "https://data.eastmoney.com/cjsj/gdzctz.html",
+  "https://data.eastmoney.com/cjsj/globalRateLPR.html",
+  "https://data.eastmoney.com/cjsj/gpjytj.html",
+  "https://data.eastmoney.com/cjsj/gyzjz.html",
+  "https://data.eastmoney.com/cjsj/hbgyl.html",
+  "https://data.eastmoney.com/cjsj/hgjck.html",
+  "https://data.eastmoney.com/cjsj/hjwh.html",
+  "https://data.eastmoney.com/cjsj/newhouse.html",
+  "https://data.eastmoney.com/cjsj/pmi.html",
+  "https://data.eastmoney.com/cjsj/ppi.html",
+  "https://data.eastmoney.com/cjsj/qgsssr.html",
+  "https://data.eastmoney.com/cjsj/qyjqzs.html",
+  "https://data.eastmoney.com/cjsj/qyspjg.html",
+  "https://data.eastmoney.com/cjsj/wbck.html",
+  "https://data.eastmoney.com/cjsj/whxd.html",
+  "https://data.eastmoney.com/cjsj/xfp.html",
+  "https://data.eastmoney.com/cjsj/xfzxx.html",
+  "https://data.eastmoney.com/cjsj/xzxd.html",
+  "https://data.eastmoney.com/ifdata/xhgp.html",
+  "https://data.eastmoney.com/kzz/detail/123121.html",
+  "https://data.mofcom.gov.cn/datamofcom/front/gnmy/shrzgmQuery",
+  "https://data.mofcom.gov.cn/gnmy/shrzgm.shtml",
+  "https://data.stats.gov.cn/dg/website/page.html",
+  "https://data.stats.gov.cn/dg/website/page.html#/pc/national/monthData",
+  "https://data.stats.gov.cn/dg/website/publicrelease/web/external/...",
+  "https://data.stats.gov.cn/dg/website/publicrelease/web/external/getDaCatalogTreeByIndicatorCid",
+  "https://data.stats.gov.cn/dg/website/publicrelease/web/external/getDasByDaCatalogId",
+  "https://data.stats.gov.cn/dg/website/publicrelease/web/external/new/queryIndexTreeAsync",
+  "https://data.stats.gov.cn/dg/website/publicrelease/web/external/new/queryIndicatorsByCid",
+  "https://data.stats.gov.cn/dg/website/publicrelease/web/external/stream/esData",
+  "https://datacenter-api.jin10.com/crypto_currency/list",
+  "https://datacenter-api.jin10.com/reports/dates",
+  "https://datacenter-api.jin10.com/reports/dates?category=opec&_={ms}",
+  "https://datacenter-api.jin10.com/reports/list",
+  "https://datacenter-api.jin10.com/reports/list?category=opec&date={item}&_={ms}",
+  "https://datacenter-api.jin10.com/reports/list_v2",
+  "https://datacenter-api.jin10.com/sentiment/datas",
+  "https://datacenter-web.eastmoney.com/api/data/v1/get",
+  "https://datacenter.eastmoney.com/api/data/get",
+  "https://datacenter.jin10.com/",
+  "https://datacenter.jin10.com/reportType/dc_bitcoin_current",
+  "https://datacenter.jin10.com/reportType/dc_etf_gold",
+  "https://datacenter.jin10.com/reportType/dc_hk_market_info",
+  "https://datacenter.jin10.com/reportType/dc_market_margin_sse",
+  "https://datacenter.jin10.com/reportType/dc_market_margin_sz",
+  "https://datacenter.jin10.com/reportType/dc_opec_report",
+  "https://datacenter.jin10.com/reportType/dc_qihuo_energy_report",
+  "https://datacenter.jin10.com/reportType/dc_rmb_data",
+  "https://datacenter.jin10.com/reportType/dc_sge_report",
+  "https://datacenter.jin10.com/reportType/dc_shibor",
+  "https://datacenter.jin10.com/reportType/dc_ssi_trends",
+  "https://eastmoneyfutures.com/api/ComManage/GetPZJYInfo",
+  "https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/Index",
+  "https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/zcfzbDateAjaxNew",
+  "https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/{table}AjaxNew",
+  "https://finance.pae.baidu.com/selfselect/getstockquotation",
+  "https://finance.pae.baidu.com/vapi/v1/getquotation",
+  "https://finance.pae.baidu.com/vapi/v1/getquotation?group=quotation_minute_ab&code=000001",
+  "https://finance.sina.com.cn/fund/quotes/etf_hq_fund.shtml",
+  "https://finance.sina.com.cn/futures/quotes/{symbol}.shtml",
+  "https://finance.sina.com.cn/mac/#industry-6-0-31-1",
+  "https://finance.sina.com.cn/money/future/hf.html",
+  "https://finance.sina.com.cn/realstock/company/{code}/nc.shtml",
+  "https://finance.sina.com.cn/realstock/company/{symbol}/hfq.js",
+  "https://finance.sina.com.cn/realstock/company/{symbol}/hisdata/klc_kl.js?d={YYYYMMDD}",
+  "https://finance.sina.com.cn/realstock/company/{symbol}/hisdata_klc2/klc_kl.js",
+  "https://finance.sina.com.cn/realstock/company/{}/hisdata/klc_kl.js?d={}",
+  "https://fund.10jqka.com.cn/data/Net/info/",
+  "https://fund.10jqka.com.cn/datacenter/jz/",
+  "https://fund.10jqka.com.cn/datacenter/jz/kfs/etf/",
+  "https://fund.10jqka.com.cn/datacenter/xfjj/",
+  "https://fund.10jqka.com.cn/{symbol}/interduce.html",
+  "https://fund.eastmoney.com/",
+  "https://fund.eastmoney.com/Company/home/GetFundTotalScaleForChart",
+  "https://fund.eastmoney.com/Company/home/HistoryScaleTable",
+  "https://fund.eastmoney.com/Company/home/gspmlist",
+  "https://fund.eastmoney.com/Data/FundDataPortfolio_Interface.aspx",
+  "https://fund.eastmoney.com/Data/Fund_JJJZ_Data.aspx",
+  "https://fund.eastmoney.com/Data/funddataIndex_Interface.aspx",
+  "https://fund.eastmoney.com/HBJJ_pjsyl.html",
+  "https://fund.eastmoney.com/data/FundDataPortfolio_Interface.aspx",
+  "https://fund.eastmoney.com/data/FundNewIssue.aspx",
+  "https://fund.eastmoney.com/data/fundranking.html",
+  "https://fund.eastmoney.com/data/fundrating.html",
+  "https://fund.eastmoney.com/data/fundrating_3_{YYYY-MM-DD}.html",
+  "https://fund.eastmoney.com/data/fundrating_4_{YYYY-MM-DD}.html",
+  "https://fund.eastmoney.com/data/fundrating_{...}.html",
+  "https://fund.eastmoney.com/data/rankhandler.aspx",
+  "https://fund.eastmoney.com/data/xinfound.html",
+  "https://fund.eastmoney.com/fundguzhi.html",
+  "https://fund.eastmoney.com/js/fundcode_search.js",
+  "https://fund.eastmoney.com/pingzhongdata/{symbol}.js",
+  "https://fund.szse.cn/api/report/ShowReport",
+  "https://fundf10.eastmoney.com/",
+  "https://fundf10.eastmoney.com/FundArchivesDatas.aspx",
+  "https://fundf10.eastmoney.com/ccbd_{symbol}.html",
+  "https://fundf10.eastmoney.com/ccmx1_{symbol}.html",
+  "https://fundf10.eastmoney.com/ccmx_{symbol}.html",
+  "https://fundf10.eastmoney.com/jbgk_{symbol}.html",
+  "https://fundf10.eastmoney.com/jjfl_{symbol}.html",
+  "https://fundf10.eastmoney.com/jjjz_{symbol}.html",
+  "https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx",
+  "https://futsse-static.eastmoney.com/redis?msgid={inner_symbol}_info",
+  "https://futsseapi.eastmoney.com/list/COMEX",
+  "https://futsseapi.eastmoney.com/list/option/221",
+  "https://gs.amac.org.cn/amac-infodisc/api/aoin/product",
+  "https://gs.amac.org.cn/amac-infodisc/api/cancelled/manager",
+  "https://gs.amac.org.cn/amac-infodisc/api/fund/abs",
+  "https://gs.amac.org.cn/amac-infodisc/api/fund/account",
+  "https://gs.amac.org.cn/amac-infodisc/api/pof/fund",
+  "https://gs.amac.org.cn/amac-infodisc/api/pof/futures",
+  "https://gs.amac.org.cn/amac-infodisc/api/pof/manager",
+  "https://gs.amac.org.cn/amac-infodisc/api/pof/personOrgList",
+  "https://gs.amac.org.cn/amac-infodisc/api/pof/pofMember",
+  "https://gs.amac.org.cn/amac-infodisc/api/pof/securities",
+  "https://gs.amac.org.cn/amac-infodisc/api/pof/subfund",
+  "https://hq.sinajs.cn/?list=USDCNY",
+  "https://hq.sinajs.cn/?list=hf_ZSD",
+  "https://hq.sinajs.cn/?list=nf_RB0",
+  "https://hq.sinajs.cn/list=CON_OP_...",
+  "https://hq.sinajs.cn/list=CON_OP_{symbol}",
+  "https://hq.sinajs.cn/list=CON_SO_{symbol}",
+  "https://hq.sinajs.cn/list=OP_UP_{underlying}{YYMM}",
+  "https://hq.sinajs.cn/list={codes}",
+  "https://human.amac.org.cn/web/api/publicityAddress?rand=…&pageNum=1&pageSize=5000",
+  "https://investor.szse.cn/api/report/ShowReport/data",
+  "https://legulegu.com/api/stockdata/fund-position",
+  "https://legulegu.com/api/stockdata/{code}",
+  "https://legulegu.com/stockdata/fund-position/pos-stock",
+  "https://links.sgx.com/1.0.0/derivatives-daily/{num}/FUTURE.zip",
+  "https://money.finance.sina.com.cn/bond/info/{symbol}.html",
+  "https://money.finance.sina.com.cn/bond/quotes/{symbol}.html",
+  "https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData",
+  "https://mp-api.jin10.com/api/dynamic-data/child",
+  "https://overseas.1234567.com.cn/overseasapi/OpenApiHander.ashx",
+  "https://push2.eastmoney.com/api/qt/clist/get",
+  "https://push2.eastmoney.com/api/qt/stock/trends2/get",
+  "https://push2delay.eastmoney.com/api/qt/clist/get",
+  "https://push2his.eastmoney.com/api/qt/stock/kline/get",
+  "https://push2his.eastmoney.com/api/qt/stock/trends2/get（",
+  "https://q.10jqka.com.cn/thshy/",
+  "https://qhweb.eastmoney.com/quote",
+  "https://qt.gtimg.cn/q={codes}",
+  "https://query.sse.com.cn/commonQuery.do",
+  "https://quote.eastmoney.com/center/gridlist.html#fund_etf",
+  "https://quote.eastmoney.com/center/qqsc.html",
+  "https://quote.eastmoney.com/qihuo/{symbol}.html",
+  "https://quotes.sina.cn/mac/api/jsonp_v3.php/<任意串",
+  "https://quotes.sina.cn/mac/api/jsonp_v3.php/SINAREMOTECALLCALLBACK<13位",
+  "https://stock.finance.sina.com.cn/futures/api/jsonp.php/var%20_m2009C30002020_7_17=/FutureOptionAllService.getOptionDayline",
+  "https://stock.finance.sina.com.cn/futures/api/jsonp.php/var%20_{symbol}{YYYY}_{M}_{D}=/FutureOptionAllService.getOptionDayline",
+  "https://stock.finance.sina.com.cn/futures/api/jsonp_v2.php//StockOptionDaylineService.getSymbolInfo",
+  "https://stock.finance.sina.com.cn/futures/api/openapi.php/OptionService.getOptionData",
+  "https://stock.finance.sina.com.cn/futures/api/openapi.php/StockOptionDaylineService.getFiveDayLine",
+  "https://stock.finance.sina.com.cn/futures/api/openapi.php/StockOptionDaylineService.getOptionMinline",
+  "https://stock.finance.sina.com.cn/futures/view/optionsCffexDP.php[/ho|/mo]/cffex",
+  "https://stock2.finance.sina.com.cn/futures/api/jsonp.php/=/InnerFuturesNewService.getFewMinLine",
+  "https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20_S{today}=/GlobalFuturesService.getGlobalFuturesDailyKLine",
+  "https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20_V21052021_4_12=/InnerFuturesNewService.getDailyKLine",
+  "https://tsite.shfe.com.cn/data/dailydata/option/kx/kx{}.dat",
+  "https://tsite.shfe.com.cn/data/instrument/ExchangeDelivery{YYYYMM}.dat",
+  "https://tsite.shfe.com.cn/statements/dataview.html?paramid=kx",
+  "https://tsite.shfe.com.cn/statements/dataview.html?paramid=weeklystock",
+  "https://vip.stock.finance.sina.com.cn/corp/go.php/vFD_{Table}/stockid/{code}/ctrl/all/",
+  "https://vip.stock.finance.sina.com.cn/mkt/#hskzz_z",
+  "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQFuturesData",
+  "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/{Method}",
+  "https://vip.stock.finance.sina.com.cn/quotes_service/api/jsonp.php/IO.XSRV2.CallbackList[",
+  "https://vip.stock.finance.sina.com.cn/quotes_service/view/qihuohangqing.html",
+  "https://wallstreetcn.com/calendar",
+  "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+  "https://web.ifzq.gtimg.cn/appstock/app/minute/query",
+  "https://webapi.cninfo.com.cn/api/sysapi/p_sysapi1007",
+  "https://webapi.cninfo.com.cn/api/sysapi/p_sysapi1112",
+  "https://webapi.cninfo.com.cn/api/sysapi/p_sysapi1113",
+  "https://webapi.cninfo.com.cn/api/sysapi/p_sysapi1114",
+  "https://www.100ppi.com/sf2/day-%Y-%m-%d.html",
+  "https://www.99qh.com/data/stockIn",
+  "https://www.9qihuo.com/qihuoshouxufei",
+  "https://www.9qihuo.com/qiquanshouxufei",
+  "https://www.chinamoney.com.cn/ags/ms/cm-u-bk-currency/ClsYldCurvCurvGO",
+  "https://www.chinamoney.com.cn/ags/ms/cm-u-bk-currency/ClsYldCurvHis",
+  "https://www.chinamoney.com.cn/ags/ms/cm-u-bk-shibor/IfccHis",
+  "https://www.chinamoney.com.cn/ags/ms/cm-u-bond-an/bnBondEmit",
+  "https://www.chinamoney.com.cn/ags/ms/cm-u-bond-md/BondBaseInfoSearchCondition",
+  "https://www.chinamoney.com.cn/ags/ms/cm-u-bond-md/BondDetailInfo",
+  "https://www.chinamoney.com.cn/ags/ms/cm-u-bond-md/CmBondBasicInfoSearch",
+  "https://www.chinamoney.com.cn/ags/ms/cm-u-bond-md/EntyFullNameSearchCondition",
+  "https://www.chinamoney.com.cn/ags/ms/cm-u-md-bond/CbMktMakQuot",
+  "https://www.chinamoney.com.cn/ags/ms/cm-u-md-bond/CbtPri",
+  "https://www.cninfo.com.cn/",
+  "https://www.cninfo.com.cn/new/hisAnnouncement/query",
+  "https://www.cninfo.com.cn/new/index",
+  "https://www.czce.com.cn/cn/jysj/ccpm/H077003004index_1.htm",
+  "https://www.gfex.com.cn/u/interfacesWebTi/options/quotations",
+  "https://www.gtjaqh.com/pc/calendar?date={YYYYMMDD}",
+  "https://www.iweiai.com/qiquan/yuanyou",
+  "https://www.jin10.com/",
+  "https://www.jisilu.cn/data/cbnew/adj_logs/?bond_id={symbol}",
+  "https://www.jisilu.cn/data/ji_sieve/{type}/",
+  "https://www.jisilu.cn/web/data/cb/index",
+  "https://www.jisilu.cn/webapi/cb/index_history/",
+  "https://www.jisilu.cn/webapi/cb/list/",
+  "https://www.jisilu.cn/webapi/cb/redeem/",
+  "https://www.safe.gov.cn/...",
+  "https://www.safe.gov.cn/AppStructured/hlw/RMBQuery.do",
+  "https://www.safe.gov.cn/safe/2020/1218/17833.html",
+  "https://www.safe.gov.cn/safe/rmbhlzjj/index.html",
+  "https://www.shfe.com.cn/data/tradedata/future/dailydata/kx{YYYYMMDD}.dat",
+  "https://www.shfe.com.cn/data/tradedata/future/dailydata/{date}dailystock.dat",
+  "https://www.shfe.com.cn/data/tradedata/future/stockdata/dailystock_{date}/ZH/all.html",
+  "https://www.shfe.com.cn/data/tradedata/option/dailydata/kx{YYYYMMDD}.dat",
+  "https://www.shfe.com.cn/data/tradedata/option/dailydata/volatility{YYYYMMDD}.dat",
+  "https://www.shmet.com/api/rest/news/queryNewsflashList",
+  "https://www.sse.com.cn/",
+  "https://www.sse.org.cn/api/report/ShowReport",
+  "https://www.szse.cn/api/report/ShowReport/data",
+  "https://yield.chinabond.com.cn/cbweb-mn/indices/singleIndexQuery",
+  "https://yield.chinabond.com.cn/cbweb-mn/indices/singleIndexQueryResult",
+  "https://yield.chinabond.com.cn/cbweb-pbc-web/pbc/historyQuery",
+  "https://yun.ccxe.com.cn/api/index/pro/cxIndexTrendInfo",
+  "https://yun.ccxe.com.cn/indices/{pmi|dei|nei|qli|ai|bei|neei}"
+ ]
+}

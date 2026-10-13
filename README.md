@@ -170,10 +170,18 @@ webtool stock forecast 600519                   # 盈利预测 (东财)
 webtool stock eco-health                        # akshare/tushare/baostock 可用性
 webtool stock eco-search 龙虎榜                 # 在 1099 个接口里搜
 webtool stock eco --method stock_zh_a_hist --arg symbol=600519
+webtool stock http-get "https://qt.gtimg.cn/q=sh600519"   # 底层 HTTP 直调 (反爬已内置)
+webtool stock http-rows <URL> --pick data.0.quote          # 直调并转表格
+webtool stock em-report RPT_LICO_FN_CPD --arg sort=Col,Col  # 东财 datacenter 取数
+webtool stock em-ctype SH600519                            # 探测 companyType
+webtool stock docs-report RPT_LICO_FN_CPD       # 查底层接口: 参数表+字段列序映射+源码行号
+webtool stock docs-stats                       # 逆向文档总量 (7 分册 / 122 reportName / 322 端点)
 webtool stock health                            # 四侧探活
 ```
 
 - **两侧都不复制业务逻辑**，只是进程内 import；skill 未装时 `stock health` 报 unavailable，不拖垮 webtool 其他命令。路径可用 `STOCK_MASTER_HOME` / `STOCK_MCP_HOME` 覆盖
+- **第五侧：底层 HTTP 直调**（`stock/http.py`）。`rawapi` 只能调 api_client 封好的 151 个方法、`eco` 只能调 akshare/tushare 现成函数——本模块**不封装**，直接拼 URL 发请求，因此逆向出的 900+ 接口全部可调，包括 akshare 没封或封了不可用的（东财 `companyType` 探测、`quoteColumns` 注入、`dates` 批量取表）。**反爬已内置**：雪球走 curl_cffi chrome110 指纹 + token warmup，新浪/中证自动带 Referer，东财 push2 自动补 `ut`、datacenter 自动补 `token`/`source`/`client`，腾讯 GBK 自动解码。动作：`http-get`/`http-post`/`http-rows`/`em-report`/`em-ctype`
+- **第六侧：逆向接口文档**（`src/webtool/stock/data/reverse/`，7 分册 9134 行，从 akshare 源码**手工逆向**）。前三侧给的都是**函数名**，这一侧给的是**底层 HTTP 细节** —— 端点 URL、`reportName`/`filter`/`columns` 怎么拼、返回字段（`SECURITY_CODE`/`ACCEPT_DEPOSIT_INTERBACC` 这类缩写）对应第几列、哪些接口已下线/需要 token/列序会静默错位。每条记录带源码 `文件:行号` 可回溯。动作：`docs-books`/`docs-stats`/`docs-search`/`docs-book`/`docs-section`/`docs-report`/`docs-endpoint`。akshare 某函数返回空或字段错位时，`docs-report <reportName>` 是首选排查动作
 - **第四侧：生态库 1291 个接口**（`akshare` 1099 / `tushare` 124 / `baostock` 29 / `efinance`，返回 DataFrame）。覆盖 API 文档里 `函数.json` 记录的 akshare 生态，含宏观、另类数据、期货、基金、外汇等 api_client 完全没有的领域。`webtool stock eco <接口>` 直接调，默认给形状+前 5 行，`--full` 取全量；`eco-search` 按中英文关键词搜接口
 - **第三侧：`api_client` 151 个低阶方法**（`shared/股票/API调研/`，8 数据源：ths/sina/xueqiu/em/gtimg/tencent/cninfo/sse/csindex/ef）。服务端只把其中 56 个聚合成 24 个高阶工具，另外 96 个（股东研究/盈利预测/研报日历/早盘晚报/板块多维排行/分钟线/产业链分类…）通过 `webtool stock api <方法>` 直接调。`STOCK_API_HOME` 可覆盖路径
 - **工具清单读服务端 `TOOLS` 注册表**，服务端增删工具 webtool 自动跟上；本地表只在服务端 import 不了时兜底

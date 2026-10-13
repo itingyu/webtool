@@ -16,9 +16,12 @@ text 行内可读 / markdown 表格), 走 cli.app._run 的 emit 落盘通道。
   - 池/榜单类结果必带数据日 (date), 涨停池尤其 —— 接口对无效日期会静默回旧数据
 """
 import json
+import re
 import sys
 import time
 
+from webtool.stock import docs as _docs
+from webtool.stock import http as _http
 from webtool.stock import eco as _eco
 from webtool.stock import master as _master
 from webtool.stock import rawapi as _raw
@@ -188,6 +191,166 @@ def _act_eco_list(args, cfg):
             'funcs': names, 'truncated': len(names) < out_count(lib)}
 
 
+def _http_client(args):
+    """每次动作新建连接, 避免跨动作串 cookie"""
+    return _http.Http(timeout=getattr(args, 'http_timeout', None) or 20)
+
+
+def _act_http_get(args, cfg):
+    """裸 GET —— 逆向出的 900+ 接口直接打"""
+    url = (list(args.codes or []) or [''])[0] if args.codes else args.url
+    if not url:
+        raise ValueError('http-get 需要 URL 位置参数')
+    return _http_client(args).get(url, params=_args_dict(args),
+                                 referer=args.referer, encoding=args.encoding)
+
+
+def _act_http_post(args, cfg):
+    """裸 POST"""
+    url = (list(args.codes or []) or [''])[0] if args.codes else args.url
+    if not url:
+        raise ValueError('http-post 需要 URL 位置参数')
+    return _http_client(args).post(url, params=_args_dict(args),
+                                  data=args.form or None,
+                                  referer=args.referer, encoding=args.encoding)
+
+
+def _act_http_rows(args, cfg):
+    """裸调用 + 转表格 (--pick 取嵌套路径, 如 data.0.quote)"""
+    import json as _json
+    url = (list(args.codes or []) or [''])[0] if args.codes else args.url
+    if not url:
+        raise ValueError('http-rows 需要 URL 位置参数')
+    h = _http_client(args)
+    t = (h.post(url, params=_args_dict(args), data=args.form or None,
+                referer=args.referer, encoding=args.encoding)
+         if args.method == 'POST'
+         else h.get(url, params=_args_dict(args), referer=args.referer,
+                    encoding=args.encoding))
+    df = h.rows(t, pick=args.pick, limit=args.limit)
+    if args.raw:
+        return {'shape': list(df.shape), 'columns': list(df.columns),
+                'records': df.head(args.limit or 10).to_dict('records')}
+    return df
+
+
+def _act_em_report(args, cfg):
+    """东财 datacenter 取数 (自动带 token, 排序列名从 docs-report 查)"""
+    rn = (list(args.codes or []) or [''])[0] if args.codes else args.method
+    if not rn:
+        raise ValueError('em-report 需要 reportName (如 RPT_LICO_FN_CPD)')
+    kw = _args_dict(args)
+    h = _http_client(args)
+    t = h.em_datacenter(rn, filter_expr=kw.pop('filter', None) or kw.pop('f', None),
+                        columns=kw.pop('columns', 'ALL'),
+                        sort=kw.pop('sort', None),
+                        sort_types=kw.pop('sort_types', None),
+                        page_size=int(kw.pop('page_size', 50) or 50),
+                        page=int(kw.pop('page', 1) or 1))
+    if args.raw:
+        recs = h.records(t)
+        return {'count': len(recs), 'pages': h.pages(t),
+                'columns': list(recs[0].keys()) if recs else [],
+                'records': recs[:args.limit or 10]}
+    return h.rows(t, limit=args.limit)
+
+
+def _act_em_reports(args, cfg):
+    """列出/搜索东财 reportName 配方 (不联网, 读 data/reverse/em_recipes.json)"""
+    from webtool.stock import em
+    kw = (list(args.codes or []) or [''])[0] if args.codes else args.method
+    lim = int(kw.pop('limit') if isinstance(kw, str) and 'limit' in kw else 0) or 60
+    return em.list_reports(kw or '', limit=lim)
+
+
+def _act_em_run(args, cfg):
+    """按配方取数: 入参名沿用 akshare, filter/sort/columns/分页全自动"""
+    from webtool.stock import em
+    rn = (list(args.codes or []) or [''])[0] if args.codes else args.method
+    if not rn:
+        raise ValueError('em-run 需要 reportName, 如 RPT_DAILYBILLBOARD_DETAILSNEW\n'
+                         'webtool stock em-reports 龙虎榜 看可用的 reportName')
+    kw = _args_dict(args)
+    pages = int(kw.pop('pages', 1) or 1)
+    h = _http_client(args)
+    r = em.run(rn, max_pages=pages, http=h._http if hasattr(h, '_http') else None, **kw)
+    if args.raw:
+        return {'reportName': rn, 'func': r['func'], 'rows': r['rows'],
+                'filter_sent': r['filter_sent'],
+                'columns': list(r['df'].columns),
+                'records': r['df'].head(args.limit or 10).to_dict('records')}
+    return r['df']
+
+
+def _act_em_ctype(args, cfg):
+    """探测东财 companyType (F10 必需, 不探测就返占位符)"""
+    sym = (list(args.codes or []) or [''])[0] if args.codes else 'SH600519'
+    return {'symbol': sym, 'companyType': _http_client(args).em_f10_company_type(sym)}
+
+
+def _act_docs_books(args, cfg):
+    """逆向文档分册清单"""
+    return _docs.books()
+
+def _act_docs_stats(args, cfg):
+    """逆向文档总量统计"""
+    return _docs.stats()
+
+def _act_docs_search(args, cfg):
+    """全文检索逆向文档"""
+    kw = ' '.join(c for c in (list(args.codes or []) if args.codes else []) if c) or args.keyword
+    if not kw:
+        raise ValueError('docs-search 需要关键词 (位置参数或 --keyword)')
+    return _docs.search(kw, limit=args.limit)
+
+def _act_docs_book(args, cfg):
+    """取整个分册"""
+    kw = ' '.join(c for c in (list(args.codes or []) if args.codes else []) if c) or args.keyword
+    if not kw:
+        raise ValueError('docs-book 需要分册关键词 (webtool stock docs-books 看清单)')
+    try:
+        return _docs.book(kw, max_chars=(args.limit or 20) * 3000)
+    except _docs.DocsError as e:
+        raise ValueError(str(e)) from e
+
+def _act_docs_section(args, cfg):
+    """取分册内匹配的章节段落"""
+    kw = ' '.join(c for c in (list(args.codes or []) if args.codes else []) if c) or args.keyword
+    if not kw:
+        raise ValueError('docs-section 需要章节关键词')
+    # 支持两种写法:
+    #   docs-section 衍生品 期权        (位置参数里用空格分隔分册与章节)
+    #   docs-section 衍生品,期权         (单个位置参数, 逗号/顿号分隔)
+    parts = [x for x in re.split(r'[\s,，、]+', kw) if x]
+    if len(parts) > 1:
+        book_kw, pattern = parts[0], ' '.join(parts[1:])
+    else:
+        book_kw = pattern = kw
+    try:
+        return _docs.section(book_kw, pattern, max_chars=(args.limit or 20) * 3000)
+    except _docs.DocsError as e:
+        raise ValueError(str(e)) from e
+
+def _act_docs_report(args, cfg):
+    """按 reportName 取接口逆向条目"""
+    kw = ' '.join(c for c in (list(args.codes or []) if args.codes else []) if c) or args.keyword
+    if not kw:
+        raise ValueError('docs-report 需要 reportName (如 RPT_LICO_FN_CPD)')
+    try:
+        return _docs.report(kw, max_chars=(args.limit or 20) * 2000)
+    except _docs.DocsError as e:
+        raise ValueError(str(e)) from e
+
+def _act_docs_endpoint(args, cfg):
+    """按 URL 片段反查端点出现在哪些分册"""
+    kw = ' '.join(c for c in (list(args.codes or []) if args.codes else []) if c) or args.keyword
+    if not kw:
+        raise ValueError('docs-endpoint 需要 URL 片段')
+    try:
+        return _docs.endpoint(kw, max_chars=(args.limit or 20) * 2000)
+    except _docs.DocsError as e:
+        raise ValueError(str(e)) from e
+
 def _act_eco_health(args, cfg):
     return _eco.health()
 
@@ -297,6 +460,14 @@ ACTIONS = {
     'holder': _act_holder, 'forecast': _act_forecast,
     'eco': _act_eco, 'eco-search': _act_eco_search,
     'eco-list': _act_eco_list, 'eco-health': _act_eco_health,
+    'http-get': _act_http_get, 'http-post': _act_http_post,
+    'http-rows': _act_http_rows, 'em-report': _act_em_report,
+    'em-ctype': _act_em_ctype,
+    'em-reports': _act_em_reports, 'em-run': _act_em_run,
+    'docs-books': _act_docs_books, 'docs-stats': _act_docs_stats,
+    'docs-search': _act_docs_search, 'docs-book': _act_docs_book,
+    'docs-section': _act_docs_section, 'docs-report': _act_docs_report,
+    'docs-endpoint': _act_docs_endpoint,
 }
 
 def _args_dict(args):
@@ -340,6 +511,27 @@ MCP 动作 (透传调用服务端 24 个工具)
   eco-search <关键词> [--lib akshare]    在生态库里搜接口 (按关键词, 例: 龙虎榜/lhb/hsgt)
   eco-list [接口名] [--lib akshare]       列接口 (给了名字则给签名/文档)
   eco-health                             各库可用性与接口数
+
+第五侧: 底层 HTTP 直调 (不封装, 直接发请求 —— 逆向出的 900+ 接口都能自己打)
+  http-get <URL> [--arg k=v] [--referer R] [--encoding gbk]   裸 GET
+  http-post <URL> [--arg k=v] --form 'k=v&k2=v2' [--encoding gbk]  裸 POST
+  http-rows <URL> [--arg k=v] [--pick data.0.quote] [--limit N]  返回表格
+  em-reports [关键词]                   # 搜索 reportName 配方(离线)
+  em-run <reportName> [--arg symbol=]  # 按配方取数, filter/sort 全自动
+  em-report <reportName> [--arg filter=...] [--arg sort=Col,Col] [--arg sort_types=-1,-1]
+  em-ctype [SH600519]                          探测东财 companyType (F10 必需)
+  反爬已内置: 雪球走 curl_cffi chrome110+token warmup, 新浪/中证自动带 Referer,
+  东财 push2 自动补 ut, datacenter 自动补 token+source+client, 巨潮 POST 前自动拿 JSESSIONID
+
+第六侧: 逆向接口文档 (从 akshare 源码手工逆向, 900+ 接口, 带源码行号可回溯)
+  回答的是前三层给不了的问题: 端点 URL 是什么 / 参数怎么拼 / 返回字段对应哪一列
+  docs-books                            7 个分册清单 (东财/新浪/同花顺/巨潮/宏观/衍生品)
+  docs-stats                            总量统计
+  docs-search <关键词>                   全文检索, 带行号上下文 (例: companyType / hexin-v)
+  docs-book <分册关键词>                  取整个分册 (超长自动截断)
+  docs-section <分册> <章节关键词>         取分册内某段 (例: docs-section 宏观 中国CPI)
+  docs-report <reportName>               单个接口的完整逆向条目 (参数表+字段列序映射)
+  docs-endpoint <URL片段>                反查某端点出现在哪些分册
 
 原始 API (api_client 151 方法, 8 数据源 —— 服务端未覆盖的能力)
   api-list                     按数据源分组列全部方法
@@ -395,6 +587,12 @@ def do_stock(args, cfg):
     except _eco.EcoError as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
+    except _docs.DocsError as e:
+        print(f'error: {e}', file=sys.stderr)
+        return 2
+    except _http.HttpError as e:
+        print(f'http error: {e}', file=sys.stderr)
+        return 3
     except ValueError as e:
         print(f'error: {e}', file=sys.stderr)
         return 2
@@ -408,6 +606,11 @@ def do_stock(args, cfg):
 
 def _render(out, fmt, action):
     fmt = _norm_fmt(fmt)
+    # http-rows / em-report 直接返回 DataFrame, 渲染层先转成可序列化形状
+    if hasattr(out, 'to_dict') and hasattr(out, 'columns'):
+        n = len(out)
+        out = {'rows': n, 'columns': [str(c) for c in out.columns],
+               'records': out.to_dict('records')}
     # 未解析载荷只在 text/markdown 显式标注; json 保持原样 —— 程序消费方
     # 可能自己要那份 html, 但不该由我们替它决定丢弃。
     note = _unresolved(out)
@@ -955,6 +1158,22 @@ def _text(out, action):
     if action == 'eco-search':
         _text_eco_search(out)
         return
+    if action in ('http-get', 'http-post'):
+        print(out if isinstance(out, str) else json.dumps(out, ensure_ascii=False, indent=1))
+        return
+
+    if action and action.startswith('docs-'):
+        c = out.get('content')
+        if c:
+            print(c)
+            rest = {k: v for k, v in out.items() if k != 'content'}
+            if rest:
+                print(f'\n--- meta ---')
+                print(json.dumps(rest, ensure_ascii=False, indent=1))
+            return
+        print(json.dumps(out, ensure_ascii=False, indent=1))
+        return
+
     if action == 'eco-health':
         for lib, st in (out or {}).items():
             if st.get('installed'):

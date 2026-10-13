@@ -31,6 +31,9 @@ webtool stock tools                           # 服务端 24 工具清单
 webtool stock report 600519                   # 成稿研报 (markdown)
 webtool stock sentiment --text "业绩超预期"     # 消息面打分 -100~+100
 webtool stock api-list                       # api_client 151 方法 (8 数据源, 按源分组)
+webtool stock docs-stats                    # 逆向接口文档统计 (7 分册, 900+ 接口)
+webtool stock docs-search companyType        # 查底层接口文档 (URL/参数/字段含义)
+webtool stock docs-report RPT_LICO_FN_CPD    # 单接口逆向条目 (参数表+字段列序映射)
 webtool stock eco-search 龙虎榜              # 在 akshare 1099 个接口里搜 (支持中文)
 webtool stock eco --method stock_zh_a_hist --arg symbol=600519   # 生态库调用
 webtool stock holder 600519                  # 股东研究 (东财)

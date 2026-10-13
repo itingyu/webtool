@@ -436,7 +436,8 @@ def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar
               tool: str = typer.Option(None, '--tool', help='mcp 动作的 stock 工具名, 如 stock_indicators'),
               params: list[str] = typer.Option(None, '--arg', metavar='K=V',
                                                help='mcp 动作参数, 可多次; 值按 JSON 字面量猜类型'),
-              keyword: str = typer.Option('', '--keyword', help='tools 动作按关键词筛工具'),
+              keyword: str = typer.Option('', '--keyword',
+                                        help='tools 动作按关键词筛工具; docs-* 动作的备用关键词入参'),
               method: str = typer.Option(None, '--method', help='api/eco 动作要调的方法或接口名'),
               lib: str = typer.Option('akshare', '--lib', help='eco 动作的库: akshare/tushare/baostock/efinance'),
               full: bool = typer.Option(False, '--full', help='eco 动作返回完整数据 (默认只给形状+预览)'),
@@ -451,14 +452,29 @@ def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar
               catalyst: list[str] = typer.Option(None, '--catalyst', help='diagram 催化剂 (logic) / 下游 (chain), 可多次'),
               mid: list[str] = typer.Option(None, '--mid', help='diagram 产业链中游 (chain), 可多次'),
               timeout: float = typer.Option(60.0, '--timeout', help='mcp 动作子进程超时秒'),
+              url: str = typer.Option('', '--url', help='http-* 动作的 URL (也可用位置参数)'),
+              referer: str = typer.Option('', '--referer', help='覆盖默认 Referer'),
+              encoding: str = typer.Option('', '--encoding', help='强制解码 (gbk/gb18030 等)'),
+              pick: str = typer.Option('', '--pick', help='取嵌套路径, 如 data.0.quote'),
+              form: str = typer.Option('', '--form', help='POST 表单, 形如 k=v&k2=v2'),
+              raw: bool = typer.Option(False, '--raw', help='输出 JSON 记录而非表格'),
+              http_timeout: float = typer.Option(20.0, '--http-timeout', help='http-* 请求超时秒'),
               fmt: str = Fmt, output: str = Output):
-    """股票能力: 桥接 stock-master 脚本层 + stock 数据服务端 24 工具 (webtool stock health 探活)"""
+    """股票能力: stock-master + stock 24 工具 + 生态库(~1300) + 底层 HTTP 直调(900+ 接口) + 逆向文档"""
     a = _CTX['args']
     a.action, a.codes, a.date = action, list(codes or []), date
     a.only_buy, a.scope, a.pool, a.min_score = only_buy, scope, pool, min_score
     a.limit, a.n = limit, n
     a.tool, a.params, a.keyword, a.timeout = tool, params, keyword, timeout
     a.method = method
+    _form = {}
+    for pair in (form or '').split('&'):
+        if '=' in pair:
+            k, v = pair.split('=', 1)
+            _form[k] = v
+    a.url, a.referer, a.encoding, a.pick, a.raw = url, referer, encoding, pick, raw
+    a.form = _form
+    a.http_timeout = http_timeout
     a.lib, a.full = lib, full
     a.texts = list(text or [])
     a.excel, a.kind, a.name, a.thesis = excel, kind, name, thesis
