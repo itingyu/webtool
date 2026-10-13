@@ -441,6 +441,8 @@ def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar
               method: str = typer.Option(None, '--method', help='api/eco 动作要调的方法或接口名'),
               lib: str = typer.Option('akshare', '--lib', help='eco 动作的库: akshare/tushare/baostock/efinance'),
               full: bool = typer.Option(False, '--full', help='eco 动作返回完整数据 (默认只给形状+预览)'),
+              by: str = typer.Option('source', '--by',
+                                     help='api-list 分类维度: source(数据源, 默认)/function(功能)'),
               text: list[str] = typer.Option(None, '--text', metavar='文本',
                                              help='sentiment 打分的文本, 可多次'),
               excel: str = typer.Option(None, '--excel', help='excel 动作的输出 xlsx 路径'),
@@ -467,6 +469,7 @@ def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar
     a.limit, a.n = limit, n
     a.tool, a.params, a.keyword, a.timeout = tool, params, keyword, timeout
     a.method = method
+    a.by = by
     _form = {}
     for pair in (form or '').split('&'):
         if '=' in pair:

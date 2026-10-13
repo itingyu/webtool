@@ -137,10 +137,73 @@ def _act_api(args, cfg):
 
 
 def _act_api_list(args, cfg):
+    """api_client 方法清单。--by function 给功能维度 (回答"要干什么"),
+    默认按数据源分组 (回答"哪个站")。"""
+    if (getattr(args, 'by', '') or 'source') == 'function':
+        groups = _raw.methods_by_function()
+        return {'count': len(_raw.methods()), 'by': 'function',
+                'categories': {k: {'desc': v['desc'],
+                                   'primary': v['primary'],
+                                   'fallback': v['fallback']}
+                               for k, v in groups.items()}}
     ms = _raw.methods_by_source()
     return {'count': sum(len(v) for v in ms.values()),
+            'by': 'source',
             'by_source': {k: len(v) for k, v in ms.items()},
             'methods': ms}
+
+
+def _act_api_search(args, cfg):
+    """按功能类或关键词找接口。
+
+    Agent 的真实问题不是"有哪些方法"而是"查财报该调哪个" —— 分类表解决
+    功能维度, 关键词解决 docstring 里的口语说法 (利润表/资产负债表/十大股东)。
+    """
+    kw = ' '.join(list(args.codes or [])).strip() or (args.keyword or '').strip()
+    if not kw:
+        raise ValueError('api-search 需要关键词或功能类 '
+                         '(webtool stock api-list --by function 看全部功能类)')
+    cats = _raw.categories()
+    # 先按类码/中文标签/别名精确命中 —— 给的是"财报""利润表"这类口语说法时
+    # 直接列该类。必须优先于下面的模糊搜, 否则"财报"会因为公告资讯的 desc
+    # 里含"财报日历"而先命中错的那一类。
+    hit = _raw.by_alias(cats, kw)
+    if hit is not None:
+        # 精确命中也要带 keyword/by, 否则渲染层分不出是"类命中"还是"方法命中"
+        return {'keyword': kw, 'by': 'category', 'count': 1,
+                'categories': _raw.methods_by_function(hit['code'])}
+    hits = {}
+    for code, c in cats.items():
+        if code == 'uncategorized':
+            continue
+        blob = ' '.join([code, c['label'], c['desc'], *c['alias'],
+                         *c['primary'], *c['fallback']]).lower()
+        if kw.lower() in blob:
+            hits[c['label']] = {'code': code, 'desc': c['desc'],
+                                'primary': c['primary'], 'fallback': c['fallback']}
+    # 功能类没命中就落到方法级关键词 (docstring 里有口语说法)
+    method_hits = []
+    if not hits:
+        for m in _raw.methods():
+            d = _raw.method_doc(m) or {}
+            blob = f'{m} {d.get("doc", "")}'.lower()
+            if kw.lower() in blob:
+                cat = _raw.category_of(m)
+                method_hits.append({'method': m, 'category': cat,
+                                    'sig': d.get('sig', ''), 'doc': d.get('doc', '')})
+    if not hits and not method_hits:
+        raise ValueError(f'没匹配 "{kw}"。可用功能类: '
+                         + ', '.join(f'{c["label"]}({k})' for k, c in cats.items()
+                                     if k != 'uncategorized'))
+    out = {'keyword': kw, 'count': len(hits) or len(method_hits)}
+    if hits:
+        out['by'] = 'category'
+        out['categories'] = hits
+    else:
+        out['by'] = 'method'
+        out['methods'] = method_hits[:args.limit] if args.limit else method_hits
+        out['truncated'] = bool(args.limit) and len(method_hits) > args.limit
+    return out
 
 
 def _act_holder(args, cfg):
@@ -459,7 +522,7 @@ ACTIONS = {
     'report': _act_report, 'excel': _act_excel, 'sentiment': _act_sentiment,
     'diagram': _act_diagram,
     'mcp': _act_mcp, 'tools': _act_tools, 'health': _act_health,
-    'api': _act_api, 'api-list': _act_api_list,
+    'api': _act_api, 'api-list': _act_api_list, 'api-search': _act_api_search,
     'holder': _act_holder, 'forecast': _act_forecast,
     'eco': _act_eco, 'eco-search': _act_eco_search,
     'eco-list': _act_eco_list, 'eco-health': _act_eco_health,
@@ -539,6 +602,9 @@ MCP 动作 (透传调用服务端 24 个工具)
 
 原始 API (api_client 151 方法, 8 数据源 —— 服务端未覆盖的能力)
   api-list                     按数据源分组列全部方法
+  api-list --by function       按**功能**分组 (行情/K线/财报/股东/公司/板块/
+                              选股/资金/公告/指数/新股) —— 回答"要干什么"
+  api-search <类名或关键词>    按功能类或关键词找方法 (财报 / 利润表 / 十大股东)
   api <方法名> [--arg k=v]     直接调任一方法, 例: webtool stock api ths_stockpage_finance --arg code=600519
   holder <代码>                股东研究 (东财 持仓变动/机构调研)
   forecast <代码>              盈利预测 (东财)
@@ -621,7 +687,7 @@ def _render(out, fmt, action):
     if fmt == 'json':
         print(_j(out, 10 ** 9))
         return
-    if action in ('api', 'forecast', 'api-list'):
+    if action in ('api', 'forecast', 'api-list', 'api-search'):
         # api_client 的接口形态千差万别 (含本身就返回 HTML 的), 那个"本该是
         # 列表却回了原始 HTML"的守卫对它不适用, 会把正常响应误报成未解析。
         note = None
@@ -702,6 +768,41 @@ def _md(out, action):
                  r.get('封单亿'), r.get('炸板次数'), r.get('首封'))
                 for r in out.get('rows') or []])
         return
+    if action in ('api-list', 'api-search') and isinstance(out, dict):
+        # 功能分类表本身是"给人读的目录", 走默认的 ```json 围栏会毁掉可读性
+        # (151 个方法名挤成一行)。这里给真 markdown。
+        kw = out.get('keyword')
+        title = 'api_client 方法分类' if not kw else f'api_client 搜索: {kw}'
+        if out.get('by') == 'function':
+            title = f'api_client 共 {out.get("count")} 个方法 — 按功能'
+        print(f'## {title}\n')
+        groups = out.get('categories') or {}
+        if groups:
+            for label, c in groups.items():
+                print(f'### {label}\n')
+                if c.get('desc'):
+                    print(f"{c['desc']}\n")
+                prim = c.get('primary') or []
+                if prim:
+                    print(f"- **首选** ({len(prim)}): "
+                          + ' '.join(f'`{x}`' for x in prim))
+                fb = c.get('fallback') or []
+                if fb:
+                    print(f"- 备选 ({len(fb)}): "
+                          + ' '.join(f'`{x}`' for x in fb))
+                print()
+            return
+        methods = out.get('methods') or []
+        if isinstance(methods, list):
+            _table(['方法', '功能类', '签名', '说明'],
+                   [(m.get('method'), m.get('category') or '—',
+                     m.get('sig', ''), (m.get('doc') or '')[:70])
+                    for m in methods])
+            return
+        if isinstance(methods, dict):
+            _table(['数据源', '个数'],
+                   [(k, len(v)) for k, v in methods.items()])
+            return
     print('```json')
     print(json.dumps(out, ensure_ascii=False, indent=1))
     print('```')
@@ -1013,9 +1114,34 @@ def _text_raw(out, action=''):
         print(json.dumps(out, ensure_ascii=False)[:2000])
         return
     if action == 'api-list':
-        print(f"api_client 共 {out.get('count')} 个方法 (按数据源):")
+        print(f"api_client 共 {out.get('count')} 个方法 "
+              f"(按{(out.get('by') or 'source')}):")
+        if out.get('by') == 'function':
+            for label, c in (out.get('categories') or {}).items():
+                n = len(c['primary']) + len(c['fallback'])
+                print(f"\n{label} ({n})  {c['desc']}")
+                print(f"  首选: {' '.join(c['primary'])}")
+                if c['fallback']:
+                    print(f"  备选: {' '.join(c['fallback'])}")
+            return
         for src, ms in (out.get('methods') or {}).items():
             print(f"  {src}({len(ms)}): {' '.join(ms[:6])}{' …' if len(ms) > 6 else ''}")
+        return
+    if action == 'api-search':
+        if out.get('by') == 'category':
+            print(f'"{out["keyword"]}" 命中 {out["count"]} 个功能类:')
+            for label, c in (out.get('categories') or {}).items():
+                print(f"\n{label}  {c['desc']}")
+                print(f"  首选: {' '.join(c['primary'])}")
+                if c['fallback']:
+                    print(f"  备选: {' '.join(c['fallback'])}")
+            return
+        print(f'"{out["keyword"]}" 命中 {out["count"]} 个方法:')
+        for m in (out.get('methods') or []):
+            cat = f"[{m['category']}] " if m.get('category') else ''
+            print(f"  {cat}{m['method']}{m['sig']}")
+            if m.get('doc'):
+                print(f"      {m['doc'][:90]}")
         return
     print(f"ok={out.get('ok')}" + (f"  源={out['source']}" if out.get('source') else '')
           + (f"  {out['raw_size']} 字符" if out.get('raw_size') else ''))
@@ -1191,7 +1317,7 @@ def _text(out, action):
     if action == 'holder':
         _text_holder(out)
         return
-    if action in ('api', 'forecast', 'api-list'):
+    if action in ('api', 'forecast', 'api-list', 'api-search'):
         # 不跑 _unresolved 守卫: 那守卫针对 news/announcement 那类"本该给列表
         # 却回了原始 HTML"的情况。api_client 有些接口(如 ths_stockpage_finance)
         # 本身就返回 HTML 表格, 套同一个守卫会误报成"未解析"。

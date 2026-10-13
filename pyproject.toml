@@ -34,4 +34,4 @@ webtool = "webtool.cli.app:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-webtool = ["data/*.json"]
+webtool = ["data/*.json", "data/**/*.json", "data/**/*.md"]
