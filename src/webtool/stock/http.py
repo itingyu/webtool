@@ -26,7 +26,7 @@ quoteColumns 注入、dates 批量取表), 它们只能自己拼 URL 打过去�
 | 中证 | `Referer: www.csindex.com.cn` |
 | 同花顺 | 走不受 IP 封禁的子域 |
 | 东财 | push2 自动带 `ut`, datacenter 自动带 token |
-| 巨潮 | 先抓 JSESSIONID 再 POST |
+| 巨潮 | 带 Referer (JSESSIONID 未自动化, 需要时用 http-post 手动带 cookie) |
 
 ## 用法
 

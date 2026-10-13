@@ -166,8 +166,31 @@ def do_capital_flow(scope='industry'):
 
 
 def do_news(code, limit=10):
-    """个股新闻 (stock MCP 通道)"""
-    return clients().news(code)
+    """个股新闻 (stock MCP 通道)
+
+    limit 在**本侧**截断: 服务端 stock_news 只接 symbol, 没有 page_size 参数
+    (同花顺 stockpage 一次给全量), 所以 --limit 只能是取回后裁剪。原先直接把
+    limit 丢掉, `-n 3` 与 `-n 50` 输出一模一样。
+    """
+    r = clients().news(code)
+    items = _items(r)
+    if items is None or not limit or len(items) <= limit:
+        return r
+    data = r.get('data') if isinstance(r, dict) else None
+    if not isinstance(data, dict):
+        return r
+    out = dict(r)
+    out['data'] = _replace_items(data, items[:limit])
+    out['total_items'] = len(items)
+    return out
+
+
+def _replace_items(data, new_items):
+    """把 payload 里那条 items/list/rows 列表换掉 (保持原嵌套形状)"""
+    for k in ('items', 'list', 'rows'):
+        if isinstance(data.get(k), list):
+            return {**data, k: new_items}
+    return {**data, 'items': new_items}
 
 
 def do_announcements(code, page_size=10):

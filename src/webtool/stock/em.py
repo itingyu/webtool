@@ -218,7 +218,8 @@ def run(rn, max_pages=1, http=None, rename=True, **values):
     filt = _fill_filter(p.get('filter'), values, rec.get('maps'))
     sort, stypes = _sync_sort(p.get('sortColumns'), p.get('sortTypes'))
     http = http or Http()
-    out, total = [], 0
+    out = []
+    available = None          # 数据源声明的总条数 (count), 用来提示"只取了前 N 条"
     for page in range(1, max(1, int(max_pages)) + 1):
         q = {'reportName': rn,
              'columns': values.get('columns', p.get('columns') or 'ALL'),
@@ -240,7 +241,14 @@ def run(rn, max_pages=1, http=None, rename=True, **values):
             raise EmError(f'{rn} code={code}: {msg}{hint}')
         res = d.get('result') or {}
         recs = res.get('data') or []
-        total = int(res.get('count') or res.get('pages') and 0 or len(recs))
+        # 旧写法 `res.get('count') or res.get('pages') and 0 or len(recs)` 靠
+        # and/or 短路凑出 count, pages 存在时恒得 0, 且算完从不返回。取 count
+        # 是为了告诉调用方"库里一共多少条, 你只取了前 N"。
+        if available is None and res.get('count') is not None:
+            try:
+                available = int(res['count'])
+            except (TypeError, ValueError):
+                available = None
         pages = int(res.get('pages') or 1)
         out.extend(recs)
         if page >= pages:
@@ -251,4 +259,4 @@ def run(rn, max_pages=1, http=None, rename=True, **values):
                                 if k in df.columns})
     return {'reportName': rn, 'func': rec['func'], 'use': rec['use'],
             'filter_sent': filt, 'rows': len(df), 'pages_fetched': page,
-            'df': df}
+            'available': available, 'df': df}

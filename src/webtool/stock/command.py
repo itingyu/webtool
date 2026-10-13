@@ -184,11 +184,15 @@ def _act_eco_list(args, cfg):
     lib = args.lib or 'akshare'
     if args.method:
         out = _eco.describe(args.method, lib)
-        out['count'] = len(_eco.funcs(lib))
+        out['count'] = len(_eco.funcs(out.get('lib') or lib))
         return out
-    names = _eco.funcs(lib, limit=args.limit)
-    return {'library': lib, 'count': len(_eco.funcs(lib)),
-            'funcs': names, 'truncated': len(names) < out_count(lib)}
+    # funcs() 一次就是全库 dir() 扫描 (akshare 1000+ 属性), 取一次存局部变量复用,
+    # 别为算 count/truncated 再扫两遍
+    all_names = _eco.funcs(lib)
+    total = len(all_names)
+    names = all_names[:args.limit] if args.limit else all_names
+    return {'library': lib, 'count': total,
+            'funcs': names, 'truncated': len(names) < total}
 
 
 def _http_client(args):
@@ -259,8 +263,9 @@ def _act_em_reports(args, cfg):
     """列出/搜索东财 reportName 配方 (不联网, 读 data/reverse/em_recipes.json)"""
     from webtool.stock import em
     kw = (list(args.codes or []) or [''])[0] if args.codes else args.method
-    lim = int(kw.pop('limit') if isinstance(kw, str) and 'limit' in kw else 0) or 60
-    return em.list_reports(kw or '', limit=lim)
+    # 条数只认 -n/--limit。旧写法对 str 调 .pop('limit'), 关键词里含 "limit"
+    # 子串 (如 limit-up) 直接 AttributeError
+    return em.list_reports(kw or '', limit=args.limit)
 
 
 def _act_em_run(args, cfg):
@@ -272,8 +277,10 @@ def _act_em_run(args, cfg):
                          'webtool stock em-reports 龙虎榜 看可用的 reportName')
     kw = _args_dict(args)
     pages = int(kw.pop('pages', 1) or 1)
-    h = _http_client(args)
-    r = em.run(rn, max_pages=pages, http=h._http if hasattr(h, '_http') else None, **kw)
+    # 传 Http 实例本身 (em.run 只用 .get/.json), 不传 h._http —— Http 上没有
+    # 这个属性, 旧写法 hasattr 恒 False → em.run 内部另建默认 Http(timeout=20),
+    # --http-timeout 被静默丢弃
+    r = em.run(rn, max_pages=pages, http=_http_client(args), **kw)
     if args.raw:
         return {'reportName': rn, 'func': r['func'], 'rows': r['rows'],
                 'filter_sent': r['filter_sent'],
@@ -353,10 +360,6 @@ def _act_docs_endpoint(args, cfg):
 
 def _act_eco_health(args, cfg):
     return _eco.health()
-
-
-def out_count(lib):
-    return len(_eco.funcs(lib))
 
 
 def _act_report(args, cfg):
@@ -506,11 +509,12 @@ MCP 动作 (透传调用服务端 24 个工具)
   mcp <工具名> [--arg k=v]     透传调用, 例: webtool stock mcp stock_indicators --arg symbol=600519
   tools [关键词]               列工具清单
 
-生态库 (akshare 1137 / tushare 134 / baostock 38 / efinance 9 —— 全生态)
+生态库 (akshare ~1093 / tushare ~122 / baostock 29 / efinance 55 —— 实数以 eco-health 为准)
   eco --lib akshare --method <接口> [--arg k=v] [--full]  直接调, 默认给形状+前几行
   eco-search <关键词> [--lib akshare]    在生态库里搜接口 (按关键词, 例: 龙虎榜/lhb/hsgt)
   eco-list [接口名] [--lib akshare]       列接口 (给了名字则给签名/文档)
   eco-health                             各库可用性与接口数
+  注: efinance 是子模块结构, 接口名带前缀 (stock.get_quote_history / fund.get_base_info)
 
 第五侧: 底层 HTTP 直调 (不封装, 直接发请求 —— 逆向出的 900+ 接口都能自己打)
   http-get <URL> [--arg k=v] [--referer R] [--encoding gbk]   裸 GET
@@ -521,7 +525,7 @@ MCP 动作 (透传调用服务端 24 个工具)
   em-report <reportName> [--arg filter=...] [--arg sort=Col,Col] [--arg sort_types=-1,-1]
   em-ctype [SH600519]                          探测东财 companyType (F10 必需)
   反爬已内置: 雪球走 curl_cffi chrome110+token warmup, 新浪/中证自动带 Referer,
-  东财 push2 自动补 ut, datacenter 自动补 token+source+client, 巨潮 POST 前自动拿 JSESSIONID
+  东财 push2 自动补 ut, datacenter 自动补 token+source+client
 
 第六侧: 逆向接口文档 (从 akshare 源码手工逆向, 900+ 接口, 带源码行号可回溯)
   回答的是前三层给不了的问题: 端点 URL 是什么 / 参数怎么拼 / 返回字段对应哪一列

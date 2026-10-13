@@ -62,9 +62,11 @@ def health():
     out = {}
     for lib in libs():
         m = _try_import(lib)
-        out[lib] = {'installed': m is not None,
-                    'funcs': len([x for x in dir(m) if not x.startswith('_')
-                                  and callable(getattr(m, x))]) if m else 0}
+        if m is None:
+            out[lib] = {'installed': False, 'funcs': 0}
+            continue
+        names, _ = _entries(lib, m)
+        out[lib] = {'installed': True, 'funcs': len(names)}
     return out
 
 
@@ -73,16 +75,86 @@ def available():
     return any(v['installed'] for v in health().values())
 
 
+def _entries(lib, m):
+    """列出一个库的全部可调接口, 返回 (['stock.get_quote', ...], {名字: 函数})。
+
+    归属判定用 `__module__` 的**包前缀**而不是精确等于包名: akshare 的函数定义
+    在 `akshare.stock_feature.*` 下, 精确匹配会把 1099 个接口全判成"外来函数"
+    误杀干净。
+
+    顶层平铺的库 (akshare/tushare/baostock) 直接取模块属性; **子模块型的库**
+    (efinance 0.5.x 只有 `efinance.stock` / `.fund` / `.bond` / `.futures`,
+    顶层 0 个函数) 必须下钻子模块, 否则整条 `--lib efinance` 路是死的 ——
+    名字统一带子模块前缀, 调用方拼回去即可。
+    """
+    names, fns = [], {}
+
+    def own(obj):
+        """是不是本库导出的**接口**: 排除类 (akshare 把 APIError 等异常类也导出了,
+        当接口列出来只会误导) 与外部库函数; 但 lru_cache 包装的接口要保留 ——
+        akshare 有 14 个 `@lru_cache` 接口是 `_lru_cache_wrapper`, 不是函数,
+        用 inspect.isfunction 会把它们全丢掉。"""
+        if inspect.isclass(obj):
+            return False
+        mod = getattr(obj, '__module__', '') or ''
+        return mod == lib or mod.startswith(lib + '.')
+
+    for x in dir(m):
+        if x.startswith('_'):
+            continue
+        obj = getattr(m, x)
+        if callable(obj) and own(obj):
+            names.append(x)
+            fns[x] = obj
+    if names:
+        return sorted(names), fns
+    for sub in sorted(dir(m)):
+        if sub.startswith('_'):
+            continue
+        sm = getattr(m, sub, None)
+        if not inspect.ismodule(sm):
+            continue
+        for x in dir(sm):
+            if x.startswith('_'):
+                continue
+            obj = getattr(sm, x, None)
+            # eg efinance.stock.getter 的函数挂给 efinance.stock (前缀匹配)
+            if (callable(obj) and not inspect.isclass(obj)
+                    and (getattr(obj, '__module__', '') or '').startswith(f'{lib}.{sub}')):
+                key = f'{sub}.{x}'
+                names.append(key)
+                fns[key] = obj
+    return sorted(names), fns
+
+
 def funcs(lib='akshare', skip=0, limit=0):
-    """库里可调的接口名 (只取公开函数, 跳过类与常量)"""
+    """库里可调的接口名 (只取公开函数, 跳过类与常量; 子模块型带 `sub.` 前缀)"""
     m = require(lib)
-    names = sorted(x for x in dir(m)
-                   if not x.startswith('_') and callable(getattr(m, x)))
+    names, _ = _entries(lib, m)
     return names[skip:skip + limit] if limit else names[skip:]
 
 
 def libs():
     return ('akshare', 'tushare', 'baostock', 'efinance')
+
+
+def _lookup(lib, name):
+    """在库里取函数。名字可带子模块前缀 (efinance 的 stock.get_quote)。"""
+    m = require(lib)
+    if '.' in name:
+        mod, _, attr = name.rpartition('.')
+        sm = getattr(m, mod, None)
+        if sm is None:
+            raise EcoError(f'{lib} 没有子模块 {mod} '
+                           f'(webtool stock eco-list --lib {lib} 看可用接口)')
+        fn = getattr(sm, attr, None)
+    else:
+        _, fns = _entries(lib, m)
+        fn = fns.get(name)
+    if fn is None or not callable(fn) or name.split('.')[-1].startswith('_'):
+        raise EcoError(f'{lib} 里没有 {name} '
+                       f'(webtool stock eco-search <关键词> 搜相关接口)')
+    return fn
 
 
 def _try_import(name):
@@ -126,9 +198,8 @@ def search(keyword='', lib='', limit=0):
         m = _try_import(name)
         if m is None:
             continue
-        hits = sorted(x for x in dir(m)
-                      if not x.startswith('_') and callable(getattr(m, x))
-                      and _matches(x, getattr(m, x), keyword))
+        _, fns = _entries(name, m)
+        hits = sorted(x for x, fn in fns.items() if _matches(x, fn, keyword))
         if hits:
             out[name] = hits[:limit] if limit else hits
     return out
@@ -149,19 +220,19 @@ def slow_hint(name):
 
 def describe(name, lib=''):
     """接口名 + 签名 + 文档摘录 —— 调之前先看清参数, 免得试错"""
-    for lib in ((lib,) if lib else libs()):
-        m = _try_import(lib)
+    for lb in ((lib,) if lib else libs()):
+        m = _try_import(lb)
         if m is None:
             continue
-        fn = getattr(m, name, None)
-        if fn is None or not callable(fn):
+        _, fns = _entries(lb, m)
+        fn = fns.get(name)
+        if fn is None:
             continue
-        import inspect
         try:
             sig = str(inspect.signature(fn))
         except (TypeError, ValueError):
             sig = '(签名未知)'
-        return {'lib': lib, 'name': name, 'signature': sig,
+        return {'lib': lb, 'name': name, 'signature': sig,
                 'doc': (inspect.getdoc(fn) or '')[:400],
                 'slow': slow_hint(name)}
     raise EcoError(f'{"该库里没有" if lib else "四个生态库里都没有"} {name} '
@@ -173,17 +244,13 @@ def call(lib, name, kwargs=None, preview_rows=5, full=False):
 
     DataFrame → {shape, columns, preview}; dict/list → 直接给 (截断到 preview_rows 量级)。
     """
-    m = require(lib)
-    fn = getattr(m, name, None)
-    if fn is None or not callable(fn) or name.startswith('_'):
-        raise EcoError(f'{lib} 里没有 {name} (webtool stock eco-search {name[:6]} 搜相关接口)')
+    fn = _lookup(lib, name)
     t0 = time.time()
     try:
         df = fn(**(kwargs or {}))
     except TypeError as e:
         # 生态库函数的参数名极不一致 (symbol/code/symbols), 猜错就是 TypeError。
         # 直接把签名告诉调用方, 比让他猜参数名快得多。
-        import inspect
         try:
             sig = str(inspect.signature(fn))
         except (TypeError, ValueError):
