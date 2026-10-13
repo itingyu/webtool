@@ -137,9 +137,9 @@ webtool mcp call https://my.site/mcp my_tool '{}' # 任意 URL 直接传
 把**股票能力**收进 webtool，两座桥：
 
 - **stock-master 桥**（进程内 import）：行情 / 涨停池 / 可买性 / 交易日历 / 资金流 / 单股深度 / 选股池 / 风险核查。数据源与口径仍由 stock-master 维护（腾讯/东财/雪球/同花顺多源 fallback）
-- **stock MCP 桥**（进程内直调服务端模块）：公告 / 财务三表 / 股东 / K线 / IPO / 分红 / 两融 / 指数成分 等 24 个工具
+- **stock 数据桥**（进程内直调服务端 handler）：公告 / 财务三表 / 股东 / K线 / IPO / 分红 / 两融 / 指数成分 等 24 个工具
 
-**全链路纯进程内，不起子进程**：stock MCP 直接 import 服务端模块调 `_call_tool`；stock-master 自己的两个子进程出口（`minis-mcp-cli` 与 `webtool search`）在运行时被注入成进程内实现。实测单次调用 0.1-2s，相比原先每次起子进程（2.5-2.9s）省一个数量级。
+**全链路纯进程内，不起子进程、不经 MCP 协议**：服务端的 `TOOLS` 注册表每项自带 handler 函数，直接调它拿到的就是工具自己的结果 dict（没有 JSON-RPC、没有 content 信封的序列化往返）；stock-master 自己的两个子进程出口（`minis-mcp-cli` 与 `webtool search`）在运行时被注入成进程内实现。实测单次调用 0.1-2s，相比原先每次起子进程（2.5-2.9s）省一个数量级。
 
 ```bash
 webtool stock quote 600519 600036 创业板指       # 行情 (指数别名可用)

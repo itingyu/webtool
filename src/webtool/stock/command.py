@@ -4,7 +4,7 @@
 
     数据动作  quote pool check calendar flow news announcement financials
               analyze screen risk            —— 走 stock-master 脚本层
-    MCP 动作  mcp <tool>                     —— 走 stock MCP 24 tool 透传
+    MCP 动作  mcp <tool>                     —— 透传调用服务端 24 个工具
     元动作   tools health                    —— 能力清单与两侧探活
 
 输出与 webtool 其他数据命令一致: 数据动作按 args.format 自己渲染 (json 全字段 /
@@ -28,10 +28,10 @@ def _norm_fmt(v, default='text'):
 
 
 def _unresolved(out):
-    """检测"MCP 回了但没解析出结构"的情况。
+    """检测"服务端回了但没解析出结构"的情况。
 
-    stock-master 的 clients 把 stock MCP 的载荷原样透传, 所以会碰到两种形状:
-    同花顺 stockpage 是 SPA, MCP 解析不出列表就把 100KB 原始 HTML 塞进 data.html;
+    stock-master 的 clients 把服务端载荷原样透传, 所以会碰到两种形状:
+    同花顺 stockpage 是 SPA, 服务端解析不出列表就把 100KB 原始 HTML 塞进 data.html;
     另一路把结构化结果 json.dumps 成了字符串塞进 data。
     这两种都不是"没数据", 强行当结果渲染会把 HTML 噪声喂给 Agent ——
     按硬约束第 9 条显式标注, 由调用方决定是换源还是自行解析。
@@ -199,7 +199,7 @@ USAGE = """用法: webtool stock <动作> [参数]
   screen [--pool short|mid|long] [--min-score N]  选股池
   risk <代码...>               风险核查 (重组/减持/立案/预亏)
 
-MCP 动作 (走 stock MCP 24 tool)
+MCP 动作 (透传调用服务端 24 个工具)
   mcp <工具名> [--arg k=v]     透传调用, 例: webtool stock mcp stock_indicators --arg symbol=600519
   tools [关键词]               列工具清单
 
@@ -211,7 +211,7 @@ MCP 动作 (走 stock MCP 24 tool)
 def _coerce(v):
     """--arg 的值猜类型。与 cli/mcp.py 的差别: 纯数字一律留字符串。
 
-    股票代码 (600519 / 00700) 恒是字符串标识, MCP 侧 schema 也是 string;
+    股票代码 (600519 / 00700) 恒是字符串标识, 服务端 schema 也是 string;
     按 JSON 字面量猜成 int 会被工具拒 (symbol must be non-empty string, got 600519)。
     其余值 (排序字段/枚举/布尔/嵌套 JSON) 仍按 JSON 解析。
     """
@@ -249,7 +249,7 @@ def do_stock(args, cfg):
         print(f'error: {e}', file=sys.stderr)
         return 2
 
-    # MCP 载荷的形状问题在渲染层拦 (raw HTML / 字符串化 data), 不让噪声进结果
+    # 载荷形状问题在渲染层拦 (raw HTML / 字符串化 data), 不让噪声进结果
     _render(out, args.format, action)
     return 0
 
@@ -420,7 +420,7 @@ def _text_item(it):
 
 
 def _text_mcp(out, note_only=False):
-    """MCP 载荷的 text 渲染: 结构化则列条目, 未解析只给提示。
+    """服务端载荷的 text 渲染: 结构化则列条目, 未解析只给提示。
 
     载荷固定是 {"ok", "source", "data"(可能是 dict / 字符串化 JSON / raw html)}。
     """

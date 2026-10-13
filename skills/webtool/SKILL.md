@@ -119,7 +119,7 @@ webtool mcp call https://my.site/mcp my_tool '{}' # 任意端点
 
 ## stock
 
-桥接两侧股票能力，不复制业务逻辑，**全链路纯进程内不起子进程**：**stock-master 桥**（行情/涨停池/选股/风险）与 **stock MCP 桥**（进程内直调服务端模块；公告/财务/股东/K线等 24 工具）。
+桥接两侧股票能力，不复制业务逻辑，**全链路纯进程内、不起子进程、不经 MCP 协议**：**stock-master 桥**（行情/涨停池/选股/风险）与 **stock 数据桥**（直调服务端 handler；公告/财务/股东/K线等 24 工具）。
 
 ```sh
 webtool stock quote 600519 600036 创业板指      # 行情 (指数别名可用)
@@ -137,8 +137,9 @@ webtool stock tools                           # 24 工具清单;  health  # 两�
 ```
 
 - **两侧都只做桥接**：数据源与口径归 stock-master 与 stock MCP 维护。skill 缺失只让 stock 动作退 2，不影响 webtool 其他命令
-- **纯进程内**：单次调用 0.1-2s（原先每次起子进程 2.5-2.9s）。stock-master 的两个子进程出口（`minis-mcp-cli` / `webtool search`）在运行时被注入成进程内实现，不改 skill 文件
-- **工具清单读服务端注册表**，服务端增删工具自动跟上
+- **纯进程内**：单次调用 0.1-2s（原先每次起子进程 2.5-2.9s）。直接调服务端 `TOOLS` 里的 handler 函数，没有 JSON-RPC 也没有 content 信封序列化。stock-master 的两个子进程出口（`minis-mcp-cli` / `webtool search`）在运行时被注入成进程内实现，不改 skill 文件
+- **工具清单读服务端 `TOOLS` 注册表**，服务端增删工具自动跟上
+- **失败语义**：handler 抛异常或返回 `ok=False` 都按"调用失败"处理（stderr + 退出码 1），不会崩进程
 - **口径纪律**：涨停池必带真实数据日（该接口对无效日期会静默回旧数据）；北向 `status=3` 或接口回填额度上限一律标 ⚠「未取得」，**禁止当 0**；MCP 回了原始 HTML 未解析出条目时显式标注，不把 100KB 噪声当结果
 - `--arg` 纯数字一律留字符串（600519 是代码，整数会被 MCP schema 拒）—— 与 `webtool mcp` 口径不同
 - `screen` 输出必含**剔除清单与闸门原因**，只给通过名单会让调用方以为没被选中的票不存在

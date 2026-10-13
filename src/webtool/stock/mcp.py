@@ -1,20 +1,21 @@
-"""桥接 stock MCP server 的 24 个工具
+"""集成 stock 数据服务端的 24 个工具 (原 stock MCP server 的能力)
 
-**纯进程内**: 服务端模块就在本机 /var/minis/mcp-servers/stock_mcp_server.py,
-import 后直接调它的 `_call_tool` —— 不起子进程、不经 minis-mcp-cli。
-实测单次 0.1-2s, 相比子进程通道 (2.9s, 含冷启) 省一个数量级。
+**纯进程内, 且不经 MCP 协议**: 服务端模块就在本机 /var/minis/mcp-servers/
+stock_mcp_server.py, 它的 `TOOLS` 注册表里每项自带 handler 函数 ——
+直接调 handler, 拿到的就是工具自己的 dict。没有子进程、没有 JSON-RPC、
+没有 content 信封的序列化往返。
 
-也正因如此, `TOOLS` 直接读服务端注册表 —— 工具增删不用在 webtool 侧维护第二份。
+也正因如此 `TOOLS` 就是工具清单的单一事实来源 —— 服务端增删工具 webtool 自动跟上,
+本地那份 TOOLS 只是服务端 import 不了时的兜底。
 
-⚠️ 与 `webtool mcp` 那套 HTTP 通道 (net/mcpclient.py) 是两件不同的事 —— stock MCP
-既不是 HTTP 端点, 也不能用 net/mcpclient 去调。
+⚠️ 与 `webtool mcp` 那套 HTTP 通道 (net/mcpclient.py) 是两件不同的事 —— 那条是给
+通用 MCP server (HTTP) 用的, 这里不需要它。
 
-返回形状是 MCP 信封 `{"content":[{"type":"text","text":"<json>"}],"isError":bool}`,
-内层 text 才是工具自己的 JSON ({"ok":true,"source":...,"data":...})。解析失败时
-原样返回字符串, 不假装解析成功。
+失败语义 (与原 MCP 路径一致): handler 抛异常或返回 ok=False → McpError。
+skill 侧的包装函数 (clients.mcp 等) 捕获后仍拿到 {"ok":False,"err":...},
+调用方 (command.py) 转成退出码 1 + stderr。
 """
 import importlib
-import json
 import os
 import sys
 
@@ -75,7 +76,7 @@ def _server_mod():
         _server = importlib.import_module(SERVER_MOD)
     except ImportError:
         return None
-    return _server if hasattr(_server, '_call_tool') else None
+    return _server if isinstance(getattr(_server, 'TOOLS', None), list) else None
 
 
 def available():
@@ -86,36 +87,39 @@ def available():
 def call(tool, params=None, timeout=60):
     """调一个 stock MCP 工具, 返回工具自己的 JSON (dict) 或原始 text (str)
 
-    纯进程内: 直接 import 服务端模块调它的 `_call_tool`。失败抛 McpError ——
+    纯进程内直调 handler: 注册表 TOOLS 里每项自带 handler 函数, 调它拿到的就是
+    工具自己的 dict, 不经 MCP 信封。失败抛 McpError ——
     调用方 (command.py) 转成退出码 1 并把原因走 stderr, 不静默返回空
     (Agent 拿到空会以为"查无此项")。
     """
+    handler = _handler(tool)
+    try:
+        res = handler(params or {})
+    except Exception as e:                                  # noqa: BLE001
+        # handler 会为参数非法等直接抛 (如 normalize 失败)。原 _call_tool 捕获后
+        # 包成 isError 响应, 语义是"调用失败"而非"进程崩了" —— 这里保持一致,
+        # 否则 news/flow 等动作会因单只票的参数问题整条命令崩掉。
+        raise McpError(f'{tool} 调用失败: {type(e).__name__}: {e}') from e
+    if not isinstance(res, dict):
+        return res
+    if res.get('ok') is False:
+        # 保持与 MCP 路径一致的失败语义: 抛 McpError 而不是把 {"ok":false} 当结果返回
+        raise McpError(f'{tool} 返回错误: {res.get("err") or res.get("error") or res}')
+    return res
+
+
+def _handler(tool):
+    """按名字取 handler 函数。注册表是唯一事实来源 —— 服务端增删工具自动跟上。"""
     mod = _server_mod()
     if mod is None:
-        raise McpError(f'stock MCP 服务端不可用: {SERVER_HOME}/{SERVER_MOD}.py 导入失败 '
+        raise McpError(f'stock 数据服务端不可用: {SERVER_HOME}/{SERVER_MOD}.py 导入失败 '
                        f'(STOCK_MCP_HOME 可覆盖路径)')
-    return _unwrap(tool, mod._call_tool(tool, params or {}))
-
-
-def _unwrap(tool, res):
-    """剥 MCP 信封还原工具自己的 JSON ({"content":[{"type":"text","text":"<json>"}]})。"""
-    if res.get('isError'):
-        raise McpError(f'{tool} 返回错误: {_inner_text(res) or "(空)"}')
-    inner = _inner_text(res)
-    if inner is None:
-        return res
-    try:
-        return json.loads(inner)
-    except json.JSONDecodeError:
-        return inner          # 工具回纯文本 (如 unknown tool 提示), 原样给
-
-
-def _inner_text(res):
-    """剥 content 信封取第一个 text 块; 形状不认识就返回 None"""
-    for c in (res.get('content') or []):
-        if isinstance(c, dict) and c.get('type') == 'text':
-            return c.get('text')
-    return None
+    for t in getattr(mod, 'TOOLS', []) or []:
+        if isinstance(t, dict) and t.get('name') == tool:
+            h = t.get('handler')
+            if callable(h):
+                return h
+    raise McpError(f'未知工具: {tool} (webtool stock tools 列全部)')
 
 
 def tool_names():
