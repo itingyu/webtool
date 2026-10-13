@@ -137,7 +137,9 @@ webtool mcp call https://my.site/mcp my_tool '{}' # 任意 URL 直接传
 把**股票能力**收进 webtool，两座桥：
 
 - **stock-master 桥**（进程内 import）：行情 / 涨停池 / 可买性 / 交易日历 / 资金流 / 单股深度 / 选股池 / 风险核查。数据源与口径仍由 stock-master 维护（腾讯/东财/雪球/同花顺多源 fallback）
-- **stock MCP 桥**（子进程）：宿主以 `minis-mcp-cli` 暴露的 24 个工具，公告 / 财务三表 / 股东 / K线 / IPO / 分红 / 两融 / 指数成分
+- **stock MCP 桥**（进程内直调服务端模块）：公告 / 财务三表 / 股东 / K线 / IPO / 分红 / 两融 / 指数成分 等 24 个工具
+
+**全链路纯进程内，不起子进程**：stock MCP 直接 import 服务端模块调 `_call_tool`；stock-master 自己的两个子进程出口（`minis-mcp-cli` 与 `webtool search`）在运行时被注入成进程内实现。实测单次调用 0.1-2s，相比原先每次起子进程（2.5-2.9s）省一个数量级。
 
 ```bash
 webtool stock quote 600519 600036 创业板指       # 行情 (指数别名可用)
@@ -156,7 +158,8 @@ webtool stock tools                             # 24 工具清单
 webtool stock health                            # 两侧探活
 ```
 
-- **两侧都不复制业务逻辑**，只是 import 桥 / 子进程桥；skill 未装时 `stock health` 报 unavailable，不拖垮 webtool 其他命令。路径可用 `STOCK_MASTER_HOME` 覆盖
+- **两侧都不复制业务逻辑**，只是进程内 import；skill 未装时 `stock health` 报 unavailable，不拖垮 webtool 其他命令。路径可用 `STOCK_MASTER_HOME` / `STOCK_MCP_HOME` 覆盖
+- **工具清单读服务端 `TOOLS` 注册表**，服务端增删工具 webtool 自动跟上；本地表只在服务端 import 不了时兜底
 - **口径纪律照搬 stock-master**：涨停池输出必带真实数据日（该接口对无效日期会静默回旧数据）；北向 `status=3` 或接口回填额度上限一律标 ⚠「未取得」，**禁止当 0**；MCP 回了原始 HTML 未解析出条目时显式标注，不把 100KB 噪声当结果
 - `--arg` 的值猜类型时**纯数字一律留字符串**（600519 是代码不是整数），与 `webtool mcp` 的口径不同
 - `screen` 的 text 输出必含**剔除清单与闸门原因** —— 只给通过名单会让调用方以为没被选中的票不存在

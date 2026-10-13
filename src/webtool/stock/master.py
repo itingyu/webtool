@@ -12,6 +12,7 @@ scripts.clients / analysis / screening。
 路径可用 STOCK_MASTER_HOME 环境变量覆盖 (测试与多份安装场景)。
 """
 import importlib
+import json
 import os
 import sys
 
@@ -49,7 +50,61 @@ def mod(name):
 
 def clients():
     """数据层唯一入口: quote / limit_up_pool / announcements / capital_flow / code_ok ..."""
-    return mod('clients')
+    c = mod('clients')
+    if not getattr(c, '_webtool_inproc', False):
+        _patch_inproc(c)
+    return c
+
+
+def _patch_inproc(c):
+    """把 stock-master 的两个子进程出口换成进程内实现。
+
+    stock-master 的 clients.mcp() 每次 `subprocess.run(["minis-mcp-cli", ...])`
+    (约 2.5s/次), clients.web_search() 每次 `subprocess.run(["webtool", "search", ...])`
+    (webtool 自己起自己, 纯浪费)。这里在模块上覆盖这两个函数, 让它们走
+    stock/mcp.py 的进程内通道与 webtool 自己的 search:
+
+      - 产物形状完全一致 ({"ok","source","data",...} / {"ok","query","results"})
+      - 只在 webtool 进程内生效, 不改 skill 文件 —— skill 有自己的维护流程,
+        改动应由 skill 侧提; webtool 只在运行时注入
+
+    web_search 走 `cli.app.main(argv)` 而不是直接调 `pipeline.search.do_search`,
+    因为后者要 29 个字段的 args 对象, 自己拼等于复制一份 CLI 契约, 迟早漂移。
+
+    标记 _webtool_inproc 防重复注入 (clients 可能被多次 import 命中同一模块对象)。
+    """
+    c._webtool_inproc = True
+
+    def _mcp(tool, **kwargs):
+        from webtool.stock import mcp as _m
+        try:
+            return _m.call(tool, kwargs)
+        except _m.McpError as e:
+            _log(f'MCP {tool} 失败: {e}', level='WARN')
+            return {'ok': False, 'err': str(e)}
+
+    def _web_search(query, max_n=8):
+        import contextlib
+        import io
+        from webtool.cli.app import main
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                rc = main(['search', query, '-n', str(max_n), '-f', 'json'])
+            out = json.loads(buf.getvalue() or '{}')
+            return {'ok': rc == 0 and bool(out.get('results')),
+                    'query': query, 'results': out.get('results', [])}
+        except Exception as e:                              # noqa: BLE001
+            _log(f'webtool 搜索失败: {type(e).__name__}: {e}', level='WARN')
+            return {'ok': False, 'query': query, 'err': str(e), 'results': []}
+
+    c.mcp = _mcp
+    c.web_search = _web_search
+
+
+def _log(msg, level='INFO'):
+    """日志走 stderr, 不污染 stdout 的结果输出 (同 skill 的 _common.log 口径)"""
+    print(f'[{level}] {msg}', file=sys.stderr)
 
 
 # ---------- 动作实现 (每个都只做参数整形 + 调用, 不加工业务口径) ----------

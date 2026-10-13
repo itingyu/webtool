@@ -1,27 +1,25 @@
 """桥接 stock MCP server 的 24 个工具
 
-stock MCP 由 Minis 宿主以子进程方式暴露 (minis-mcp-cli), 不是 HTTP 端点 ——
-所以这里走 `minis-mcp-cli call stock <tool> --input <json>`, 与 `webtool mcp`
-那套 HTTP 客户端 (net/mcpclient.py) 是两条不同的通道, 别混。
+**纯进程内**: 服务端模块就在本机 /var/minis/mcp-servers/stock_mcp_server.py,
+import 后直接调它的 `_call_tool` —— 不起子进程、不经 minis-mcp-cli。
+实测单次 0.1-2s, 相比子进程通道 (2.9s, 含冷启) 省一个数量级。
 
-CLI 返回信封:
-    成功  {"server","tool","result":{"content":[{"type":"text","text":"<json>"}],"isError":false}}
-    失败  同形状但 isError=true, 或进程非 0 退出时 {"error":..., "code":"PARSE_ERROR"}
+也正因如此, `TOOLS` 直接读服务端注册表 —— 工具增删不用在 webtool 侧维护第二份。
 
-内层 text 才是工具自己的 JSON ({"ok":true,"source":...,"data":...})。
-这里做两层解析: 外壳剥 isError, 内层尽量还原成 dict (失败则原样返回字符串,
-不假装解析成功)。
+⚠️ 与 `webtool mcp` 那套 HTTP 通道 (net/mcpclient.py) 是两件不同的事 —— stock MCP
+既不是 HTTP 端点, 也不能用 net/mcpclient 去调。
 
-超时与并发: 子进程每次调用 ~0.8-2.5s (含 MCP 冷启), 故默认 60s 超时。
-批量场景 (如逐股拉财报) 靠 WebSearch 那套 rate 限流由调用方控制, 本模块不并发。
+返回形状是 MCP 信封 `{"content":[{"type":"text","text":"<json>"}],"isError":bool}`,
+内层 text 才是工具自己的 JSON ({"ok":true,"source":...,"data":...})。解析失败时
+原样返回字符串, 不假装解析成功。
 """
+import importlib
 import json
 import os
-import shutil
-import subprocess
+import sys
 
-CLI = os.environ.get('MINIS_MCP_CLI', 'minis-mcp-cli')
-SERVER = os.environ.get('STOCK_MCP_SERVER', 'stock')
+SERVER_HOME = os.environ.get('STOCK_MCP_HOME', '/var/minis/mcp-servers')
+SERVER_MOD = 'stock_mcp_server'
 
 # 工具名 → 一句话说明。CLI 自带 stock_search_tools, 这份表只为 stock mcp tools
 # 动作直接列清单用 (省一次子进程), 新增工具时两边一起更新。
@@ -56,43 +54,53 @@ RESERVED = ('tools', 'call')
 
 
 class McpError(RuntimeError):
-    """子进程不存在 / 超时 / 协议异常。业务级错误 (工具返回 isError) 不走这里"""
+    """通道不可用 / 超时 / 协议异常。业务级错误 (工具返回 isError) 不走这里"""
+
+
+_server = None            # 进程内已 import 的服务端模块; None = 未加载
+
+
+def _server_mod():
+    """进程内加载服务端模块; 失败返回 None (调用方回落子进程)
+
+    延迟 import + 缓存: 放在模块级会让 webtool 所有命令都依赖服务端存在,
+    而服务端缺失只该让 stock 动作退 2。
+    """
+    global _server
+    if _server is not None:
+        return _server
+    if SERVER_HOME not in sys.path:
+        sys.path.insert(0, SERVER_HOME)
+    try:
+        _server = importlib.import_module(SERVER_MOD)
+    except ImportError:
+        return None
+    return _server if hasattr(_server, '_call_tool') else None
 
 
 def available():
-    return shutil.which(CLI) is not None
+    """服务端模块能进程内加载即可"""
+    return _server_mod() is not None
 
 
 def call(tool, params=None, timeout=60):
     """调一个 stock MCP 工具, 返回工具自己的 JSON (dict) 或原始 text (str)
 
-    失败抛 McpError —— 调用方 (command.py) 转成退出码 1 并把原因走 stderr,
-    不静默返回空 (Agent 拿到空会以为"查无此项")。
+    纯进程内: 直接 import 服务端模块调它的 `_call_tool`。失败抛 McpError ——
+    调用方 (command.py) 转成退出码 1 并把原因走 stderr, 不静默返回空
+    (Agent 拿到空会以为"查无此项")。
     """
-    if not available():
-        raise McpError(f'找不到 {CLI} (装 Minis 宿主后可用; 可用 MINIS_MCP_CLI 覆盖路径)')
-    payload = json.dumps(params or {}, ensure_ascii=False)
-    try:
-        p = subprocess.run([CLI, 'call', SERVER, tool, '--input', payload],
-                           capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired as e:
-        raise McpError(f'{tool} 超时 {timeout}s') from e
+    mod = _server_mod()
+    if mod is None:
+        raise McpError(f'stock MCP 服务端不可用: {SERVER_HOME}/{SERVER_MOD}.py 导入失败 '
+                       f'(STOCK_MCP_HOME 可覆盖路径)')
+    return _unwrap(tool, mod._call_tool(tool, params or {}))
 
-    raw = (p.stdout or '').strip()
-    if not raw:
-        raise McpError(f'{tool} 无输出 (rc={p.returncode}): {(p.stderr or "").strip()[:300]}')
-    try:
-        env = json.loads(raw)
-    except json.JSONDecodeError as e:
-        raise McpError(f'{tool} 返回非 JSON: {raw[:200]}') from e
 
-    if 'error' in env and 'result' not in env:
-        raise McpError(f'{tool} 调用失败: {env.get("error")}')
-
-    res = env.get('result') or {}
+def _unwrap(tool, res):
+    """剥 MCP 信封还原工具自己的 JSON ({"content":[{"type":"text","text":"<json>"}]})。"""
     if res.get('isError'):
         raise McpError(f'{tool} 返回错误: {_inner_text(res) or "(空)"}')
-
     inner = _inner_text(res)
     if inner is None:
         return res
@@ -103,18 +111,37 @@ def call(tool, params=None, timeout=60):
 
 
 def _inner_text(res):
-    """剥 MCP content 信封取第一个 text 块; 形状不认识就返回 None"""
+    """剥 content 信封取第一个 text 块; 形状不认识就返回 None"""
     for c in (res.get('content') or []):
         if isinstance(c, dict) and c.get('type') == 'text':
             return c.get('text')
     return None
 
 
+def tool_names():
+    """工具名集合。优先取服务端 TOOLS 注册表 (跟得上服务端增删), 回落本地表。
+
+    本地 TOOLS 只是服务端 import 不了时的兜底, 不作为事实来源 ——
+    单一事实来源是服务端自己的注册表。
+    """
+    mod = _server_mod()
+    reg = getattr(mod, 'TOOLS', None) if mod else None
+    if isinstance(reg, list):
+        return [t['name'] for t in reg if isinstance(t, dict) and t.get('name')]
+    return list(TOOLS)
+
+
 def do_tools(keyword=''):
-    """列工具清单。给了 keyword 走服务端 stock_search_tools, 否则用本地 TOOLS 表"""
+    """列工具清单。给了 keyword 走服务端搜索, 否则直读服务端 TOOLS 注册表"""
     if keyword:
         return call('stock_search_tools', {'keyword': keyword})
-    return {'count': len(TOOLS),
+    mod = _server_mod()
+    reg = getattr(mod, 'TOOLS', None) if mod else None
+    if isinstance(reg, list):
+        return {'count': len(reg), 'source': f'server:{SERVER_MOD}',
+                'tools': [{'name': t['name'], 'desc': t.get('description')}
+                          for t in reg if isinstance(t, dict)]}
+    return {'count': len(TOOLS), 'source': 'local-fallback',
             'tools': [{'name': n, 'desc': d} for n, d in sorted(TOOLS.items())]}
 
 

@@ -159,12 +159,26 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 - `engines/sites.py` 的 `_mk/_fetch/_headers` 被 6 个模块跨文件复用（customsites / sitesearch /
   feeds.fetch / hotsites / moresites / moresites2 / oversites），暂留私有名；
   真要复用得按规范去掉 `_` 并下沉到 `core` 或 `engines/base.py`
-- **`stock/` 是桥接层，不实现业务逻辑**。两侧口径都归各自维护方：stock-master 在
-  `/var/minis/skills/stock-master`（`STOCK_MASTER_HOME` 可覆盖），stock MCP 由宿主以
-  `minis-mcp-cli` 暴露（`MINIS_MCP_CLI` 可覆盖）。两条通道与 `webtool mcp` 的 HTTP 通道
-  **互不相通**，别拿 `net/mcpclient.py` 去调 stock MCP。反过来也别把 stock 逻辑写进
-  stock-master —— skill 有自己的 7 步维护流程和自检。skill 缺失只让 stock 动作退 2，
-  不影响 webtool 其余命令（所以桥接必须在函数内 import，不能放模块级）
+- **`stock/` 是桥接层，不实现业务逻辑，且全链路纯进程内**。两侧口径都归各自维护方：
+  stock-master 在 `/var/minis/skills/stock-master`（`STOCK_MASTER_HOME` 可覆盖），
+  stock MCP 服务端在 `/var/minis/mcp-servers/stock_mcp_server.py`（`STOCK_MCP_HOME`
+  可覆盖）。**全程不起子进程**：
+  - stock MCP → `stock/mcp.py` import 服务端模块直接调 `_call_tool`（0.1-2s）
+  - stock-master 自己的两个子进程出口（`clients.mcp()` 起 `minis-mcp-cli`、
+    `clients.web_search()` 起 `webtool search`）在 `stock/master.py::_patch_inproc`
+    里被**运行时注入**成进程内实现，产物形状不变
+  - 注入只在 webtool 进程内生效，不改 skill 文件 —— skill 有自己的维护流程，改动应由
+    skill 侧提；webtool 只做运行时覆盖
+  - skill 缺失只让 stock 动作退 2，不影响 webtool 其余命令（所以桥接必须在函数内
+    import，不能放模块级）
+- **`web_search` 的进程内实现走 `cli.app.main(argv)`**，不直接调 `pipeline.search.do_search`
+  —— 后者要 29 个字段的 args 对象，自己拼等于复制一份 CLI 契约，迟早漂移
+- **别拿 `net/mcpclient.py` 去调 stock MCP**，那是 HTTP 通道，与进程内通道互不相通
+- **工具清单的单一事实来源是服务端的 `TOOLS` 注册表**，不是本地表。本地 `TOOLS` 只是
+  服务端 import 不了时的兜底；`do_tools`/`tool_names` 都优先读服务端，新增减工具不用改 webtool
+- 已知残留：`announcement` 动作会起 1 个 `curl` 子进程，来自服务端依赖
+  `/var/minis/shared/股票/API调研/api_client.py::np_notice_ann`（东财公告接口）——
+  是数据层自己的实现，不在 webtool 桥接范围内
 - **stock MCP 的载荷形状按工具不同，`stock/command.py` 靠 `_items_of`（广度优先下钻
   `items/list/rows`）统一认领**：news 是 `data.items`，announcement 是 `data.data.list`，
   capital_flow north 是 `data.data.data.{hk2sh,...}`（无列表）。**认不出就标注不猜** ——

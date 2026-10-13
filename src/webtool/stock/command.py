@@ -125,8 +125,9 @@ def _act_risk(args, cfg):
 
 def _act_mcp(args, cfg):
     if not getattr(args, 'tool', None):
+        names = sorted(_mcp.tool_names())
         raise ValueError(
-            f'mcp 动作需要 --tool 指定工具名, 可用: {", ".join(sorted(_mcp.TOOLS)[:6])} ... '
+            f'mcp 动作需要 --tool 指定工具名, 可用: {", ".join(names[:6])} ... '
             f'(完整清单: webtool stock tools)')
     params = {}
     for kv in (getattr(args, 'params', None) or ()):
@@ -159,18 +160,18 @@ def _act_health(args, cfg):
     else:
         out['master']['err'] = f'未装在 {home} (可用 STOCK_MASTER_HOME 覆盖)'
 
-    out['mcp']['cli'] = _mcp.CLI
+    out['mcp']['server'] = f'{_mcp.SERVER_HOME}/{_mcp.SERVER_MOD}.py'
     out['mcp']['found'] = _mcp.available()
     if out['mcp']['found']:
         t0 = time.time()
         try:
             _mcp.call('stock_health_check', {})
             out['mcp'].update(ok=True, took_ms=int((time.time() - t0) * 1000),
-                              tools=len(_mcp.TOOLS))
+                              tools=len(_mcp.tool_names()))
         except Exception as e:                              # noqa: BLE001
             out['mcp'].update(ok=False, err=f'{type(e).__name__}: {e}')
     else:
-        out['mcp']['err'] = f'找不到 {_mcp.CLI} (可用 MINIS_MCP_CLI 覆盖)'
+        out['mcp']['err'] = f'服务端不可用 (STOCK_MCP_HOME 可覆盖路径)'
     out['ok'] = bool(out['master'].get('ok') or out['mcp'].get('ok'))
     return out
 
