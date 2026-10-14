@@ -102,10 +102,8 @@ def _urllib_html(query, max_results, proxy, timeout, market, page):
 def _resilient(url, proxy=None, timeout=15, headers=None):
     """单线路取数 (fetch 等非引擎通道复用)
 
-    曾经是 `for p in ([proxy, None])` 的两轮 failover: 代理挂了就悄悄直连。
-    后果是双向不可控 —— 走代理的目标 (只允许代理出网的站) 代理一挂就变成
-    直连超时, 而直连能通的站代理一挂就被"降级"成功, 状态永远说不清走的是
-    哪条线。线路由路由表一次决定, 这里只保留函数名给外部复用。
+    单线路: 代理挂了不悄悄直连 —— 走代理的目标会变成直连超时, 而直连能通的
+    目标又会被"降级"成功, 状态永远说不清走的是哪条线。线路由路由表一次决定, 这里只保留函数名给外部复用。
     """
     from webtool.core.http import http_get
     try:

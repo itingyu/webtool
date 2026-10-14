@@ -48,9 +48,9 @@ def _pull_once(name, n, q, proxy, timeout):
 def _resolve(name, n, q, cfg, no_proxy):
     """按配置/路由表取一次。返回 (items, error)
 
-    不 failover: 曾经是"直连优先, 失败再换代理重试", 那让这条命令走哪条线
-    取决于它先在哪失败 —— 直连能通就永远不碰代理, 代理挂了就静默降级。线路由
-    proxyhelper 一次定好, 失败直接报错。
+    不 failover: 线路由 proxyhelper 依据配置 + 路由表一次定好, 失败直接报错 ——
+    直连优先、失败再换代理会让这条命令走哪条线取决于它先在哪失败, 且代理挂了
+    还会静默降级, 状态说不清。
     """
     timeout = cfg.get('timeout', 15)
     # 'direct' 是强制直连的约定值 —— 写成 None 会被 proxyhelper 当成 auto,

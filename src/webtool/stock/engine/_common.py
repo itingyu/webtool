@@ -4,8 +4,7 @@ engine 共享层 —— 纯口径工具
 只放**不取数**的共用件：日志、代码归一转发、外链拼装、不可买板块判定、TTL 缓存。
 
 传输层（session / curl_cffi 指纹 / 同花顺 v token）全在 `bridge/sources/_base.py`
-—— 本模块曾经自带一套 qjs + 三个 session，与数据源层重复，已删：取数只有
-`sources` 一处实现，这里再留一份只会漂。
+—— 取数只有 `sources` 一处实现，本模块不重复持有 session：两份实现只会漂。
 
 代码归一的唯一事实来源是 `bridge/sources/_symbol.py`，本模块只做转发，
 不重写规则 —— 多一份前缀表就是多一次打错 symbol 的机会（920xxx 的归属尤其易错）。
