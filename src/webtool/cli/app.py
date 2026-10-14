@@ -470,6 +470,39 @@ def _upgrade_run(check_only, spec, fmt, output):
     return _run(None, fn, fmt, output, False, False)
 
 
+@app.command('uninstall')
+def uninstall_cmd(purge_data: bool = typer.Option(False, '--purge-data', help='连 ~/.webtool 里的数据一起删'),
+                  yes: bool = typer.Option(False, '--yes', '-y', help='确认删除 (不加只列不删)'),
+                  fmt: str = Fmt, output: str = Output):
+    """卸载指引: 给出该用的卸载命令 + 数据目录清单
+
+    包不自己删 (不同装法命令不同, 且正跑在被删的那份代码里); 数据要清得
+    `--purge-data --yes` 明说。
+    """
+    a = _CTX['args']
+    a.purge_data, a.yes = purge_data, yes
+
+    def fn(args, cfg):
+        import json as _json
+        from webtool.core import uninstall as _un
+        want_json = (args.format or '') == 'json'
+        info = _un.plan()
+        result = None
+        if args.purge_data:
+            if not args.yes:
+                print('webtool uninstall: --purge-data 要真删得加 --yes, 否则什么都不动',
+                      file=sys.stderr)
+                print(_json.dumps(info, ensure_ascii=False, indent=2) if want_json
+                      else _un.describe(info))
+                return 2
+            result = _un.purge_data(yes=True)
+            info['purge'] = result
+        print(_json.dumps(info, ensure_ascii=False, indent=2) if want_json
+              else _un.describe(info, result))
+        return 0 if (result is None or result.get('ok')) else 1
+    return _run(None, fn, fmt, output, False, False)
+
+
 @app.command('upgrade')
 def upgrade_cmd(check_only: bool = typer.Option(False, '--check', help='只问 pip 有没有新版, 不装'),
                 from_: str = typer.Option(None, '--from', help='换升级源 (任意 pip spec, 如 git+https://… 或包名)'),

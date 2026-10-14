@@ -48,6 +48,21 @@ pip install --user 'git+https://github.com/itingyu/webtool'
 
 代码按分层分包（`cli` → `feeds`/`radar`/`zen` → `pipeline`/`render` → `net`/`engines` → `core`），只允许向下依赖。改代码前先读 [docs/coding-standard.md](docs/coding-standard.md)，整体设计见 [docs/design.md](docs/design.md)。
 
+## 卸载
+
+包归 pip，数据归 `~/.webtool`，两件事分开办：
+
+```bash
+webtool uninstall                      # 报出该用的卸载命令 + 数据目录清单（不动手）
+webtool uninstall --purge-data --yes   # 连配置/凭据/缓存一起清掉
+pip uninstall webtool                  # 卸包本身（venv 用 venv 里的 pip，pipx 用 pipx）
+```
+
+包不自己删：CLI 正跑在被删的那份代码里，装法不同命令也不同（venv / pipx / `--user` / 发行版
+包管理器），所以 `webtool uninstall` 只给命令、执行交给你。数据目录里 `secret.key`（保险库密钥）、
+`rules.json`（手写路由规则）、`sites/`、`feeds.json`（自己加的源）删了要重配；`cache/`、
+`state.json`、`sticky.json` 是可再生的。
+
 ## 命令
 
 ```bash
