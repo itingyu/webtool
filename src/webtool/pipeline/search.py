@@ -82,14 +82,13 @@ def do_search(args, cfg):
 def _do_search(args, cfg, filter_ad=True):
     t0 = time.time()
     # 配置文件默认值 ← 命令行覆盖 (config set 的持久配置是底线, CLI 参数可临时改)
-    # 配置里的开关只保留仍存在的三项; 去重/BM25/广告过滤已无开关,
-    # 不再受 config 影响 (行为固定)。
+    # 只有 blocklist / market / timeout 三项读 config; 去重、BM25、广告过滤
+    # 行为固定, 没有开关。
     _bl_cfg = cfg.get('blocklist') or ''
     if not args.blocklist and _bl_cfg:
         args.blocklist = _bl_cfg
-    # market 由 config 提供 (config set market en-US); 命令行不再有开关 ——
-    # 它只对 bing 生效 (baidu/sogou/marginalia 收了参数但函数体不用), 而
-    # bing 端点恒为 cn.bing.com, setmkt 影响有限, 不值得占一个命令行选项。
+    # market 由 config 提供 (config set market en-US), 不占命令行选项 ——
+    # 它只对 bing 生效, 而 bing 端点恒为 cn.bing.com, setmkt 影响有限。
     market = cfg.get('market') or 'zh-CN'
     _eng_spec, _preset_used = resolve_engines(args, cfg)
     engines = [e.strip() for e in _eng_spec.split(',') if e.strip()]
@@ -165,16 +164,13 @@ def _do_search(args, cfg, filter_ad=True):
 
     # 黑名单先行 (按真域拦截), 再 merge 去重排序:
     # ① 排序只算有资格留下的条目 (不白算被拦的)
-    # ② quality 批内断层阈值 (cut=max(0.12, top*0.35)) 基于真实保留批,
-    #    不再被即将拉黑的高 sem 头部抬高 → 标签更真实
-    # 注: BM25 的 IDF 基于传入批自身, 黑名单先行会让 sem 数值随黑名单配置
-    # 漂移 — 本就批内自适应, 跨配置不可比, 非回归
+    # ② quality 批内断层阈值 (cut=max(0.12, top*0.35)) 基于真实保留批 → 标签更真实
+    # 注: BM25 的 IDF 基于传入批自身, 所以 sem 随黑名单配置漂移, 跨配置不可比。
     from webtool.pipeline.merge import merge as _merge
     from webtool.core.plugins import table as _pt
     # 过滤器走插件表, 顺序即优先级; blocklist 先行硬过滤。
-    # 硬过滤放在计算之前: 黑名单站 (克隆官网/洗稿/需登录) 无论位置分与相关性
-    # 多高都不该占 top n 名额, 没必要让它们参与去重与打分 —— 那样只会稀释
-    # BM25 的 IDF 统计并让权重分布失真。
+    # 硬过滤放在算分之前: 黑名单站不该占 top n 名额, 也没必要参与去重与 BM25
+    # 统计 (只会稀释 IDF 并让权重分布失真)。
     n_blocked = 0
     _off, _blk, _alw = parse_blocklist(getattr(args, 'blocklist', ''))
     for fname, spec in _pt('filter').items():

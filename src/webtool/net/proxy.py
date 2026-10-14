@@ -147,7 +147,7 @@ def _get(args, cfg):
     p = cfg.get('proxy')
     print(redact(p) if p else '(no proxy configured)')
     if cfg.get('engine_proxy'):
-        # 老的每引擎覆盖: 不再生效, 但别装作没看见 —— 告诉用户这条线该写在哪
+        # 已废弃的每引擎覆盖: 线路统一由规则表决定, 提示用户改写成规则
         print('engine_proxy: (已废弃, 线路统一由规则表决定: '
               'webtool proxy rule add <域名> direct|proxy:<代理名>)')
     auth = cfg.get('proxy_auth') or {}
@@ -579,9 +579,9 @@ def _noproxy(args, cfg):
 def _named(args, cfg):
     """named <名字> <代理URL> / named del <名字> / named list — 配命名代理
 
-    规则表里的 `proxy:<名字>` 之前只能手写 JSON 才能配, 而 rules.json 是要人工
-    维护的文件 —— 密码写进去就是明文落盘。这里统一: 密码进保险库, rules.json
-    只留 `user@host`, 与全局 proxy 走同一套凭据机制。
+    规则表里的 `proxy:<名字>` 靠这里配: 密码进保险库, rules.json 只留
+    `user@host`, 与全局 proxy 走同一套凭据机制 (rules.json 是人工维护的文件,
+    明文密码不能落进去)。
     """
     spec = cfg.get('proxy_rules') or _load_rules_file(cfg)
     proxies = spec.setdefault('proxies', {})

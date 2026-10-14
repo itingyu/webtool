@@ -1,32 +1,13 @@
 """统一出网层: 一处决定「这条请求怎么打出去」
 
-## 为什么要有这层
+已接入的通道都从这里拿策略, 各自不判断代理与证书:
 
-改造前请求从十几个地方发出去, 用的库和入口各不相同 —— curl_cffi、urllib、
-requests 各写一遍。结果是**代理与证书策略只覆盖了一部分路径**:
 
-| 通道 | 证书策略 | proxy='auto' 路由 | 保险库密码 |
-|---|---|---|---|
-| `net/transport.py` (curl_cffi + urllib 兜底) | ✅ | ✅ | ✅ |
-| `core/http.py` (urllib 兜底) | ✅ | ✅ | ✅ |
-| `stock/http.py` (requests) | ✅ | **❌** | **❌** |
-| `core/probe.py` (探活) | **❌** | ❌ | **❌** |
-| `engines/gcaptcha.py` (验证页) | 走外部 session, 随 transport |
-
-stock 通道尤其典型: 它老老实实接了 `tls.policy()`, 却**一次都没把 proxy 传给
-requests** —— 于是路由表、命名代理、`proxy_auth` 保险库对它统统无效。用户配了
-「境内直连、境外走代理」的规则, 股票接口却永远直连。这类分裂只有把所有出口
-收进一个地方才能根治。
-
-## 现在
-
-已接入的通道都从这里拿策略, 不再各自判断:
-
-- `stock/http.py` — `Http(proxy=...)`, 默认 `'auto'` 问路由表
+- `stock/bridge/http.py` — `Http(proxy=...)`, 默认 `'auto'` 问路由表
 - `core/probe.py` — 探活补保险库密码, 缓存键用归一后的形态
-- `core/http.py` / `net/transport.py` — 保留各自实现 (它们有 session 预热、
-  指纹降级梯等本层不重复造的机制), 但代理归一改为调 `resolve_proxy`, 不再
-  各自写一遍 auto 判断与密码补全
+- `core/http.py` / `net/transport.py` — 保留各自实现 (session 预热、指纹降级梯
+  本层不重复造), 代理归一改成调 `resolve_proxy`
+- 新增出口一律走本层: 自己写 auto 判断或密码补全 = 又造出一条不受路由表约束的链
 
 ## 这一层负责什么
 

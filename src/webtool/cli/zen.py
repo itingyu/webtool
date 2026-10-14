@@ -103,7 +103,7 @@ def _unzipper(encoding):
 
     头既然照真机发了 `Accept-Encoding: gzip, deflate, br, zstd`, 上游哪天开始
     压缩就得能接住 —— 否则流式解析静默变乱码, 比报错更难查。
-    实测 (2026-10-15) 上游 SSE 不压缩 (Content-Encoding 空), 这里是兜底。
+    上游目前不压缩 SSE (Content-Encoding 空), 这里是兜底。
     gzip/deflate 走 stdlib 增量解; br/zstd 没有 stdlib 支持, 直接明确报错。
     """
     enc = (encoding or '').strip().lower()
@@ -383,14 +383,16 @@ def _route(cfg, url, verbose=False):
 
 
 def call_zen_on_route(model, prompt, cfg=None, verbose=False, **kw):
-    """按配置/路由表发一次 (推荐入口)。函数名曾叫 call_zen_direct_then_proxy,
-    那正是它早年的行为 —— 直连先打、失败换代理。现已不 failover: 线路由
-    `_route` 一次决定, 请求失败就是失败。保留旧名做别名以免改调用方漏掉。"""
+    """按配置/路由表发一次 (推荐入口)
+
+    别名 `call_zen_direct_then_proxy` 保留是为了不改调用方, 它的名字描述的是
+    已取消的 failover —— 线路由 `_route` 一次决定, 请求失败就是失败。
+    """
     return call_zen(model, prompt, proxy=_route(cfg, _endpoints()[0], verbose),
                     **kw)
 
 
-# 旧名: 语义已变 (不再 failover), 仅保留兼容
+# 旧名别名: 名字描述的是已取消的 failover, 只用于兼容调用方
 call_zen_direct_then_proxy = call_zen_on_route
 
 
@@ -455,9 +457,7 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
     status==200 的一律不重试 —— 流已经通了, 那是语义问题 (截断 / 要调工具),
     重试除了把已流出去的正文再打一遍没有任何意义。
 
-    线路在循环外一次定死 (cfg + 路由表)。曾经这里是 `proxy=None` 直连先打,
-    失败后调用方再走一遍代理 —— 于是走哪条线取决于它先在哪失败, 且代理明明
-    配好了还要先撞一次墙。
+    线路在循环外一次定死 (cfg + 路由表): 重试只重试同一条线, 不换线。
     """
     import sys
     last = None
@@ -600,7 +600,7 @@ def _brief_error(status, body):
 
 
 def _print_check(rows, fmt):
-    """--check 的实测结果: 能不能用要真调一次, 名字说明不了任何事"""
+    """--check 的结果: 真调一次才算数, 模型名说明不了任何事"""
     import json as _json
     if fmt == 'json':
         print(_json.dumps({'checked': rows, 'count': len(rows)},
@@ -796,8 +796,7 @@ def _do_zen(args, cfg):
                          reasoning_effort=getattr(args, 'think', None),
                          on_tool=on_tool,
                          max_tokens=getattr(args, 'max_tokens', None))
-    # 曾经这里失败后再 `call_zen_direct_then_proxy` 走一遍代理 —— 线路已在
-    # call_zen_retry 内一次定死, 重试也只重试同一条线, 不再换线。
+    # 线路已在 call_zen_retry 内一次定死, 重试只重试同一条线。
     if live:
         for kind, piece in splitter.flush():      # 收尾: 扣在缓冲里的尾巴
             if kind == 'think':

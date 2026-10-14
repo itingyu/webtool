@@ -17,8 +17,6 @@ ref_hosts) / 1.0 (其余)。原先 is_ad 走 ×0.2, 那个常数把广告留在�
 low_prior 与 blocklist 的分工: 克隆官网/洗稿/需登录的站硬过滤 (拉黑无
 争议); 无署名搬运、内容本身可用的站只降权 —— 硬过滤过重, 留在结果里让
 用户自行取用更合理。
-agree=1+0.15×(引擎数-1) 曾按引擎个数线性加成, 把"命中引擎多"与"引擎可信"
-混为一谈, 已由 pos 内的 base 加权取代。
 """
 import math
 import re
@@ -128,9 +126,8 @@ def rerank(results, query, use_semantic=True, apply_blocklist=True,
         sem_scores = {i: 1.0 for i in range(len(results))}
 
     cred = _engine_cred()
-    # 批级 base_avg: 按各引擎本次实际贡献的结果数加权。实测三引擎跑常规
-    # query 时稳定在 0.83-0.86 (bing 恒定贡献 10 条, 占比最大故拉稳均值),
-    # 单引擎批次则退化为该引擎自身的 base。
+    # 批级 base_avg: 按各引擎本次实际贡献的结果数加权; 单引擎批次退化为该引擎
+    # 自身的 base。
     _cnt = {}
     for r in results:
         e = r.get('engine')
@@ -140,16 +137,11 @@ def rerank(results, query, use_semantic=True, apply_blocklist=True,
     base_avg = (sum(cred.get(e, 0.8) * c for e, c in _cnt.items()) / _tot
                 if _tot else 0.8)
     for i, r in enumerate(results):
-        # 三因子: 先验(广告/词典) × 引擎可信度加权位置 × 语义相关性。
-        # entity(英文实体命中) 曾因影响甚微撤除; base 则从独立因子改为
-        # 位置分内的权重。
+        # 三因子: 先验(广告/词典) × 引擎可信度加权位置 × 语义相关性
         rank = r.get('rank', 10)
         # 位置分 = (1/log2(rank+1)) × base_avg, 再开根号。
         # base_avg 是批级量 (按各引擎本次贡献数加权), 单条只用自己的 rank
-        # 取对数衰减 —— 不再逐引擎算 pos 取平均, 那样等于把引擎可信度用了
-        # 两次 (once 在 base_avg, once 在逐条平均)。
-        # 原式 agree=1+0.15×(引擎数-1) 按引擎个数线性加成, 把"命中引擎多"
-        # 与"引擎可信"混为一谈, 已并入 base_avg。
+        # 取对数衰减 —— 别逐引擎算 pos 再平均, 那等于把引擎可信度用两次。
         pos = 1.0 / math.log2(rank + 1) * base_avg
         raw = sem_scores[i]
         # (1+√sem)/2 : 把 BM25 分压到 [0.5, 1.0]。直接用 raw 时零命中结果被

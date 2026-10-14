@@ -90,11 +90,9 @@ def target_kind(ctype, url=''):
 
 
 def _decode(data, headers):
-    """按响应头 charset 解字节
+    """按响应头 charset 解原始字节: 先信 Content-Type 里的 charset, 没写按 utf-8;
 
-    以前是 curl_cffi 的 r.text 替我们猜编码, 现在 raw 拿的是原始字节, 得自己来:
-    先信 Content-Type 里的 charset, 没写按 utf-8; utf-8 解出一堆替换字符 (中文站
-    常见 GBK 老页面) 再试 gbk —— 不猜就是满屏乱码, 猜错也只是个别字。
+    utf-8 解出一堆替换字符 (中文站常见 GBK 老页面) 再试 gbk。
     """
     if isinstance(data, str):
         return data
@@ -363,10 +361,8 @@ def _fetch_via_mcp(url, args, cfg, channel, timeout, prior=None, proxy=None):
     与本地链的差别: 对方用浏览器集群取回页面, 能过 JS 渲染与大部分反爬;
     代价是每次调用消耗端点配额 (Parallel 匿名免 key 但有速率上限)。
 
-    proxy 传进来而不是自己定: 远程 reader 和本地链打的是同一次请求的
-    两个出口, 线路该一致 (都按配置 + 路由表)。曾经这里不传, call_verb 的
-    默认值 proxy=None 生效 —— `--via exa/parallel/firecrawl` 无论怎么配
-    代理都直连, 而本地链却走代理, 同一个 URL 两条出口两种 IP。
+    proxy 传进来而不是自己定: 远程 reader 和本地链打的是同一次请求的两个出口,
+    线路必须一致 (都按配置 + 路由表), 否则同一个 URL 两条出口两种 IP。
     """
     t0 = time.time()
     tool_arg = _reader_arg(channel, url)
@@ -615,8 +611,7 @@ def _emit(r, args, single):
             line += '\n  没落盘 (原因见上一条); 换落点用 --save <文件或目录>'
         print(line, file=sys.stderr)
         return
-    # --raw 的产出放在 'html' 而不是 'content' —— 以前只在 json 分支认它, 于是
-    # `fetch --raw` (默认 md/txt) 打出个空行还退出码 0: 说好的原始 HTML 一个字没有。
+    # --raw 的产出放在 'html' 而不是 'content' —— 各格式分支都得认它
     if r.get('file'):
         print(f'已存: {r["file"]}', file=sys.stderr)
     body = r['html'] if 'html' in r else r.get('content', '')
