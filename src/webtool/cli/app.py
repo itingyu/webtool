@@ -242,8 +242,8 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
                                           help='传输指纹档案: chrome131_win/mac/linux/android, '
                                                'safari18_4_ios 等 (移动站/拿不到数据时试 android/ios)'),
               jobs: int = typer.Option(1, '--jobs',
-                                       help='下载用几条连接 (分片并发); 默认 1 '
-                                            '(对站点最客气), 大文件可 4~8; '
+                                       help='下载用几条连接 (分片并发, 最多 4); '
+                                            '默认 1 (对站点最客气), 大文件可 4; '
                                             '服务端不认 Range 会自动退回单连接'),
               progress: bool = typer.Option(None, '--progress/--no-progress',
                                             help='下载进度条; 默认只在终端里刷'

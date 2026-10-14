@@ -352,7 +352,8 @@ check(t4 < t1 / 2, f'限速链路 4 连接该快一倍以上 (实测 {t1:.1f}s �
 srv5.shutdown()
 
 check(dl._segments(10, 3) == [[0, 2], [3, 5], [6, 9]], '分段: 均匀切且不重不漏')
-check(dl._segments(1000001, 8)[-1][1] == 1000000, '最后一段吃到文件末尾')
+check(dl._segments(1000001, 4)[-1][1] == 1000000, '最后一段吃到文件末尾')
+check(dl.JOBS_MAX == 4, '连接数封顶 4 (再多收益被站点限速吃掉)')
 srv3.shutdown()
 srv4.shutdown()
 

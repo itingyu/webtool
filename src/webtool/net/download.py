@@ -278,7 +278,7 @@ def _download_single(url, path, opener, *, progress=None, t0=None, chunk=CHUNK,
 # 而磁盘偏移写入本来就支持并发写不相交区间: 直接把 .part 预分配成总大小,
 # 每段 seek 到自己的偏移写。失败时各段进度记在 meta 里, 续传只补没下完的部分。
 
-JOBS_MAX = 8
+JOBS_MAX = 4                   # 连接数封顶: 再多收益被站点限速吃掉, 且并发越高越像扫描
 MIN_SPLIT = 1024 * 1024        # 小于 1MB 不值得切, 切了也是连接开销占大头
 
 
