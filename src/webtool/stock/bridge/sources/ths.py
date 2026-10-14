@@ -118,11 +118,6 @@ class ThsSource(SourceBase):
         except Exception as e:
             return _err(str(e))
 
-    def ths_session(self) -> "requests.Session":
-        if self._ths is None:
-            self._ths = _ths_session(_ths_factory)
-        return self._ths
-
     def ths_industry_list(self, page: int = 1) -> dict:
         """行业板块列表 (返回 dict: {板块名: 涨跌幅%})"""
         try:

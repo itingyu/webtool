@@ -2,7 +2,6 @@
 stock-master scripts 顶层包
 """
 from webtool.stock.skill.scripts import (
-    fetchers,
     analysis,
     screening,
     sentiment,
@@ -11,7 +10,6 @@ from webtool.stock.skill.scripts import (
 )
 
 __all__ = [
-    "fetchers",
     "analysis",
     "screening",
     "sentiment",

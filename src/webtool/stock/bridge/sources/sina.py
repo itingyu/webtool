@@ -594,27 +594,6 @@ class SinaSource(SourceBase):
             return _ok({"count": len(rows), "rows": rows}, len(r.text))
         except Exception as e:
             return _err(str(e))
-        """新浪 K 线 (CN_MarketData.getKLineData, ma=no)
-
-        走 CN_MarketData.getKLineData + ma=no, size=11202 (茅台 100 根日 K);
-              CN_MarketDataService 返 Service not valid
-
-        返回 day/open/high/low/close/volume
-
-        scale: 5=5分钟, 15=15分钟, 30=30分钟, 60=60分钟, 240=日K, 1200=周K
-        """
-        try:
-            r = self._std.get(
-                "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData",
-                params={"symbol": _symbol.sina(symbol), "scale": scale, "ma": "no", "datalen": datalen},
-                timeout=self.BASE_TIMEOUT,
-            )
-            if r.status_code != 200:
-                return _err(f"status={r.status_code}", r.status_code)
-            data = r.json()
-            return _ok({
-                "symbol": symbol, "scale": scale, "count": len(data), "rows": data,
-            }, len(r.text))
         except Exception as e:
             return _err(str(e))
 

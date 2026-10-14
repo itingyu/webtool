@@ -208,49 +208,33 @@ check("clients.code_ok", lambda: C.code_ok("600121"))
 check("clients.web_search", lambda: C.web_search("上证指数 今日", 1), quick=True)
 
 # ============================================================
-# 6. fetchers 直连
+# 6. feeds 层直连 (生产路径: analysis/、screening/ 都走 feeds)
 # ============================================================
-section("6. fetchers 直连")
+section("6. feeds 直连")
 
-from webtool.stock.skill.scripts.fetchers import eastmoney as EM                       # noqa: E402
-from webtool.stock.skill.scripts.fetchers import sina as SA                            # noqa: E402
-from webtool.stock.skill.scripts.fetchers import xueqiu as XQ                          # noqa: E402
-from webtool.stock.skill.scripts.fetchers import ths as THS                            # noqa: E402
-from webtool.stock.skill.scripts.fetchers import cninfo as CN                          # noqa: E402
+from webtool.stock.skill.scripts import feeds as F                                     # noqa: E402
 
-check("eastmoney.quote", lambda: EM.quote("600519"))
-check("eastmoney.kline", lambda: EM.kline("600519", 20))
-check("sina.rank_list 涨幅榜", lambda: SA.rank_list(50, "changepercent"))
-check("sina.rank_list 成交额榜", lambda: SA.rank_list(30, "amount"))
-check("sina.market_list", lambda: SA.market_list(20))
-check("sina.get", lambda: SA.get("600519"))
-check("xueqiu.quote", lambda: XQ.quote("SH600519"))
-check("xueqiu.quote_batch", lambda: XQ.quote_batch(["600519", "600121"]))
-check("xueqiu.kline", lambda: XQ.kline("SH600519", count=30))
-check("xueqiu.industry", lambda: XQ.industry("SH600519"), quick=True)
-check("ths.industry_list", lambda: THS.industry_list(), quick=True)
-check("ths.industry_detail", lambda: THS.industry_detail("881101"), quick=True)
-check("cninfo.announcements", lambda: CN.announcements("600886", 30))
-check("cninfo.company_intro", lambda: CN.company_intro("600519"), quick=True)
-check("sina.changepercent_top", lambda: SA.changepercent_top(20), quick=True)
-check("sina.hq", lambda: SA.hq("sh600519"), quick=True)
-check("xueqiu.f10_company", lambda: XQ.f10_company("SH600519"), quick=True)
-check("xueqiu.f10_business", lambda: XQ.f10_business("SH600519"), quick=True)
-check("xueqiu.get_kline", lambda: XQ.get_kline("600519", count=10), quick=True)
+check("feeds.quote 单只", lambda: F.quote("600519"))
+check("feeds.quote 批量", lambda: F.quote(["600519", "600121"]))
+check("feeds.kline_list", lambda: F.kline_list("600519", count=30))
+check("feeds.rank_list 涨幅榜", lambda: F.rank_list("涨幅榜", 50))
+check("feeds.rank_list 成交额榜", lambda: F.rank_list("成交额榜", 30))
+check("feeds.announcements 平安银行", lambda: F.announcements("000001", 30))
+check("feeds.announcements 中信证券", lambda: F.announcements("600030", 30), quick=True)
+check("feeds.industry_rows", lambda: F.industry_rows(10), quick=True)
+check("feeds.industry_kline", lambda: F.industry_kline("881101"), quick=True)
+check("feeds.company_intro", lambda: F.company_intro("600519"), quick=True)
 
 
 def _kline_span():
     """K 线跨度必须按 count 反推自然日：否则请求 250 条只回 58 条，
     MA60/年线等长周期指标会静默算错（历史上正是这个坑）"""
-    n = len(XQ.kline("SH600519", count=250))
+    n = len(F.kline_list("600519", count=250)['items'])
     assert n >= 250, f"请求 250 条只回 {n} 条，跨度不足"
     return f"请求 250 → 实得 {n} 条"
 
 
-check("xueqiu.kline 跨度充足", _kline_span, quick=True)
-
-check("xueqiu.get_industry", lambda: XQ.get_industry("600519"), quick=True)
-check("ths.industry_kline", lambda: THS.industry_kline("881101"), quick=True)
+check("feeds.kline 跨度充足", _kline_span, quick=True)
 
 # ============================================================
 # 7. 分析层

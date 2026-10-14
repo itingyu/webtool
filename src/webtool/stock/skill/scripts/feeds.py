@@ -78,24 +78,45 @@ def industry(code):
 # ── 公告 / 资讯 ─────────────────────────────────────────────────────
 
 def announcements(code, days=7, keyword='', page=1):
-    """近 days 天公告; keyword 非空则当标题过滤 (fetchers 原签名)"""
+    """近 days 天公告; keyword 非空则当标题过滤 (fetchers 原签名)
+
+    源: 东财 np-anotice (稳)。巨潮 hisAnnouncement/query 对本沙盒出口
+    稳定回空 (orgId 查得到、公告列表恒 0 条, 已多轮复测), 巨潮只留作
+    cninfo_announcement 直调的后备。
+    """
     from datetime import datetime, timedelta
     c = client()
     end = datetime.now()
     start = end - timedelta(days=int(days))
-    r = c.cninfo_announcement(
-        code,
-        se_date=f'{start:%Y-%m-%d}~{end:%Y-%m-%d}',
-        page=page, page_size=30,
-    )
+    # 东财时间窗参数对部分时段不稳定 (9/14~10/14 窗口回 0, 无窗口有数据),
+    # 所以不带时间窗拉 30 条, 回来按 days 过滤 —— 30 条足够覆盖 7~30 天
+    r = c.np_notice_ann(code, page_size=30, page_index=page)
+    if not r.get('ok'):                       # 东财失败 → 回退巨潮
+        r = c.cninfo_announcement(
+            code, se_date=f'{start:%Y-%m-%d}~{end:%Y-%m-%d}',
+            page=page, page_size=30)
+        src = 'cninfo'
+    else:
+        src = 'em'
     out = []
-    for a in (r.get('data') or {}).get('announcements') or []:
-        title = a.get('announcementTitle') or a.get('title') or ''
-        if keyword and keyword not in title:
-            continue
-        out.append({'title': title,
-                    'date': _ann_date(a),
-                    'url': a.get('adjunctUrl') or ''})
+    if src == 'em':
+        for a in ((r.get('data') or {}).get('data') or {}).get('list') or []:
+            date = (a.get('notice_date') or '')[:10]
+            if date and date < f'{start:%Y-%m-%d}':
+                continue                       # 早于窗口, 丢
+            title = a.get('title') or ''
+            if keyword and keyword not in title:
+                continue
+            out.append({'title': title, 'date': date,
+                        'url': (a.get('attach_url') or '')})
+    else:
+        for a in (r.get('data') or {}).get('announcements') or []:
+            title = a.get('announcementTitle') or a.get('title') or ''
+            if keyword and keyword not in title:
+                continue
+            out.append({'title': title,
+                        'date': _ann_date(a),
+                        'url': a.get('adjunctUrl') or ''})
     return out
 
 
@@ -165,12 +186,29 @@ def ths_industry_rows(limit=10):
     链接, 所以 leader_code 恒为空, 调用方必须自己判空。
     """
     import re
-    r = client()._ths_data(
-        '/thshy/index/field/199112/order/desc/page/1/ajax/1/free/1/',
-        host='q.10jqka.com.cn')
-    if not r.get('ok'):
+    c = client()
+    r = c._ths_data('/thshy/index/field/199112/order/desc/page/1/ajax/1/free/1/',
+                    host='q.10jqka.com.cn')
+    html = (r.get('data') or {}).get('html') or ''
+    if not html:
+        # q 站偶发回 401 验证页 (html 为空), 换 v cookie 重试一次
+        # (实测带 Cookie: v=xxx 可过, sources 层会话缺这个头)
+        import requests as _rq
+        from webtool.stock.bridge.sources import _routing
+        s = _rq.Session()
+        s.proxies = _routing.proxies_for('https://q.10jqka.com.cn/') or {}
+        s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                          'Referer': 'https://q.10jqka.com.cn/',
+                          'Cookie': 'v=04c14a7127bb44e8b1d99bcbd2735b30'})
+        try:
+            resp = s.get('https://q.10jqka.com.cn/thshy/index/field/199112/'
+                         'order/desc/page/1/ajax/1/free/1/', timeout=10)
+            if resp.status_code == 200 and len(resp.content) > 1000:
+                html = resp.content.decode('gbk', errors='replace')
+        except Exception:
+            pass
+    if not html:
         return []
-    html = r['data'].get('html') or ''
     m = re.search(r'<tbody.*?</tbody>', html, re.S)
     if not m:
         return []
