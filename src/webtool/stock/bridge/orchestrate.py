@@ -2,9 +2,9 @@
 
 ## 它是什么
 
-`financials` / `news` / `announcement` / `capital_flow` 这些动作不能只打一个
-源: 腾讯快但字段少、雪球字段全但要指纹会话、东财稳但慢。所以每个动作声明一串
-`(源名, 取数闭包)`, 按序尝试, 取首个通过质检的结果:
+每个动作声明一串 `(源名, 取数闭包)`, 按序尝试, 取首个通过质检的结果:
+"HTTP 200 + 合法 JSON" 不等于有数据 (封禁页、空 SPA), `_fallback` 因此除
+`ok` 外还查 NaN/空 —— 否则会把"成功"的空壳当真数据往下传。
 
     ops = [("tencent", lambda: c.tencent_a(sym["tencent_a"])),
            ("xueqiu",  lambda: c.xueqiu_quote(sym["xq"])),
@@ -30,13 +30,8 @@
 ## 怎么调
 
 经 `bridge/srv.py` 的 `call('stock_xxx', params)` —— 它按命名约定找到本模块的
-`t_stock_xxx` 并直接调用。纯进程内: 不起子进程、不走协议握手、结果不在信封里
-JSON 编码再解回来。
-
-## 质检为何必要
-
-某些源"HTTP 200 + 合法 JSON"却没数据 (封禁页、空 SPA)。`_fallback` 因此不
-只看 `ok`, 还查 NaN/空 —— 否则会拿到一个"成功"的空壳并当作真数据往下传。
+`t_stock_xxx` 并直接调用, 纯进程内 (不起子进程、不走协议握手、结果不在信封里
+JSON 编解码)。
 """
 
 from __future__ import annotations

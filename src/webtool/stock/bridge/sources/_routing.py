@@ -1,28 +1,19 @@
 """数据源出网策略 —— 代理/证书/UA 全部由 `netx` 的规则表决定
 
-## 为什么数据源层要接规则表
-
-`requests.Session()` 与 `curl_cffi` 会话若直接出网, 代理、证书策略、
-`proxy_auth` 保险库一律不生效 —— 用户在 `~/.webtool/config.json` 写的路由规则
-(境内直连/境外走代理) 就管不到这一百五十多个方法。规则表必须覆盖全部出口,
-所以这层的会话统一挂适配器。
-
 ## 怎么接的
 
 策略决策全部委托 `netx` (`resolve_proxy` / `tls.policy` / `default_headers`),
 本模块只做一件事: **按目标 URL 把决策结果套到具体会话上**。
 
-关键点是代理**不能绑在 session 上**。`requests` 支持请求级 `proxies=`, 所以
-`SourceBase._std` 一份 session 就够, 每次请求现算:
+代理**必须按请求给, 不能绑在 session 上**: `requests` 支持请求级 `proxies=`,
+所以 `SourceBase._std` 一份 session 就够, 每次现算:
 
     self._std = requests.Session()          # 无代理, 干净
     ...
     r = self._std.get(url, proxies=netx.pxies_for(url))   # 每请求按域名算
 
-若把代理写进 `session.proxies`, 一条 session 就只能服务一个出口, 而
-数据源层同时打十余个域名, 路由表就失去了逐域名决策的能力。
-
-`curl_cffi` 会话 (雪球 TLS 指纹) 同理 —— `proxies=` 是请求级参数。
+写进 `session.proxies` 的话一条 session 只能服务一个出口, 而数据源层同时打
+十余个域名, 逐域名决策就没了。`curl_cffi` 会话 (雪球 TLS 指纹) 同理。
 
 ## 覆盖方式
 
@@ -33,8 +24,7 @@
 3. 未指定 / `'auto'` (默认) —— 逐 URL 问 `~/.webtool/config.json` 的规则表
 
 选线**只由 config.json + rules.json 决定**: 代码里不写死线路, 也不留环境变量旁路
-(曾经有过 STOCK_DIRECT_DOMAINS 直连名单和 STOCK_PROXY 兜底, 都是同一件事的第二个
-决策源 —— 它们会与配置文件打架, 且用户改配置改不动, 已删)。要临时直连用
+(第二、第三个决策源会与配置打架, 且用户改配置改不动)。要临时直连用
 `webtool --no-proxy`。
 
 ## 默认 UA

@@ -8,9 +8,8 @@
     c.em_f10_balance('600519.SH')     # 方法名不变, 上层零改动
 
 `APIClient` 只是把各源 mixin 合到一个类上, 所以:
-  - 156 个方法: 拆包前那份逐字对应, 另加 `_provenance` 记录的 3 个, 以及
-    从 stock-master 技能并进来的 2 个 (`gtimg_quote_flat` / `em_zt_pool`)
-  - session 只有一份 (`SourceBase.__init__`), token 与 cookie 缓存仍共享
+  - 方法清单按源分组见 `webtool stock data list api` (现 156 个)
+  - session 只有一份 (`SourceBase.__init__`), token 与 cookie 缓存共享
   - 新增一个源 = 加一个 `sources/<源>.py`, 这里加一行 mixin, 别处不动
 
 ## 源清单
@@ -18,11 +17,10 @@
 | 模块 | 源 | 方法数 |
 |---|---|---|
 | `ths.py` | 同花顺 (v cookie 反爬) | 35 |
-| `em.py` | 东方财富 (ut token) | 33 |
+| `em.py` | 东方财富 (ut token) | 34 |
 | `xueqiu.py` | 雪球 (TLS 指纹) | 31 |
-| `sina.py` | 新浪财经 + 腾讯行情 CDN | 29 |
+| `sina.py` | 新浪财经 + 腾讯行情 CDN (gtimg) | 29 |
 | `tencent.py` | 腾讯财经 | 9 |
-| `gtimg_*` | 已并入 `sina.py` (实际域名是新浪) | — |
 | `cninfo.py` | 巨潮资讯 | 6 |
 | `csindex.py` | 中证指数 | 4 |
 | `sse.py` | 上交所 | 3 |

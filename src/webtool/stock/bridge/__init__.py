@@ -1,9 +1,4 @@
-"""取数桥: 只回答"数据怎么到手", 不知道 CLI 与能力域的存在
-
-下沉前, 七个桥模块与 `command.py` 平级, 于是 CLI 层被迫 import 七个文件、
-维护六路 except。分层的意义是"上管意图、下管取数", 边界该画在职责上而不是
-文件位置上 —— 所以这一层整体沉到 `stock/bridge/`, 能力域 (`stock/domains/`)
-只管"用户要什么", CLI 只管参数与输出。
+"""取数桥: 只回答"数据怎么到手", 不涉及 CLI 与能力域
 
 ## 用法
 
@@ -25,7 +20,7 @@
 | `srv.py` | stock 数据桥 (进程内直调 handler) | 24 个高阶聚合工具, 带 fallback 链 |
 | `engine.py` | engine 脚本层 | 行情/涨停池/选股/评分/研报 |
 | `eco.py` | akshare/tushare/baostock/efinance | 长尾 + 宏观 + 全球 |
-| `em.py` | 东财 datacenter 配方 | 123 条 reportName 泛化调用 |
+| `em.py` | 东财 datacenter 配方 | 122 条 reportName 泛化调用 |
 | `docs.py` | 逆向接口文档 (纯本地) | 底层 URL/参数/字段含义 |
 | `http.py` | 裸 HTTP | 已封装之外自己打 |
 

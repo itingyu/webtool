@@ -172,13 +172,10 @@ def rerank(results, query, use_semantic=True, apply_blocklist=True,
     # 算完再过滤: prior=0 的广告与黑名单站 weight 必为 0, 在此一并剔除 ——
     # 它们进 merge 前不做剔除, 以便参与去重 (多引擎命中的同一页能完整合并
     # engines, 不留半条结果)。weight_floor 另兜底位置分与相关性双低的尾部。
-    # (原 n_zero 零分计数已无消费方, 阈值由 floor 公式直接决定)
     # 阈值按 n 动态算: n = min(用户要的条数, 去重过滤后实际条数)。
     # floor = √(pos(n) × base_avg) × 0.5, 即"排在第 n 位的结果可能拿到的
     # 最低权重" —— 低于它的说明位置与相关性双低, 属尾部噪声。
-    # base_avg 已归入 pos, 此处沿用同一量纲; ×0.5 是 sem 的下限。
-    # n < 3 时不启用: 候选太少时任何阈值都是噪声 (n=2 时一条正常结果就可能
-    # 落在理论下界之下), 不如原样返回。
+    # n < 3 时不启用: 候选太少时任何阈值都是噪声, 不如原样返回。
     n = len(results)
     if max_n:
         n = min(max_n, n)

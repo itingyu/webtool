@@ -4,8 +4,8 @@
 
 代理 URL 形如 `http://user:pass@host:port`, 直接存进 `config.json` 有三个
 问题: 明文落盘 (谁拿到这个 json 就拿到账号)、版本管理/日志/报错里外泄、
-以及 `webtool proxy get` 直接把密码打在屏幕上。原代码里 rank/zen 的错误串
-还会拼进完整代理 URL, 密码会进到 CLI 输出与用户贴的 issue 里。
+以及 `webtool proxy get` 直接把密码打在屏幕上 —— 错误串一旦拼进完整代理 URL,
+密码就会进到 CLI 输出与用户贴的 issue 里。
 
 ## 存法
 
