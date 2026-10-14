@@ -446,10 +446,10 @@ def _data_search_all(kw, lib, limit):
         cats = _raw.categories()
         hit = _raw.by_alias(cats, kw)
         if hit is not None:
-            grp = _raw.methods_by_function(hit['code'])
-            out['sources']['api'] = {'count': grp['count'], 'category': hit,
-                                     'methods': grp['methods']}
-            total += grp['count']
+            ms = list(hit['primary']) + list(hit['fallback'])
+            out['sources']['api'] = {'count': len(ms), 'category': hit,
+                                     'methods': ms}
+            total += len(ms)
         else:
             idx = _raw.methods_by_source()
             found = {m: f"{src}" for src, ms in idx.items() for m in ms
@@ -473,12 +473,80 @@ def _data_search_all(kw, lib, limit):
     return out
 
 
+# ===== data 域路由表 (唯一事实来源) =====
+# 域名 → (说明, api 层功能分类名, eco 层接口名正则)
+# api 层分类名来自 rawapi.categories() 的别名; eco 正则匹配 akshare/efinance 接口名。
+# 约定: 一个接口只归一个域, 按表序先命中先用 —— 表序即优先级。
+_DATA_DOMAINS = {
+    '行情':    ('实时/历史行情, 指数点位', '行情快照',
+               r'stock_zh_a_(spot|hist|minute|tick)|stock_zh_index|index_zh_a'
+               r'|stock_bid|stock_individual_info|stock_sh_|stock_sz_|stock_bj_'
+               r'|stock_hk_(spot|hist)|stock_us_(spot|hist)|stock_spot'),
+    '龙虎榜':  ('龙虎榜/营业部/机构席位', '排行选股', r'lhb'),
+    '资金流':  ('主力/北向/两融资金', '资金流向',
+               r'fund_flow|money_flow|hsgt|margin|north|capital|stock_em_hy'
+               r'|stock_sector_fund'),
+    '财报':    ('三大报表/财务指标/业绩', '财务报表',
+               r'indicator|report_|financial|balance|income|cashflow'
+               r'|yysr|profit|zcfzb|xjllb|yjbb|yjkb|performance'),
+    '股东':    ('十大股东/高管/股本', '股东股本',
+               r'holder|shareholder|gdfx|gdhs|sharehold|restricted|unlock'
+               r'|equity_change'),
+    '板块':    ('行业/概念板块与成分', '板块行业',
+               r'board|bk_|sector|industry|concept|stock_board'),
+    '选股排行': ('排行/筛器/涨幅榜', '排行选股',
+               r'rank|screen|top|screener|top_list|stock_zt|stock_dt'
+               r'|stock_tfp|stock_dxsyl|stock_hot'),
+    '公告资讯': ('公告/新闻/研报/电话会', '公告资讯',
+               r'notice|announcement|news|info_|telegraph|report_'
+               r'|research|stock_reply|conference'),
+    '债券基金': ('债券/基金/ETF/理财', '其他/入口',
+               r'bond_|cb_|fund_|etf|lof|convert|amc|amac'),
+    '期货期权': ('期货/期权/贵金属', '其他/入口',
+               r'futures|option|zh_|gue|gold|spot_goods|energy'),
+    '外汇数字币': ('外汇/汇率/加密货币', '其他/入口',
+               r'forex|currency|fx_|crypto|btc|coin'),
+    '宏观':    ('宏观/行业景气/全球指标', '其他/入口',
+               r'macro|gdp|cpi|ppi|pmi|china_|global|sw_|air_|movie|car'
+               r'|energy_calendar|article_|fred|sunrise|migration|nlp|bank_'),
+    '全球市场': ('港股/美股/中概/全球指数', '指数成分',
+               r'hk_|us_|sk_|world|global_idx|usstock|hf_sp|qdii|reits'),
+    '指数':    ('中外指数点位/成分/编制', '指数成分',
+               r'^index_|_index$|index_value|index_detail'),
+    '其他':    ('工具/配置/不便归类', '其他/入口', r'.')
+}
+
+def _domain_of_eco(name):
+    """eco 接口名 → 域名 (表序先命中先用)"""
+    for dom, (_desc, _cat, pat) in _DATA_DOMAINS.items():
+        if re.search(pat, name):
+            return dom
+    return None
+
+def _data_domain_names():
+    return list(_DATA_DOMAINS)
+
+
 def _act_data_find(args, cfg):
-    """data find <关键词>: 四类目录一次搜 (eco/api/em/docs), 结果带来源"""
+    """data find <关键词>: 四类目录一次搜 (eco/api/em/docs), 结果带来源
+
+    域内搜索 (data 行情 find 茅台): eco 结果按该域正则过滤, 结果标注 domain。
+    """
     kw = ' '.join(list(args.codes or [])).strip() or (args.keyword or '').strip()
     if not kw:
         raise ValueError('data find 需要关键词, 例: webtool stock data find 龙虎榜')
     out = _data_search_all(kw, args.lib, args.limit or 10)
+    # 域内搜索: 过滤 eco 结果到本域
+    dom = getattr(args, '_data_domain', None)
+    if dom and dom in _DATA_DOMAINS and 'eco' in out.get('sources', {}):
+        pat = _DATA_DOMAINS[dom][2]
+        eco_src = out['sources']['eco']
+        hits = eco_src.get('hits') or {}
+        eco_src['hits'] = {lib: [f for f in fs if re.search(pat, f)]
+                           for lib, fs in hits.items()}
+        eco_src['count'] = sum(len(v) for v in eco_src['hits'].values())
+        eco_src['domain'] = dom
+        out['count'] = eco_src['count']
     # 逆向文档检索收尾补上 (独立于 _data_search_all, docs 接口是分册/全文两层)
     try:
         from webtool.stock.bridge import docs as _docs
@@ -546,9 +614,76 @@ def _act_data_url(args, cfg):
     return df
 
 
+def _data_domain_overview(dom, limit=15):
+    """单域导航: 该域下 api / eco / em 各有哪些接口 (限量预览)"""
+    desc, cat, pat = _DATA_DOMAINS[dom]
+    out = {'domain': dom, 'desc': desc, 'sources': {}}
+    # api 层: 按功能分类 (cat 是分类 code, 如 quote/financial)
+    try:
+        c = _raw.categories().get(cat)
+        if c:
+            ms = list(c['primary']) + list(c['fallback'])
+            out['sources']['api'] = {'count': len(ms), 'methods': ms[:limit]}
+    except Exception as e:                                  # noqa: BLE001
+        out['sources']['api'] = {'error': f'{type(e).__name__}: {e}'}
+    # eco 层: 按接口名正则 (akshare 为主); '其他' 是兜底域 = 全集减去已归类域
+    try:
+        fs = _eco.funcs('akshare')
+        if dom == '其他':
+            claimed = set()
+            for d2, (_d, _c, p2) in _DATA_DOMAINS.items():
+                if d2 != '其他':
+                    claimed.update(f for f in fs if re.search(p2, f))
+            hit = [f for f in fs if f not in claimed]
+        else:
+            hit = [f for f in fs if re.search(pat, f)]
+        out['sources']['eco_akshare'] = {'count': len(hit),
+                                         'funcs': hit[:limit]}
+    except Exception as e:                                  # noqa: BLE001
+        out['sources']['eco_akshare'] = {'error': f'{type(e).__name__}: {e}'}
+    # em 配方: 复用全域搜
+    try:
+        from webtool.stock.bridge import em as _em
+        reps = _em.list_reports(dom, limit=limit)
+        n = reps.get('count') or 0
+        if n:
+            out['sources']['em'] = {'count': n, 'reports': reps}
+    except Exception as e:                                  # noqa: BLE001
+        out['sources']['em'] = {'error': f'{type(e).__name__}: {e}'}
+    out['usage'] = {
+        f'data {dom} find 关键词': '域内再搜',
+        f'data {dom} call 接口名': '域内调用 (同 data call 路由)',
+    }
+    return out
+
+
 def _act_data_list(args, cfg):
-    """data list [eco|api|em]: 各层清单 (默认 eco/akshare)"""
-    what = (args.method or (list(args.codes) or ['eco'])[0] or 'eco').lower()
+    """data list [域|eco|api|em]: 按域或按层列清单
+
+    data list            → 12 个功能域导航 (每域多少接口)
+    data list 行情        → 该域下 api/eco/em 明细
+    data list api|eco|em → 按层 (旧行为)
+    """
+    what = (args.method or (list(args.codes) or [''])[0] or '').lower()
+    if what in _DATA_DOMAINS:
+        args.codes = list(args.codes)[1:]
+        return _data_domain_overview(what, args.limit or 15)
+    if not what:
+        # 域总览: 每域 api+eco 接口数; '其他' 用差集 (兜底域不重复计数)
+        eco_fs = _eco.funcs('akshare')
+        claimed = set()
+        rows = {}
+        for dom, (desc, _cat, pat) in _DATA_DOMAINS.items():
+            if dom == '其他':
+                eco_n = len(eco_fs) - len(claimed)
+            else:
+                hit = set(f for f in eco_fs if re.search(pat, f))
+                claimed |= hit
+                eco_n = len(hit)
+            rows[dom] = {'desc': desc, 'eco_akshare': eco_n}
+        return {'domains': rows,
+                'note': 'data list <域> 看明细; 也可跨域: data find 关键词'}
+    what = what or 'eco'
     if what in ('api', 'source', 'sources'):
         ms = _raw.methods_by_source()
         return {'layer': 'api', 'count': sum(len(v) for v in ms.values()),
@@ -577,11 +712,12 @@ def _act_data(args, cfg):
     webtool stock data list api|eco|em
     webtool stock data health
     """
-    sub = ((list(args.codes) or [''])[0] or '').lower()
+    codes = list(args.codes) if args.codes else []
+    sub = (codes[0] if codes else '').lower()
     subs = {'find': _act_data_find, 'call': _act_data_call, 'url': _act_data_url,
             'list': _act_data_list, 'health': _act_data_health}
     if sub in subs:
-        args.codes = list(args.codes)[1:]
+        args.codes = codes[1:]
         if sub == 'find' and not args.keyword:
             args.keyword = ' '.join(args.codes)
             args.codes = []
@@ -589,6 +725,22 @@ def _act_data(args, cfg):
             args.method = args.codes[0]
             args.codes = args.codes[1:]
         return subs[sub](args, cfg)
+    # 第二词是功能域 → 域内路由
+    if codes and codes[0] in _DATA_DOMAINS:
+        dom, rest = codes[0], codes[1:]
+        sub2 = (rest[0] if rest else '').lower()
+        args._data_domain = dom
+        args.codes = rest[1:] if sub2 in ('find', 'call', 'url') else rest
+        if sub2 == 'find':
+            args.keyword = args.keyword or ' '.join(args.codes)
+            args.codes = []
+            return _act_data_find(args, cfg)
+        if sub2 == 'call':
+            return _act_data_call(args, cfg)
+        if sub2 == 'url':
+            return _act_data_url(args, cfg)
+        # 无子动词 → 域导航
+        return _data_domain_overview(dom, args.limit or 15)
     return _data_nav()
 
 
@@ -596,18 +748,23 @@ def _data_nav():
     h = _eco.health()
     eco_n = sum(h.get(l, {}).get('funcs', 0)
                 for l in ('akshare', 'tushare', 'baostock', 'efinance'))
+    eco_fs = _eco.funcs('akshare')
+    domains = {dom: {'desc': desc,
+                     'eco': len([f for f in eco_fs if re.search(pat, f)])}
+               for dom, (desc, _c, pat) in _DATA_DOMAINS.items()}
     return {
         'usage': {
-            'data find <关键词>': '一次搜 eco/api/em/docs 四类目录, 结果带来源',
-            'data call <名称> [--arg k=v]': '按名调 (em 配方 → api 方法 → eco 接口)',
-            'data url <URL> [--post]': '裸 HTTP 直调, 反爬已内置 (--raw 转 JSON)',
-            'data list [eco|api|em]': '清单, 例: data list api / data list eco --lib tushare',
-            'data health': '数据面体检 (api/eco/em + 出网路由)',
+            'data <域> [find|call|url] ...': '按功能域取数, 12 个域见 domains',
+            'data find <关键词>': '跨域一次搜 eco/api/em/docs',
+            'data call <名称>': '按名调 (em 配方 → api 方法 → eco 接口)',
+            'data url <URL>': '裸 HTTP 直调, 反爬已内置',
+            'data list [域|api|eco|em]': '域清单或层清单',
+            'data health': '数据面体检',
         },
-        'counts': {'eco': eco_n, 'api': len(_raw.methods()),
-                   'orchestrated_actions': 24},
-        'note': '不知道接口叫什么 → data find; 知道名字 → data call; '
-                '都封装不了 → data url',
+        'domains': domains,
+        'counts': {'eco_akshare': eco_n, 'api': len(_raw.methods())},
+        'note': '不知道接口叫什么 → data <域> 或 data find; '
+                '知道名字 → data call; 都封装不了 → data url',
     }
 
 
@@ -868,15 +1025,21 @@ USAGE = """用法: webtool stock <动作> [参数]
   mcp <动作名> [--arg k=v]     透传调用, 例: webtool stock mcp stock_indicators --arg symbol=600519
   tools [关键词]               列动作清单
 
-通用取数入口 (2300+ 接口全从这里进; 不知道接口叫什么 → find, 知道名字 → call)
-  data                          入口导航 (各层多少接口, 各子动作管什么)
-  data find <关键词>            一次搜四类目录 (eco/api/em配方/docs), 结果带来源
+通用取数入口 (按 15 个功能域组织, 1300+ 接口全从这里进)
+  data                          入口导航 (15 个域, 各域接口数)
+  data list                     域总览 (每域多少接口)
+  data list <域>                域内明细 (api 分类 + eco 接口 + em 配方)
+                                例: data list 行情 / data list 龙虎榜
+  data <域> find <关键词>       域内搜, 例: data 行情 find 茅台 / data 龙虎榜 find lhb
+  data find <关键词>            跨域搜四类目录 (eco/api/em配方/docs), 结果带来源
   data call <名称> [--arg k=v]  按名调, 分发顺序: em 配方 → api 方法 → eco 接口
                                 例: data call RPT_LICO_FN_CPD --arg date=20260331
                                     data call sse_yunhq_snap --arg code=sh600519
   data url <URL> [--post] [--pick data.0.quote]   裸 HTTP 直调 (反爬已内置)
-  data list [api|eco|em] [--lib akshare]          各层清单
   data health                 数据面体检 (api/eco/em + 各库出网路由探测)
+
+  域: 行情 龙虎榜 资金流 财报 股东 板块 选股排行 公告资讯 债券基金
+      期货期权 外汇数字币 宏观 全球市场 指数 其他
 
 生态库 (akshare 1093 / tushare 122 / baostock 29 / efinance 55 —— 实数以 data health 为准)
   注: efinance 是子模块结构, 接口名带前缀 (stock.get_quote_history / fund.get_base_info)
