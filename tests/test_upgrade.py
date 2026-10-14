@@ -178,8 +178,14 @@ def main():
     import types as _types
     _real_sub = _up.subprocess
     _real_du = _up._direct_url
-    _up._direct_url = lambda: json.dumps(
-        {'vcs_info': {'url': 'https://example.com/w', 'commit_id': 'a' * 40}})
+    _REAL = {'url': 'https://example.com/w',          # PEP 610 真实形状: 顶层 url
+             'vcs_info': {'vcs': 'git', 'commit_id': 'a' * 40,
+                          'requested_revision': None}}
+    _up._direct_url = lambda: json.dumps(_REAL)
+    check(_up._vcs_url(json.dumps(_REAL)) == 'https://example.com/w',
+          'VCS 安装的仓库地址取自顶层 url (vcs_info 里常常没 url)')
+    check(_up._vcs_url('{"url": "file:///x", "dir_info": {"editable": true}}')
+          is None, '本地/editable 装法不算 VCS')
     _up.subprocess = _types.SimpleNamespace(
         run=lambda *a, **k: _types.SimpleNamespace(
             returncode=0, stdout='b' * 40 + '\tHEAD\n', stderr=''),
@@ -202,8 +208,7 @@ def main():
     check(_up.vcs_status() is None, '非 git 装法直接跳过这一步')
 
     # check 把两者合起来: 版本号说最新, 但远端有新提交 → behind
-    _up._direct_url = lambda: json.dumps(
-        {'vcs_info': {'url': 'https://example.com/w', 'commit_id': 'a' * 40}})
+    _up._direct_url = lambda: json.dumps(_REAL)
     _up.subprocess = _types.SimpleNamespace(
         run=lambda *a, **k: _types.SimpleNamespace(
             returncode=0, stdout='b' * 40 + '\tHEAD\n', stderr=''),

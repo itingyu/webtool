@@ -36,7 +36,12 @@ def _vcs_info(raw):
     except ValueError:
         return {}
     info = d.get('vcs_info') or {}
-    url = (info.get('url') or '').strip()
+    if not info:
+        return {}                     # dir_info (本地/editable) 不算 VCS 安装
+    # PEP 610: 仓库地址在顶层 url; vcs_info.url 只在两者不一致时才给 (如装的时候
+    # 用的 ssh 地址、记录的是 https)。真实报文里 vcs_info 往往只有 commit_id ——
+    # 只看 vcs_info.url 会认不出 git 装法 (这个坑实测踩过)。
+    url = (info.get('url') or d.get('url') or '').strip()
     if not url:
         return {}
     return {'url': url, 'commit': (info.get('commit_id') or '').strip()}
