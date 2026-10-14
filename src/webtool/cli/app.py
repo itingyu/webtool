@@ -108,9 +108,14 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='text'):
             # 会绕过这里的转换。
             raise _UsageError(
                 f'缺少依赖 {e.name or e}; 股票能力装: pip install "webtool[stock]"')
-    if rc not in (0, None):
-        return rc
     from webtool.cli.adminfmt import adapt
+    if rc not in (0, None):
+        # 与数据命令同理: 报告已经打出来了, 退出码只是"有没有可用结果"的判据
+        # (如 upgrade --check 有新版就退 1), 别把报告一起吞掉。
+        out = buf.getvalue()
+        if out.strip():
+            emit(adapt(out, out_fmt), out_fmt, output)
+        return rc
     return emit(adapt(buf.getvalue(), out_fmt), out_fmt, output)
 
 
@@ -121,6 +126,7 @@ _CTX = {}
 def _main(ctx: typer.Context,
           proxy: str = typer.Option(None, '--proxy', help='临时代理, 覆盖配置文件'),
           no_cache: bool = typer.Option(False, '--no-cache', help='跳过缓存')):
+    # --version / -V 不在 click 层, 由 main() 预扫 (子命令后面也能用), 见 main
     _CTX.clear()
     _CTX.update(proxy=proxy, no_cache=no_cache, args=SimpleNamespace())
 
@@ -424,6 +430,79 @@ def blocklist_cmd(action: str = typer.Argument(..., help='show/add/remove/reset'
     return _run(None, fn, fmt, output, False, False)
 
 
+def _pip_proxy_env():
+    """pip/git 是子进程, 代理只能靠环境变量给 —— 但如果拿我们自研的 httpx
+    专家库那套再包一层就等于给自己加坑, 所以直接问 netx, 它负责看 rules.json。"""
+    from webtool.net import netx
+    route = netx.resolve_proxy('auto', 'https://github.com')
+    if not route:
+        # 规则表判为直连: 明确让它别用环境里可能存在的代理
+        return {'NO_PROXY': '*', 'no_proxy': '*'}
+    return {'HTTP_PROXY': route, 'HTTPS_PROXY': route, 'ALL_PROXY': route,
+            'http_proxy': route, 'https_proxy': route, 'all_proxy': route,
+            'NO_PROXY': '', 'no_proxy': ''}
+
+
+def _upgrade_run(check_only, spec, fmt, output):
+    """upgrade 与别名 update 共用 (实现只一处)"""
+    a = _CTX['args']
+    a.check_only, a.spec = check_only, spec
+
+    def fn(args, cfg):
+        import json as _json
+        from webtool.core import upgrade as _up
+        want_json = (args.format or '') == 'json'
+        env = _pip_proxy_env()
+        spec = args.spec or None
+        if args.check_only:
+            info = _up.check(spec, env_extra=env)
+            print(_json.dumps(info, ensure_ascii=False, indent=2) if want_json
+                  else _up.describe(info))
+            # 退出码给脚本用: 0 已最新 / 1 有新版本 / 2 判不出来
+            return {'up_to_date': 0, 'behind': 1}.get(info['state'], 2)
+        res = _up.upgrade(spec, env_extra=env)
+        if want_json:
+            print(_json.dumps(res, ensure_ascii=False, indent=2))
+        else:
+            for line in res['log']:
+                print(line)
+        return 0 if res['ok'] else 1
+    return _run(None, fn, fmt, output, False, False)
+
+
+@app.command('upgrade')
+def upgrade_cmd(check_only: bool = typer.Option(False, '--check', help='只问 pip 有没有新版, 不装'),
+                from_: str = typer.Option(None, '--from', help='换升级源 (任意 pip spec, 如 git+https://… 或包名)'),
+                fmt: str = Fmt, output: str = Output):
+    """升级 webtool (走 pip, 代理按 rules.json; 别名 update)
+
+    --check 退出码: 0 已最新 / 1 有新版本 / 2 判不出来 (pip 或网络不通)
+    """
+    return _upgrade_run(check_only, from_, fmt, output)
+
+
+@app.command('update', hidden=True)          # 顺手给个别名, 老习惯能撞上
+def update_cmd(check_only: bool = typer.Option(False, '--check'),
+               from_: str = typer.Option(None, '--from'),
+               fmt: str = Fmt, output: str = Output):
+    """(别名) 同 upgrade"""
+    return _upgrade_run(check_only, from_, fmt, output)
+
+
+@app.command('version')
+def version_cmd(fmt: str = Fmt, output: str = Output):
+    """版本与运行环境 (Python/平台/代码路径/关键依赖), 报障时贴这个"""
+    def fn(args, cfg):
+        from webtool.core import version as _v
+        if (args.format or '') == 'json':
+            import json
+            print(json.dumps(_v.info(), ensure_ascii=False, indent=2))
+        else:
+            print(_v.describe())
+        return 0
+    return _run(None, fn, fmt, output, False, False)
+
+
 @app.command('config')
 def config_cmd(action: str = typer.Argument(..., help='list/get/set/unset'),
                key: str = typer.Argument(None),
@@ -536,11 +615,15 @@ def main(argv=None):
     standalone_mode=False 让 click 把用法错误抛成 UsageError 而非自退,
     这里统一转成 stderr 提示 + rc 2。
     """
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # --version/-V 在 click 解析前先扫: 放在子命令后面 (webtool zen --version)
+    # click 会当作未知选项报错, 而用户想看的只是版本号。
+    if '--version' in argv or '-V' in argv:
+        from webtool.core import version as _v
+        print('webtool %s' % _v.get_version())
+        return 0
     try:
-        if argv is None:
-            rc = app(standalone_mode=False, prog_name='webtool')
-        else:
-            rc = app(args=argv, standalone_mode=False, prog_name='webtool')
+        rc = app(args=argv, standalone_mode=False, prog_name='webtool')
         return rc if isinstance(rc, int) else 0
     except (typer.Exit, SystemExit) as e:      # --help / --version
         code = e.code if isinstance(e, SystemExit) else e.exit_code

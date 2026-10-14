@@ -6,8 +6,16 @@
 
 ```bash
 pip install 'git+https://github.com/itingyu/webtool'
-# 依赖含 trafilatura / curl_cffi / pysocks 等, 随安装自动装
+# 核心依赖 (trafilatura / curl_cffi / pysocks / typer / certifi …) 随安装自动装
+
+pip install 'webtool[full]'    # 全功能: secrets + geoip + stock
+pip install 'webtool[stock]'   # 只要股票能力 (requests/pandas/numpy/urllib3/efinance/openpyxl)
 ```
+
+依赖声明在 `pyproject.toml`（**唯一权威**，`pip install` 会按它自动装；可选功能走 extras）。
+`requirements.txt` / `requirements-full.txt` 是从它生成的清单，改完 pyproject 跑
+`python3 scripts/gen_requirements.py` 重新生成（`tests/test_smoke.py` 会校验一致，手改会被测出来）。
+"import 了却忘了声明"由 `python3 scripts/audit_deps.py` 兜住 —— 已捞过 certifi / numpy / urllib3 / efinance 四个。
 
 代码按分层分包（`cli` → `feeds`/`radar`/`zen` → `pipeline`/`render` → `net`/`engines` → `core`），只允许向下依赖。改代码前先读 [docs/coding-standard.md](docs/coding-standard.md)，整体设计见 [docs/design.md](docs/design.md)。
 
@@ -35,6 +43,9 @@ webtool stock screen --min-score 70             # 短线选股 (含剔除清单)
 webtool stock flow --scope industry             # 资金流榜单
 webtool stock tools                             # stock 24 个动作清单
 webtool stock health                            # 两侧桥接探活
+webtool --version                               # 版本 / Python / 关键依赖 (报障先看这个)
+webtool upgrade --check                         # 只问有没有新版 (退 0 最新 / 1 有新版 / 2 判不出)
+webtool upgrade                                 # 升级到最新 (pip 走 rules.json 判定的线路)
 ```
 
 ## 功能

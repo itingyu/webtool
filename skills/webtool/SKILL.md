@@ -42,6 +42,9 @@ webtool stock docs-search companyType         # 查底层接口文档 (URL/参�
 webtool stock holder 600519                  # 股东研究 (东财)
 webtool stock health                         # 三侧桥接探活
 webtool config set default_engines bing,sogou
+webtool --version                           # 版本/Python/依赖 (报障第一句)
+webtool upgrade --check                     # 查新版: 0 最新 / 1 有新版 / 2 判不出
+webtool upgrade                             # 升级 (pip 升降, 线路按 rules.json)
 ```
 
 ## search
@@ -201,6 +204,8 @@ webtool stock tools                           # 24 个动作清单;  health  # �
 - 插件与配置：`webtool plugins list`（清单与来源 builtin/user/code）· `check`（逐个加载体检）· `reload`（重载外部插件）。改 `~/.webtool/plugins.json`、`filters.json` 自动生效（按 mtime 判定），改外部插件 `.py` 需 `plugins reload`
 - 规则路由（按请求目标分流，不只是按引擎名）：`webtool proxy rule add '{"domain":["*.cn"]}' direct` · `add '{"geosite":["cn"]}' direct`（按域名库判，**不解析 DNS**，不受 CDN 就近解析影响）· `add '{"geoip":["CN"]}' direct` · `add '{"port":[8080]}' proxy:tokyo`（命名代理）· `add '{"domain":["ads.io"]}' block` · `rule del 2`（0 起）· `webtool proxy rules [URL]`（列规则 / 试算某 URL 走哪条线）。命名代理用 `webtool proxy named <名字> <URL>` 配（`named list` / `named del <名字>`），**密码同样进保险库**，`rules.json` 只留 `user@host`，老配置里的明文密码加载时自动迁移。**顺序即优先级**，第一个命中的生效；`match` 内多条件 AND、同条件内多值 OR。库：MaxMind `.mmdb` 或 v2ray/sing-box 的 `geoip.dat`/`geosite.dat`，用 `webtool proxy geosite <路径>` / `geoip <路径>` 配（配完立即自检）。**判不出来=不匹配**（缺库则该条规则跳过并提示），不会当成匹配放行
 - 代理凭据：`webtool proxy set http://user:pass@host:port` 会把密码**加密**存进 `~/.webtool/config.json` 的 `proxy_auth`，配置文件只留用户名，出网前才在内存解密。`webtool proxy setpass <用户名> [<密码>]` — **省略密码即终端交互输入且不回显**（推荐）；给位置参数方便脚本但明文会进 shell history；`echo "<密码>" | webtool proxy setpass <用户名>` 走管道（Agent/脚本用）· `proxy passwd`（保险库状态）· `proxy delpass <用户名>`。日志与报错里的密码出口处统一脱敏成 `***`；保险库缺密码时直接报错指出该跑哪条命令，不拿空密码去撞 407。需 `cryptography`（`pip install webtool[secrets]`），没装则拒绝存密码而非降级成明文
+
+- `upgrade` 只走 pip, 不碰本地源码; 装的是 editable/本地目录时, pip 会用 git 版覆盖它 —— 本地开发想更新请自己在仓库里收代码
 
 ## 注意
 

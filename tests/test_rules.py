@@ -34,16 +34,36 @@ GEOSITE = os.path.join(tempfile.mkdtemp(prefix='wt-rules-geo-'), 'geosite.dat')
 with open(GEOSITE, 'wb') as f:
     f.write(make_geosite_dat())
 
-print('\n=== 1. 规则顺序即优先级 ===')
-r = R.Router({'default': 'direct',
-              'proxies': {'cn': {'url': 'http://cn.proxy:8080'}},
+print('\n=== 1. 命中优先级 (priority) ===')
+# 默认 priority=direct: block 最高, 其次 direct, 最后才是 proxy —— 后面写的
+# 窄规则能压过前面写的宽规则, 这样"补一条直连"不用去改上面的规则表。
+_cn = {'cn': {'url': 'http://cn.proxy:8080'}}
+r = R.Router({'default': 'direct', 'proxies': _cn, 'rules': [
+    {'match': {'domain': ['baidu.com']}, 'action': 'proxy:cn'},
+    {'match': {'domain': ['baidu.com']}, 'action': 'block'},
+]})
+try:
+    r.proxy_for('https://www.baidu.com/x')
+    check(False, 'block 压过 proxy (deny > allow)')
+except R.RuleError as e:
+    check('规则拦截' in str(e), 'block 压过 proxy (deny > allow)')
+
+r = R.Router({'default': 'direct', 'proxies': _cn, 'rules': [
+    {'match': {'domain': ['baidu.com']}, 'action': 'proxy:cn'},
+    {'match': {'domain': ['baidu.com']}, 'action': 'direct'},
+]})
+check(r.proxy_for('https://www.baidu.com/x') is None,
+      'direct 压过前面的 proxy (默认 priority=direct)')
+check(r.rule('https://www.baidu.com/x')[2] == 1, '命中序号指向真正生效的那条')
+
+r = R.Router({'default': 'direct', 'proxies': _cn, 'priority': 'order',
               'rules': [
                   {'match': {'domain': ['baidu.com']}, 'action': 'proxy:cn'},
-                  {'match': {'domain': ['baidu.com']}, 'action': 'block'},
+                  {'match': {'domain': ['baidu.com']}, 'action': 'direct'},
               ]})
 check(r.proxy_for('https://www.baidu.com/x') == 'http://cn.proxy:8080',
-      '第一条规则优先')
-check(r.rule('https://www.baidu.com/x')[2] == 0, '命中规则序号 = 0')
+      "priority=order 时按文件顺序: 第一条命中生效")
+check(r.rule('https://www.baidu.com/x')[2] == 0, 'order 模式命中序号 = 0')
 
 print('\n=== 2. match 内 AND ===')
 r = R.Router({'default': 'direct', 'rules': [

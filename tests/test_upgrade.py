@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""webtool version / upgrade 的契约测试 (跑 python3 tests/test_upgrade.py)
+
+升级逻辑是真跑 git 的: 临时造一个裸仓库当"远端" + 两个克隆, 验快进升级与
+工作区脏时拒绝 —— 不打外网, 也不碰本仓库。
+"""
+import contextlib
+import io
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / 'src'))
+
+from webtool.core import upgrade as _up            # noqa: E402
+from webtool.core import version as _ver           # noqa: E402
+
+PASS = FAIL = SKIP = 0
+
+
+def check(cond, label, detail=''):
+    global PASS, FAIL
+    if cond:
+        PASS += 1
+        print(f'PASS {label}' + (f' ({detail})' if detail else ''))
+    else:
+        FAIL += 1
+        print(f'FAIL {label}' + (f' (实际 {detail})' if detail else ''))
+
+
+def skip(label, why):
+    global SKIP
+    SKIP += 1
+    print(f'SKIP {label} ({why})')
+
+
+def git(repo, *args, ok=True):
+    """在临时仓库里跑 git; user 身份写死在命令里, 免得依赖全局配置"""
+    r = subprocess.run(
+        ['git', '-c', 'user.email=t@example.com', '-c', 'user.name=t',
+         '-c', 'commit.gpgsign=false', *args],
+        cwd=str(repo), capture_output=True, text=True)
+    if ok and r.returncode != 0:
+        raise RuntimeError('git %s 失败: %s' % (' '.join(args), r.stderr.strip()))
+    return r.stdout.strip()
+
+
+def head(repo, rev='HEAD'):
+    return git(repo, 'rev-parse', rev)
+
+
+def commit_file(repo, name, text, msg):
+    (Path(repo) / name).write_text(text, encoding='utf-8')
+    git(repo, 'add', name)
+    git(repo, 'commit', '-m', msg)
+    return head(repo)
+
+
+def main():
+    # ---------- 版本 ----------
+    import tomllib
+    with open(ROOT / 'pyproject.toml', 'rb') as f:
+        proj_ver = tomllib.load(f)['project']['version']
+    check(_ver.get_version() == proj_ver,
+          '版本号一处真源: get_version() = pyproject', _ver.get_version())
+    import webtool
+    check(webtool.__version__ == proj_ver,
+          '__version__ 不再是硬编码的第二份真相', webtool.__version__)
+    _info = _ver.info()
+    check({'version', 'python', 'platform', 'package_path', 'source_version',
+           'installed_version', 'running_from_source', 'version_mismatch', 'deps'}
+          == set(_info), 'version.info() 字段齐', str(sorted(_info))[:90])
+    check(_info['deps'].get('trafilatura') and _info['deps'].get('curl_cffi'),
+          'version.info() 带关键依赖版本')
+
+    from webtool.cli import app as _app_mod
+    cli = _app_mod.main
+
+    def run(*argv):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = cli(list(argv))
+        return rc, buf.getvalue()
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = cli(list(argv))
+        return rc, buf.getvalue()
+
+    _rc, _o = run('--version')
+    check(_rc == 0 and _o.strip() == 'webtool %s' % proj_ver,
+          'webtool --version 出单行版本号', _o.strip())
+    check(run('-V')[1].strip() == 'webtool %s' % proj_ver, '-V 同 --version')
+    check(run('zen', '--version')[1].strip() == 'webtool %s' % proj_ver,
+          '子命令后面也能 --version (main 预扫, 不走 click)')
+    _rc, _o = run('version')
+    check(_rc == 0 and 'webtool %s' % proj_ver in _o and 'python' in _o,
+          'webtool version 出环境详情')
+    import json
+    _rc, _o = run('version', '-f', 'json')
+    check(_rc == 0 and json.loads(_o)['version'] == proj_ver,
+          'webtool version -f json 可解析')
+
+    # ---------- 升级: 判定交给 pip (全部 stub, 不打网络) ----------
+    check('git+' not in _up.upgrade_target()[0] or _up.upgrade_target()[0]
+          .startswith('webtool @ git+https://'),
+          '升级目标从安装元数据推: VCS 源优先, 读不到用官方仓库',
+          _up.upgrade_target()[0])
+    check(_up._vcs_url('{"vcs_info": {"url": "https://x/y"}}') == 'https://x/y'
+          and _up._vcs_url('{"dir_info": {"editable": true}}') is None
+          and _up._vcs_url('not json') is None and _up._vcs_url(None) is None,
+          '_vcs_url: 只认 VCS 安装, 本地目录/坏 JSON 一律 None')
+
+    _rep = {'install': [{'metadata': {'name': 'webtool', 'version': '9.9.9'}},
+                        {'metadata': {'name': 'Certifi', 'version': '1'}}]}
+    _tf = Path(tempfile.mkdtemp(prefix='wt-rep-')) / 'r.json'
+    _tf.write_text(json.dumps(_rep), encoding='utf-8')
+    _pv = _up._report_versions(str(_tf))
+    check(_pv.get('webtool') == '9.9.9' and _pv.get('certifi') == '1',
+          'pip --report 解析: 包名归一化 (下划线→横线), 大小写无关')
+    check(_up._report_versions(str(_tf.parent / 'nope.json')) == {},
+          '报告文件不在 → 空 dict, 不抛异常')
+
+    _real_pip = _up._pip
+
+    def _stub(rc, report=None, err='', out=''):
+        def f(args, timeout=None, env_extra=None):
+            if report is not None:
+                Path(args[args.index('--report') + 1]).write_text(
+                    json.dumps(report), encoding='utf-8')
+            return rc, out, err
+        return f
+
+    _up._pip = _stub(0, _rep)
+    _info = _up.check()
+    check(_info['state'] == 'behind' and _info['latest'] == '9.9.9',
+          'pip 报告有新版 → state=behind', _info['state'])
+    _up._pip = _stub(0, {'install': []})           # 没得升 → pip 不回 webtool
+    _info = _up.check()
+    check(_info['state'] == 'up_to_date' and _info['latest'] == _info['current'],
+          'pip 报告无需安装 → up_to_date', _info['state'])
+    _up._pip = _stub(1, None, err='ERROR: 连不上\nERROR: 真的连不上')
+    _info = _up.check()
+    check(_info['state'] == 'unknown' and '连不上' in _info['error'],
+          'pip 失败 → unknown 且带 pip 最后一行错误 (不假装已最新)',
+          _info['state'])
+    res = _up.upgrade()
+    check((not res['ok']) and res['action'] == 'none', 'pip 失败 → 不谎报成功',
+          res['action'])
+    _up._pip = _stub(0, None, out='Successfully installed webtool-9.9.9')
+    res = _up.upgrade()
+    check(res['ok'] and res['action'] == 'pip-upgrade'
+          and any('Successfully installed' in l for l in res['log']),
+          'pip 成功 → action=pip-upgrade 且回显 pip 原话', res['action'])
+    _up._pip = _real_pip
+
+    # 代理: 子进程只能拿环境变量, 判定交 netx (rules.json)
+    from webtool.net import netx as _netx
+    _real_rp = _netx.resolve_proxy
+    _netx.resolve_proxy = lambda p, url=None: 'http://127.0.0.1:2080'
+    _env = _app_mod._pip_proxy_env()
+    check(_env.get('HTTPS_PROXY') == 'http://127.0.0.1:2080'
+          and _env.get('http_proxy') == 'http://127.0.0.1:2080'
+          and _env.get('NO_PROXY') == '',
+          '规则表判代理 → pip/git 拿到 HTTP(S)_PROXY', str(sorted(_env))[:60])
+    _netx.resolve_proxy = lambda p, url=None: None
+    _env = _app_mod._pip_proxy_env()
+    check(set(_env) == {'NO_PROXY', 'no_proxy'} and _env['NO_PROXY'] == '*',
+          '规则表判直连 → 明确 NO_PROXY=* (屏蔽环境里可能残留的代理)',
+          str(sorted(_env)))
+    _netx.resolve_proxy = _real_rp
+
+    # CLI 层: --check 走 stub, 输出与退出码 (0 最新 / 1 有新版本 / 2 判不出来)
+    _up._pip = _stub(0, {'install': []})
+    _rc, _o = run('upgrade', '--check')
+    check(_rc == 0 and '已是最新' in _o and '线路' in _o,
+          'webtool upgrade --check: 出线路与状态, 已最新退 0', _o.splitlines()[-1])
+    _up._pip = _stub(0, _rep)
+    _rc, _o = run('upgrade', '--check', '-f', 'json')
+    check(_rc == 1 and json.loads(_o)['state'] == 'behind',
+          '有新版本 → 退出码 1, -f json 可解析')
+    _rc, _o = run('update', '--check')            # 别名
+    check(_rc == 1, 'update 是 upgrade 的别名 (同一实现)')
+    _up._pip = _stub(1, None, err='ERROR: nope')
+    _rc, _o = run('upgrade', '--check')
+    check(_rc == 2, '判不出来 → 退出码 2 (不是 0)')
+    _up._pip = _stub(0, None, out='Successfully installed webtool-9.9.9')
+    _rc, _o = run('upgrade', '--from', 'webtool @ git+https://example.com/w')
+    check(_rc == 0 and 'Successfully installed' in _o,
+          'webtool upgrade --from <spec> 换源可用 (默认走元数据里的源)')
+    _up._pip = _real_pip
+
+    print(f'\n{PASS + FAIL + SKIP} 项: {PASS} PASS, {FAIL} FAIL, {SKIP} SKIP')
+    return 1 if FAIL else 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
