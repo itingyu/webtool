@@ -38,6 +38,11 @@ pip install --user 'git+https://github.com/itingyu/webtool'
 千万别写 `--user=你的用户名` —— `--user` 不吃值，pip 会直接报
 `--user option does not take a value` 然后什么都不装。
 
+git 装法的升级是**强制重装自己那份代码**：我们不按 commit 改版本号，pip 光比版本号会以为
+"已最新"什么都不干，所以 `upgrade` 对 git 源走 `--force-reinstall --no-deps`（只换代码，不动依赖）。
+`upgrade --check` 除了版本号还会比一次远端 HEAD，所以**同版本的新提交也看得见**；索引来源
+（PyPI 等）仍按版本号走。
+
 装完升级走同一条路：venv/pipx 环境里的 `webtool upgrade` 调的是**它自己**那个 pip；
 `webtool upgrade --check` 先干跑一遍问有没有新版（退出码 0 最新 / 1 有新版 / 2 判不出）。
 
