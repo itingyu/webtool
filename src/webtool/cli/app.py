@@ -198,24 +198,30 @@ def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空
                                        help='system prompt (分类器只验 role:system 存在, 不读内容)'),
             tool_choice: str = typer.Option('auto', '--tool-choice',
                                             help='是否允许模型调工具; 默认 auto (闸门判据, 改 none 会被拒)'),
-            all_tools: bool = typer.Option(False, '--all-tools',
-                                           help='发全部 12 个真机工具定义 (默认只发 bash+read, 同为闸门最小集)'),
+            tools: str = typer.Option('min', '--tools',
+                                      help='工具集: min(默认, 闸门最小集 bash+read) / all / 逗号清单 (如 bash,read,grep)'),
             list_models: bool = typer.Option(False, '--list-models', help='列出 /v1/models 的全部 id'),
             list_free: bool = typer.Option(False, '--list-free',
                                            help='只列免费层 id (按命名约定筛, 不是保证)'),
             check: bool = typer.Option(False, '--check',
                                        help='真调一次验证可用性 (默认只验免费层)'),
             check_all: bool = typer.Option(False, '--check-all',
-                                           help='--check 时连收费模型一起验 (80+ 个, 慢且易被上游限流)'),
+                                           help='连收费模型一起验 (80+ 个, 慢且易被上游限流); 自带 --check'),
             refresh: bool = typer.Option(False, '--refresh', help='绕过 1h 模型清单缓存'),
-            show_body: bool = typer.Option(False, '--show-body',
-                                           help='打印将要发送的请求体并退出, 不联网'),
-            show_text: bool = typer.Option(False, '--show-text',
-                                           help='只打印 messages (原样 JSON), 不联网'),
-            stream: bool = typer.Option(True, '--stream/--no-stream',
-                                        help='流式输出; --no-stream 缓冲到最后一次性输出'),
-            reasoning: bool = typer.Option(True, '--reasoning/--no-reasoning',
-                                           help='打印思考过程 (默认开); --no-reasoning 只要答案'),
+            dry_run: bool = typer.Option(False, '--dry-run',
+                                         help='打印将要发出的请求 (URL + 请求头 + 请求体), 不联网'),
+            show: str = typer.Option(None, '--show',
+                                     help='只看请求的一段 (不联网): request / headers / body / text'),
+            show_body: bool = typer.Option(False, '--show-body', hidden=True,
+                                           help='(旧名) 同 --show body'),
+            show_text: bool = typer.Option(False, '--show-text', hidden=True,
+                                           help='(旧名) 同 --show text'),
+            all_tools: bool = typer.Option(False, '--all-tools', hidden=True,
+                                           help='(旧名) 同 --tools all'),
+            live: bool = typer.Option(True, '--live/--no-live', '--stream/--no-stream',
+                                      help='边收边打印 (默认开, 仅终端里生效); --no-live 攒到最后一次输出'),
+            show_reasoning: bool = typer.Option(True, '--reasoning/--no-reasoning',
+                                                help='打印思考过程 (默认开); --no-reasoning 只要答案 (不改请求体)'),
             retries: int = typer.Option(2, '--retries', help='瞬时故障 (连接错/408/429/5xx) 重试次数; 退避指数 2/4/8s'),
             sticky: bool = typer.Option(True, '--sticky/--no-sticky',
                                         help='固定会话 id, 按整点轮换 (默认开); --no-sticky 每次运行换新'),
@@ -224,12 +230,15 @@ def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空
     """OpenCode Zen 免费层对话 (OpenAI 兼容, 公开模式, 无需 key)"""
     a = _CTX['args']
     a.prompt, a.model, a.system = ' '.join(prompt) if prompt else '', model, system
-    a.tool_choice, a.all_tools = tool_choice, all_tools
+    a.tool_choice = tool_choice
+    a.tools = 'all' if all_tools else tools
     a.list_models, a.list_free = list_models, list_free
-    a.check, a.check_all, a.refresh = check, check_all, refresh
-    a.show_body, a.show_text, a.stream = show_body, show_text, stream
+    a.check = check or check_all          # --check-all 单独给也生效 (以前是静默空转)
+    a.check_all, a.refresh = check_all, refresh
+    a.dry_run, a.show, a.stream = dry_run, show, live
+    a.show_body, a.show_text = show_body, show_text
     a.retries, a.sticky = retries, sticky
-    a.reasoning = reasoning
+    a.reasoning = show_reasoning
     return _run('data', _entry_fn('zen'), fmt, output, no_cache, no_proxy)
 
 
@@ -535,7 +544,12 @@ def main(argv=None):
         return rc if isinstance(rc, int) else 0
     except (typer.Exit, SystemExit) as e:      # --help / --version
         code = e.code if isinstance(e, SystemExit) else e.exit_code
-        return code if isinstance(code, int) else 0
+        if isinstance(code, int):
+            return code
+        if code:                               # SystemExit('说明性文字'): 别静默吞
+            print('webtool: %s' % code, file=sys.stderr)
+            return 2
+        return 0
     except _UsageError as e:
         msg = e.format_message()
         print(f'webtool: {msg}', file=sys.stderr)

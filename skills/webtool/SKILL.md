@@ -97,6 +97,9 @@ webtool zen "问题" --model ling-3.1-flash-free
 webtool zen --list-free               # 免费层清单 (表格: 模型/提供方/上架/免费层)
 webtool zen --list-free --check       # 逐个真调出实测结果 (加 --check-all 验全表)
 webtool zen "问题" --system "只回 JSON" --tool-choice none
+webtool zen "问题" --tools all          # 工具集: min(默认 bash+read)/all/逗号清单
+webtool zen "问题" --dry-run            # 打印将要发出的请求 (URL+头+体), 不出网
+webtool zen "问题" --show headers       # 只看一段: request(默认)/headers/body/text
 webtool zen "问题" --no-sticky          # 每次运行都换 ses_id (默认是粘性)
 ```
 
@@ -105,6 +108,8 @@ webtool zen "问题" --no-sticky          # 每次运行都换 ses_id (默认是
 
 - 会话 id 默认**粘性**：存 `~/.webtool/sticky.json`，按**整点**轮换（`floor(now/3600)`，HH:00:00 换新，不是"创建满一小时"），同小时内跨进程复用同值；`--no-sticky` 每次运行换新。注意它只有会话稳定性意义——实测免费层 `cached_tokens` 恒为 0，开不开耗时无差异，别当提速手段
 - JSON 里 `usage_available` = 上游是否返回用量；`false` 且 `ok: true` 是"调用成功但端点不给统计"，不是故障
+- 排查请求看 `--dry-run`（URL+头+体，不出网）或 `--show request|headers|body|text`；要整结构 `-f json`。`--tools min/all/逗号清单` 选工具集，`--no-live` 只是不边收边打（body 恒 `stream:true`，闸门判据，关不掉）
+- 请求头与真机逐项对齐（真机 13 个）：我们手写 10 个，`Host`/`Content-Length` 由 http.client 补，`Connection` 被 urllib 写死成 `close`（真机是 `keep-alive`；要发出去只能弃用 urllib 自己写报文，而 urllib 本就不复用连接，收益 0，不做）；头名发出去时被 urllib `.title()` 规范化成 `X-Opencode-Session-Id`（真机小写，HTTP/1.1 不敏感，实测不影响闸门）。`Accept-Encoding` 照抄真机，配套 gzip/deflate 增量解压兜底，br/zstd 会明确报错而不是喂乱码。`--dry-run` 打的就是这套服务端视角的头
 - 换端点改 `~/.webtool/zen.json` 的 `chat_url` / `models_url`，mtime 热生效；协议固定 OpenAI 形状
 
 ## mcp

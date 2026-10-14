@@ -105,8 +105,10 @@ webtool zen --list-models             # 全量清单
 webtool zen --list-free --check       # 逐个真调, 出"实测/耗时/首答" (默认只验免费层)
 webtool zen --list-free --check-all   # 连收费模型一起验 (80+, 慢且易被限流)
 webtool zen "问题" --system "只回 JSON" --tool-choice none
-webtool zen "问题" --no-stream         # 一次性返回 (默认 SSE 流式)
-webtool zen "问题" --show-body        # 只打请求体, 不出网 (排查用)
+webtool zen "问题" --tools all        # 工具集: min(默认 bash+read)/all/逗号清单 (bash,read,grep)
+webtool zen "问题" --dry-run          # 打印将要发出的请求 (URL + 请求头 + 请求体), 不出网
+webtool zen "问题" --show headers     # 只看一段: request(默认)/headers/body/text
+webtool zen "问题" --no-live          # 不边收边打, 攒到最后一次性输出 (请求始终 stream, 闸门要求)
 webtool zen "问题" --no-sticky        # 会话 id 每次运行换新 (默认粘性: 每整点轮换)
 ```
 

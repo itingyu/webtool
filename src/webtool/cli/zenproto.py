@@ -17,6 +17,7 @@
 import json
 import secrets
 import time
+import urllib.parse
 from pathlib import Path
 
 from webtool.core.config_data import USER_DIR
@@ -70,6 +71,49 @@ def tools(names=None):
         return _TOOLS
     want = names or DEFAULT_TOOL_NAMES
     return [t for t in _TOOLS if t['function']['name'] in want]
+
+
+SHOW_VIEWS = ('request', 'headers', 'body', 'text')
+
+
+def resolve_tool_names(spec=None):
+    """`--tools` 取值 → `build_body(tool_names=...)` 的参数
+
+    min/空 → None (闸门最小集 bash+read)
+    all    → 'all' (真机 12 个)
+    其余   → 逗号/空格切分的名字表 (如 `bash,read,grep`)
+    """
+    s = (spec or '').strip().lower()
+    if not s or s in ('min', 'minimal'):
+        return None
+    if s == 'all':
+        return 'all'
+    return [n for n in s.replace(' ', ',').split(',') if n]
+
+
+def request_preview(model, prompt, system=None, tool_choice=None,
+                    tool_names=None, ses_id=None, msg_id=None, url=None):
+    """将要发出的请求 (不出网): {method, url, headers, body}
+
+    与 `call_zen` 走同一套 `build_body` / `build_headers` / `_endpoints`,
+    所以看到的就是真会发的 —— 排查免费层闸门时头与体都得能看见。
+    headers 给的是**服务端视角**: 在本函数调用的头之上套了 urllib/http.client
+    实际会做的改写 (2026-10-15 本地 echo 服务端抓报文实测), 于是它和真机那 13 个
+    头一一对应, 少一个都不可能:
+      Host、Content-Length    http.client 补 (值是真: URL 的主机 + 这份体的字节数)
+      Connection: close       urllib 写死 (真机是 keep-alive, 我们发不出去)
+      头名 .title()           x-opencode-session → X-Opencode-Session (真机小写)
+    顺序: 我们的 10 个按真机序, 库补的两个 + Connection 追加在后 (实测报文里
+    它们排在开头, 那是 http.client 的写法); HTTP 头顺序无语义, 看集合。
+    """
+    body_bytes = build_body(model, prompt, system, tool_choice, tool_names)
+    url = url or _endpoints()[0]
+    wire = {k.title(): v for k, v in build_headers(ses_id, msg_id).items()}
+    wire['Connection'] = 'close'                  # urllib 写死的, 不是我们的选择
+    wire['Host'] = urllib.parse.urlsplit(url).netloc
+    wire['Content-Length'] = str(len(body_bytes))
+    return {'method': 'POST', 'url': url, 'headers': wire,
+            'body': json.loads(body_bytes)}
 
 
 _BASE62 = ('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
@@ -163,15 +207,30 @@ def _endpoints():
 
 
 def build_headers(ses_id=None, msg_id=None):
-    """占位 Bearer public + x-opencode-* 会话/指纹头
+    """占位 Bearer public + x-opencode-* 会话/指纹头, 逐项对齐真机
 
-    2026-10-14 用 MITM 抓的官方 1.19.0 请求逐字对照 (经得起复核):
+    2026-10-14/15 用 MITM 抓官方 1.19.0 请求逐条对照 (经得起复核), 真机
+    13 个头, 顺序也照抄 (x-opencode-request 在 session 之前):
       Authorization: Bearer public
       User-Agent: opencode/1.19.0 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14
       x-opencode-client: cli          x-opencode-project: global
       x-opencode-request: msg_<24位>  x-opencode-session: ses_<12位hex><14位base62>
       x-opencode-session-id: <同 x-opencode-session 的值>   ← 曾漏发
-    少发过 x-opencode-session-id; 补上后与真机一字不差 (但闸门不看这些, 见下)。
+      Accept: */*                     Accept-Encoding: gzip, deflate, br, zstd  ← 曾漏发
+    真机还有三个头, 但**不由我们写** (写了也没用/会重复), 实测见 request_preview:
+      Host、Content-Length  http.client 自己补
+      Connection: keep-alive  urllib 在 do_open 里写死改成 `Connection: close`
+                              (源码原话: 本类不复用连接, 必须让服务端关掉),
+                              所以叠在 headers 里是死代码 —— 不写。
+
+    与真机的两处不可控差异 (都不影响闸门, bisect_path 验过头名大小写):
+      ① 头名被 urllib `.title()` 规范化: x-opencode-session → X-Opencode-Session
+         (真机是小写); 要逐字一致得弃用 urllib 自己写 http.client 报文, 顺带
+         才能发 keep-alive —— 但 urllib 本来也不复用连接, 复用收益为 0, 不做。
+      ② Accept-Encoding 抄了真机, 万一上游真压缩 urllib 不会自己解 —— zen.py
+         的 `_unzipper` 兜着 (gzip/deflate 增量解, br/zstd 明确报错)。
+
+    闸门其实不看这些头 (见文件头: 判据是头形态 + body), 对齐是为了不留隐患。
     """
     ses = ses_id or make_session_id()
     return {
@@ -180,10 +239,11 @@ def build_headers(ses_id=None, msg_id=None):
         'User-Agent': USER_AGENT,
         'x-opencode-client': 'cli',
         'x-opencode-project': 'global',
+        'x-opencode-request': msg_id or make_message_id(),
         'x-opencode-session': ses,
         'x-opencode-session-id': ses,
-        'x-opencode-request': msg_id or make_message_id(),
         'Accept': '*/*',
+        'Accept-Encoding': 'gzip, deflate, br, zstd',
     }
 
 

@@ -586,20 +586,39 @@ check(_b['tool_choice'] == 'auto', '默认 tool_choice=auto (闸门判据)')
 check(len(_zp.tools('all')) == 12, 'tools(all) 给全 12 个真机定义')
 _bo = _zen._backoff
 _seq = [_bo(i) for i in (1, 2, 3, 4)]
-check(all(_seq[i + 1] > _seq[i] * 1.4 for i in range(3)),
-      '重试退避是指数增长 (不是线性 1.5s*n)', str([round(x, 1) for x in _seq]))
+# 断言按"基准 ± 抖动"来, 别按相邻比值 —— 抖动 ±25% 时相邻比值最低 1.2,
+# 用 >1.4 判会偶发假失败 (2026-10-15 撞上过一次)
+check(all(abs(x - r) <= r * _zen.RETRY_JITTER + 1e-9
+          for x, r in zip(_seq, (2, 4, 8, 16))),
+      '重试退避基准 2/4/8/16s, 偏差不超 ±25% 抖动', str([round(x, 1) for x in _seq]))
+check(all(_seq[i + 1] > _seq[i] for i in range(3)) and _bo(9) <= 60.0,
+      '退避单调递增且封顶 60s (抖动不打乱次序)')
 check(_bo(1, '30') == 30.0 and _bo(1, '9999') <= 60.0,
       '服务端 Retry-After 优先, 但封顶 60s')
 
 check('on_reason' in inspect.getsource(_zen.call_zen),
       'call_zen 有单独的 reason 回调 (不是把思考混进正文)')
-# 头集以官方 1.19.0 的 MITM 抓包为基准 (2026-10-14): 少发/多发都算回归
+# 真机 13 个头 (2026-10-15 抓包): 头名集合必须一致, 不能少也不能多
+_REAL_HDRS_LOWER = {'authorization', 'content-type', 'user-agent',
+                    'x-opencode-client', 'x-opencode-project',
+                    'x-opencode-request', 'x-opencode-session',
+                    'x-opencode-session-id', 'connection', 'accept', 'host',
+                    'accept-encoding', 'content-length'}
+# 头集以官方 1.19.0 的 MITM 抓包为基准 (2026-10-14/15): 少发/多发都算回归。
+# 我们手写 10 个 (accept-encoding 是后来补的), 另三个不由我们写: host 与
+# content-length http.client 补, connection 被 urllib 写死成 close (真机是
+# keep-alive) —— 加起来就是真机那 13 个头。
 _OUR_HEADERS = {'authorization', 'content-type', 'user-agent',
                 'x-opencode-client', 'x-opencode-project', 'x-opencode-session',
-                'x-opencode-session-id', 'x-opencode-request', 'accept'}
-_zp = __import__('webtool.cli.zenproto', fromlist=['x'])
+                'x-opencode-session-id', 'x-opencode-request', 'accept',
+                'accept-encoding'}
+# 库自己加/改的三个: host、content-length 由 http.client 补, connection 被 urllib 写死成 close
+_LIB_HEADERS = {'host', 'content-length', 'connection'}
 _h = {k.lower() for k in _zp.build_headers()}
-check(_h == _OUR_HEADERS, 'zen 请求头与官方客户端抓包一致', str(sorted(_h ^ _OUR_HEADERS)))
+check(_h == _OUR_HEADERS, 'zen 手写请求头与官方抓包一致 (10 个',
+      str(sorted(_h ^ _OUR_HEADERS)))
+check(_h | _LIB_HEADERS == _REAL_HDRS_LOWER,
+      '手写 10 + 库补/改的 3 = 真机 13 个, 不多不少')
 _hs = _zp.build_headers(ses_id='ses_test')
 check(_hs['x-opencode-session'] == _hs['x-opencode-session-id'],
       'x-opencode-session 与 x-opencode-session-id 同值 (真机如此)')
@@ -625,6 +644,102 @@ for _fn, _nm in ((_ri.instances, 'instances'),
           f'radar.{_nm} 的 proxy=None 按 auto 处理 (非强制直连)')
 check("proxy = proxy or 'auto'" in inspect.getsource(_ro.probe_official),
       'radar.probe_official 的 proxy=None 按 auto 处理')
+
+# ===== zen 请求查看 (--dry-run / --show) 与 --tools 取值 =====
+import contextlib                               # noqa: E402
+import types as _ty                             # noqa: E402
+from webtool.cli import app as _cli_app         # noqa: E402
+_rt = _zp.resolve_tool_names
+check(_rt(None) is None and _rt('min') is None, '--tools 默认/min → 闸门最小集 bash+read')
+check(_rt('all') == 'all', '--tools all → 12 个真机 schema')
+check(_rt('bash,read,grep') == ['bash', 'read', 'grep'] and _rt('bash read') == ['bash', 'read'],
+      '--tools 逗号/空格清单切成名字表')
+_pv = _zp.request_preview('big-pickle', 'hi')
+check(set(_pv) == {'method', 'url', 'headers', 'body'},
+      'request_preview 给 method/url/headers/body 四件')
+check(_pv['method'] == 'POST' and _pv['url'] == _zp._endpoints()[0],
+      '预览用的就是真会发的端点')
+def _hget(headers, name):
+    return next(v for k, v in headers.items() if k.lower() == name.lower())
+
+
+check(_hget(_pv['headers'], 'x-opencode-session-id')
+      == _hget(_pv['headers'], 'x-opencode-session'),
+      '预览头里 session-id 与 session 同值')
+_pv_l = {k.lower() for k in _pv['headers']}
+check(_pv_l == _REAL_HDRS_LOWER, '预览头集合 = 真机 13 个, 不多不少',
+      str(sorted(_pv_l ^ _REAL_HDRS_LOWER)))
+check(list(_pv['headers'])[:10] == ['Authorization', 'Content-Type', 'User-Agent',
+                                    'X-Opencode-Client', 'X-Opencode-Project',
+                                    'X-Opencode-Request', 'X-Opencode-Session',
+                                    'X-Opencode-Session-Id', 'Accept',
+                                    'Accept-Encoding'],
+      '我们手写的 10 个顺序照真机 (request 在 session 前), 头名按 urllib 规范化')
+# 两处与真机必然不同, 且都不是我们选的: 头名大小写 / Connection 被写死成 close
+check(_pv['headers']['Connection'] == 'close',
+      'Connection 被 urllib 写死为 close (真机 keep-alive), 写进 headers 也是死代码')
+_body_len = len(_zp.build_body('big-pickle', 'hi'))
+check(_pv['headers']['Host'] == 'opencode.ai'
+      and _pv['headers']['Content-Length'] == str(_body_len),
+      'Host / Content-Length 由 http.client 补, 值取真 (长度 = 这份体的字节数)')
+_u = _zen._unzipper
+check(_u(None)(b'abc') == b'abc' and _u('identity')(b'abc') == b'abc', '无压缩时不折腾')
+import zlib as _zl
+_gz = _zl.compressobj(9, _zl.DEFLATED, 16 + _zl.MAX_WBITS)
+_ug = _u('gzip')                             # 一个解压器全程复用 (增量)
+check(_ug(_gz.compress(b'data: x')) + _ug(_gz.flush()) == b'data: x',
+      'gzip 压缩流可增量解 (头抄了真机就得能接住)')
+try:
+    _u('br')(b'x')
+    _br_ok = False
+except RuntimeError as e:
+    _br_ok = 'br' in str(e)
+check(_br_ok, 'br/zstd 没有 stdlib 支持 → 明确报错, 不喂乱码')
+check(sorted(t['function']['name'] for t in _pv['body']['tools']) == ['bash', 'read'],
+      '默认预览体 = 闸门最小集 (bash+read)')
+check(len(_zp.request_preview('m', 'p', tool_names='all')['body']['tools']) == 12,
+      '--tools all 的预览体带全 12 个')
+_sv = _zen._show_view
+check(_sv(_ty.SimpleNamespace(dry_run=True)) == 'request'
+      and _sv(_ty.SimpleNamespace(show='headers')) == 'headers',
+      '--dry-run = --show request; --show 认四段')
+check(_sv(_ty.SimpleNamespace(show_body=True)) == 'body'
+      and _sv(_ty.SimpleNamespace(show_text=True)) == 'text',
+      '旧名 --show-body/--show-text 仍映射到对应段')
+check(_sv(_ty.SimpleNamespace()) is None, '没给查看开关 → 正常发请求')
+
+
+def _cli(*argv):
+    """进程内跑 CLI, 抓 stdout, 返回 (rc, 输出)"""
+    _buf = io.StringIO()
+    with contextlib.redirect_stdout(_buf):
+        _rc = _cli_app.main(list(argv))
+    return _rc, _buf.getvalue()
+
+
+_rc, _o = _cli('zen', '来看看', '--dry-run')
+check(_rc == 0 and _o.startswith('POST https://')
+      and 'X-Opencode-Session-Id: ses_' in _o        # 预览给的是服务端视角的头名
+      and 'Connection: close' in _o and '"tool_choice": "auto"' in _o,
+      '--dry-run: URL + 请求头 (服务端视角) + 请求体 一次看全, 不出网')
+_rc, _o = _cli('zen', '来看看', '--show', 'headers')
+check(_rc == 0 and 'Authorization:' in _o and '{' not in _o, '--show headers: 只出请求头')
+_rc, _o = _cli('zen', '来看看', '-f', 'json', '--dry-run')
+check(json.loads(_o)['body']['tools'][0]['function']['name'] == 'bash',
+      '-f json --dry-run: 结构可直接管道')
+_rc, _o = _cli('zen', '来看看', '--show-body')
+check(_rc == 0 and json.loads(_o)['model'] == 'big-pickle', '旧名 --show-body 仍按 body 走')
+_rc, _o = _cli('zen', '来看看', '--show', 'bogus')
+check(_rc == 2, '--show 传错值报错退出 (不再静默 exit 0)')
+_w = _zen._tool_warn
+check(_w(_ty.SimpleNamespace(tools='min')) is None and _w(_ty.SimpleNamespace(tools='all')) is None,
+      '--tools min/all 不报警')
+check('缺 read' in (_w(_ty.SimpleNamespace(tools='bash,edit')) or ''),
+      '--tools 缺 bash/read → 提醒大概率 403')
+check('工具名不存在' in (_w(_ty.SimpleNamespace(tools='bash,read,nope')) or ''),
+      '--tools 写了不存在的工具名 → 提醒会被丢掉')
+_rc, _o = _cli('zen', 'x', '--dry-run', '--no-live')       # 旧名别名要能解析
+check(_rc == 0, '--no-live / --stream 旧名仍可解析')
 
 print(f'\n{PASS + FAIL + SKIP} 项: {PASS} PASS, {FAIL} FAIL, {SKIP} SKIP')
 sys.exit(1 if FAIL else 0)

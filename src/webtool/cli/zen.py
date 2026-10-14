@@ -10,6 +10,7 @@ tool_choice 存在 / stream=true。解析: 纯标准库 urllib + 逐行 SSE, rea
 """
 
 import json
+import zlib
 import random
 import sys
 import time
@@ -18,9 +19,10 @@ import urllib.request
 
 from webtool.core import urls
 from webtool.core.secrets_store import redact
+from webtool.cli import zenproto as _zp
 from webtool.cli.zenproto import (StickySession, _endpoints, build_body,
-                              build_headers, model_headers, parse_models_full,
-                              parse_sse)
+                                  build_headers, model_headers,
+                                  parse_models_full, parse_sse)
 
 # socket 空闲超时。urlopen 的 timeout 只管"多久没收到字节", 不是墙钟预算;
 # 流式生成中间只要有 delta 就永不触发, 所以给够即可。
@@ -92,8 +94,31 @@ _norm = urls.norm_key   # 请求去重键 (与 feed 共用同一把尺)
 
 
 def _tool_names(args):
-    """--all-tools → 全部 12 个真机 schema; 默认只发 bash+read (闸门最小集)"""
-    return 'all' if getattr(args, 'all_tools', False) else None
+    """--tools 取值 → build_body 的 names (min 默认 / all / 逗号清单)"""
+    return _zp.resolve_tool_names(getattr(args, 'tools', None))
+
+
+def _unzipper(encoding):
+    """按 Content-Encoding 增量解压 (urllib 拿到压缩流不会自己解)
+
+    头既然照真机发了 `Accept-Encoding: gzip, deflate, br, zstd`, 上游哪天开始
+    压缩就得能接住 —— 否则流式解析静默变乱码, 比报错更难查。
+    实测 (2026-10-15) 上游 SSE 不压缩 (Content-Encoding 空), 这里是兜底。
+    gzip/deflate 走 stdlib 增量解; br/zstd 没有 stdlib 支持, 直接明确报错。
+    """
+    enc = (encoding or '').strip().lower()
+    if enc in ('', 'identity'):
+        return lambda b: b
+    if enc in ('gzip', 'x-gzip'):
+        d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    elif enc == 'deflate':
+        d = zlib.decompressobj(zlib.MAX_WBITS)
+    else:
+        def _no_impl(_b):
+            raise RuntimeError('上游返回 %s 压缩, 本地没有对应库 (装 brotli/'
+                               'zstandard, 或从 Accept-Encoding 去掉它)' % enc)
+        return _no_impl
+    return lambda b: d.decompress(b) if b else b
 
 
 def call_zen(model, prompt, system=None, session=None, on_delta=None,
@@ -144,9 +169,10 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
             saw_done = False
             # read1() 有数据就返回; read(n) 会阻塞到攒满 n 字节, 流式就没了
             read = getattr(r, 'read1', None) or (lambda n: r.read(n))
+            unzip = _unzipper(r.headers.get('Content-Encoding'))
             while True:
                 try:
-                    chunk = read(65536)
+                    chunk = unzip(read(65536))
                 except (TimeoutError, OSError) as e:
                     stream_err.append('stream aborted after %d chars: %s: %s'
                                       % (len(''.join(text_parts)),
@@ -291,8 +317,9 @@ def _backoff(attempt, retry_after=None):
             return max(0.0, min(RETRY_CAP, float(str(retry_after).strip())))
         except ValueError:
             pass
-    raw = min(RETRY_CAP, RETRY_BASE * (2 ** (attempt - 1)))
-    return max(0.0, raw + raw * RETRY_JITTER * random.uniform(-1, 1))
+    raw = RETRY_BASE * (2 ** (attempt - 1))
+    # 抖动后封顶: 反过来的话 60s 还能被抖到 75s, "封顶"就不算数了
+    return max(0.0, min(RETRY_CAP, raw + raw * RETRY_JITTER * random.uniform(-1, 1)))
 
 
 def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
@@ -452,19 +479,83 @@ def _print_check(rows, fmt):
     return 0 if ok_n else 1
 
 
+def _tool_warn(args):
+    """`--tools` 选得不合规时的提醒 (闸门要 bash+read 同时在, 名字还要真存在)
+
+    只提醒不拦: 探闸门本身就需要故意发缺件的请求。
+    """
+    names = _tool_names(args)
+    if names in (None, 'all'):
+        return None
+    known = {t['function']['name'] for t in _zp.tools('all')}
+    miss = [n for n in _zp.DEFAULT_TOOL_NAMES if n not in names]
+    unknown = [n for n in names if n not in known]
+    tips = []
+    if miss:
+        tips.append('闸门要求 bash+read 同时在, 当前缺 %s (大概率 403)' % '/'.join(miss))
+    if unknown:
+        tips.append('工具名不存在会被丢掉: %s' % '/'.join(unknown))
+    return '; '.join(tips) or None
+
+
+def _show_view(args):
+    """--show <view> / --dry-run / 旧名 --show-body|--show-text → 要看哪一段
+
+    --dry-run 就是最常用的 `--show request` (URL + 头 + 体, 排查闸门全看得到);
+    旧名保留成隐藏别名, 免得老习惯撞墙。没给则返回 None (正常发请求)。
+    """
+    v = (getattr(args, 'show', None) or '').strip().lower()
+    if getattr(args, 'dry_run', False) and not v:
+        v = 'request'
+    if not v:
+        if getattr(args, 'show_body', False):
+            v = 'body'
+        elif getattr(args, 'show_text', False):
+            v = 'text'
+    if not v:
+        return None
+    if v not in _zp.SHOW_VIEWS:
+        raise SystemExit('zen: --show 只认 %s, 给的 %r'
+                         % ('/'.join(_zp.SHOW_VIEWS), v))
+    return v
+
+
 def _do_zen(args, cfg):
     """zen 对话主体 (do_zen 是代理开关薄壳)"""
     prompt = ' '.join(getattr(args, 'prompt', None) or []).strip()
 
+    tip = _tool_warn(args)
+    if tip:
+        print('zen: %s' % tip, file=sys.stderr)
+
     # ---- dry-run: 打印请求, 不联网 ----
-    if args.show_body or args.show_text:
-        body = build_body(args.model, prompt, args.system, args.tool_choice,
-                          _tool_names(args))
-        d = json.loads(body)
-        if args.show_text:
-            print(json.dumps(d['messages'], indent=2, ensure_ascii=False))
+    view = _show_view(args)
+    if view:
+        ses = StickySession() if args.sticky else None
+        pv = _zp.request_preview(args.model, prompt, args.system,
+                                 args.tool_choice, _tool_names(args),
+                                 ses_id=ses.ses_id if ses else None)
+        if view == 'headers':
+            out = pv['headers']
+        elif view == 'body':
+            out = pv['body']
+        elif view == 'text':
+            out = pv['body']['messages']
         else:
-            print(json.dumps(d, indent=2, ensure_ascii=False))
+            out = pv
+        if args.format == 'json':
+            print(json.dumps(out, indent=2, ensure_ascii=False))
+        elif view == 'request':
+            print('%s %s' % (pv['method'], pv['url']))
+            for k, v in pv['headers'].items():
+                print('%s: %s' % (k, v))
+            print()
+            print(json.dumps(pv['body'], indent=2, ensure_ascii=False))
+        elif view == 'headers':
+            for k, v in pv['headers'].items():
+                print('%s: %s' % (k, v))
+        else:
+            print(json.dumps(out, indent=2, ensure_ascii=False))
         return 0
 
     # ---- 模型清单 ----
