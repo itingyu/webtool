@@ -525,7 +525,7 @@ def _act_health(args, cfg):
                 for lib in ('akshare', 'tushare', 'baostock', 'efinance')},
         'probe': _route_probe(),
     }
-    out['ok'] = bool(out['master'].get('ok') or out['mcp'].get('ok'))
+    out['ok'] = bool(out['master'].get('ok') or out['orchestrator'].get('ok'))
     return out
 
 
