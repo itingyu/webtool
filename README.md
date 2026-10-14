@@ -171,6 +171,19 @@ webtool zen "问题" --dry-run          # 打印将要发出的请求 (URL + 请
 webtool zen "问题" --show headers     # 只看一段: request(默认)/headers/body/text
 webtool zen "问题" --no-live          # 不边收边打, 攒到最后一次性输出 (请求始终 stream, 闸门要求)
 webtool zen "问题" --no-sticky        # 会话 id 每次运行换新 (默认粘性: 每整点轮换)
+webtool zen "问题" --think high       # 思考强度 (默认 medium; 可选值随模型而异, off 表示不带该字段)
+```
+
+- **流式输出**：在终端里默认边收边打（思考与回答都实时出）。输出被管道接走或 `-f json` 时自动改为一次性输出，管道里拿到的正文才干净
+- **终端着色**（非终端 / `NO_COLOR` 时自动关闭）：思考灰、工具调用黄、`[思考]`/`[回答]` 分段标签青，正文原色
+- **思考标签兜底**：个别模型把思考塞进正文并用 `</think>` 之类标签包着；这类标签会被剥掉，标签前的内容并入思考、之后的才算答案（跨 chunk 的标签也认得）
+- **思考强度** `--think`：原样透传给上游 `reasoning_effort`，默认 `medium`。可选值**随模型而异**（有的只认 low/medium/high，有的还收 xhigh/minimal，有的不吃这个字段），客户端不预判；真发出去被拒（400 且报错提到 effort）会自动去掉该字段重试一次，并明确提示
+- **默认值都能配**：`model` / `max_tokens` / `reasoning_effort` / `system` / `tools` / `tool_choice` / `live` 的默认写进 `~/.webtool/zen.json` 的 `zen` 段（`~/.webtool/zen.json` 与包内 `data/zen.json` 深合并，mtime 热生效）。优先级：**命令行 > zen.json > 内置**（`max_tokens` 内置 200000）
+
+```jsonc
+// ~/.webtool/zen.json —— 只写要改的键即可
+{"zen": {"model": "mimo-v2.6-flash-free", "max_tokens": 8000,
+         "reasoning_effort": "high", "tools": "all", "live": false}}
 ```
 
 模型上下架频繁，先 `--list-free` 再用。清单列取接口字段（`id/created/owned_by`），

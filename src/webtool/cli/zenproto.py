@@ -40,6 +40,35 @@ STICKY_PERIOD = 3600          # 轮换粒度: 按整点切 (bucket = floor(now/p
 DEFAULT_SYSTEM = "You are a helpful assistant. Be brief."
 TOOL_CHOICES = ("none", "auto", "required")
 
+# 请求默认值。命令行显式给的值优先, 其次 ~/.webtool/zen.json 的 zen 段, 最后这里。
+# max_tokens 取 200k: 上游不校验上限, 给足即可 (具体模型自己截断)。
+DEFAULT_MAX_TOKENS = 200000
+DEFAULT_THINK = 'medium'
+DEFAULTS = {
+    'model': 'big-pickle',
+    'system': None,
+    'tool_choice': 'auto',
+    'tools': 'min',
+    'reasoning_effort': DEFAULT_THINK,
+    'max_tokens': DEFAULT_MAX_TOKENS,
+    'live': True,
+}
+
+def defaults():
+    """zen 的可配置默认值: 包内 data/zen.json + ~/.webtool/zen.json 的 zen 段叠加
+
+    优先级: 命令行 > 配置文件 > 内置 (见 DEFAULTS)。只认 DEFAULTS 里列出的键,
+    写错的键不会有任何作用 (也不会报错) —— 与其它配置段同一套合并语义。
+    """
+    from webtool.core.config_data import load as _cfg_load
+    d = _cfg_load('zen', 'zen.json') or {}
+    out = dict(DEFAULTS)
+    for k in DEFAULTS:
+        v = d.get(k)
+        if v is not None and v != '':
+            out[k] = v
+    return out
+
 # 真机 12 个工具定义 (2026-10-14 从官方 1.19.0 抓包提取, 未做任何改写)。
 # 为什么必须真发: 免费层闸门把 body 也算进判据 —— 实测 (头用真机不变)
 #   tool_choice=none        → 403        tools 只有我们自己写的瘦 schema → 403
@@ -92,7 +121,8 @@ def resolve_tool_names(spec=None):
 
 
 def request_preview(model, prompt, system=None, tool_choice=None,
-                    tool_names=None, ses_id=None, msg_id=None, url=None):
+                    tool_names=None, ses_id=None, msg_id=None, url=None,
+                    reasoning_effort=None, max_tokens=None):
     """将要发出的请求 (不出网): {method, url, headers, body}
 
     与 `call_zen` 走同一套 `build_body` / `build_headers` / `_endpoints`,
@@ -106,7 +136,8 @@ def request_preview(model, prompt, system=None, tool_choice=None,
     顺序: 我们的 10 个按真机序, 库补的两个 + Connection 追加在后 (实测报文里
     它们排在开头, 那是 http.client 的写法); HTTP 头顺序无语义, 看集合。
     """
-    body_bytes = build_body(model, prompt, system, tool_choice, tool_names)
+    body_bytes = build_body(model, prompt, system, tool_choice, tool_names,
+                            reasoning_effort, max_tokens)
     url = url or _endpoints()[0]
     wire = {k.title(): v for k, v in build_headers(ses_id, msg_id).items()}
     wire['Connection'] = 'close'                  # urllib 写死的, 不是我们的选择
@@ -253,14 +284,16 @@ def model_headers():
             'Authorization': 'Bearer public'}
 
 
-def build_body(model, prompt, system=None, tool_choice=None, tool_names=None):
+def build_body(model, prompt, system=None, tool_choice=None, tool_names=None,
+               reasoning_effort=None, max_tokens=None):
     """OpenAI Chat Completions 请求体
 
     tools 用真机定义、tool_choice 默认 auto —— 两者都是闸门判据 (见文件头注释)。
+    `reasoning_effort` 只在显式给值时带上 (可选值随模型而异, 见 zen --think)。
     """
-    return json.dumps({
+    body = {
         'model': model,
-        'max_tokens': 32000,
+        'max_tokens': max_tokens or DEFAULT_MAX_TOKENS,
         'messages': [
             {'role': 'system', 'content': system or DEFAULT_SYSTEM},
             {'role': 'user', 'content': prompt},
@@ -269,7 +302,10 @@ def build_body(model, prompt, system=None, tool_choice=None, tool_names=None):
         'tool_choice': tool_choice or 'auto',
         'stream': True,
         'stream_options': {'include_usage': True},
-    }, ensure_ascii=False).encode('utf-8')
+    }
+    if reasoning_effort:
+        body['reasoning_effort'] = reasoning_effort
+    return json.dumps(body, ensure_ascii=False).encode('utf-8')
 
 
 def parse_models_full(data):

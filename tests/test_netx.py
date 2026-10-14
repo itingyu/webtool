@@ -749,6 +749,85 @@ check('工具名不存在' in (_w(_ty.SimpleNamespace(tools='bash,read,nope')) o
 _rc, _o = _cli('zen', 'x', '--dry-run', '--no-live')       # 旧名别名要能解析
 check(_rc == 0, '--no-live / --stream 旧名仍可解析')
 
+print('\n=== 思考标签 / 思考强度 / 着色 ===')
+# 混在正文里的思考标签: 标签前是思考, 标签后才是答案
+check(_zen.split_think('想了半天</think>答案在这') == ('想了半天', '答案在这'),
+      'split_think: </think> 前归思考, 后归正文')
+check(_zen.split_think('只有开标签<think>没写完')[1] == '',
+      '只有开标签 (截断) → 整段算思考')
+check(_zen.split_think('干净正文') == ('', '干净正文'), '没有标签原样返回')
+check(_zen.split_think('</think>直接答案') == ('', '直接答案'),
+      '上游只留了闭标签也能剥')
+_s = _zen._ThinkSplitter()
+_parts = []
+for _c in ['abc', '<', 'think', '>', 'zz', '</', 'think', '>', 'done']:
+    _parts += _s.feed(_c)
+_parts += _s.flush()
+check(''.join(t for k, t in _parts if k == 'think') == 'zz'
+      and ''.join(t for k, t in _parts if k == 'text') == 'abcdone',
+      '流式分片: 跨 chunk 的标签也认得出, 标签本身不打出去')
+_s2 = _zen._ThinkSplitter()
+_half = '我刚才在想' + '</thi'          # 尾巴是半个闭标签, 必须扣住
+check(''.join(t for k, t in _s2.feed(_half) if k == 'text') == '我刚才在想',
+      '扣住可能是标签前缀的尾巴, 不吐半截')
+check(''.join(t for k, t in _s2.feed('nk>') if k == 'text') == '',
+      '标签补齐后不把 </think> 当正文')
+# _do_zen 里正文与思考标签的最终定性, 由 split_think 兜底
+_b = _zp.build_body('m', 'p', tool_names=None)
+check(b'reasoning_effort' not in _b, 'build_body 不显式给就不带 reasoning_effort')
+_b = _zp.build_body('m', 'p', tool_names=None, reasoning_effort='xhigh')
+check(json.loads(_b)['reasoning_effort'] == 'xhigh',
+      '--think 的值原样进请求体 (可选值随模型而异, 不预判)')
+check(_cli_app._norm_think(None) == 'medium', '不填 --think → 默认 medium')
+check(_cli_app._norm_think('off') is None and _cli_app._norm_think('none') is None,
+      '--think off/none → 不带该字段')
+check(_cli_app._norm_think('XHigh') == 'XHigh', '取值只去空白, 不改大小写')
+_rc, _o = _cli('zen', 'x', '--dry-run', '--think', 'xhigh', '-f', 'json')
+check(_rc == 0 and json.loads(_o)['body']['reasoning_effort'] == 'xhigh',
+      'dry-run 预览里能看到 --think 落到请求体')
+_rc, _o = _cli('zen', 'x', '--dry-run', '-f', 'json')
+check(json.loads(_o)['body']['reasoning_effort'] == 'medium',
+      '不填时请求体里带默认 medium')
+_rc, _o = _cli('zen', 'x', '--dry-run', '--think', 'off', '-f', 'json')
+check(_rc == 0 and 'reasoning_effort' not in json.loads(_o)['body'],
+      '--think off → 不带该字段')
+check(_zen._blames_effort({'status': 400,
+                           'error_body': 'Unsupported parameter: reasoning_effort'})
+      and not _zen._blames_effort({'status': 400, 'error_body': 'bad tools'}),
+      '只在报错真提到 effort 时才归因到思考强度')
+check(_zen._color_on() is False, '非终端不上色 (测试进程 stdout 不是 tty)')
+
+print('\n=== zen 默认值可配 (命令行 > zen.json > 内置) ===')
+_rc, _o = _cli('zen', 'x', '--dry-run', '-f', 'json')
+_b = json.loads(_o)['body']
+check(_b['max_tokens'] == _zp.DEFAULT_MAX_TOKENS == 200000,
+      'max_tokens 内置默认 200000')
+check(_b['model'] == 'big-pickle' and _b['tool_choice'] == 'auto',
+      'model/tool_choice 内置默认')
+_zd = os.path.join(WEBTOOL_DIR, 'zen.json')
+with open(_zd, 'w', encoding='utf-8') as _f:
+    json.dump({'zen': {'model': 'mimo-x', 'max_tokens': 8000,
+                       'reasoning_effort': 'high', 'tools': 'all',
+                       'live': False, 'tool_choice': 'auto'}}, _f)
+from webtool.core import config_data as _CD          # noqa: E402
+_CD.invalidate()
+try:
+    _rc, _o = _cli('zen', 'x', '--dry-run', '-f', 'json')
+    _b = json.loads(_o)['body']
+    check(_b['model'] == 'mimo-x' and _b['max_tokens'] == 8000
+          and _b['reasoning_effort'] == 'high' and len(_b['tools']) == 12,
+          'zen.json 的 zen 段覆盖内置默认')
+    _rc, _o = _cli('zen', 'x', '--dry-run', '--max-tokens', '100',
+                   '--think', 'low', '--model', 'y', '-f', 'json')
+    _b = json.loads(_o)['body']
+    check(_b['max_tokens'] == 100 and _b['reasoning_effort'] == 'low'
+          and _b['model'] == 'y', '命令行覆盖 zen.json')
+    _dd = _zp.defaults()
+    check(_dd['live'] is False, 'zen.json 的 live 生效 (默认是否边收边打也可配)')
+finally:
+    os.remove(_zd)
+    _CD.invalidate()
+
 print('\n=== 线路只有一个决策点: 规则表 ===')
 _ROOT = __import__('pathlib').Path(__file__).resolve().parent.parent
 _SRC = _ROOT / 'src' / 'webtool'

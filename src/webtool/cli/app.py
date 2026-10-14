@@ -50,7 +50,64 @@ def _norm_fmt(v, default):
     return x
 
 
+_THINK_OFF = ('off', 'none', 'no')
+DEFAULT_THINK = 'medium'
+
+def _norm_think(v):
+    """归一化 --think 取值 → 上游 reasoning_effort
+
+    **不预判合法值**: 可选值随模型而异 (有的只认 low/medium/high, 有的还收
+    none/minimal/xhigh, 有的压根不吃这个字段), 上游自己的清单才是唯一权威 ——
+    客户端写死一套只会把"其实能用"的值挡在门外。
+    不填 → 默认 medium (随手要一个默认强度); 显式 off/none → 不带该字段。
+    """
+    if v is None:
+        return DEFAULT_THINK
+    x = v.strip()
+    if not x or x.lower() in _THINK_OFF:
+        return None
+    return x
+
+
 from types import SimpleNamespace
+
+
+class _Tee:
+    """边写缓冲边写真终端: 让"人在终端"时能看到流式输出。
+
+    数据命令的输出本来要整段捕获 (供 -f/-o 落盘), 但那样 zen 这种流式命令也
+    被憋到结束才一次性吐。这里只在"真 stdout 是终端 + 文本格式 + 不落盘"时
+    把输出同时透到终端, 其余一律纯缓冲 —— 管道/文件里绝不掺半截内容。
+    isatty() 如实转达真终端, 于是 zen 内部判断"人在看"的那套逻辑照常成立。
+    """
+
+    def __init__(self, buf, live):
+        object.__setattr__(self, '_buf', buf)
+        object.__setattr__(self, '_live', live)
+
+    def write(self, s):
+        self._buf.write(s)
+        try:
+            self._live.write(s)
+            self._live.flush()
+        except Exception:
+            pass
+        return len(s)
+
+    def flush(self):
+        try:
+            self._live.flush()
+        except Exception:
+            pass
+
+    def isatty(self):
+        try:
+            return bool(self._live.isatty())
+        except Exception:
+            return False
+
+    def __getattr__(self, name):          # encoding / fileno 等交给真终端
+        return getattr(object.__getattribute__(self, '_live'), name)
 
 
 def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='text'):
@@ -70,7 +127,13 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='text'):
     args.output = output
     if data_cmd:
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        # 人在终端看文本输出 → 透传, 保留流式观感; 否则纯缓冲 (管道/文件不掺半截)
+        _real = getattr(sys, '__stdout__', None)
+        tee = None
+        if ((not output or output == '-') and args.format != 'json'
+                and _real is not None and getattr(_real, 'isatty', lambda: False)()):
+            tee = _Tee(buf, _real)
+        with redirect_stdout(tee or buf):
             try:
                 rc = fn(args, cfg)
             except ValueError as e:
@@ -82,6 +145,9 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='text'):
                 raise _UsageError(
                     f'缺少依赖 {e.name or e}; 股票能力装: pip install "webtool[stock]"')
         out = buf.getvalue()
+        if tee is not None:
+            # 内容已经实时打到终端了, 不再 emit 一遍 (否则屏幕上看两遍)
+            return rc if rc not in (0, None) else 0
         if rc not in (0, None):
             # 命令已经跑出报告了, 退出码只是"有没有可用结果"的判据 (如 zen
             # --check 全挂) —— 别因为退出码非零就把人要看的报告丢掉。
@@ -198,14 +264,16 @@ def _do(name):
 
 @app.command('zen')
 def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空则走 --list-models)'),
-            model: str = typer.Option('big-pickle', '--model',
-                                      help='模型 id (不带 provider 前缀; 见 zen --list-models)'),
+            model: str = typer.Option(None, '--model',
+                                      help='模型 id (不带 provider 前缀; 见 zen --list-models; 默认取 zen.json 的 model, 再回落 big-pickle)'),
             system: str = typer.Option(None, '--system',
                                        help='system prompt (分类器只验 role:system 存在, 不读内容)'),
-            tool_choice: str = typer.Option('auto', '--tool-choice',
+            tool_choice: str = typer.Option(None, '--tool-choice',
                                             help='是否允许模型调工具; 默认 auto (闸门判据, 改 none 会被拒)'),
-            tools: str = typer.Option('min', '--tools',
+            tools: str = typer.Option(None, '--tools',
                                       help='工具集: min(默认, 闸门最小集 bash+read) / all / 逗号清单 (如 bash,read,grep)'),
+            max_tokens: int = typer.Option(None, '--max-tokens',
+                                           help='回复上限 token (默认取 zen.json 的 max_tokens, 再回落 200000)'),
             list_models: bool = typer.Option(False, '--list-models', help='列出 /v1/models 的全部 id'),
             list_free: bool = typer.Option(False, '--list-free',
                                            help='只列免费层 id (按命名约定筛, 不是保证)'),
@@ -224,10 +292,12 @@ def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空
                                            help='(旧名) 同 --show text'),
             all_tools: bool = typer.Option(False, '--all-tools', hidden=True,
                                            help='(旧名) 同 --tools all'),
-            live: bool = typer.Option(True, '--live/--no-live', '--stream/--no-stream',
+            live: bool = typer.Option(None, '--live/--no-live', '--stream/--no-stream',
                                       help='边收边打印 (默认开, 仅终端里生效); --no-live 攒到最后一次输出'),
             show_reasoning: bool = typer.Option(True, '--reasoning/--no-reasoning',
                                                 help='打印思考过程 (默认开); --no-reasoning 只要答案 (不改请求体)'),
+            think: str = typer.Option(None, '--think', '--reasoning-effort',
+                                      help='思考强度 (透传上游 reasoning_effort; 可选值随模型而异, 如 low/medium/high; 默认 medium, off 则不带该字段)'),
             retries: int = typer.Option(2, '--retries', help='瞬时故障 (连接错/408/429/5xx) 重试次数; 退避指数 2/4/8s'),
             sticky: bool = typer.Option(True, '--sticky/--no-sticky',
                                         help='固定会话 id, 按整点轮换 (默认开); --no-sticky 每次运行换新'),
@@ -235,16 +305,24 @@ def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空
             no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """OpenCode Zen 免费层对话 (OpenAI 兼容, 公开模式, 无需 key)"""
     a = _CTX['args']
-    a.prompt, a.model, a.system = ' '.join(prompt) if prompt else '', model, system
-    a.tool_choice = tool_choice
-    a.tools = 'all' if all_tools else tools
+    # 默认值优先级: 命令行 > ~/.webtool/zen.json 的 zen 段 > 内置 (见 zenproto.DEFAULTS)
+    from webtool.cli import zenproto as _zp
+    dfl = _zp.defaults()
+    a.prompt = ' '.join(prompt) if prompt else ''
+    a.model = model or dfl['model']
+    a.system = system if system is not None else dfl['system']
+    a.tool_choice = tool_choice or dfl['tool_choice']
+    a.tools = 'all' if all_tools else (tools or dfl['tools'])
+    a.max_tokens = max_tokens or dfl['max_tokens']
     a.list_models, a.list_free = list_models, list_free
     a.check = check or check_all          # --check-all 单独给也生效 (以前是静默空转)
     a.check_all, a.refresh = check_all, refresh
-    a.dry_run, a.show, a.stream = dry_run, show, live
+    a.dry_run, a.show = dry_run, show
+    a.stream = dfl['live'] if live is None else live
     a.show_body, a.show_text = show_body, show_text
     a.retries, a.sticky = retries, sticky
     a.reasoning = show_reasoning
+    a.think = _norm_think(think if think is not None else dfl['reasoning_effort'])
     return _run('data', _entry_fn('zen'), fmt, output, no_cache, no_proxy)
 
 

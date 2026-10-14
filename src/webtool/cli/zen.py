@@ -121,11 +121,119 @@ def _unzipper(encoding):
     return lambda b: d.decompress(b) if b else b
 
 
+# ---------------------------------------------------------------- 思考标签
+
+# 模型把思考塞进正文时用的标签 (留作流式与非流式两条路共同识别)
+_THINK_TAGS = ('<think>', '<thinking>', '<reasoning>')
+_END_THINK_TAGS = ('</think>', '</thinking>', '</reasoning>')
+
+
+def split_think(text):
+    """把混在正文里的思考标签剥出来 → (思考, 正文)
+
+    有些模型不走 reasoning 通道, 而是把思考直接写进 content 并用 `</think>`
+    之类标签包着 (上游偶尔只留闭标签)。见到闭标签: 它前面的是思考, 后面才是
+    答案。只有开标签没有闭标签 (被截断) 则整段算思考。没有标签原样返回。
+    """
+    if not text:
+        return '', text
+    low = text.lower()
+    hit = None                                # (位置, 标签)
+    for tag in _END_THINK_TAGS:
+        i = low.find(tag)
+        if i != -1 and (hit is None or i < hit[0]):
+            hit = (i, tag)
+    if hit is None:
+        for tag in _THINK_TAGS:
+            if tag in low:
+                return text, ''
+        return '', text
+    i, tag = hit
+    return text[:i], text[i + len(tag):].lstrip('\n')
+
+
+class _ThinkSplitter:
+    """流式剥思考标签: 标签绝不原样打到屏幕, 标签内的文字算思考。
+
+    标签可能被切成两个 chunk, 所以尾部的"可能是标签前缀"的部分先扣在手里,
+    等下一个 chunk 到了再判。分类只影响**渲染**(上文是否算思考), 最终正文由
+    `split_think` 在整段上定性, 两者一致。
+    """
+
+    _TAGS = _THINK_TAGS + _END_THINK_TAGS
+    _MAX = max(len(t) for t in _TAGS)
+
+    def __init__(self):
+        self.pending = ''
+        self.in_think = False
+
+    def _classify(self, piece):
+        return ('think' if self.in_think else 'text', piece)
+
+    def feed(self, chunk):
+        self.pending += chunk
+        out = []
+        while True:
+            low = self.pending.lower()
+            hit = None
+            for tag in self._TAGS:
+                i = low.find(tag)
+                if i != -1 and (hit is None or i < hit[0]):
+                    hit = (i, tag)
+            if hit is None:
+                break
+            i, tag = hit
+            if self.pending[:i]:
+                out.append(self._classify(self.pending[:i]))
+            self.in_think = not tag.startswith('</')
+            self.pending = self.pending[i + len(tag):]
+        keep = 0
+        low = self.pending.lower()
+        for tag in self._TAGS:                     # 扣住可能是标签开头的尾巴
+            for n in range(min(len(tag) - 1, len(low)), 0, -1):
+                if low.endswith(tag[:n]):
+                    keep = max(keep, n)
+                    break
+        if keep:
+            ready, self.pending = self.pending[:-keep], self.pending[-keep:]
+        else:
+            ready, self.pending = self.pending, ''
+        if ready:
+            out.append(self._classify(ready))
+        return out
+
+    def flush(self):
+        out = [self._classify(self.pending)] if self.pending else []
+        self.pending = ''
+        return out
+
+
+# ---------------------------------------------------------------- 终端着色
+
+_C_RESET = '\033[0m'
+_C_THINK = '\033[90m'      # 灰: 思考
+_C_TOOL = '\033[33m'       # 黄: 工具调用
+_C_HEAD = '\033[36m'       # 青: 分段标签
+
+
+def _color_on():
+    """终端着色开关: 非终端 / NO_COLOR 一律不上色 (管道与日志里不该混转义序列)"""
+    import os
+    if os.environ.get('NO_COLOR'):
+        return False
+    try:
+        return bool(sys.stdout.isatty())
+    except Exception:
+        return False
+
+
 def call_zen(model, prompt, system=None, session=None, on_delta=None,
-             tool_choice=None, tool_names=None, proxy=None, on_reason=None):
+             tool_choice=None, tool_names=None, proxy=None, on_reason=None,
+             reasoning_effort=None, on_tool=None, max_tokens=None):
     """发一次请求, 流式返回 {ok, status, text, usage, ...}。不重试。"""
     cfg = {'proxy': proxy} if proxy else {}
-    body = build_body(model, prompt, system, tool_choice, tool_names)
+    body = build_body(model, prompt, system, tool_choice, tool_names,
+                      reasoning_effort, max_tokens)
     headers = session.headers() if session else build_headers()
     chat_url = _endpoints()[0]
     req = urllib.request.Request(chat_url, data=body, headers=headers,
@@ -155,7 +263,10 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
                 if c.get('type'):
                     acc['type'] = c['type']
                 if c.get('name'):
+                    _first = not acc['name']       # 只报一次: 名字刚出现时
                     acc['name'] += c['name']
+                    if _first and on_tool:
+                        on_tool(acc['name'])
                 if c.get('arguments'):
                     acc['arguments'] += c['arguments']
             if u:
@@ -216,6 +327,10 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
 
     text = ''.join(text_parts)
     reason = ''.join(reason_parts)
+    # 混在正文里的思考标签: 剥出来并入 reasoning, 正文只留标签之后的部分
+    _leaked, text = split_think(text)
+    if _leaked.strip():
+        reason = (_leaked + '\n' + reason) if reason.strip() else _leaked
     used_reason = False
     if not text.strip() and reason.strip():
         text = reason                       # 少数模型只走 reasoning 通道
@@ -322,9 +437,17 @@ def _backoff(attempt, retry_after=None):
     return max(0.0, min(RETRY_CAP, raw + raw * RETRY_JITTER * random.uniform(-1, 1)))
 
 
+def _blames_effort(res):
+    """400 的锅是不是 reasoning_effort 背的 (模型不认这个字段/这个值)"""
+    if not res or res.get('status') != 400:
+        return False
+    body = (res.get('error_body') or '').lower()
+    return any(h in body for h in ('reasoning_effort', 'reasoning', 'effort'))
+
 def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
                    tool_choice=None, tool_names=None, cfg=None, max_attempts=2,
-                   verbose=False, on_reason=None):
+                   verbose=False, on_reason=None, reasoning_effort=None,
+                   on_tool=None, max_tokens=None):
     """只重试瞬时故障: 连接错误 / 408 / 429 / 5xx。**同一线路**重试。
 
     退避是指数的 (见 _backoff): 2/4/8/16s + 抖动, 60s 封顶, 默认 4 次;服务端 Retry-After 优先。
@@ -341,12 +464,28 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
     route = _route(cfg, _endpoints()[0], verbose)
     for attempt in range(1, max(1, max_attempts) + 1):
         last = call_zen(model, prompt, system, session, on_delta, tool_choice,
-                        tool_names, proxy=route, on_reason=on_reason)
+                        tool_names, proxy=route, on_reason=on_reason,
+                        reasoning_effort=reasoning_effort, on_tool=on_tool,
+                        max_tokens=max_tokens)
         if last.get('ok'):
             return last
         status = last.get('status', 0)
         if status == 200:
             return last
+        if status == 400 and reasoning_effort and _blames_effort(last):
+            # 这个模型不收 reasoning_effort (或那个取值) —— 撤掉字段再打一次,
+            # 别让一个可选的强度开关把整个请求废掉。只降级一次, 并明说, 免得
+            # 用户以为强度生效了。默认是 medium, 所以这条路径并不罕见。
+            print('[zen] 模型 %s 不接受 reasoning_effort=%r, 本次去掉该字段重试'
+                  % (model, reasoning_effort), file=sys.stderr)
+            reasoning_effort = None
+            last = call_zen(model, prompt, system, session, on_delta, tool_choice,
+                            tool_names, proxy=route, on_reason=on_reason,
+                            reasoning_effort=None, on_tool=on_tool,
+                            max_tokens=max_tokens)
+            if last.get('ok') or last.get('status') == 200:
+                return last
+            status = last.get('status', 0)
         if 400 <= status < 500 and status not in (408, 429):
             return last
         if attempt < max_attempts:
@@ -375,6 +514,8 @@ def _fmt_payload(res, args):
     if res.get('reasoning'):
         out['reasoning'] = res['reasoning']
         out['text_from_reasoning'] = res.get('text_from_reasoning', False)
+    if getattr(args, 'think', None):
+        out['reasoning_effort'] = args.think
     if res.get('tool_calls_detail'):
         out['tool_calls'] = res['tool_calls_detail']
     if not res.get('ok'):
@@ -534,7 +675,9 @@ def _do_zen(args, cfg):
         ses = StickySession() if args.sticky else None
         pv = _zp.request_preview(args.model, prompt, args.system,
                                  args.tool_choice, _tool_names(args),
-                                 ses_id=ses.ses_id if ses else None)
+                                 ses_id=ses.ses_id if ses else None,
+                                 reasoning_effort=getattr(args, 'think', None),
+                                 max_tokens=getattr(args, 'max_tokens', None))
         if view == 'headers':
             out = pv['headers']
         elif view == 'body':
@@ -593,44 +736,79 @@ def _do_zen(args, cfg):
     tty = sys.stdout.isatty()
     live = args.stream and fmt != 'json' and tty
     show_reason = getattr(args, 'reasoning', True) and fmt != 'json'
-    # 人在终端: 思考与回答都走 stdout, 用 [思考]/[回答] 分段 —— 推理过程是
-    # 输出的一部分, 不是错误, 没必要塞进 stderr 当成诊断信息。
-    # stdout 被重定向时: 只留回答, 思考挪去 stderr, 管道里拿到的正文才干净。
+    color = _color_on()
+    # 人在终端: 思考与回答都走 stdout, 用 [思考]/[回答] 分段并**上色区分** ——
+    # 思考灰、工具调用黄、分段标签青、正文原色。推理过程是输出的一部分, 不是
+    # 错误, 不塞 stderr。stdout 被重定向时只留回答 (思考挪 stderr), 管道干净。
     reason_sink = sys.stdout if tty else sys.stderr
     streamed = []
     marks = {'reason': False, 'text': False}
+    splitter = _ThinkSplitter()
+
+    def _head(tag):
+        return (_C_HEAD + tag + _C_RESET) if color else tag
 
     def on_reason(chunk):
         if not (live and show_reason):
             return
         if not marks['reason']:
             marks['reason'] = True
-            sys.stdout.write('[思考] ')
+            sys.stdout.write(_head('[思考] ') + (_C_THINK if color else ''))
         sys.stdout.write(chunk)
         sys.stdout.flush()
+
+    def _emit_text(piece):
+        streamed.append(piece)
+        if show_reason and not marks['text']:
+            marks['text'] = True
+            if marks['reason']:                # 从灰色思考切回原色正文
+                sys.stdout.write((_C_RESET if color else '') + '\n'
+                                 + _head('[回答] '))
+        sys.stdout.write(piece)
 
     def on_delta(text):
         if not live:
             return
-        streamed.append(text)
-        if show_reason and not marks['text']:
-            marks['text'] = True
-            sys.stdout.write('\n[回答] ' if marks['reason'] else '')
-        sys.stdout.write(text)
+        for kind, piece in splitter.feed(text):   # 混在正文里的思考标签就地分流
+            if kind == 'think':
+                on_reason(piece)
+            else:
+                _emit_text(piece)
+        sys.stdout.flush()
+
+    def on_tool(name):
+        if not live:
+            return
+        sys.stdout.write('\n%s[工具] %s(…)%s'
+                         % ((_C_TOOL if color else ''), name,
+                            (_C_RESET if color else '')))
         sys.stdout.flush()
 
     res = call_zen_retry(args.model, prompt, args.system, session, on_delta,
                          args.tool_choice, _tool_names(args), cfg,
                          max_attempts=args.retries,
-                         verbose=args.stream, on_reason=on_reason)
+                         verbose=args.stream, on_reason=on_reason,
+                         reasoning_effort=getattr(args, 'think', None),
+                         on_tool=on_tool,
+                         max_tokens=getattr(args, 'max_tokens', None))
     # 曾经这里失败后再 `call_zen_direct_then_proxy` 走一遍代理 —— 线路已在
     # call_zen_retry 内一次定死, 重试也只重试同一条线, 不再换线。
-    for c in res.get('tool_calls_detail') or []:
-        print('[zen] tool %s(%s)  ← 未执行'
-              % (c.get('name'), json.dumps(c.get('args', {}), ensure_ascii=False)),
-              file=sys.stderr)
+    if live:
+        for kind, piece in splitter.flush():      # 收尾: 扣在缓冲里的尾巴
+            if kind == 'think':
+                on_reason(piece)
+            else:
+                _emit_text(piece)
+        if color and (marks['reason'] or marks['text']):
+            sys.stdout.write(_C_RESET)
+        sys.stdout.flush()
+    else:
+        for c in res.get('tool_calls_detail') or []:
+            line = '[工具] %s(%s)  ← 本客户端不执行工具, 仅展示' % (
+                c.get('name'), json.dumps(c.get('args', {}), ensure_ascii=False))
+            print(line, file=sys.stderr)
 
-    # stdout 只出最终结果 (流式过程走 stderr), 管道里 json 不会被流污染
+    # stdout 只出最终结果 (流式内容已随 on_delta 打出), 管道里 json 不会被流污染
     if fmt == 'json':
         print(json.dumps(_fmt_payload(res, args), indent=2, ensure_ascii=False))
     elif live and streamed:
@@ -638,14 +816,16 @@ def _do_zen(args, cfg):
     else:
         # 缓冲模式: 思考先打 (终端走 stdout, 重定向走 stderr), 回答只走 stdout
         if show_reason and (res.get('reasoning') or '').strip():
-            print('[思考] %s' % res['reasoning'].strip(), file=reason_sink)
+            think = res['reasoning'].strip()
+            print('%s %s%s%s' % (_head('[思考]'), _C_THINK if color else '', think,
+                                 _C_RESET if color else ''), file=reason_sink)
             if tty:                       # 终端上给回答也起个头, 两段一眼分得开
-                print('[回答] %s' % res.get('text', ''))
+                print('%s %s' % (_head('[回答]'), res.get('text', '')))
                 return 0 if res.get('ok') else 2
         print(res.get('text', ''))
     if not res.get('ok'):
-        print('[zen] %s %s' % (res.get('status'),
-                               (res.get('error_body') or '')[:300]),
+        print('%s %s %s' % (_head('[zen]'), res.get('status'),
+                            (res.get('error_body') or '')[:300]),
               file=sys.stderr)
         return 2
     return 0
