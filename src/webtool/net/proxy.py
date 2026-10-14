@@ -1,7 +1,8 @@
 """代理与全局配置: ~/.webtool/config.json
 
 配置分三处, 职责不重叠:
-  - `proxy` / `engine_proxy` / `fetch_proxy` — 选哪条线路 (本模块)
+  - `proxy` / `fetch_proxy` — 选哪条线路 (本模块); 具体哪个 URL 走哪条线
+    由规则表定 (net.rules)
   - `proxy_auth` — 账号密码**密文** (core.secrets_store 管加密, 本模块只读写)
   - `proxy_rules` / `rules_file` / `geoip_db` / `asn_db` — 按 URL 分流 (net.rules)
 
@@ -23,7 +24,6 @@ CONFIG_PATH = str(USER_DIR / 'config.json')
 
 DEFAULTS = {
     'proxy': None,
-    'engine_proxy': {},          # 每引擎单独代理覆盖; 键取自引擎插件名
     'fetch_proxy': None,
     'timeout': 15,
     'ua': 'auto',
@@ -145,8 +145,10 @@ def handle(args, cfg):
 def _get(args, cfg):
     p = cfg.get('proxy')
     print(redact(p) if p else '(no proxy configured)')
-    ep = cfg.get('engine_proxy') or {}
-    print('engine_proxy:', redact(json.dumps(ep, ensure_ascii=False)))
+    if cfg.get('engine_proxy'):
+        # 老的每引擎覆盖: 不再生效, 但别装作没看见 —— 告诉用户这条线该写在哪
+        print('engine_proxy: (已废弃, 线路统一由规则表决定: '
+              'webtool proxy rule add <域名> direct|proxy:<代理名>)')
     auth = cfg.get('proxy_auth') or {}
     if auth:
         print('proxy_auth:', ', '.join(f'{u}(密文)' for u in auth))

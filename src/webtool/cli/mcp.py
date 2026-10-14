@@ -56,8 +56,8 @@ def _proxy_for(spec, args, cfg):
     由内置数据替用户决定 —— 用户自己可能就有配额。已移除, 现在:
 
     - 缺省 `'auto'` 交给路由表按域名/IP/协议分流
-    - 该端点需要直连: `webtool config set engine_proxy.<端点> direct`
-    - 或在规则表里写域名规则
+    - 该端点需要直连: 在规则表里写它域名的 `direct` 规则
+      (`webtool proxy rule add '{"domain":["..."]}' direct`)
 
     `spec` 保留是为了接口不变 (自建端点表若留了 proxy 字段, 删掉即可, 不报错)。
     """

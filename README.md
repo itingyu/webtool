@@ -101,9 +101,9 @@ webtool upgrade                                 # 升级到最新 (pip 走 rules
 ## 功能
 
 ### search
-- 引擎：bing / sogou / baidu / so360 / marginalia（境内可直连，配了规则/代理也照样走）／ google（直连必然不通，代理不可用时静默跳过，429 降级 news RSS，链接已还原原文 URL）／ exa（MCP 语义搜索，免 key，**默认不开**）/ parallel（MCP 语义搜索，**匿名免 key**，**默认不开**）/ firecrawl（MCP 搜索，**匿名免 key**，**默认不开**）
+- 引擎：bing / sogou / baidu / so360 / marginalia（境内可直连，配了规则/代理也照样走）／ google（直连必然不通，靠全局代理/规则表走线，429 降级 news RSS，链接已还原原文 URL）／ exa（MCP 语义搜索，免 key，**默认不开**）/ parallel（MCP 语义搜索，**匿名免 key**，**默认不开**）/ firecrawl（MCP 搜索，**匿名免 key**，**默认不开**）
   - 走哪条线由 `webtool config set proxy` + 规则表决定，引擎之间不再有硬编码差异。境内站想要直连：`webtool proxy rule add '{"geosite":["cn"]}' direct`
-  - `exa` 走 Exa MCP 的 `web_search_exa`，免 key 配额按**出口 IP** 计，走代理等于蹭别人的配额池（实测带代理必 429）。需要它时用 `webtool config set engine_proxy.exa direct` 或加一条 exa 域名的 `direct` 规则，**没有隐式绕过**。不进默认组合，按需 `-e exa` 或加进 preset
+  - `exa` 走 Exa MCP 的 `web_search_exa`，免 key 配额按**出口 IP** 计，走代理等于蹭别人的配额池（实测带代理必 429）。需要它时加一条 exa 域名的 `direct` 规则：`webtool proxy rule add '{"domain":["exa.ai"]}' direct`，**没有隐式绕过**。不进默认组合，按需 `-e exa` 或加进 preset
   - `parallel` 走 Parallel Search MCP 的 `web_search`，**匿名免 key 可用**（fast 模式），注册后每月 $5 循环额度（$1/1000 请求 ≈ 5000 次/月），配 `PARALLEL_API_KEY` 自动生效。返回 JSON 含 `publish_date`，比 exa 的纯文本更好解析，实测也更快（1.4–2.0s vs 2.6s）。
   - `firecrawl` 走 Firecrawl MCP 的 `firecrawl_search`，**匿名免 key 可用**，免费层 500 次/月 search 或 1000 页 scrape，配 `FIRECRAWL_API_KEY` 自动生效。它的 `firecrawl_scrape` 能过 JS 渲染页，是 `fetch --via` 的最佳兜底通道。
   - 三者召回都是**语义**而非关键词，与 bing/sogou 重叠少，作为长尾与英文技术内容的补充源最划算。实测召回各有胜负（同一查询 exa 条数更多、parallel 更快且带日期），按需挑或并用。
@@ -201,7 +201,7 @@ webtool mcp call https://my.site/mcp my_tool '{}' # 任意 URL 直接传
 **Exa、Parallel、Firecrawl 都已并入 `search` 引擎池**（`webtool search -e exa` / `-e parallel` / `-e firecrawl`），不再有独立的 `webtool exa` 命令 —— 原 `exa search` 用引擎替代，`exa fetch` / `exa list` 分别由 `webtool fetch` 与 `webtool mcp list exa` 覆盖。端点声明（url / verbs / api_key_env）在 `data/mcp.json`，三个 `engines/*.py` 与 `webtool mcp`、`webtool fetch --via` 共用同一份数据。三者均匿名免 key：Exa 撞限额返回 429 并提示配 `EXA_API_KEY`；Parallel 注册后每月 $5 额度，配 `PARALLEL_API_KEY` 生效；Firecrawl 免费层 500 次/月 search 或 1000 页 scrape，配 `FIRECRAWL_API_KEY` 生效。
 
 - 端点别名在 `src/webtool/data/mcp.json`，用户可建 `~/.webtool/mcp.json` 同构覆盖：`{"mcp":{"my_srv":{"url":"...","api_key_env":"MY_KEY","verbs":{"search":"..."}}}}`
-- **代理策略**：端点表不再声明线路，所有端点统一跟随 `proxy` 配置与规则表。要给单个端点指定线路用 `webtool config set engine_proxy.exa direct`，或加一条针对它域名的规则；`--no-proxy` 全局临时绕过。exa 免 key 配额按**出口 IP** 计，走全局代理等于蹭别人的配额池——实测同一命令带代理必 429、直连稳定通过，所以需要它时得**显式**配直连
+- **代理策略**：端点表不声明线路，所有请求统一跟随 `proxy` 配置与规则表。要给单个端点指定线路，加一条针对它域名的规则；`--no-proxy` 全局临时绕过。exa 免 key 配额按**出口 IP** 计，走全局代理等于蹭别人的配额池——实测同一命令带代理必 429、直连稳定通过，所以需要它时得**显式**配直连规则
 - key 一律经**环境变量名**映射，配置文件不存明文；免 key 服务不发认证头
 - **传参两条通道，可并存**：`--arg k=v`（可多次；值按 JSON 字面量猜 `int`/`bool`/`null`/数组，含空格/中文/URL 的原样保留）或位置 JSON `'{"k":"v"}'`；两者同时给时 `--arg` 覆盖同名键
 - `--tools a,b` 下发工具白名单（`?tools=`），缩小 Agent 选择面
@@ -271,7 +271,7 @@ webtool stock health                            # 四侧探活
 - `-n` 条数 / `-f` 格式（`md`≡`markdown`、`txt`≡`text`，大小写不敏感）/ `-o` 落盘（按 `-f` 补扩展名）/ `--no-cache` / `--no-proxy`
 - 退出码：0 成功 / 2 用法错误（提示走 stderr）
 - 缓存 TTL：search 60s / fetch 10s / 跳转解析 10min（`config set cache_ttl.<桶>=<秒>` 覆盖）
-- 出网全走浏览器指纹，**走哪条线一次定死**：配置 + 路由表在请求前决定，请求失败就是失败，不做"直连→代理"的隐式切换（否则同一次调用走哪条线取决于它先在哪失败，且"代理失败退直连"会毁掉只允许代理出网的目标）。要临时全直连用 `--no-proxy`，要单点覆盖用 `engine_proxy.<引擎名>` 或规则表
+- 出网全走浏览器指纹，**走哪条线一次定死**：配置 + 路由表在请求前决定，请求失败就是失败，不做"直连→代理"的隐式切换（否则同一次调用走哪条线取决于它先在哪失败，且"代理失败退直连"会毁掉只允许代理出网的目标）。要临时全直连用 `--no-proxy`，要单点覆盖就加规则表条目
 - 报错自带处置建议，照做即可
 
 ### 证书校验

@@ -218,7 +218,6 @@
       "desc": "Google: web(需代理,常IP级reCAPTCHA)→news RSS 自动降级+文章链还原",
       "base": 0.95,
       "params": {
-        "proxy_hint": "required",
         "ops": [
           "site",
           "intitle",

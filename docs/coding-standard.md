@@ -135,7 +135,8 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 
 - `Registry.items()` 返回 dict——遍历要 `.items().items()`；直接 `for k, v in reg.items()` 会把 key 字符串解包报错（smoke 有契约测试锁死）
 - 探活统一走 `core.probe.proxy_ok`；`pipeline/rank.py` 的 `_proxy_ok` 是它上面加了进程内缓存的薄包装
-- `pipeline/search.py` 的 `proxy_hint/_proxy_alive` 同理是兼容再导出，实现在 `net/transport.py`
+- 引擎/端点都不自报线路：没有 `engine_proxy` 覆盖，没有 `proxy_hint`，没有 `_proxy_alive`。
+  一条请求走直连还是代理，只由规则表（`netx`）判一次
 - **MCP 端点既可以只是 `mcp` 的调用目标，也可以直接充当搜索引擎或 fetch 兜底通道**。
   `engines/parallel.py` 与 `engines/firecrawl.py` 是样板：`engines/exa.py`（三者同源）
   端点声明（url / verbs / api_key_env）全部读 `data/mcp.json`，与 `webtool mcp` 共用同一份数据，
@@ -152,13 +153,11 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   （`auto` → 规则表 → 全局代理/直连）。曾给 exa 写死 `"proxy":"direct"`、引擎侧再
   强制 `proxy=None`：免 key 配额按出口 IP 计，走全局代理等于用别人的配额池（实测带代理
   必 429、直连稳定通过）—— 但这是**端点特性，不是替用户做决定**，写进数据表等于所有用户
-  的 exa 都被强制直连，而被墙的端点照样接不上。要走直连就显式配
-  `webtool config set engine_proxy.exa direct` 或加一条规则
-- **`plugins.json` 同理不再有 `site.*.proxy` / `engine.*.params.proxy_hint:"direct"`**：
-  `site` 那条是真强制直连（`sitesearch.py` 见到 direct 就把 proxy 置 None，绕开 config
-  和路由表）；`proxy_hint` 只保留 `'required'`（该引擎直连必然不通，代理不可用时跳过），
-  `None` = 跟随路由表。自定义站点 `~/.webtool/sites/*.json` 的 `proxy` 是**用户配置**，
-  继续有效
+  的 exa 都被强制直连，而被墙的端点照样接不上。要走直连就加一条针对它域名的规则：
+  `webtool proxy rule add '{"domain":["exa.ai"]}' direct`
+- **`plugins.json` 里没有任何线路字段**：`site.*.proxy`、`engine.*.params.proxy_hint` 都已删除。
+  引擎和内置站点一律把线路交给规则表。自定义站点 `~/.webtool/sites/*.json` 的 `proxy` 是
+  **用户配置**，继续有效（`direct` / `proxy` / `auto`）
 - **线路只由配置决定，不做隐式切换**（`netx.resolve_proxy` 是唯一归一点）。"先直连、失败
   再代理"这类回退会让同一次请求走哪条线取决于它先在哪失败，"代理失败退直连"更会毁掉只允许
   代理出网的目标。写通道别加 `allow_fallback` 参数，也别在适配器里写死 `proxy=None` ——

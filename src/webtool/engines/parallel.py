@@ -15,8 +15,8 @@ Parallel 有两处与 Exa 不同的调用形状, 是本模块的全部复杂度�
 (搜索 $1/1000 请求, 约合 5000 次/月), 配 PARALLEL_API_KEY 自动生效。
 
 代理: **不写死**。曾与 Exa 一样硬编码 `proxy=None` (免 key 配额按出口 IP 计), 但
-那是服务方的计量策略, 不该由代码替用户决定 —— 需要直连时用
-`webtool config set engine_proxy.parallel direct`, 或在规则表里按域名分流。
+那是服务方的计量策略, 不该由代码替用户决定 —— 需要直连时在规则表里给它的域名
+写一条: `webtool proxy rule add <该域名> direct`。
 
 上游请求条数封顶同 Exa: 单次条数越多越慢且更易触发限流, 故对上游封顶, 返回值
 再截断到调用方要的数。

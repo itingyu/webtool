@@ -284,10 +284,9 @@ def call_verb(name, verb, arguments=None, timeout=None, proxy=None):
     - 上游工具报错: {is_error: True, text}
 
     代理策略与 `cli/mcp.py::_proxy_for` 同源: 端点表不参与决策, 缺省 `'auto'` 走
-    路由表。端点曾声明 `proxy: direct` 强制直连 (免 key 配额按出口 IP 计), 已
-    移除 —— 那是服务方的计量策略, 该由用户配置决定。需要直连:
-    `webtool config set engine_proxy.<端点> direct`, 或在规则表里写域名规则。
-    此处没有 args.no_proxy 可看, 临时绕过由调用方显式传 proxy=None。
+    规则表。端点不自带线路声明 —— 免 key 配额按出口 IP 计这类服务方策略, 该由用户
+    自己写一条域名规则决定。此处没有 args.no_proxy 可看, 临时绕过由调用方显式传
+    proxy='direct'。
     """
     spec = endpoint(name)
     tool = (spec.get('verbs') or {}).get(verb)

@@ -1,10 +1,11 @@
 """webtool config: 统一配置管理子命令
 
 配置层级 (优先级从高到低):
-1. 命令行参数 (--proxy / --blocklist ...)
-2. 引擎/站点级配置 (~/.webtool/config.json 的 engine_proxy)
-3. 全局配置 (config set 写入的键)
-4. 内置默认值
+1. 命令行参数 (--proxy / --no-proxy / --blocklist ...)
+2. 全局配置 (config set 写入的键)
+3. 内置默认值
+
+线路 (直连还是走代理) 不在这里配: 只有规则表一个决策点, 见 webtool proxy rule。
 
 存 ~/.webtool/config.json, 与 proxy/blocklist 文件共存。
 """
@@ -20,6 +21,9 @@ from webtool.core.secrets_store import redact as _redact
 CONFIG_PATH = str(USER_DIR / 'config.json')
 
 # 可配置键白名单: (键名, 说明, 合法值)
+# 废弃配置的提示文案 (set/get 都指回规则表)
+_DEP_ENGINE_PROXY = ('engine_proxy 已废弃: 线路统一由规则表决定, 这里配了不起作用。改用 `webtool proxy rule add <域名> direct` 或 `… proxy:<代理名>`;要清掉旧值: `webtool config unset engine_proxy`')
+
 CONFIG_KEYS = {
     'proxy':            ('全局代理 (不带凭据; 密码用 webtool proxy setpass 存)',
                          '如 http://127.0.0.1:2080 / socks5://...', None),
@@ -30,7 +34,6 @@ CONFIG_KEYS = {
     'timeout':          ('请求超时秒数', '5 ~ 60 整数', int),
     'cache':            ('缓存开关', 'on / off', ('on', 'off')),
     'fetch_proxy':      ('抓取专用代理', '<url>; 空=跟随全局', None),
-    'engine_proxy':     ('每引擎代理覆盖', '{"bing":null,"google":"<url>"}', None),
     'proxy_rules':      ('路由规则 (内联)', 'JSON: {default, proxies, rules}; '
                          '更推荐 webtool proxy rule add', None),
     'rules_file':       ('路由规则文件路径', '默认 ~/.webtool/rules.json', None),
@@ -45,8 +48,6 @@ CONFIG_KEYS = {
     'verify_hosts':     ('关校验的域名单 (自签/过期证书站)',
                           '逗号分隔, 如 czce.com.cn,gtjaqh.com (覆盖子域); '
                           '其余域仍严格校验', None),
-    'engine_proxy.<engine>': ('单引擎代理覆盖',
-                              '<engine>=<url> 形式 set, 如 engine_proxy.google=http://...', None),
     'cache_ttl.<bucket>':   ('分桶缓存 TTL 秒覆盖',
                              '<bucket>=<sec>, 如 cache_ttl.search=30 (桶: search/fetch/resolve/hot/zen)',
                              None),
@@ -71,7 +72,10 @@ def save_config(cfg):
 
 def _validate(key, value):
     """返回 (ok, 转换后的值/错误信息)"""
-    if key.startswith(('engine_proxy.', 'cache_ttl.')):
+    if key.startswith('engine_proxy'):
+        # 老的每引擎覆盖: 先于"未知键"报出来, 否则用户只看到一句"未知配置键"
+        return False, _DEP_ENGINE_PROXY
+    if key.startswith('cache_ttl.'):
         return True, value          # 复合键: 桶/引擎名自由, 值按原样
     if key not in CONFIG_KEYS:
         return False, f'未知配置键: {key}\n可用键: {", ".join(CONFIG_KEYS)}'
@@ -158,7 +162,7 @@ def _validate(key, value):
         if value.lower() not in typ:
             return False, f'合法值: {"/".join(typ)}'
         return True, value.lower()
-    return True, value  # 自由文本 (proxy/default_engines/engine_proxy.*)
+    return True, value  # 自由文本 (proxy/default_engines 等)
 
 
 def handle(args):
@@ -179,10 +183,7 @@ def handle(args):
             pass
         for k, (desc, hint, _t) in CONFIG_KEYS.items():
             base = k.split('.')[0]
-            if k.startswith('engine_proxy.'):
-                v = cfg.get('engine_proxy', {})
-                cur = json.dumps(v, ensure_ascii=False) if v else '(未设置)'
-            elif k in ('ssl_verify', 'ca_bundle', 'verify_hosts') and tls_view:
+            if k in ('ssl_verify', 'ca_bundle', 'verify_hosts') and tls_view:
                 cur = json.dumps(tls_view.get(k, cfg.get(base, '(未设置)')),
                                  ensure_ascii=False)
             else:
@@ -208,12 +209,11 @@ def handle(args):
         if not args.key:
             print('usage: webtool config get <key>', file=sys.stderr)
             return 2
+        if args.key.startswith('engine_proxy'):
+            print(_DEP_ENGINE_PROXY)          # 这是要给的答案, 走 stdout
+            return 2
         base = args.key.split('.')[0]
-        if args.key.startswith('engine_proxy.'):
-            eng = args.key.split('.', 1)[1]
-            print(_redact(json.dumps(cfg.get('engine_proxy', {}).get(eng, '(未设置)'), ensure_ascii=False)))
-        else:
-            print(_redact(json.dumps(cfg.get(base, '(未设置)'), ensure_ascii=False)))
+        print(_redact(json.dumps(cfg.get(base, '(未设置)'), ensure_ascii=False)))
         return 0
 
     if args.action == 'unset':
@@ -223,8 +223,10 @@ def handle(args):
         if args.key.startswith('engine_proxy.'):
             eng = args.key.split('.', 1)[1]
             cfg.setdefault('engine_proxy', {}).pop(eng, None)
+            print('(注意: engine_proxy 已废弃, 线路统一由规则表决定)')
         else:
-            cfg.pop(args.key, None)
+            cfg.pop(args.key.split('.')[0] if args.key == 'engine_proxy'
+                    else args.key, None)
         save_config(cfg)
         print(f'unset {args.key} -> {CONFIG_PATH}')
         return 0
@@ -237,10 +239,7 @@ def handle(args):
         if not ok:
             print(v, file=sys.stderr)
             return 2
-        if args.key.startswith('engine_proxy.'):
-            eng = args.key.split('.', 1)[1]
-            cfg.setdefault('engine_proxy', {})[eng] = v
-        elif args.key.startswith('cache_ttl.'):
+        if args.key.startswith('cache_ttl.'):
             bucket = args.key.split('.', 1)[1]
             cfg.setdefault('cache_ttl', {})[bucket] = v
         else:

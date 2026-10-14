@@ -36,7 +36,7 @@ def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1
     """google 通道: 有代理 → web(常被IP级reCAPTCHA拦)→news RSS 自动降级;
     无代理 → news RSS 直连 (国内网络通常不可达, 报错带处置建议)
 
-    代理优先级: engine_proxy.google > 全局 proxy. web 端点即使 chrome131
+    线路由规则表定 (全局 proxy 只决定用哪条代理). web 端点即使 chrome131
     指纹+SOCS+udm14 也大概率被 IP 级 reCAPTCHA 拦 (纯 HTTP 无解) —
     news RSS 通道是主力, 结果标 channel=news, news.google.com 文章链经
     batchexecute 自动还原真实 URL.

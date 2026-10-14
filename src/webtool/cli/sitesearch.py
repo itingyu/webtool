@@ -26,8 +26,7 @@ def do_site(args, cfg):
         from webtool.engines.customsites import load_custom_sites
         rows = []
         for k, v in sites_table().items():
-            # 内置站点不再声明线路: 走 `webtool config set proxy` / 路由表,
-            # 单站点覆盖用 engine_proxy['site:<key>'], 临时绕过用 --no-proxy
+            # 内置站点不声明线路: 直连还是代理看规则表, 临时绕过用 --no-proxy
             rows.append({'site': k, 'desc': v['desc'], 'proxy': 'auto',
                          'source': 'builtin'})
         for k, v in load_custom_sites().items():
@@ -66,16 +65,15 @@ def do_site(args, cfg):
     if cached is not None:
         results, src = cached, 'cache'
     else:
-        # 代理策略: --no-proxy > 单站点覆盖 > (自定义站点的 proxy 字段) > 路由表。
-        # 内置站点曾经自带的 proxy 字段在这里被解释成硬编码线路 (direct → None,
-        # 直接绕开 config 和路由表), 已从 plugins.json 删除; 自定义站点是用户
-        # 自己写的配置, 那个字段继续有效 (direct / proxy / auto)。
-        proxy = (cfg.get('engine_proxy') or {}).get(f'site:{args.site}')
+        # 线路只有两个来源: 用户的显式要求 (--no-proxy, 或自定义站点自己配置里的
+        # proxy 字段), 其余一律交规则表 ('auto')。内置站点不带线路, 也没有任何
+        # 单站点/单引擎的覆盖配置。
         if args.no_proxy:
             proxy = 'direct'      # 'direct' 才是强制直连, None 会被当成 auto
-        elif proxy is None:
-            proxy = (spec.get('proxy', 'auto')
-                     if kind == 'custom' else 'auto')
+        elif kind == 'custom':
+            proxy = spec.get('proxy', 'auto')      # 用户自己写的站点配置
+        else:
+            proxy = 'auto'
         try:
             if kind == 'custom':
                 results = search_custom(args.site, spec, args.query, args.max,

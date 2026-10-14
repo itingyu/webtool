@@ -34,8 +34,8 @@ from webtool.net import netx
 def resolve(proxy, url=None, default='auto'):
     """归一这次请求的代理。返回代理 URL 字符串或 None (直连)。
 
-    default='auto' 表示"调用方没表态"时按路由表分流, 而不是直连 —— 直连应该是
-    显式选择 (`--no-proxy` / `engine_proxy.<名> direct`), 不是缺省值。
+    default='auto' 表示"调用方没表态"时按规则表分流, 而不是直连 —— 直连应该是
+    显式选择 (`--no-proxy`), 不是缺省值。
     """
     if proxy is None:
         proxy = default

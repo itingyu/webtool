@@ -272,7 +272,7 @@ class CooldownError(RuntimeError):
 
 
 __all__ = ['BlockedError', 'CooldownError', 'TlsError', 'get', 'headers_for',
-           'resolve_redirect', 'session_get', 'warm_session', 'proxy_hint',
+           'resolve_redirect', 'session_get', 'warm_session',
            'PROFILES', 'LANG_ZH', 'LANG_EN', 'ACCEPT_XHR']
 
 
@@ -498,34 +498,3 @@ def warm_session(session, home, *, kind='nav', referer=None, timeout=10,
         return False
 
 # ---------------- 代理策略 (原 search.py, engines 层也要用) ----------------
-# 各引擎代理建议来自插件清单 engine.*.params.proxy_hint, 只有一种取值:
-#   'required' = 该引擎直连必然不通, 代理未配置或探活失败就跳过 (不报错)
-# 其余一律走 'auto' → 路由表。不再有 'direct' —— "建议直连"曾经会让这个字段
-# 看起来像在锁死线路, 实际 search 路径根本没读它, 只有 `site list` 展示;
-# 真要指定线路用 `webtool config set engine_proxy.<engine> ...`。
-def proxy_hint(engine):
-    """按插件元数据取代理策略, 未声明 (=None) 表示跟随路由表"""
-    from webtool.core.plugins import table as _plugin_table
-    spec = _plugin_table('engine').get(engine) or {}
-    return spec.get('proxy_hint')
-_PROBE_CACHE = None
-
-
-def _proxy_alive(cfg, ttl=60):
-    """全局代理 TCP 探活, 结果缓存 ttl 秒. 代理未配置返回 False."""
-    global _PROBE_CACHE
-    if not cfg.get('proxy'):
-        return False
-    now = time.time()
-    if _PROBE_CACHE and now - _PROBE_CACHE[0] < ttl:
-        return _PROBE_CACHE[1]
-    from urllib.parse import urlparse
-    p = urlparse(cfg['proxy'])
-    try:
-        s = socket.create_connection((p.hostname, p.port or 8080), timeout=1.5)
-        s.close()
-        ok = True
-    except OSError:
-        ok = False
-    _PROBE_CACHE = (now, ok)
-    return ok

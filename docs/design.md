@@ -113,28 +113,36 @@ webtool/
 
 ### 2.5 代理设计
 
+一条请求走直连还是代理，**只由规则表判一次**（`netx` 是唯一决策点），引擎、
+端点、适配器都不自报线路。
+
 ```jsonc
 // ~/.webtool/config.json
 {
-  "proxy": "http://127.0.0.1:2080",       // 全局默认
-  "engine_proxy": {                        // 每引擎覆盖
-    "bing": null,                          // 国内直连
-    "sogou": null,
-    "duckduckgo": "http://127.0.0.1:2080", // 需代理
-    "google": "http://127.0.0.1:2080"
-  },
-  "fetch_proxy": "http://127.0.0.1:2080",  // fetch 动作默认
+  "proxy": "http://127.0.0.1:2080",       // 全局默认线路 (空 = 直连)
+  "fetch_proxy": "http://127.0.0.1:2080",  // fetch 动作专用覆盖 (可选)
   "timeout": 15,
-  "ua": "auto",                            // auto | 指定 UA 字符串
+  "ua": "auto",
   "cache_dir": "~/.webtool/cache"
+}
+
+// ~/.webtool/rules.json —— 线路的唯一决策源
+{
+  "default": "direct",          // 未命中时的动作 (缺省: 有全局 proxy 就用它)
+  "priority": "direct",         // 命中冲突时 direct 压过 proxy
+  "rules": [
+    {"match": {"geosite": ["cn"]}, "action": "direct"},
+    {"match": {"domain": ["google.com"]}, "action": "proxy"}
+  ]
 }
 ```
 
 规则：
 - `webtool proxy set http://...`：写 config.json 的 `proxy` 字段
-- `webtool search --proxy http://...`：临时覆盖
-- `webtool fetch --proxy socks5://...`：临时覆盖（支持 http/https/socks5）
-- 域名分流域（v1 简化）：`engine_proxy` 让 bing/sogou 直连（国内快），ddg/google 走代理
+- `webtool proxy rule add '{...}' direct|proxy|<代理名>`：加一条规则
+- `webtool search --proxy http://...` / `--no-proxy`：单次临时覆盖
+- 境内站想直连、境外站走代理：用 `geosite` 规则分流，不再靠引擎级配置
+- 环境变量 `http_proxy`/`https_proxy` **不作为决策源**（在 opener 层已被堵死）
 - socks5 支持用 pysocks（可选依赖，无则提示）
 
 ### 2.6 输出格式

@@ -52,7 +52,7 @@
 | 项 | 说明 |
 |---|---|
 | `{query}` / `{limit}` | URL/body 模板变量，请求前替换（`query` 会做 URL 编码） |
-| `proxy` | `direct`=直连，`proxy`=走全局代理，`auto`=问路由表（默认）。**仅自定义站点有效**：内置站点一律 `auto`，线路只由 `proxy` 配置和规则表决定（内置清单里不再有 `proxy` 字段）。命令行 `--no-proxy` 与 `engine_proxy["site:<key>"]` 优先级更高 |
+| `proxy` | `direct`=直连，`proxy`=走全局代理，`auto`=问路由表（默认）。**仅自定义站点有效**：内置站点一律 `auto`，线路只由 `proxy` 配置和规则表决定（内置清单里不再有 `proxy` 字段）。命令行 `--no-proxy` 优先级更高 |
 | `headers` | 追加请求头 |
 | `results_path` | 响应 JSON 里结果数组的点分路径，如 `data.hits` |
 | `fields` | 输出字段映射；值支持 `源字段\|管道函数` 链式 |

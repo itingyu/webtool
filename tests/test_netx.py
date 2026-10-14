@@ -709,6 +709,14 @@ check(_sv(_ty.SimpleNamespace(show_body=True)) == 'body'
 check(_sv(_ty.SimpleNamespace()) is None, '没给查看开关 → 正常发请求')
 
 
+def _cli_merged(*argv):
+    """stdout+stderr 一起收 (CLI 的错误说明走 stderr)"""
+    buf, ebuf = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(ebuf):
+        rc = _cli_app.main(list(argv))
+    return rc, buf.getvalue() + ebuf.getvalue()
+
+
 def _cli(*argv):
     """进程内跑 CLI, 抓 stdout, 返回 (rc, 输出)"""
     _buf = io.StringIO()
@@ -740,6 +748,29 @@ check('工具名不存在' in (_w(_ty.SimpleNamespace(tools='bash,read,nope')) o
       '--tools 写了不存在的工具名 → 提醒会被丢掉')
 _rc, _o = _cli('zen', 'x', '--dry-run', '--no-live')       # 旧名别名要能解析
 check(_rc == 0, '--no-live / --stream 旧名仍可解析')
+
+print('\n=== 线路只有一个决策点: 规则表 ===')
+_ROOT = __import__('pathlib').Path(__file__).resolve().parent.parent
+_SRC = _ROOT / 'src' / 'webtool'
+for _f in ('pipeline/search.py', 'cli/sitesearch.py', 'engines/status.py',
+           'net/transport.py', 'net/proxy.py', 'net/mcpclient.py'):
+    _t = (_SRC / _f).read_text(encoding='utf-8')
+    check('engine_proxy' not in _t or '已废弃' in _t,
+          f'{_f}: 没有引擎级线路覆盖 (只剩"已废弃"提示)', _f)
+for _f in ('pipeline/search.py', 'cli/sitesearch.py', 'engines/status.py',
+           'net/transport.py'):
+    _t = (_SRC / _f).read_text(encoding='utf-8')
+    check('proxy_hint' not in _t and '_proxy_alive' not in _t,
+          f'{_f}: 没有"引擎自报线路"的残留', _f)
+_pj = (_SRC / 'data/plugins.json').read_text(encoding='utf-8')
+check('proxy_hint' not in _pj, '插件清单里不再声明 proxy_hint')
+_rc, _o = _cli_merged('config', 'get', 'engine_proxy.google')
+check(_rc == 2 and '规则表' in (_o or ''), 'config get engine_proxy.* 被拒并指向规则表', _rc)
+_rc, _o = _cli_merged('config', 'set', 'engine_proxy.google', 'http://x')
+check(_rc == 2 and '规则表' in (_o or ''), 'config set engine_proxy.* 被拒并指向规则表', _rc)
+_rc, _o = _cli('proxy', 'get')
+check('engine_proxy' not in (_o or '') or '已废弃' in _o,
+      'proxy get 不再把 engine_proxy 当正常配置项', (_o or '')[:40])
 
 print(f'\n{PASS + FAIL + SKIP} 项: {PASS} PASS, {FAIL} FAIL, {SKIP} SKIP')
 sys.exit(1 if FAIL else 0)

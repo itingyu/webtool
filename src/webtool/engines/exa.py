@@ -12,8 +12,8 @@ import `cli/` —— engines 是 L1, cli 是 L4, 不得反向依赖。
 的计量策略**, 不该由代码替用户决定 —— 用户可能自己就有可用额度, 或者他的代理
 出口 IP 恰好有配额。所以改为跟随配置:
 
-- `webtool config set engine_proxy.exa direct`  ← 确实需要直连时这么配
-- 或在规则表里按域名分流 (规则对 MCP 端点同样生效)
+- 确实需要直连时, 在规则表里给它的域名写一条: `webtool proxy rule add <该域名> direct`
+- 规则对 MCP 端点同样生效 (不按引擎名分, 只看请求目标)
 
 只有 `numResults` 封顶这一项仍写死: MCP 单次调用条数越多越慢且更易触发限流,
 故对上游封顶, 返回值再截断到调用方要的数。
@@ -93,7 +93,7 @@ def _parse(text, max_results):
 
 
 def search(query, max_results=10, proxy=None, timeout=15, market=None, **_):
-    """Exa 语义搜索。代理跟随配置 (需直连: config set engine_proxy.exa direct)"""
+    """Exa 语义搜索。线路由规则表定 (要直连就给它的域名加一条 direct 规则)"""
     spec = _spec()
     tool = (spec.get('verbs') or {}).get('search')
     if not tool:
@@ -115,7 +115,7 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, **_):
                 f'Exa 429: 免 key 配额按出口 IP 计, 换出口 IP 不会变多。'
                 f'配 {spec.get("api_key_env", "EXA_API_KEY")} 可用独立额度 '
                 f'(https://dashboard.exa.ai/api-keys); '
-                f'或让该端点直连: webtool config set engine_proxy.exa direct。'
+                f'或给它的域名加一条直连规则: webtool proxy rule add <该域名> direct。'
                 f'原始错误: {msg}')
         raise RuntimeError(f'Exa 调用失败: {msg}')
     if r.get('is_error'):

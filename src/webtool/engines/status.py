@@ -49,8 +49,6 @@ def _test(args, cfg):
               f'{",".join(_engines())}', flush=True)
         return 2
     query = getattr(args, 'query', None) or 'python'
-    # required 引擎无可用代理时标 skipped, 不白等超时
-    from webtool.net.transport import proxy_hint, _proxy_alive
     out = []
     for name in names:
         meta = _engines()[name]
@@ -58,12 +56,9 @@ def _test(args, cfg):
         cd = captcha.cooldown_left(name)
         if cd:
             row['cooldown'] = f'{cd}s (此前触发反爬)'
-        proxy = (cfg.get('engine_proxy') or {}).get(name) or cfg.get('proxy')
-        if proxy_hint(name) == 'required' and not _proxy_alive(cfg):
-            row.update({'ok': False, 'skipped': True,
-                        'error': '需代理 (webtool proxy set <url> 后再试)'})
-            out.append(row)
-            continue
+        # 线路由规则表判定 (netx.resolve_proxy), 这里不预判、不跳过:
+        # 该走代理却没配/不通, 就按真实错误报出来
+        proxy = cfg.get('proxy')
         t0 = time.time()
         try:
             rs = meta['fn'](query, max_results=3, timeout=10, proxy=proxy)

@@ -6,7 +6,6 @@ import time
 from webtool.core import cache
 from webtool.core import config_data
 from webtool.core.plugins import table as _plugin_table
-from webtool.net.transport import _proxy_alive, proxy_hint  # noqa: F401 — 旧名再导出
 from webtool.filters.blocklist import filter_blocklist, is_blocked
 
 
@@ -123,6 +122,11 @@ def _do_search(args, cfg, filter_ad=True):
               + ', '.join(f'{op}:{val}' for op, val in bad)
               + f' → {qmap[name]!r}', file=sys.stderr)
 
+    # 线路只由规则表决定 (netx 是唯一归一点): 这里只传用户的显式选择 ——
+    # --no-proxy 就是强制直连, 其余一律 'auto' 交规则表。引擎不自报线路, 也
+    # 不在这里被静默跳过。三级 (首轮抓取/补量/跳转链解码) 共用同一条。
+    proxy = 'direct' if args.no_proxy else 'auto'
+
     for eng in engines:
         spec = _engines().get(eng)
         fn = spec['fn'] if spec else None
@@ -135,22 +139,6 @@ def _do_search(args, cfg, filter_ad=True):
             rs = cached
             per_engine[eng] = 'cache'
         else:
-            eproxy = (cfg.get('engine_proxy') or {}).get(eng)
-            hint = proxy_hint(eng)
-            if args.no_proxy:
-                if hint == 'required':
-                    continue            # --no-proxy 时 required 引擎直接跳过
-                proxy = 'direct'        # 命令行指定不走代理, 最高优先
-                                        # (写 'direct', None 会被下游当成 auto)
-            elif eproxy is not None:
-                proxy = eproxy          # 引擎级配置次之
-            elif hint == 'required':
-                # 代理未配置或探活失败 → 静默跳过, 不算 error
-                if not _proxy_alive(cfg):
-                    continue
-                proxy = 'auto'
-            else:
-                proxy = 'auto'
             try:
                 rs = fn(qmap[eng], max_results=_pull, proxy=proxy,
                         timeout=cfg.get('timeout', 15), market=market)
@@ -173,7 +161,7 @@ def _do_search(args, cfg, filter_ad=True):
     # ①link 包装链的真实域名只有解码后才知道, 黑名单按真域判定才不漏
     # ②补量的粗去重按真 URL, 不重复计数。不解码则 URL 全是 /link?url=,
     # 去重与黑名单均失效, 故不提供开关。
-    _resolve_sogou_links(results, cfg)
+    _resolve_sogou_links(results, cfg, proxy)
 
     # 黑名单先行 (按真域拦截), 再 merge 去重排序:
     # ① 排序只算有资格留下的条目 (不白算被拦的)
@@ -220,18 +208,6 @@ def _do_search(args, cfg, filter_ad=True):
             fn = spec['fn'] if spec else None
             if not fn or len(results) >= _want:
                 break
-            eproxy = (cfg.get('engine_proxy') or {}).get(eng)
-            hint = proxy_hint(eng)
-            if args.no_proxy:
-                proxy = None
-            elif eproxy is not None:
-                proxy = eproxy
-            elif hint == 'required':
-                if not _proxy_alive(cfg):
-                    continue
-                proxy = 'auto'
-            else:
-                proxy = 'auto'
             extra, fetched = top_up(
                 eng, fn, qmap[eng], _want, min(_want, len(results)),
                 proxy, cfg.get('timeout', 15), market,
@@ -243,7 +219,7 @@ def _do_search(args, cfg, filter_ad=True):
             # 补来的先解码: 引擎翻页给的是 link 包装链 (baidu/sogou),
             # 不解码则黑名单按包装域误判、粗去重按包装 URL 重复计数
             if extra:
-                _resolve_sogou_links(extra, cfg)
+                _resolve_sogou_links(extra, cfg, proxy)
             # 补来的进同一合并管线 (dedupe 会在下一轮统一做, 这里先粗去重)
             for r in extra:
                 if r.get('url') not in seen_urls:
@@ -325,7 +301,7 @@ def _do_search(args, cfg, filter_ad=True):
 
 
 
-def _resolve_sogou_links(results, cfg):
+def _resolve_sogou_links(results, cfg, proxy='auto'):
     """跳转链批量解码成原始 URL
 
     解码器与匹配规则都来自 resolver 插件表 (data/plugins.json):
@@ -349,8 +325,7 @@ def _resolve_sogou_links(results, cfg):
         i, r, kind = item
         real = cache.get(cfg, 'resolve', r['url'])
         if not real:
-            eproxy = (cfg.get('engine_proxy') or {}).get(kind)
-            proxy = eproxy if eproxy is not None else 'auto'
+            # 线路沿用触发这次抓取的那条 (规则表判的), 解码器不另判一套
             real = resolvers[kind]['fn'](r['url'], proxy=proxy, timeout=timeout)
             # 只有"真的解出了另一个 URL"才写缓存: 解码失败时解码器会把原链原样
             # 返回, 若照单全收就会把跳转链当成解码结果缓存, 之后永久短路
