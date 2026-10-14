@@ -32,3 +32,15 @@ def fetch(url, proxy=None, timeout=15, headers=None, opener=None,
         url, kind='nav', proxy=p, timeout=timeout,
         headers=headers, profile=prof)
     return text, status, via
+
+
+def open_stream(url, proxy=None, timeout=15, headers=None, profile=None):
+    """流式打开 (不读 body), 返回 (resp, status, via, headers) —— 下载用
+
+    代理与 fetch 同一处决定 (proxyhelper.resolve): 二进制下载也是出网请求,
+    凭什么规则表管网页却不管文件。
+    """
+    p = proxyhelper.resolve(proxy, url)
+    prof = profile if (isinstance(profile, str) and profile in transport.PROFILES) else None
+    return transport.open_stream(url, kind='nav', proxy=p, timeout=timeout,
+                                 headers=headers, profile=prof)

@@ -128,6 +128,31 @@ webtool/
    `##`/`**`/反引号/链接括号/表格竖线/markdown 转义，并去掉 YAML 元数据头
    （要元数据走 `-f json`），不给"说是 txt、拿到还是 markdown"的半吊子
 
+### 2.4.1 目标判型与下载（fetch）
+
+`fetch` 的老假设是"URL 后面就是网页"，拿图片/压缩包去跑正文提取只会得到一屏
+控制字符。现在流程是先认目标、再选处理方式：
+
+1. **一次流式请求同时拿到响应头与 body 通道**（`transport.open_stream`）。不用
+   "HEAD 探类型 + 再 GET 下载"那两次：HEAD 常被 405/回假头，正文迟早要下。
+2. **按 `Content-Type` 分堆**（`fetch.target_kind`），认不出才看 URL 后缀 —— 头比
+   后缀可信：服务端报 `octet-stream` 时只有 URL 知道是 `.whl` 还是 `.zip`。
+   html → 提取链；text（json/xml/纯文本）→ 原样给，不提取；
+   image/video/audio/pdf/archive/font/binary → 落盘。
+3. **二进制流式下载**（`net/download.py`）：边收边写（不占内存）、`.part` + `Range` +
+   `If-Range` 续传（没验证器的续传会在服务端资源变更后拼出坏文件）、TTY 才刷进度。
+   半成品一律叫 `xxx.part`，下完才改名 —— 进程被杀时不留下"看起来正常"的文件。
+   404 / 不认 Range / 响应被压缩 → 旧片段作废重下，绝不在错位的字节后面接。
+4. **落点与命名**：`--save <文件或目录>` 覆盖，否则当前目录。文件名按 URL 末段
+   （后缀跟 URL 一致，`?query` 不算名字，`.tar.gz` 双后缀照留），URL 没末段才依次退到
+   `Content-Disposition` → MIME。续传要求在**发请求前**就知道落点（Range 得随请求头
+   发出去），所以 URL 定不出名字时就不续传。
+5. **代理不另起一套**：`resilient.open_stream` 与 `fetch` 一样先走
+   `proxyhelper.resolve`（规则表 → 保险库密码）。下载和取页各判一次代理，迟早出现
+   "网页能取、同一个站的文件下不来"。
+6. 三条守规矩：4xx/5xx 错误页不落盘、超上限不存残件、二进制绝不进 stdout
+   （类型/体积/落点走 stderr，stdout 留给正文）。
+
 ### 2.5 代理设计
 
 一条请求走直连还是代理，**只由规则表判一次**（`netx` 是唯一决策点），引擎、

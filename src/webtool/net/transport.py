@@ -361,6 +361,74 @@ def _lower_keys(headers):
         return {}
 
 
+class _UrllibStream:
+    """urllib 响应的流式外壳: 跟 curl_cffi 的 resp 用同一套读法
+
+    下载路径只认 iter_content(chunk), 不该为"cffi 崩了"分出第二条下载代码 ——
+    那意味着续传/进度/校验要在两处各写一遍, 迟早只修一处。
+    """
+
+    def __init__(self, r):
+        self._r = r
+        self.headers = r.headers
+        self.status_code = r.status
+
+    def iter_content(self, chunk_size=1024):
+        while True:
+            buf = self._r.read(chunk_size)
+            if not buf:
+                break
+            yield buf
+
+    def close(self):
+        try:
+            self._r.close()
+        except Exception:
+            pass
+
+
+def open_stream(url, *, kind='nav', referer=None, proxy=None, timeout=15,
+                engine=None, headers=None, lang=LANG_ZH, profile=None,
+                verify=None, session=None):
+    """打开请求但先不读 body, 返回 (resp, status, via, headers)
+
+    resp.iter_content(n) 边收边给 —— 下载要流式落盘, 不能先整个读进内存。
+    用来省掉"HEAD 探类型 + 再 GET 下载"那两次请求: 响应头到手后由调用方决定
+    是整段读 (网页) 还是流式写盘 (二进制)。
+
+    代理跟 get() 走同一条决策: 先 resolve_proxy 归一路由表, 再补保险库密码。
+    下载和取页各判一次代理, 迟早出现"网页能取、同一个站的文件下不来"。
+    """
+    from webtool.net import netx as _netx
+    proxy = _netx.resolve_proxy(proxy, url)
+    proxy_arg = None if proxy == 'direct' else proxy
+    if proxy_arg:
+        proxy_arg = secrets_store.resolve_auth(proxy_arg)
+    try:
+        if session is not None:
+            s, p = session, (profile or PROFILES['chrome131_win'])
+        else:
+            if isinstance(profile, dict):
+                prof, p = 'custom', profile
+            else:
+                prof = profile or _pick_profile(engine)
+                p = PROFILES[prof]
+            s = _new_session(prof, proxy_arg, engine)[0]
+        h = headers_for(kind, url, referer=referer, lang=lang, profile=p, extra=headers)
+        r = s.get(url, headers=h, timeout=timeout, allow_redirects=True,
+                  verify=tls.policy(url, verify), stream=True)
+        return r, r.status_code, 'cffi', _lower_keys(r.headers)
+    except CertificateVerifyError as e:
+        raise TlsError(_tls_msg(url, verify, e)) from e
+    except Exception:
+        # cffi 崩了 (缺 so/证书栈异常) 才走 urllib 全指纹兜底, 跟 _get_once 同策略
+        pass
+    from webtool.core.http import http_open
+    h = headers_for(kind, url, referer=referer, lang=lang, full=True, extra=headers)
+    r = http_open(url, proxy=proxy_arg, timeout=timeout, headers=h, verify=verify)
+    return _UrllibStream(r), r.status, 'urllib', _lower_keys(r.headers)
+
+
 def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
               lang, max_bytes, profile, session, verify=None, raw=False):
     """单次请求: curl_cffi 浏览器指纹 → (cffi 崩了才走) urllib 全指纹兜底

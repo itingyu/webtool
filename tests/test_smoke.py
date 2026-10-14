@@ -1047,43 +1047,51 @@ check(_ft._filename_for({}, 'http://x/pkg.tar.gz') == 'pkg.tar.gz',
 check(_ft._filename_for({}, 'http://x/img', 'image/png') == 'img.png',
       'URL 连后缀都没有: 才按 MIME 补')
 
-# 二进制目标: 默认存文件, 只给元信息, 绝不把字节当正文
-_DEST = '/tmp/wt_save_test'
-_LOGO = b'\x89PNG\r\n\x1a\n' + bytes(range(256)) * 4
-_args = _SN(save=_DEST, max_chars=0, format='md')
-_r = _ft._binary_result('http://x/l.png', _LOGO, 200, 'cffi',
-                        {'content-type': 'image/png', 'content-length': str(len(_LOGO))},
-                        'image', 'image/png', _args, 0)
-check(_r.get('kind') == 'image' and _r['size'] == len(_LOGO), '二进制结果给 kind/size')
-check('content' not in _r and 'html' not in _r, '二进制结果里不许出现 content/html 字段')
-check(_r['file'].endswith('/l.png') and open(_r['file'], 'rb').read() == _LOGO,
-      '不给 --save 也要落盘: 图片视频压缩包没法打在终端上')
-check('truncated' not in _r, '收到的字节数够 Content-Length 就不标 truncated')
-_r = _ft._binary_result('http://x/l.png', _LOGO[:10], 200, 'cffi',
-                        {'content-type': 'image/png', 'content-length': '9999'},
-                        'image', 'image/png', _args, 0)
+# 落点: --save 给目录就按 URL 末段取名, 给文件名就用它, 没给存当前目录
+check(_ft._dest_path(_SN(save=None), 'http://x/y/logo.png') == './logo.png',
+      '没给 --save: 存当前目录, 名字按 URL')
+check(_ft._dest_path(_SN(save='/tmp/wt_save_test'), 'http://x/y/logo.png')
+      == '/tmp/wt_save_test/logo.png', '--save 给已存在的目录: 拼名字')
+check(_ft._dest_path(_SN(save='/tmp/nope.png'), 'http://x/y/logo.png') == '/tmp/nope.png',
+      '--save 给的是文件路径: 就用它 (哪怕后缀不一样)')
+
+# 文本类目标: 原样给, 不提取
+_args = _SN(save=None, max_chars=0, format='md')
+_r = _ft._text_result('http://x/a.json', '{"a": 1}'.encode(), 200, 'cffi',
+                      {'content-type': 'application/json'}, 'text',
+                      'application/json', _args, 0)
+check(_r['content'] == '{"a": 1}' and _r['extract'] == 'raw-text',
+      'json 目标原样给正文, 不提取')
+check(_r['size'] == 8 and 'file' not in _r, '文本目标不当文件存 (它就是正文)')
+_r = _ft._text_result('http://x/a.json', b'x' * 99, 200, 'cffi',
+                      {'content-type': 'application/json', 'content-length': '9999'},
+                      'text', 'application/json', _args, 0)
 check(_r.get('truncated') is True and _r['size_declared'] == 9999,
-      '被上限截了要标 truncated')
-check('file' not in _r,
-      '截断的残件不许落盘 (缺尾巴的 .mp4 打开才知道坏了, 不如没有)')
-_r = _ft._binary_result('http://x/l.zip', _LOGO, 404, 'cffi',
-                        {'content-type': 'image/png'}, 'image', 'image/png', _args, 0)
-check('file' not in _r, '响应 404 不落盘 (存下来的会是那页错误信息)')
-_r = _ft._binary_result('http://x/a.json', '{"a": 1}'.encode(), 200, 'cffi',
-                        {'content-type': 'application/json'}, 'text',
-                        'application/json', _args, 0)
-check(_r['content'] == '{"a": 1}' and 'file' not in _r,
-      'json 目标原样给正文, 不当二进制存盘')
-_r = _ft._binary_result('http://x/a.txt', b'x' * 99, 200, 'cffi',
-                        {'content-type': 'text/plain'}, 'text', 'text/plain',
-                        _SN(save=None, max_chars=10, format='md'), 0)
+      '文本被单次上限截了要标 truncated')
+_r = _ft._text_result('http://x/a.txt', b'x' * 99, 200, 'cffi',
+                      {'content-type': 'text/plain'}, 'text', 'text/plain',
+                      _SN(save=None, max_chars=10, format='md'), 0)
 check(_r['content'].startswith('x' * 10) and 'truncated' in _r['content'],
       '--max-chars 给了就按它截 (0 才是不截断: [:0] 会切空, 早先真出过这毛病)')
 
+# 下载结果 → fetch 结果形状 (二进制不进正文, 落点/续传信息照带)
+_r = _ft._file_result('http://x/l.png',
+                      {'file': '/tmp/l.png', 'size': 12, 'resumed_from': 500,
+                       'status': 206, 'via': 'cffi'}, 'image', 'image/png', 200, 'cffi', 0)
+check(_r['file'] == '/tmp/l.png' and _r['size'] == 12 and _r['resumed_from'] == 500,
+      '下载结果折进 fetch 结果: 落点/大小/续传起点都带出来')
+check(_r['kind'] == 'image' and _r['extract'] == 'raw-binary'
+      and 'content' not in _r and 'html' not in _r,
+      '二进制结果里不许出现 content/html 字段')
+check(_r['status'] == 206, '下载时的状态码 (206=续传) 要顶掉判类型那次的')
+_r = _ft._file_result('http://x/l.png', {'error': 'HTTP 404 Not Found'},
+                      'image', 'image/png', 404, 'cffi', 0)
+check(_r.get('error') == 'HTTP 404 Not Found' and 'file' not in _r,
+      '下载失败: 只报错, 不给落点 (没存就不许说存了)')
+
 # 终端上不许把二进制糊出来
-_r2 = _ft._binary_result('http://x/l.png', _LOGO, 200, 'cffi',
-                         {'content-type': 'image/png'}, 'image', 'image/png',
-                         _SN(save=_DEST, max_chars=0, format='text'), 0)
+_r2 = _ft._file_result('http://x/l.png', {'file': '/tmp/l.png', 'size': 12},
+                       'image', 'image/png', 200, 'cffi', 0)
 _o, _e = _io.StringIO(), _io.StringIO()
 with _ctx.redirect_stdout(_o), _ctx.redirect_stderr(_e):
     _ft._emit(_r2, _SN(format='text', raw=False, with_metadata=False), True)
@@ -1091,16 +1099,20 @@ check(_o.getvalue() == '', '二进制目标: stdout 一个字节都不许有')
 check('image/png' in _e.getvalue() and '已存' in _e.getvalue(),
       '二进制目标走 stderr 说明是什么、存哪了 (管道里不能掺垃圾)')
 
-# --save: 落点由用户说了算 (给目录就按 URL 末段取名)
+# --save: 网页与二进制共用一个出口 (存的就是原始响应体)
+_LOGO = b'\x89PNG\r\n\x1a\n' + bytes(range(256)) * 4
+_DEST = '/tmp/wt_save_test'
 os.makedirs(_DEST, exist_ok=True)
 _p = _ft._save_body(_SN(save=_DEST), 'http://x/logo.png', _LOGO,
                     {'content-type': 'image/png'})
 check(os.path.basename(_p) == 'logo.png' and open(_p, 'rb').read() == _LOGO,
       '--save 给目录: 写原始字节, 名字按 URL')
 check(_ft._save_body(_SN(save=None), 'http://x/a', b'x', {}) == '',
-      '没给落点也不该默认存 (网页路径不自动落盘)')
+      '没给落点也不该默认存 (网页路径只认 --save, 自动落盘是二进制的事)')
 check(_ft._save_body(_SN(save='/tmp/'), 'http://x/p', '文'.encode(), {}) == '/tmp/p',
       '--save 给目录路径时存原始名字')
+check(_ft._save_body(_SN(save=_DEST), 'http://x/l.png', _LOGO, {}, status=404) == '',
+      '404 不落盘 (存下来的会是那页错误信息)')
 
 if fails:
     sys.exit(1)

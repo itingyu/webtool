@@ -40,7 +40,8 @@ _BIN_MIME = {
     'application/vnd.android.package-archive': 'binary',
     'application/octet-stream': 'binary', 'application/x-msdownload': 'binary',
 }
-_RAW_MAX_BYTES = 32 * 1024 * 1024   # raw 单次上限 (二进制要落盘, 不能只给 8MB)
+_RAW_MAX_BYTES = 32 * 1024 * 1024   # 文本类目标上限 (json/xml 可能很大)
+_HTML_MAX_BYTES = 8 * 1024 * 1024   # 网页整段读的上限; 二进制没这个限制 (流式落盘)
 
 _EXT_MIME = {                     # 服务端不报类型时的退路: 看扩展名
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
@@ -161,36 +162,69 @@ def _save_body(args, url, data, headers, status=200, mime='', dest=None):
     return os.path.abspath(path)
 
 
-def _binary_result(url, data, status, via, headers, kind, mime, args, t0):
-    """非网页目标: 二进制就落盘, 文本 (json/xml/纯文本) 原样给
+def _dest_path(args, url, headers=None, mime=''):
+    """二进制存哪: --save 给了就听它的 (目录拼名字/否则当文件名), 没给存当前目录
 
-    二进制绝不进终端 —— 图片视频压缩包打到 stdout 是一屏控制字符, 管道里更是垃圾。
-    所以这里默认存文件 (args.save 或 dest 指定落点), 只把"存哪了"报给用户。
+    headers 为 None 表示"响应头还没到", 此时只能按 URL 末段取名 —— 续传判断必须
+    在发请求之前做完 (Range 得随请求头一起发), 所以先按 URL 定落点, 名字定不下来
+    (URL 没末段) 就老老实实不续传, 等响应头到了再由 Content-Disposition 定名。
+    """
+    save = getattr(args, 'save', None)
+    if save:
+        if not (os.path.isdir(save) or save.endswith(('/', '\\'))):
+            return save
+        return os.path.join(save, _filename_for(headers or {}, url, mime))
+    return os.path.join('.', _filename_for(headers or {}, url, mime))
+
+
+def _read_capped(resp, cap):
+    """把流读完 (最多 cap 字节) 再关掉 —— 网页/文本要的是整段, 不是文件"""
+    buf = bytearray()
+    try:
+        for c in resp.iter_content(65536):
+            buf += c
+            if len(buf) >= cap:
+                break
+    except Exception:
+        pass
+    finally:
+        try:
+            resp.close()
+        except Exception:
+            pass
+    return bytes(buf[:cap])
+
+
+def _file_result(url, r, kind, mime, status, via, t0):
+    """把下载器的结果折成 fetch 的结果形状 (元信息 + 落点, 二进制不进正文)"""
+    out = {'url': url, 'kind': kind, 'type': mime or 'application/octet-stream',
+           'extract': 'raw-binary', 'status': r.get('status', status),
+           'via': r.get('via', via), 'took_ms': int((time.time() - t0) * 1000)}
+    for k in ('file', 'size', 'resumed_from', 'partial'):
+        if r.get(k) is not None:
+            out[k] = r[k]
+    if r.get('error'):
+        out['error'] = r['error']
+    return out
+
+
+def _text_result(url, data, status, via, headers, kind, mime, args, t0):
+    """文本类目标 (json/xml/纯文本): 原样给, 不提取
+
+    走不到这里就说明它不是网页 —— 拿 JSON 去跑正文提取, 出来的是被抹掉标点的
+    残渣。二进制目标也不走这里: 它们由 download 流式落盘 (见 _file_result)。
     """
     out = {'url': url, 'status': status, 'via': via, 'kind': kind,
-           'type': mime or 'application/octet-stream', 'size': len(data),
-           'extract': 'raw-text' if kind == 'text' else 'raw-binary',
-           'took_ms': int((time.time() - t0) * 1000)}
+           'type': mime or 'text/plain', 'size': len(data),
+           'extract': 'raw-text', 'took_ms': int((time.time() - t0) * 1000)}
     total = headers.get('content-length')
     if total and total.isdigit() and int(total) > len(data):
-        out['truncated'] = True              # 被 max_bytes 截了
+        out['truncated'] = True              # 被单次上限截了
         out['size_declared'] = int(total)
-    if kind == 'text':                       # 文本类原样给, 不提取
-        txt = data.decode('utf-8', errors='replace')
-        if args.max_chars and len(txt) > args.max_chars:      # 0 = 不截断
-            txt = txt[:args.max_chars] + '\n…[truncated]'
-        out['content'] = txt
-        return out
-    if out.get('truncated'):
-        # 残件比不存更坏: 一个缺尾巴的 .mp4/.zip 打开才知道坏了, 不如直接说清楚
-        print(f'不落盘: 响应超过单次上限, 只收到 {out["size"]} / 声明 '
-              f'{out.get("size_declared")} 字节 (大文件请自行用 wget/curl 取)',
-              file=sys.stderr)
-        return out
-    path = _save_body(args, url, data, headers, status, mime,
-                      dest=getattr(args, 'dest', None) or '.')
-    if path:
-        out['file'] = path
+    txt = data.decode('utf-8', errors='replace')
+    if args.max_chars and len(txt) > args.max_chars:      # 0 = 不截断
+        txt = txt[:args.max_chars] + '\n…[truncated]'
+    out['content'] = txt
     return out
 
 
@@ -383,21 +417,42 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
     if cached is not None:
         cached['cache'] = 'hit'
         return cached
+    from webtool.core.resilient import open_stream
+    from webtool.net import download as dl
+    profile = getattr(args, 'profile', None)
+    # 落点先按 URL 定 (续传要在请求头里带 Range, 只能提前决定); URL 没末段就先空着
+    hint = _filename_for({}, url)
+    dest = _dest_path(args, url) if hint != 'download' else ''
+    start, validator = dl.resume_state(dest, url) if dest else (0, '')
     try:
-        from webtool.core.resilient import fetch as rfetch
-        profile = getattr(args, 'profile', None)
-        # raw 取字节 + 响应头: 先按 Content-Type 认清目标是不是网页, 再决定要不要
-        # 走正文提取 —— 图片/视频/压缩包拿去做提取只会得到一堆乱码
-        # raw 模式给足上限: 二进制目标默认就落盘, 8MB 会把 .zip/.mp4 拦腰截断。
-        # 32MB 是"手机内存放得下 + 覆盖绝大多数附件"的折中, 超了明确报错不存残件。
-        payload, status, via, headers = rfetch(
-            url, proxy=proxy, timeout=timeout, profile=profile, raw=True,
-            max_bytes=_RAW_MAX_BYTES)
+        # 流式开: 先只拿响应头, 按 Content-Type 认清目标是什么, 再决定怎么读 ——
+        # 网页/文本整段读进内存, 二进制边收边写盘 (含续传与进度)。
+        resp, status, via, headers = open_stream(
+            url, proxy=proxy, timeout=timeout, profile=profile,
+            headers=dl.request_headers(start, validator))
     except Exception as e:
         return {'url': url, 'error': str(e)[:300], 'took_ms': int((time.time() - t0) * 1000)}
     kind, mime = target_kind(headers.get('content-type'), url)
-    if kind != 'html':
-        return _binary_result(url, payload, status, via, headers, kind, mime, args, t0)
+    if kind not in ('html', 'text'):
+        r = dl.download(
+            url, dest or _dest_path(args, url, headers, mime),
+            lambda h: open_stream(url, proxy=proxy, timeout=timeout, profile=profile,
+                                  headers=h),
+            progress=getattr(args, 'progress', None), t0=t0,
+            opened=None if start else (resp, status, via, headers))
+        return _file_result(url, r, kind, mime, status, via, t0)
+    if start:
+        # 之前给这个 URL 留过半截 .part, 但这次服务端说是网页/文本: Range 头会
+        # 只给我们半页, 重开一次不带 Range 的
+        try:
+            resp.close()
+        except Exception:
+            pass
+        resp, status, via, headers = open_stream(url, proxy=proxy, timeout=timeout,
+                                                 profile=profile)
+    payload = _read_capped(resp, _HTML_MAX_BYTES if kind == 'html' else _RAW_MAX_BYTES)
+    if kind == 'text':
+        return _text_result(url, payload, status, via, headers, kind, mime, args, t0)
     html = _decode(payload, headers)
     saved = _save_body(args, url, payload, headers, status)
     try:
@@ -406,9 +461,9 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
             thin = len(html or '') < 6000 or not _spa_marker(html)
             if thin:
                 try:
-                    p2, s2, v2, h2 = rfetch(url, proxy=proxy, timeout=timeout,
-                                            profile='chrome131_android', raw=True)
-                    p2 = _decode(p2, h2)
+                    r2, s2, v2, h2 = open_stream(url, proxy=proxy, timeout=timeout,
+                                                 profile='chrome131_android')
+                    p2 = _decode(_read_capped(r2, _HTML_MAX_BYTES), h2)
                     if len(p2) > len(html) * 1.5:
                         html, status, via = p2, s2, f'{v2}+mobile-fallback'
                 except Exception:
