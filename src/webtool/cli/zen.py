@@ -1,6 +1,7 @@
 """zen: OpenCode Zen 免费层客户端 (公开模式, 无需 API key)
-端点 https://opencode.ai/zen/v1/chat/completions, 未配置 OPENCODE_API_KEY 时
-apiKey 为字面量 "public"。免费层形状校验: tools 必须非空且含名为 bash 和 read
+端点 https://opencode.ai/zen/v1/chat/completions, 认证固定是占位 `Bearer public`
+(免费层不要真 key; 本包不读 OPENCODE_API_KEY —— 也没有走真 key 的代码路径)。
+免费层形状校验: tools 必须非空且含名为 bash 和 read
 的两个工具 (空壳 parameters={} 即可; 空/缺名 → 403 FreeTierError, 缺 function
 包装或 parameters 键 → 400), 分类器只认名字和形状, 不看 description/schema,
 tool_choice 值不影响; 默认只发这两个空壳, --full-tools 发全部 11 个 (已去敏)。
