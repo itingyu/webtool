@@ -183,8 +183,12 @@ webtool zen "问题" --think high       # 思考强度 (默认 medium; 可选值
 ```jsonc
 // ~/.webtool/zen.json —— 只写要改的键即可
 {"zen": {"model": "mimo-v2.6-flash-free", "max_tokens": 8000,
-         "reasoning_effort": "high", "tools": "all", "live": false}}
+         "reasoning_effort": "high", "tools": "all", "live": false,
+         // 原样并进请求体, 补上游字段 (同名字段以它为准)
+         "extra_body": {"thinking": {"type": "enabled", "budget_tokens": 8000}}}}
 ```
+
+`extra_body` 是本客户端**唯一**的自定义请求体入口：像 `thinking` 这类上游扩展字段没有独立开关，直接从这塞；实测加未知字段不会触闸门（免费层 403），但也不会被校验，写错了上游可能静默忽略。
 
 模型上下架频繁，先 `--list-free` 再用。清单列取接口字段（`id/created/owned_by`），
 免费层是命名约定推断的；能不能用只有 `--check` 真调一次才算数。

@@ -59,6 +59,8 @@ def defaults():
 
     优先级: 命令行 > 配置文件 > 内置 (见 DEFAULTS)。只认 DEFAULTS 里列出的键,
     写错的键不会有任何作用 (也不会报错) —— 与其它配置段同一套合并语义。
+    `extra_body` 例外: 它是**原样并进请求体的字典**, 用来补上游新加的字段
+    (如 thinking / 别的提供商扩展), 内容不做任何校验。
     """
     from webtool.core.config_data import load as _cfg_load
     d = _cfg_load('zen', 'zen.json') or {}
@@ -67,6 +69,7 @@ def defaults():
         v = d.get(k)
         if v is not None and v != '':
             out[k] = v
+    out['extra_body'] = d.get('extra_body') or {}
     return out
 
 # 真机 12 个工具定义 (2026-10-14 从官方 1.19.0 抓包提取, 未做任何改写)。
@@ -285,11 +288,12 @@ def model_headers():
 
 
 def build_body(model, prompt, system=None, tool_choice=None, tool_names=None,
-               reasoning_effort=None, max_tokens=None):
+               reasoning_effort=None, max_tokens=None, extra=None):
     """OpenAI Chat Completions 请求体
 
     tools 用真机定义、tool_choice 默认 auto —— 两者都是闸门判据 (见文件头注释)。
     `reasoning_effort` 只在显式给值时带上 (可选值随模型而异, 见 zen --think)。
+    `extra` (默认取 zen.json 的 extra_body) 原样并入, 同名字段以它为准。
     """
     body = {
         'model': model,
@@ -305,6 +309,10 @@ def build_body(model, prompt, system=None, tool_choice=None, tool_names=None,
     }
     if reasoning_effort:
         body['reasoning_effort'] = reasoning_effort
+    if extra is None:
+        extra = defaults().get('extra_body') or {}
+    if extra:
+        body.update(extra)          # 原样并入: thinking 之类的上游字段从这走
     return json.dumps(body, ensure_ascii=False).encode('utf-8')
 
 

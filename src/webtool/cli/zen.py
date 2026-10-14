@@ -663,7 +663,12 @@ def _show_view(args):
 
 def _do_zen(args, cfg):
     """zen 对话主体 (do_zen 是代理开关薄壳)"""
-    prompt = ' '.join(getattr(args, 'prompt', None) or []).strip()
+    # 命令行层 (cli/app.py) 已经把变长参数拼成了字符串; 这里只兜住直接传 list
+    # 的调用方 —— 对字符串再 join 一次会逐**字符**插空格 ("hi" → "h i")。
+    prompt = getattr(args, 'prompt', None) or ''
+    if not isinstance(prompt, str):
+        prompt = ' '.join(prompt)
+    prompt = prompt.strip()
 
     tip = _tool_warn(args)
     if tip:

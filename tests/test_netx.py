@@ -798,6 +798,10 @@ check(_zen._blames_effort({'status': 400,
 check(_zen._color_on() is False, '非终端不上色 (测试进程 stdout 不是 tty)')
 
 print('\n=== zen 默认值可配 (命令行 > zen.json > 内置) ===')
+# 命令行是变长参数, 拼一次; 早前 _do_zen 又 join 了一次, 把字符串按**字符**插空格
+_rc, _o = _cli('zen', 'hello world', '--show', 'text', '-f', 'json')
+check(json.loads(_o)[1]['content'] == 'hello world',
+      '提示词不被二次 join 拆成单字 (h e l l o)')
 _rc, _o = _cli('zen', 'x', '--dry-run', '-f', 'json')
 _b = json.loads(_o)['body']
 check(_b['max_tokens'] == _zp.DEFAULT_MAX_TOKENS == 200000,
@@ -808,7 +812,8 @@ _zd = os.path.join(WEBTOOL_DIR, 'zen.json')
 with open(_zd, 'w', encoding='utf-8') as _f:
     json.dump({'zen': {'model': 'mimo-x', 'max_tokens': 8000,
                        'reasoning_effort': 'high', 'tools': 'all',
-                       'live': False, 'tool_choice': 'auto'}}, _f)
+                       'live': False, 'tool_choice': 'auto',
+                       'extra_body': {'thinking': {'type': 'enabled'}}}}, _f)
 from webtool.core import config_data as _CD          # noqa: E402
 _CD.invalidate()
 try:
@@ -824,6 +829,10 @@ try:
           and _b['model'] == 'y', '命令行覆盖 zen.json')
     _dd = _zp.defaults()
     check(_dd['live'] is False, 'zen.json 的 live 生效 (默认是否边收边打也可配)')
+    check(_dd['extra_body'] == {'thinking': {'type': 'enabled'}},
+          'extra_body 原样读进来')
+    check(json.loads(_o)['body']['thinking'] == {'type': 'enabled'},
+          'extra_body 并入请求体 (thinking 之类的上游字段由它补)')
 finally:
     os.remove(_zd)
     _CD.invalidate()
