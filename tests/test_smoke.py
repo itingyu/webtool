@@ -23,6 +23,7 @@ MODULES = [
     'webtool.radar.routes', 'webtool.radar.instances',
     'webtool.radar.official', 'webtool.radar.instances_cfg', 'webtool.cli.zen',
     'webtool.cli.sitesearch', 'webtool.net.fetch', 'webtool.engines.extractors',
+    'webtool.engines.boilerplate',
     'webtool.filters.blocklist', 'webtool.filters.adfilter', 'webtool.pipeline.query_ops',
     'webtool.engines.hotsites', 'webtool.engines.sites',
     'webtool.engines.status', 'webtool.engines.bing',
@@ -859,6 +860,53 @@ try:
           'Termux: 纯 Python 的库仍走 pip 重装, 不乱指系统包')
 finally:
     _deps.on_termux = _o_termux
+
+# ---------- 正文提取: 内容层择优 + 碎片率 ----------
+from webtool.engines import extractors as _ex
+from webtool.engines import boilerplate as _bo
+
+_et = plugins.table('extractor')
+for _n in ('trafilatura', 'readability', 'boilerplate', 'inscriptis'):
+    check(_n in _et, f'提取器注册表含 {_n}')
+check(_et['inscriptis'].get('dump') is True, '整页 dump 的提取器被标成兜底层')
+check(not _et['boilerplate'].get('dump'), '新提取器在内容层 (参与择优)')
+
+# 碎片率: 正文是一条条句子, 推广/导航是一地碎片
+_prose = '石油概念震荡反弹，和顺石油涨停。广汇能源、中国石油等跟涨。'
+_junk = '\n'.join(['方便，快捷', '手机查看财经快讯', '微信扫一扫', '分享到您的',
+                   '朋友圈', '扫描二维码关注'])
+check(_ex.fragment_ratio(_prose) == 0, '正常正文碎片率为 0')
+check(_ex.fragment_ratio(_junk) > 0.7, '推广碎片堆碎片率高')
+check(_ex.fragment_ratio('') == 1, '空产出碎片率算满 (不会赢)')
+check(_ex.fragment_ratio('---\ntitle: x\n---\n') == 1, 'YAML 头不算正文 (先剥掉)')
+
+# pick_best: 干净和完整要一起算账
+check(_ex.pick_best([('脏', _junk), ('净', _prose)]) == '净', '择优选干净的')
+_long_dirty = ('这是一段正文，' * 40) + _junk          # 长而略脏
+_short_clean = '正文一句话。'
+check(_ex.pick_best([('长脏', _long_dirty), ('短净', _short_clean)]) == '长脏',
+      '择优不为了干净把长正文丢掉')
+check(_ex.pick_best([]) == '', '没有候选不炸')
+
+# 无 lxml 平台的兜底: 纯标准库也要能把文章区从导航/推广里切出来
+_page = ('<html><head><title>标题</title></head><body>'
+         '<div class="nav"><a href="/a">财经</a><a href="/b">股票</a></div>'
+         '<div class="article"><p>石油概念震荡反弹，和顺石油涨停。'
+         '广汇能源、中国石油等跟涨，板块成交额明显放大。</p></div>'
+         '<div class="qrapp"><p>方便，快捷</p><p>手机查看财经快讯</p>'
+         '<p>微信扫一扫</p><p>分享到您的朋友圈</p></div>'
+         '<div class="comment"><p>网友评论：沙发</p></div>'
+         '</body></html>')
+_bt, _ = _bo.extract_boilerplate(_page, 'http://x.test/a', {})
+check('和顺石油涨停' in _bt, 'readability 算法能切出正文')
+check('微信扫一扫' not in _bt and '方便，快捷' not in _bt,
+      'readability 算法甩掉推广块 (没有关键词表)')
+check(len(_bt) < 120, f'切出来的就是那一段 ({len(_bt)} 字)')
+
+_rt, _rm = _ex.run_chain(_page, 'http://x.test/a', {})
+check(_rm.get('_via') in _et, f'run_chain 交代价提取器名 (_via={_rm.get("_via")})')
+check('和顺石油涨停' in _rt, 'run_chain 产出含正文')
+check('微信扫一扫' not in _rt, 'run_chain 产出不含推广碎片')
 
 if fails:
     sys.exit(1)

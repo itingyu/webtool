@@ -430,13 +430,18 @@
       "module": "webtool.engines.extractors:extract_trafilatura",
       "desc": "trafilatura 正文抽取 (markdown, 带元数据)"
     },
+    "boilerplate": {
+      "module": "webtool.engines.boilerplate:extract_boilerplate",
+      "desc": "readability 算法选块 (纯标准库, 不需要 lxml)"
+    },
     "readability": {
       "module": "webtool.engines.extractors:extract_readability",
       "desc": "readability-lxml + html2text 兜底"
     },
     "inscriptis": {
       "module": "webtool.engines.extractors:extract_inscriptis",
-      "desc": "全文纯文本保底"
+      "desc": "全文纯文本保底 (整页 dump, 不参与择优)",
+      "dump": true
     }
   },
   "resolver": {

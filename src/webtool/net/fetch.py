@@ -11,6 +11,10 @@ import time
 from webtool.core import cache
 import webtool.engines.extractors as extractors
 
+# 提取链世代: 提取算法换一代就 +1。缓存键里带着它, 换了算法就等于换了一套缓存,
+# 免得把上一代留下的垃圾正文 (整页 dump 那种) 继续端给用户。
+_EXTRACT_GEN = 'x2'
+
 
 def do_fetch(args, cfg):
     urls = []
@@ -185,7 +189,9 @@ def _fetch_via_mcp(url, args, cfg, channel, timeout, prior=None, proxy=None):
 def _fetch_one(url, args, cfg, proxy, timeout):
     t0 = time.time()
     # via 进 key: 同一 URL 走本地链与走远程 reader 是两种产出, 共用缓存会串
-    ckey = f'{url}|{args.format}|{args.max_chars}|{getattr(args, "via", "") or "local"}'
+    # 尾部的提取代数: 提取链换算法后要作废旧缓存, 否则公布出去的是上次的垃圾正文
+    ckey = (f'{url}|{args.format}|{args.max_chars}|'
+            f'{getattr(args, "via", "") or "local"}|{_EXTRACT_GEN}')
     cached = None if (args.no_cache or args.raw) else cache.get(cfg, 'fetch', ckey)
     if cached is not None:
         cached['cache'] = 'hit'
@@ -213,6 +219,8 @@ def _fetch_one(url, args, cfg, proxy, timeout):
                 'took_ms': int((time.time() - t0) * 1000)}
     content, meta = _extract(html, url)
     js_shell = meta.pop('_js_shell', None)
+    extract_via = meta.pop('_via', '')
+    _warn_missing(meta.pop('_missing', None))
     thin = not content or len(content) < 150 or _is_nav_shell(content)
     if js_shell or thin or _looks_spa(html):
         # SPA 页: 收割内嵌 state (SSR JSON); 采用条件是明显优于现有产出
@@ -255,7 +263,8 @@ def _fetch_one(url, args, cfg, proxy, timeout):
                         '换移动指纹 ③搜索引擎搜标题拿正文页 URL'}
     if args.max_chars and content and len(content) > args.max_chars:
         content = content[:args.max_chars] + '\n…[truncated]'
-    out = {'url': url, 'status': status, 'via': via, 'took_ms': int((time.time() - t0) * 1000),
+    out = {'url': url, 'status': status, 'via': via, 'extract': extract_via,
+           'took_ms': int((time.time() - t0) * 1000),
            'chars': len(content or ''), 'content': content or ''}
     if args.with_metadata and args.format == 'json':
         out['metadata'] = meta
@@ -300,10 +309,32 @@ def _is_nav_shell(content):
 
 
 def _extract(html, url):
-    """提取器策略链 (见 extractors.py): 壳页预检 → 按优先级降级"""
+    """提取器策略链 (见 extractors.py): 壳页预检 → 内容层择优 → 兜底层"""
     if extractors.is_js_shell(html):
         return '', {'_js_shell': '1', 'title': ''}
     return extractors.run_chain(html, url, {})
+
+
+_warned_missing = set()
+
+
+def _warn_missing(missing):
+    """提取器缺依赖时提示一次 (stderr)
+
+    静默降级最坑人: 用户看到满屏广告会以为 webtool 提取就这水平, 其实是少装
+    了一个库、主力提取器根本没上场。提示走 stderr, 不污染 stdout 的正文。
+    """
+    for name in (missing or []):
+        if name in _warned_missing:
+            continue
+        _warned_missing.add(name)
+        try:
+            from webtool.core import deps
+            how = deps.install_hint(name)
+        except Exception:
+            how = f'缺 {name}'
+        print(f'提示: 提取链缺 {name}, 这次用的是还装着的提取器 —— {how}',
+              file=sys.stderr)
 
 
 def _emit(r, args, single):

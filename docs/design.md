@@ -99,8 +99,18 @@ webtool/
 
 依赖策略：
 - 零硬依赖：stdlib (urllib/re/gzip/http.cookiejar) 完成搜索+HTTP
-- 提取链（都随包安装，按顺序尝试）：trafilatura(首选) → readability-lxml(兜底) → html2text(再兜底) → inscriptis(纯文本保底)
-- 无 trafilatura 时自动降级到 readability-lxml，再无则 html2text
+- 提取链分两层（清单见 `data/plugins.json` 的 `extractor` 段）：
+  - **内容层**：trafilatura / boilerplate / readability-lxml —— 同层一起跑，按
+    「碎片率 + 长度」择优（`extractors.pick_best`），**不是谁先谁后谁生效**。
+    同一个页面 trafilatura 会把文章区的推广块一起收进来，readability 却切得干净，
+    用"第一个非空的"就等于让注册顺序决定结果好坏；
+  - **兜底层**：inscriptis / 零依赖剥标签 —— 整页纯文本，只在内容层全空时才跑，
+    不参与择优（它永远非空，一竞争就用整页噪声盖掉正文）。
+- `boilerplate` 是 readability 算法的纯标准库实现（`engines/boilerplate.py`，零关键词
+  表）：按标签/隐藏样式清洗 → 段落打分并向上累积 → 定级（独占子节点下钻）→ 按
+  「文气密度」清尾。lxml 装不上的平台（Termux/Android）靠它，不至于掉到整页 dump。
+- 提取结果里 `extract` 字段说明这次是谁出的活；某层提取器因缺依赖被跳过时，
+  stderr 提示一次（复用 `deps.install_hint` 的补依赖指引）。
 
 ### 2.4 省 token 设计（核心卖点）
 

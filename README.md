@@ -145,6 +145,12 @@ webtool upgrade                                 # 升级到最新 (pip 走 rules
 
 ### fetch
 - HTML → markdown/text/json/html；SPA 壳页收割内嵌 SSR state，拿不到时显式报错
+- **正文提取是"同层择优"而不是"先到先得"**：内容层的 trafilatura / boilerplate
+  （readability 算法的纯标准库版）/ readability 都跑一遍，按
+  「碎片率 + 长度」选最干净的（`分 = 碎片率 + 0.25 × (1 − 本文长度/最长候选)`）。
+  碎片率 = 正文里"短且没有句末标点"的行占多少字符 —— 正文是一条条句子，广告/导航/
+  分享提示是一地碎片。整页 dump 类提取器（inscriptis 等）只在内容层全空时才上场。
+  结果里的 `extract` 字段告诉你这次是谁出的活；某提取器因缺依赖被跳过会在 stderr 提示
 - 按 UA 分流的站点：`--profile chrome131_android` 切移动指纹重试
 - `--url-file` 批量；`--raw`；`--with-metadata`
 - `--via <通道>` 选取正文的来源：

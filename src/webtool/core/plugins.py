@@ -24,7 +24,8 @@
     engine       fn(query, max_results, proxy, timeout, market=None) -> [结果]
     hot          fn(query, limit, proxy, timeout) -> [结果]
     site         fn(query, limit, proxy, timeout, **kw) -> [结果]
-    extractor    fn(html, url, meta) -> (正文, meta)
+    extractor    fn(html, url, meta) -> (正文, meta); spec 加 "dump": true 标记
+                 整页兜底层 (只在内容层全空时用, 不参与择优)
     resolver     fn(url, proxy, timeout) -> 新 url
     filter       fn(results, ctx) -> [结果]
     transformer  fn(results, ctx) -> [结果]
