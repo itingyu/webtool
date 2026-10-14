@@ -176,9 +176,8 @@ def print_route_cards(cards, kw, args, cfg):
     tried, last_err, items = [], None, None
     cands = ([None] if fetch_note else
              instance_candidates(base, getattr(args, 'instance', None), cfg))
-    # 线路一次定死: 曾经内层还套了 `for px in ([None] + [cfg['proxy']])` 的两轮
-    # failover, 于是"换实例"和"换线路"两个维度混在一起 —— 哪个实例能用取决于
-    # 它先在哪条线挂, 代理配好了还要每个实例先去撞一次直连墙。失败只换实例。
+    # 线路一次定死: 失败只换实例, 不换线路 —— 两个维度混在一起会让"哪个实例
+    # 能用"取决于它先在哪条线挂。
     px = (None if getattr(args, 'no_proxy', False)
           else cfg.get('proxy') or 'auto')
     for cand in cands:

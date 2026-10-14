@@ -27,8 +27,8 @@ def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1
     """返回 [{title,url,snippet}]; chrome指纹 HTML → urllib HTML → RSS 三级降级"""
     # 归一一次: 'auto' 要问路由表才知道走不走代理, 而下面的 _host() 和
     # _new_session() 都要**实际线路**才能定 (www vs cn、要不要挂代理)。
-    # 曾经把 'auto' 原样往下传, 于是 _host 看到非空字符串就以为走代理、
-    # 而 _new_session 又被写死 None —— 两者互相矛盾, 实际恒直连。
+    # 'auto' 原样往下传会让 _host 以为走代理、_new_session 却是直连 ——
+    # 两者必须来自同一次决策。
     from webtool.net import netx
     route = netx.resolve_proxy(proxy, _CN_ENDPOINT + '/search')
     try:

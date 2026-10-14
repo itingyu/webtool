@@ -103,9 +103,8 @@ def _crosscheck(official, rss_url, section, n, cfg, timeout=None,
     def pull(url, tag):
         """返回 (items, ms)。按配置/路由表取一次 (线路只由配置决定)。
 
-        曾经是 `for px in ([None] + [cfg.get('proxy')])` 的两轮 failover: 直连
-        能通就永远不碰代理, 代理挂了就静默退直连。改成单线路后, 走哪条由
-        proxyhelper/路由表决定, 失败的原因也不会被掩盖。
+        单线路: 走哪条由 proxyhelper/路由表决定, 失败原因不被掩盖 ——
+        退直连重试会让"代理挂了"表现为"目标拒绝/超时"。
         """
         t0 = time.perf_counter()
         px = proxyhelper.resolve(cfg.get('proxy'), url)

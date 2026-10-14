@@ -172,9 +172,8 @@ def _get_cffi(url, *, proxy, timeout, headers, ver, engine, max_bytes,
     # cffi 认 CA 路径或 bool, 由 tls.policy 决定 (有 CA 给路径, 无 CA 给 False)
     if ver is not None:
         kw['verify'] = ver
-    # 指纹档案两条分支都要用, 必须在 if 外面导入 —— 曾经写在 `if engine:` 里,
-    # 于是不带 engine 的调用 (探活/站点/feed 大量走这条) 直接 UnboundLocalError,
-    # cffi 一次都没真跑过, 全部静默落到 urllib, 指纹和代理错误都跟着失真
+    # 指纹档案两条分支都要用, 必须在 if 外面导入 —— 放进 `if engine:` 里,
+    # 不带 engine 的调用 (探活/站点/feed) 会 UnboundLocalError
     import webtool.net.transport as _t
     prof = _t.PROFILES[_t._pick_profile(engine)]
     try:

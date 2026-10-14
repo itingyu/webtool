@@ -46,10 +46,8 @@ def instances(proxy=None, refresh=False, need=None, timeout=10):
 
     def probe(base):
         t0 = time.time()
-        # 单线路: 曾经是 `for px in ([None] + [proxy])` 的两轮 failover —— 直连
-        # 先试、失败再换代理, 于是"这个实例能不能用"取决于它先在哪条线挂, 而
-        # 代理明明配好了还先去撞一次墙。现在线路由路由表一次决定 (未配代理时
-        # 'auto' 落到默认规则), 请求失败就是失败。
+        # 单线路: 线路由路由表一次决定 (未配代理时 'auto' 落到默认规则),
+        # 请求失败就是失败 —— 失败只意味着这个实例不可用, 不换线重试。
         px = proxy or 'auto'
         last = 'no route'
         try:

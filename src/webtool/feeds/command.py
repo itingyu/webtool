@@ -72,9 +72,8 @@ def do_feed(args, cfg):
             print(f'登记表中无 "{args.retest}"; 现有: '
                   f'{", ".join(rows) or "(空)"}', file=sys.stderr)
             return 2
-        # 单线路: 曾经是"直连探一次, 抛异常再换代理探一次"。代理配好了还先去
-        # 撞一次直连墙, 慢一倍, 而且"源恢复没恢复"取决于先在哪条线挂。线路由
-        # 路由表一次决定。
+        # 单线路: 线路由路由表一次决定, 失败直接报错 —— 不先探直连再换代理
+        # (那会让"源恢复没恢复"取决于它先在哪条线挂, 且慢一倍)。
         gproxy = cfg.get('proxy') or 'auto'
 
         def _probe(k, v):
@@ -248,8 +247,7 @@ def do_feed(args, cfg):
             c = cache.get(cfg, 'hot', ckey)
             if c is not None:
                 return name, c, None
-        # 单线路: 曾经"直连失败 → 换代理重试", 那让这条命令走哪条线取决于它先在
-        # 哪失败。改为由 proxyhelper/路由表一次决定, 失败直接报错。
+        # 单线路: 由 proxyhelper/路由表一次决定, 失败直接报错
         px = proxyhelper.resolve(None if args.no_proxy else cfg.get('proxy'),
                                  specs[name]['url'])
         try:
