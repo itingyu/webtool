@@ -241,6 +241,9 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
               profile: str = typer.Option(None, '--profile',
                                           help='传输指纹档案: chrome131_win/mac/linux/android, '
                                                'safari18_4_ios 等 (移动站/拿不到数据时试 android/ios)'),
+              save: str = typer.Option(None, '--save',
+                                       help='存到哪 (文件或目录); 网页存原始 HTML, '
+                                            '二进制目标默认就存当前目录, 用它可以换落点'),
               extract: str = typer.Option(None, '--extract',
                                           help='正文提取器: auto(默认, 内容层择优, 最干净) / '
                                                'trafilatura / readability / boilerplate / '
@@ -254,6 +257,7 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
     a.url, a.url_file = url, url_file
     a.max_chars, a.raw, a.with_metadata, a.profile = max_chars, raw, with_metadata, profile
     a.extract = extract
+    a.save = save
     a.via = via
     return _run('data', _do('fetch'), fmt, output, no_cache, no_proxy)
 

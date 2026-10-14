@@ -84,8 +84,11 @@ def _parse_auth(auth):
 
 
 def http_get(url, proxy=None, timeout=15, headers=None, opener=None,
-             max_bytes=8 * 1024 * 1024, verify=None):
-    """GET 页面, 返回 (text, status). 自动 gzip 解码.
+             max_bytes=8 * 1024 * 1024, verify=None, raw=False):
+    """GET 页面, 返回 (text, status); raw=True 时返回 (bytes, status, headers).
+
+    二进制目标 (图片/视频/压缩包) 要的是原始字节和响应头, 解码成文本就毁了 ——
+    raw 走的就是这条路, 不做 charset 猜测、不 decode.
 
     默认头反探测: UA/Accept-Language 自动取 transport 指纹档案 (调用方
     未给时), 与 curl_cffi 通道同源 — 裸 Python-urllib 指纹一律不出网。
@@ -108,14 +111,16 @@ def http_get(url, proxy=None, timeout=15, headers=None, opener=None,
             data = e.read(max_bytes)
             text = data.decode('utf-8', errors='replace')
         except Exception:
-            text = ''
-        return text, e.code
+            data, text = b'', ''
+        return (data, e.code, dict(e.headers)) if raw else (text, e.code)
     data = r.read(max_bytes)
     if r.headers.get('Content-Encoding') == 'gzip':
         try:
             data = gzip.GzipFile(fileobj=io.BytesIO(data)).read()
         except Exception:
             pass
+    if raw:
+        return data, r.status, dict(r.headers)
     charset = 'utf-8'
     ct = r.headers.get('Content-Type', '')
     m = None

@@ -4,9 +4,12 @@
 """
 import concurrent.futures as cf
 import json
+import mimetypes
+import os
 import re
 import sys
 import time
+from urllib.parse import unquote, urlparse
 
 from webtool.core import cache
 from webtool.core import text
@@ -15,6 +18,180 @@ import webtool.engines.extractors as extractors
 # 提取链世代: 提取算法换一代就 +1。缓存键里带着它, 换了算法就等于换了一套缓存,
 # 免得把上一代留下的垃圾正文 (整页 dump 那种) 继续端给用户。
 _EXTRACT_GEN = 'x2'
+
+# --- 目标类型判定 -----------------------------------------------------------
+# fetch 老的假设是"你要的就是网页"。但 URL 后面可能是图片/视频/压缩包/API,
+# 拿它们当 HTML 走提取链只会得到一堆乱码。先按响应头 (Content-Type) 认类型:
+# 认得出就不必再猜, 也不必浪费一次提取。
+_TEXT_MIME = {
+    'application/json', 'application/ld+json', 'application/x-ndjson',
+    'application/xml', 'application/rss+xml', 'application/atom+xml',
+    'application/javascript', 'application/x-javascript', 'application/x-yaml',
+}
+_BIN_MIME = {
+    'application/pdf': 'pdf',
+    'application/zip': 'archive', 'application/x-tar': 'archive',
+    'application/gzip': 'archive', 'application/x-7z-compressed': 'archive',
+    'application/x-rar-compressed': 'archive', 'application/x-bzip2': 'archive',
+    'application/x-xz': 'archive', 'application/vnd.rar': 'archive',
+    'application/x-gzip': 'archive', 'application/x-zip-compressed': 'archive',
+    'application/x-zip': 'archive', 'application/x-bzip': 'archive',
+    'application/x-compressed-tar': 'archive',
+    'application/vnd.android.package-archive': 'binary',
+    'application/octet-stream': 'binary', 'application/x-msdownload': 'binary',
+}
+_RAW_MAX_BYTES = 32 * 1024 * 1024   # raw 单次上限 (二进制要落盘, 不能只给 8MB)
+
+_EXT_MIME = {                     # 服务端不报类型时的退路: 看扩展名
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
+    '.bmp': 'image/bmp', '.ico': 'image/x-icon', '.avif': 'image/avif',
+    '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
+    '.mkv': 'video/x-matroska', '.avi': 'video/x-msvideo',
+    '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.wav': 'audio/wav',
+    '.flac': 'audio/flac', '.ogg': 'audio/ogg',
+    '.pdf': 'application/pdf', '.zip': 'application/zip', '.tar': 'application/x-tar',
+    '.gz': 'application/gzip', '.tgz': 'application/gzip', '.7z': 'application/x-7z-compressed',
+    '.rar': 'application/x-rar-compressed', '.bz2': 'application/x-bzip2',
+    '.xz': 'application/x-xz', '.xz2': 'application/x-xz',
+    '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
+    '.exe': 'application/x-msdownload', '.apk': 'application/vnd.android.package-archive',
+    '.json': 'application/json', '.txt': 'text/plain', '.csv': 'text/csv',
+    '.xml': 'application/xml', '.js': 'application/javascript',
+}
+
+
+def target_kind(ctype, url=''):
+    """按响应头 (拿不到就看扩展名) 判断目标是什么, 返回 (kind, mime)
+
+    kind: html / text / image / video / audio / pdf / archive / font / binary
+    html 才走正文提取; text 原样给; 其余是二进制, 落盘或只报元信息。
+
+    头里没类型也没认得的扩展名时按 html 处理 —— fetch 的入口就是 URL, 绝大多数
+    情况是网页, 不能因为对方没报 Content-Type 就放弃正文提取。
+    """
+    mime = (ctype or '').split(';')[0].strip().lower()
+    if mime in ('text/html', 'application/xhtml+xml'):
+        return 'html', mime
+    if mime.startswith('text/') or mime in _TEXT_MIME:
+        return 'text', mime
+    if mime in _BIN_MIME:
+        return _BIN_MIME[mime], mime
+    if mime.startswith(('image/', 'video/', 'audio/', 'font/')):
+        return mime.split('/')[0], mime
+    if mime:
+        return 'binary', mime
+    path = urlparse(url or '').path
+    guess = _EXT_MIME.get(os.path.splitext(path)[1].lower(), '')
+    if guess:
+        return target_kind(guess)
+    return 'html', ''
+
+
+def _decode(data, headers):
+    """按响应头 charset 解字节
+
+    以前是 curl_cffi 的 r.text 替我们猜编码, 现在 raw 拿的是原始字节, 得自己来:
+    先信 Content-Type 里的 charset, 没写按 utf-8; utf-8 解出一堆替换字符 (中文站
+    常见 GBK 老页面) 再试 gbk —— 不猜就是满屏乱码, 猜错也只是个别字。
+    """
+    if isinstance(data, str):
+        return data
+    ctype = headers.get('content-type', '') or ''
+    m = re.search(r'charset=["\']?([\w-]+)', ctype, re.I)
+    enc = m.group(1) if m else 'utf-8'
+    try:
+        out = data.decode(enc, 'replace')
+    except LookupError:
+        out = data.decode('utf-8', 'replace')
+    if out.count('\ufffd') > len(out) / 200:            # 0.5% 以上是坏字: 换 gbk
+        try:
+            alt = data.decode('gbk', 'replace')
+        except Exception:
+            return out
+        if alt.count('\ufffd') < out.count('\ufffd'):
+            return alt
+    return out
+
+
+def _filename_for(headers, url, mime=''):
+    """落盘要存成什么名: URL 末段说了算 —— 后缀跟 URL 一致
+
+    后缀不能由 Content-Type 决定: 服务端报 octet-stream 时, 只有 URL 末段知道
+    这是 .whl 还是 .zip; 而 CD 给的 filename 有服务端乱填的 (download.aspx 之类),
+    所以顺序是 URL 末段 > Content-Disposition > MIME 推。URL 没后缀才按 MIME 补。
+    """
+    seg = urlparse(url or '').path.rstrip('/')
+    name = unquote(os.path.basename(seg))
+    if not name:
+        cd = headers.get('content-disposition') or ''
+        m = re.search(r"filename\*?=(?:UTF-8'')?\"?([^\";]+)", cd, re.I)
+        name = unquote(m.group(1).strip()) if m else ''
+    name = re.sub(r'[\\/:*?"<>|]+', '_', name).strip('. ') or 'download'
+    if '.' not in name:                   # 没后缀 (或无末段) 才按 MIME 补一个
+        kind, t = target_kind(headers.get('content-type'), url)
+        name += mimetypes.guess_extension(mime or t or '') or ''
+    return name
+
+
+def _save_body(args, url, data, headers, status=200, mime='', dest=None):
+    """把原始响应体写盘, 返回绝对路径 (不写就返回空)
+
+    网页与二进制共用这一个出口: 存的一律是这次请求拿到的原始字节。二进制目标不给
+    --save 也要落盘 (终端糊不下图片视频压缩包), dest 就是那个默认落点。
+    """
+    save = getattr(args, 'save', None) or dest
+    if not save:
+        return ''
+    if status and status >= 400:
+        # 404 页面按 URL 末段命名会变成 main.zip —— 打开才知道里面是 "Not Found"。
+        # 错就是错, 别往盘上写文件; 真要那具错误页就用 --raw。
+        print(f'不落盘: 响应 {status} (内容多半是错误页, 要它加 --raw)', file=sys.stderr)
+        return ''
+    path = save
+    if os.path.isdir(save) or save.endswith(('/', '\\')):
+        path = os.path.join(save, _filename_for(headers, url, mime))
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, 'wb') as f:
+            f.write(data if isinstance(data, bytes) else data.encode('utf-8', 'replace'))
+    except OSError as e:
+        print(f'落盘失败: {e}', file=sys.stderr)
+        return ''
+    return os.path.abspath(path)
+
+
+def _binary_result(url, data, status, via, headers, kind, mime, args, t0):
+    """非网页目标: 二进制就落盘, 文本 (json/xml/纯文本) 原样给
+
+    二进制绝不进终端 —— 图片视频压缩包打到 stdout 是一屏控制字符, 管道里更是垃圾。
+    所以这里默认存文件 (args.save 或 dest 指定落点), 只把"存哪了"报给用户。
+    """
+    out = {'url': url, 'status': status, 'via': via, 'kind': kind,
+           'type': mime or 'application/octet-stream', 'size': len(data),
+           'extract': 'raw-text' if kind == 'text' else 'raw-binary',
+           'took_ms': int((time.time() - t0) * 1000)}
+    total = headers.get('content-length')
+    if total and total.isdigit() and int(total) > len(data):
+        out['truncated'] = True              # 被 max_bytes 截了
+        out['size_declared'] = int(total)
+    if kind == 'text':                       # 文本类原样给, 不提取
+        txt = data.decode('utf-8', errors='replace')
+        if args.max_chars and len(txt) > args.max_chars:      # 0 = 不截断
+            txt = txt[:args.max_chars] + '\n…[truncated]'
+        out['content'] = txt
+        return out
+    if out.get('truncated'):
+        # 残件比不存更坏: 一个缺尾巴的 .mp4/.zip 打开才知道坏了, 不如直接说清楚
+        print(f'不落盘: 响应超过单次上限, 只收到 {out["size"]} / 声明 '
+              f'{out.get("size_declared")} 字节 (大文件请自行用 wget/curl 取)',
+              file=sys.stderr)
+        return out
+    path = _save_body(args, url, data, headers, status, mime,
+                      dest=getattr(args, 'dest', None) or '.')
+    if path:
+        out['file'] = path
+    return out
 
 
 def do_fetch(args, cfg):
@@ -209,21 +386,35 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
     try:
         from webtool.core.resilient import fetch as rfetch
         profile = getattr(args, 'profile', None)
-        html, status, via = rfetch(url, proxy=proxy, timeout=timeout,
-                                   profile=profile)
+        # raw 取字节 + 响应头: 先按 Content-Type 认清目标是不是网页, 再决定要不要
+        # 走正文提取 —— 图片/视频/压缩包拿去做提取只会得到一堆乱码
+        # raw 模式给足上限: 二进制目标默认就落盘, 8MB 会把 .zip/.mp4 拦腰截断。
+        # 32MB 是"手机内存放得下 + 覆盖绝大多数附件"的折中, 超了明确报错不存残件。
+        payload, status, via, headers = rfetch(
+            url, proxy=proxy, timeout=timeout, profile=profile, raw=True,
+            max_bytes=_RAW_MAX_BYTES)
+    except Exception as e:
+        return {'url': url, 'error': str(e)[:300], 'took_ms': int((time.time() - t0) * 1000)}
+    kind, mime = target_kind(headers.get('content-type'), url)
+    if kind != 'html':
+        return _binary_result(url, payload, status, via, headers, kind, mime, args, t0)
+    html = _decode(payload, headers)
+    saved = _save_body(args, url, payload, headers, status)
+    try:
         if not getattr(args, 'profile', None):
             # 桌面指纹拿到的像壳页/过薄, 自动切移动指纹再试一次 (按 UA 分流站点)
             thin = len(html or '') < 6000 or not _spa_marker(html)
             if thin:
                 try:
-                    h2, s2, v2 = rfetch(url, proxy=proxy, timeout=timeout,
-                                        profile='chrome131_android')
-                    if len(h2) > len(html) * 1.5:
-                        html, status, via = h2, s2, f'{v2}+mobile-fallback'
+                    p2, s2, v2, h2 = rfetch(url, proxy=proxy, timeout=timeout,
+                                            profile='chrome131_android', raw=True)
+                    p2 = _decode(p2, h2)
+                    if len(p2) > len(html) * 1.5:
+                        html, status, via = p2, s2, f'{v2}+mobile-fallback'
                 except Exception:
                     pass
-    except Exception as e:
-        return {'url': url, 'error': str(e)[:300], 'took_ms': int((time.time() - t0) * 1000)}
+    except Exception:
+        pass
     if args.raw:
         return {'url': url, 'status': status, 'html': html, 'via': via,
                 'took_ms': int((time.time() - t0) * 1000)}
@@ -247,7 +438,7 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
             out = {'url': url, 'status': status, 'via': via,
                    'took_ms': int((time.time() - t0) * 1000),
                    'chars': len(content), 'content': content,
-                   'extract': 'embedded-state'}
+                   'extract': 'embedded-state', **({'file': saved} if saved else {})}
             if note:
                 out['spa_note'] = note
             if args.with_metadata and args.format == 'json':
@@ -275,7 +466,8 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
         content = content[:args.max_chars] + '\n…[truncated]'
     out = {'url': url, 'status': status, 'via': via, 'extract': extract_via,
            'took_ms': int((time.time() - t0) * 1000),
-           'chars': len(content or ''), 'content': content or ''}
+           'chars': len(content or ''), 'content': content or '',
+           **({'file': saved} if saved else {})}
     if args.with_metadata and args.format == 'json':
         out['metadata'] = meta
     if out['content']:
@@ -354,10 +546,26 @@ def _emit(r, args, single):
     if args.format == 'json':
         print(json.dumps(r, ensure_ascii=False, indent=1))
         return
+    if 'content' not in r and 'html' not in r:
+        # 图片/视频/压缩包之类: 二进制绝不往终端吐 (会糊一屏控制字符, 管道里更是垃圾),
+        # 默认就存成文件, 这里只报"是什么、多大、存哪了"。
+        line = f'[非网页] {r.get("type", "?")} · {r.get("size", 0)} 字节 · {r["url"]}'
+        if r.get('truncated'):
+            line += (f'\n  未落盘: 单次上限内只收到 {r.get("size")} 字节'
+                     f' (声明 {r.get("size_declared")}), 截断的残件不如不存')
+        if r.get('file'):
+            line += f'\n  已存: {r["file"]}'
+        else:
+            line += '\n  没落盘 (原因见上一条); 换落点用 --save <文件或目录>'
+        print(line, file=sys.stderr)
+        return
     # --raw 的产出放在 'html' 而不是 'content' —— 以前只在 json 分支认它, 于是
     # `fetch --raw` (默认 md/txt) 打出个空行还退出码 0: 说好的原始 HTML 一个字没有。
+    if r.get('file'):
+        print(f'已存: {r["file"]}', file=sys.stderr)
     body = r['html'] if 'html' in r else r.get('content', '')
-    if args.format == 'text' and 'html' not in r:
+    if args.format == 'text' and 'html' not in r and r.get('extract') not in (
+            'raw-text', 'raw-binary'):
         # 只抹 [文字](url) 是不够的: `## 标题` `**重点**` `| 表格 |` 会原样留下,
         # 说好的纯文本到手还是 markdown。走 core.text.md_to_text 统一处理, 并且
         # 连 YAML 元数据头一起去掉 —— 正文纯文本前面不该顶一段机器头, 要元数据

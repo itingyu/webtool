@@ -161,6 +161,15 @@ webtool upgrade                                 # 升级到最新 (pip 走 rules
   boilerplate 是纯标准库兜底、最保守。指定后没产出会自动退回 `auto`，不交白卷
 - 按 UA 分流的站点：`--profile chrome131_android` 切移动指纹重试
 - `--url-file` 批量；`--with-metadata`
+- **目标不一定是网页**：先按响应头 `Content-Type` 分堆，认不出才看 URL 后缀（头比后缀可信）。
+  图片 / 视频 / 音频 / PDF / 压缩包 / 字体这些二进制目标**不会走进提取链**（拿去提取只会
+  得到一屏控制字符），而是**直接存成文件**（不给 `--save` 就存当前目录），文件名按 URL
+  末段取、**后缀跟 URL 一致**；JSON / XML / 纯文本这类文本目标原样输出、不提取。结果里
+  `kind`（html/text/image/video/audio/pdf/archive/font/binary）、`type`、`size`、`file`
+  一目了然。三条守规矩：4xx/5xx 的错误页**不落盘**（否则 `main.zip` 里躺着 "Not Found"）、
+  超过单次上限**不存残件**（一个缺尾巴的 `.mp4` 打开才知道坏了）、二进制**绝不进 stdout**
+  （类型/体积/落点走 stderr）。
+- `--save <文件或目录>` 显式指定落点：网页存原始 HTML，二进制换目录或改名
 - `--raw` 直接吐原始 HTML（跳过缓存与正文提取；也不会因为"正文薄"升级远程 reader
   —— 你要的就是这页的 HTML）。任何 `-f` 下都给 HTML，只有 `-f json` 是包在
   `{"url":…,"html":…}` 里

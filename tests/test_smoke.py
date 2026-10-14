@@ -1010,6 +1010,98 @@ check('title:' not in _buf.getvalue() and '正文标题' in _buf.getvalue(),
       '-f txt 输出不含 YAML 元数据头')
 
 
+# --- 目标类型判定: fetch 不能拿图片/压缩包当网页提取 ---------------------------
+_tk = _ft.target_kind
+check(_tk('text/html; charset=utf-8') == ('html', 'text/html'), 'text/html 认成网页')
+check(_tk('application/xhtml+xml')[0] == 'html', 'xhtml 也认成网页')
+check(_tk('image/png') == ('image', 'image/png'), 'Content-Type 认图片')
+check(_tk('video/mp4')[0] == 'video', 'Content-Type 认视频')
+check(_tk('application/zip') == ('archive', 'application/zip'), 'Content-Type 认压缩包')
+check(_tk('application/pdf')[0] == 'pdf', 'Content-Type 认 PDF')
+check(_tk('application/json') == ('text', 'application/json'),
+      'json 当文本原样给 (不是网页, 别去提取)')
+check(_tk('text/plain')[0] == 'text', 'text/plain 当文本')
+check(_tk('application/octet-stream', 'http://x/a.mp4') == ('binary', 'application/octet-stream'),
+      '服务端只说 octet-stream 时不看扩展名硬猜 (头比扩展名可信)')
+check(_tk('', 'http://x/pic/a.JPG') == ('image', 'image/jpeg'),
+      '头里没类型就看扩展名, 大小写无关')
+check(_tk('', 'http://x/archive.zip')[0] == 'archive', '没头也没扩展名... 这条是 zip')
+check(_tk('', 'http://x/news/123') == ('html', ''),
+      '头里没类型也没认得的扩展名: 按网页处理 (不能因为对方不报头就放弃提取)')
+
+# 落盘文件名: URL 末段说了算 (后缀跟 URL 一致), 没末段才看 CD / MIME
+check(_ft._filename_for({}, 'http://x/y/logo.png') == 'logo.png', 'URL 末段就是文件名')
+check(_ft._filename_for({'content-disposition': 'attachment; filename="报告.pdf"'},
+                        'http://x/') == '报告.pdf',
+      'URL 没末段才轮到 Content-Disposition')
+check(_ft._filename_for({'content-disposition': 'attachment; filename="a.png"'},
+                        'http://x/y/b.zip') == 'b.zip',
+      'URL 有末段时 CD 不许抢: 后缀必须跟 URL 走')
+check(_ft._filename_for({}, 'http://x/a/b/') == 'b', '路径以斜杠结尾: 取上一段')
+check(_ft._filename_for({}, 'http://x/') == 'download',
+      '连末段都没有才叫 download (别写出个空文件名)')
+check(_ft._filename_for({}, 'http://x/d?v=2') == 'd',
+      '查询串不算文件名 (?v= 不许写进名字)')
+check(_ft._filename_for({}, 'http://x/pkg.tar.gz') == 'pkg.tar.gz',
+      '双后缀照留 (猜 MIME 只会给出 .gz 半截)')
+check(_ft._filename_for({}, 'http://x/img', 'image/png') == 'img.png',
+      'URL 连后缀都没有: 才按 MIME 补')
+
+# 二进制目标: 默认存文件, 只给元信息, 绝不把字节当正文
+_DEST = '/tmp/wt_save_test'
+_LOGO = b'\x89PNG\r\n\x1a\n' + bytes(range(256)) * 4
+_args = _SN(save=_DEST, max_chars=0, format='md')
+_r = _ft._binary_result('http://x/l.png', _LOGO, 200, 'cffi',
+                        {'content-type': 'image/png', 'content-length': str(len(_LOGO))},
+                        'image', 'image/png', _args, 0)
+check(_r.get('kind') == 'image' and _r['size'] == len(_LOGO), '二进制结果给 kind/size')
+check('content' not in _r and 'html' not in _r, '二进制结果里不许出现 content/html 字段')
+check(_r['file'].endswith('/l.png') and open(_r['file'], 'rb').read() == _LOGO,
+      '不给 --save 也要落盘: 图片视频压缩包没法打在终端上')
+check('truncated' not in _r, '收到的字节数够 Content-Length 就不标 truncated')
+_r = _ft._binary_result('http://x/l.png', _LOGO[:10], 200, 'cffi',
+                        {'content-type': 'image/png', 'content-length': '9999'},
+                        'image', 'image/png', _args, 0)
+check(_r.get('truncated') is True and _r['size_declared'] == 9999,
+      '被上限截了要标 truncated')
+check('file' not in _r,
+      '截断的残件不许落盘 (缺尾巴的 .mp4 打开才知道坏了, 不如没有)')
+_r = _ft._binary_result('http://x/l.zip', _LOGO, 404, 'cffi',
+                        {'content-type': 'image/png'}, 'image', 'image/png', _args, 0)
+check('file' not in _r, '响应 404 不落盘 (存下来的会是那页错误信息)')
+_r = _ft._binary_result('http://x/a.json', '{"a": 1}'.encode(), 200, 'cffi',
+                        {'content-type': 'application/json'}, 'text',
+                        'application/json', _args, 0)
+check(_r['content'] == '{"a": 1}' and 'file' not in _r,
+      'json 目标原样给正文, 不当二进制存盘')
+_r = _ft._binary_result('http://x/a.txt', b'x' * 99, 200, 'cffi',
+                        {'content-type': 'text/plain'}, 'text', 'text/plain',
+                        _SN(save=None, max_chars=10, format='md'), 0)
+check(_r['content'].startswith('x' * 10) and 'truncated' in _r['content'],
+      '--max-chars 给了就按它截 (0 才是不截断: [:0] 会切空, 早先真出过这毛病)')
+
+# 终端上不许把二进制糊出来
+_r2 = _ft._binary_result('http://x/l.png', _LOGO, 200, 'cffi',
+                         {'content-type': 'image/png'}, 'image', 'image/png',
+                         _SN(save=_DEST, max_chars=0, format='text'), 0)
+_o, _e = _io.StringIO(), _io.StringIO()
+with _ctx.redirect_stdout(_o), _ctx.redirect_stderr(_e):
+    _ft._emit(_r2, _SN(format='text', raw=False, with_metadata=False), True)
+check(_o.getvalue() == '', '二进制目标: stdout 一个字节都不许有')
+check('image/png' in _e.getvalue() and '已存' in _e.getvalue(),
+      '二进制目标走 stderr 说明是什么、存哪了 (管道里不能掺垃圾)')
+
+# --save: 落点由用户说了算 (给目录就按 URL 末段取名)
+os.makedirs(_DEST, exist_ok=True)
+_p = _ft._save_body(_SN(save=_DEST), 'http://x/logo.png', _LOGO,
+                    {'content-type': 'image/png'})
+check(os.path.basename(_p) == 'logo.png' and open(_p, 'rb').read() == _LOGO,
+      '--save 给目录: 写原始字节, 名字按 URL')
+check(_ft._save_body(_SN(save=None), 'http://x/a', b'x', {}) == '',
+      '没给落点也不该默认存 (网页路径不自动落盘)')
+check(_ft._save_body(_SN(save='/tmp/'), 'http://x/p', '文'.encode(), {}) == '/tmp/p',
+      '--save 给目录路径时存原始名字')
+
 if fails:
     sys.exit(1)
 print('ALL PASS')

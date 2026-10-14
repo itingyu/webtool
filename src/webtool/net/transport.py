@@ -280,7 +280,7 @@ __all__ = ['BlockedError', 'CooldownError', 'TlsError', 'get', 'headers_for',
 
 def get(url, *, kind='nav', referer=None, proxy=None, timeout=15,
         engine=None, rate_engine=None, headers=None, lang=LANG_ZH, max_bytes=8 * 1024 * 1024, profile=None,
-        session=None, verify=None, _depth=0):
+        session=None, verify=None, _depth=0, raw=False):
     """浏览器指纹 GET → (text, status, via)
 
     via: 'cffi' | 'urllib'
@@ -300,6 +300,14 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=15,
     # 补保险库密码。这里不再自己判断, 免得又多一份和 netx 不一致的副本。
     from webtool.net import netx as _netx
     proxy = _netx.resolve_proxy(proxy, url)
+
+    if raw:
+        # raw 只要响应头 + 原始字节 (fetch 判目标类型/落盘用), 不进验证码降级梯:
+        # 梯子是给"要正文"的通道用的, 二进制目标没有"被拦换指纹"这回事
+        return _get_once(url, kind=kind, referer=referer, proxy=proxy,
+                         timeout=timeout, engine=engine, headers=headers,
+                         lang=lang, max_bytes=max_bytes, profile=profile,
+                         session=session, verify=verify, raw=True)
 
     text, status, via = _get_once(url, kind=kind, referer=referer, proxy=proxy,
                                   timeout=timeout, engine=engine,
@@ -345,8 +353,16 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=15,
                            f'冷却{captcha.cooldown_left(engine)}s, 请换引擎')
 
 
+def _lower_keys(headers):
+    """响应头键统一小写 (cffi 本来就小写, urllib 是 Content-Type), 消费者别猜"""
+    try:
+        return {str(k).lower(): v for k, v in dict(headers).items()}
+    except Exception:
+        return {}
+
+
 def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
-              lang, max_bytes, profile, session, verify=None):
+              lang, max_bytes, profile, session, verify=None, raw=False):
     """单次请求: curl_cffi 浏览器指纹 → (cffi 崩了才走) urllib 全指纹兜底
 
     证书策略每请求现算 (tls.policy 会看 verify_hosts 白名单), cffi 与 urllib
@@ -378,10 +394,12 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
                         extra=headers)
         r = s.get(url, headers=h, timeout=timeout, allow_redirects=True,
                   verify=tls.policy(url, verify))
-        text = r.text[:max_bytes]
+        payload = r.content[:max_bytes] if raw else r.text[:max_bytes]
         if session is None:
             _persist_cookies(s, engine)
-        return text, r.status_code, 'cffi'
+        if raw:
+            return payload, r.status_code, 'cffi', _lower_keys(r.headers)
+        return payload, r.status_code, 'cffi'
     except CertificateVerifyError as e:
         # 硬失败: 证书不对就是不对, 换指纹/换代理/换 urllib 全都救不了,
         # 直接上抛, 别让降级梯把 1 次失败放大成 4 次
@@ -393,6 +411,11 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
     h = headers_for(kind, url, referer=referer, lang=lang, full=True,
                     extra=headers)
     try:
+        if raw:
+            body, status, hdrs = http_get(url, proxy=proxy_arg, timeout=timeout,
+                                          headers=h, max_bytes=max_bytes,
+                                          verify=verify, raw=True)
+            return body, status, 'urllib', _lower_keys(hdrs)
         text, status = http_get(url, proxy=proxy_arg, timeout=timeout,
                                 headers=h, max_bytes=max_bytes, verify=verify)
         return text, status, 'urllib'
