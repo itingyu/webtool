@@ -930,6 +930,21 @@ _t3, _m3 = _ex.run_chain(_page, 'http://x.test/a', {}, mode='boilerplate')
 check(_m3.get('_via') == 'boilerplate', '指定 boilerplate 生效')
 check('微信扫一扫' not in _t3, '指定的那个照样干净')
 
+# -f txt 要真的是纯文本: 以前只抹 [文字](url), ## 和 ** 会原样留下
+from webtool.core import text as _tx
+
+check(_tx.md_to_text('## 标题\n\n**重点**和[链接](http://a/b)。') == '标题\n\n重点和链接。',
+      'txt 模式抹掉 ## 与 **')
+check(_tx.md_to_text('| 姓名 | 年龄 |\n|---|---|\n| 张三 | 30 |') == '姓名 年龄\n\n张三 30',
+      '表格转空格分隔 (竖线不留)')
+check(_tx.md_to_text('![封面图](http://a/i.png)\n\n正文。') == '封面图\n\n正文。',
+      '图片保留 alt 文字')
+check(_tx.md_to_text('a*b*c 与 snake_case 与 *斜体*') == 'a*b*c 与 snake_case 与 斜体',
+      '别误伤 a*b*c / snake_case')
+_fm = '---\ntitle: X\nurl: http://x\n---\n# 正文标题\n\n内容。'
+check(_tx.md_to_text(_fm) == '---\ntitle: X\nurl: http://x\n---\n正文标题\n\n内容。',
+      'YAML 元数据头原样保留 (含 --- 分隔线)')
+
 if fails:
     sys.exit(1)
 print('ALL PASS')

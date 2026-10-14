@@ -2,12 +2,17 @@
 
 搜索引擎/站点源返回的标题摘要普遍带标签、实体与高亮标记, 各模块此前
 各写一份正则, 行为不一致 (有的不 unescape、有的吃掉 <em> 里的高亮词)。
-这里收口成四个明确意图的函数, 调用方按语义选, 不再复制正则。
+这里收口成明确意图的几个函数, 调用方按语义选, 不再复制正则。
 
     strip_tags   只去标签, 保留 <em> 高亮文字 (原文语义)
     clean_markup 去标签 + 折叠空白, 连 <em> 标签一起吃掉 (只要文字)
     unescape     HTML 实体解码, 不动标签
     plain        strip_tags + unescape (最常见的"标题转纯文本")
+    md_to_text   markdown 正文 → 纯文本 (只去标记, 不动内容)
+
+两个"转纯文本"别混用: `plain` 吃的是 HTML 片段 (搜索摘要), `md_to_text` 吃的是
+markdown 正文 (正文提取器的产物)。正文里带 markdown 标记不是"脏", 是格式 ——
+只有明确要 txt 时才该抹掉。
 """
 import re
 from html import unescape as _unescape
@@ -36,3 +41,48 @@ def truncate(s, n):
     """按字符截断, 超长补省略号 (用于 snippet 长度上限)"""
     s = s or ''
     return s if len(s) <= n else s[:n - 1] + '…'
+
+# --- markdown → 纯文本 -----------------------------------------------------
+# 刻意**不**做的两件事: 不删列表符号 (- / 1.), 不删缩进 —— 纯文本里它们照样是
+# 排版, 抹掉反而把并列关系糊成一段。要抹的是"离开 markdown 渲染器就变噪声"的
+# 那一类标记: 井号/星号/反引号/链接括号/表格竖线。
+_RE_MD_IMG = re.compile(r'!\[([^\]]*)\]\([^)]*\)')
+_RE_MD_LINK = re.compile(r'\[([^\]]+)\]\([^)]*\)')       # 先图后链: ![a](b) 内含 [a](b)
+_RE_MD_REF = re.compile(r'\[([^\]]+)\]\[[^\]]*\]')       # 引用式链接 [文字][1]
+_RE_MD_CODE = re.compile(r'`+([^`]*)`+')
+_RE_MD_BOLD = re.compile(r'\*\*([^*]+)\*\*|__([^_]+)__')
+_RE_MD_EM = re.compile(r'(?<![*\w])\*([^*\n]+)\*(?![*\w])')   # 别误伤 a*b*c
+_RE_MD_HEAD = re.compile(r'^#{1,6}[ \t]+', re.M)
+_RE_MD_QUOTE = re.compile(r'^>[ \t]?', re.M)
+_RE_MD_FENCE = re.compile(r'^[ \t]*```.*$', re.M)
+_RE_MD_RULE = re.compile(r'^[ \t]{0,3}(?:[-*_][ \t]*){3,}$', re.M)
+_RE_MD_TSEP = re.compile(r'^[ \t]*\|?[ \t:|-]+\|[ \t:|-]*$', re.M)   # |---|---|
+_RE_MD_ROW = re.compile(r'^[ \t]*\|(.+)\|[ \t]*$', re.M)             # | a | b |
+_RE_MD_BLANK = re.compile(r'\n{3,}')
+_RE_FM = re.compile(r'\A---\n[\s\S]*?\n---\n')           # YAML 元数据头
+
+
+def md_to_text(s):
+    """markdown 正文 → 纯文本: 去标记, 内容一字不少
+
+    fetch 的 `-f txt` 走这里。以前只抹了 `[文字](url)`, 于是 `## 小标题`、
+    `**重点**`、`| 表格 |` 原样留在"纯文本"里 —— 说好的 txt, 拿到手还是 markdown。
+
+    YAML 元数据头原样保留 (它不是 markdown 标记, 是元数据; 抹掉等于静默丢信息),
+    但要先切出来, 否则它那两行 `---` 会被当水平线吃掉。
+    """
+    m = _RE_FM.match(s or '')
+    head, body = (m.group(0), s[m.end():]) if m else ('', s or '')
+    body = _RE_MD_FENCE.sub('', body)
+    body = _RE_MD_IMG.sub(r'\1', body)
+    body = _RE_MD_LINK.sub(r'\1', body)
+    body = _RE_MD_REF.sub(r'\1', body)
+    body = _RE_MD_CODE.sub(r'\1', body)
+    body = _RE_MD_BOLD.sub(lambda m: m.group(1) or m.group(2), body)
+    body = _RE_MD_EM.sub(r'\1', body)
+    body = _RE_MD_HEAD.sub('', body)
+    body = _RE_MD_QUOTE.sub('', body)
+    body = _RE_MD_RULE.sub('', body)
+    body = _RE_MD_TSEP.sub('', body)
+    body = _RE_MD_ROW.sub(lambda m: ' '.join(x.strip() for x in m.group(1).split('|')), body)
+    return head + _RE_MD_BLANK.sub('\n\n', body).strip()

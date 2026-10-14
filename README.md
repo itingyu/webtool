@@ -145,6 +145,8 @@ webtool upgrade                                 # 升级到最新 (pip 走 rules
 
 ### fetch
 - HTML → markdown/text/json/html；SPA 壳页收割内嵌 SSR state，拿不到时显式报错
+- `-f txt` 是真的纯文本：`##`、`**`、`` ` ``、`[文字](url)`、表格竖线、代码围栏都抹掉
+  （`core.text.md_to_text`），只保留正文与 YAML 元数据头；`-f md` 才给 markdown
 - **正文提取是"同层择优"而不是"先到先得"**：内容层的 trafilatura / boilerplate
   （readability 算法的纯标准库版）/ readability 都跑一遍，按
   「碎片率 + 长度」选最干净的（`分 = 碎片率 + 0.25 × (1 − 本文长度/最长候选)`）。
@@ -319,7 +321,7 @@ webtool stock health                            # 四侧探活
 
 ## 通用约定
 
-- `-n` 条数 / `-f` 格式（`md`≡`markdown`、`txt`≡`text`，大小写不敏感）/ `-o` 落盘（按 `-f` 补扩展名）/ `--no-cache` / `--no-proxy`
+- `-n` 条数 / `-f` 格式（`md`≡`markdown`、`txt`≡`text`，大小写不敏感；`txt` 会抹掉 markdown 标记，不给半吊子）/ `-o` 落盘（按 `-f` 补扩展名）/ `--no-cache` / `--no-proxy`
 - 退出码：0 成功 / 2 用法错误（提示走 stderr）
 - 缓存 TTL：search 60s / fetch 10s / 跳转解析 10min（`config set cache_ttl.<桶>=<秒>` 覆盖）
 - 出网全走浏览器指纹，**走哪条线一次定死**：配置 + 路由表在请求前决定，请求失败就是失败，不做"直连→代理"的隐式切换（否则同一次调用走哪条线取决于它先在哪失败，且"代理失败退直连"会毁掉只允许代理出网的目标）。要临时全直连用 `--no-proxy`，要单点覆盖就加规则表条目

@@ -124,6 +124,9 @@ webtool/
 4. 搜索结果默认只给 `title + url + snippet`（不含正文），Agent 需要再 fetch
 5. 缓存命中不重复抓取：搜索 60s / 正文 10s / 跳转解析 10min
 6. 输出去噪：连续空行合并、去 cookie 提示条、去 "扫码登录" 等中文站点常见噪声文本
+7. `-f txt` 与 `-f markdown` 是两个真格式：`txt` 走 `core.text.md_to_text` 抹掉
+   `##`/`**`/反引号/链接括号/表格竖线（YAML 元数据头保留），不给"说是 txt、拿到
+   还是 markdown"的半吊子
 
 ### 2.5 代理设计
 

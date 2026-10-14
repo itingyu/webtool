@@ -9,6 +9,7 @@ import sys
 import time
 
 from webtool.core import cache
+from webtool.core import text
 import webtool.engines.extractors as extractors
 
 # 提取链世代: 提取算法换一代就 +1。缓存键里带着它, 换了算法就等于换了一套缓存,
@@ -353,9 +354,9 @@ def _emit(r, args, single):
     if args.format == 'json':
         print(json.dumps(r, ensure_ascii=False, indent=1))
     elif args.format == 'text':
-        import re as _re
-        txt = _re.sub(r'\[([^\]]*)\]\([^)]*\)', r'\1', r.get('content', ''))
-        print(txt)
+        # 只抹 [文字](url) 是不够的: `## 标题` `**重点**` `| 表格 |` 会原样留下,
+        # 说好的纯文本到手还是 markdown。走 core.text.md_to_text 统一处理。
+        print(text.md_to_text(r.get('content', '')))
     else:  # markdown
         print(r.get('content', ''))
         if not single:
