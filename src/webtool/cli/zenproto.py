@@ -1,18 +1,13 @@
 """Zen 的 OpenAI 兼容协议细节: 端点/认证头/请求体/流式解析/ID 生成
 
-只有一个协议, 所以都是普通函数而不是策略类 —— 真要接第二种协议时再抽基类。
-
 认证: 免费层用占位 `Bearer public`, 不需要真 key。
 
-免费层闸门的两道判据 (2026-10-14 用官方 1.19.0 抓包逐项二分坐实):
-  1. 请求头要够像官方客户端。缺 User-Agent / x-opencode-session-id /
-     Authorization 任一项 → 403; 大小写、顺序、Accept-Encoding、Connection
-     不敏感。头这一侧照 build_headers 发就行。
-  2. body 里的 tools + tool_choice。必须是真机原版 schema (自造瘦 schema / 空壳
-     凑数都不行)、tool_choice=auto (none 直接 403)。最小可用集是 bash+read 两个,
-     只要 read 或只要 bash 都会被拒。见 tools()。
-两条任一不满足即 FreeTierError; 两条都满足才 200 流式。system/user 文本、
-模型 id 之外的消息内容都不参与判定。
+免费层两道闸门 (判据取自官方 1.19.0 的实际报文):
+  1. 请求头要够像官方客户端: 缺 User-Agent / x-opencode-session-id /
+     Authorization 任一项 → 403; 大小写、顺序、Accept-Encoding、Connection 不敏感。
+  2. body 里的 tools + tool_choice: 必须是真机原版 schema (瘦 schema / 空壳凑数都
+     不行), tool_choice=auto (none 直接 403); 最小可用集 bash+read 两个, 缺一个即拒。
+两条任一不满足即 FreeTierError。system/user 文本、模型 id 之外的消息内容都不参与判定。
 """
 import json
 import secrets
@@ -22,15 +17,11 @@ from pathlib import Path
 
 from webtool.core.config_data import USER_DIR
 
-# 三段各有出处, 别随手改:
-#   opencode/<版本>            = 已发布 CLI 的版本 (npm opencode-ai 的 latest)
-#   ai-sdk/provider-utils/...  = 取自已发布 CLI 二进制里的常量 (1.19.0 里是 4.0.23)
-#   runtime/bun/...            = 同上, 二进制里嵌的运行时串 `bun/1.3.14`
 # 形状由 ai-sdk 拼: `<provider名>/<版本> ai-sdk/provider-utils/<版本> runtime/bun/<版本>`
+# 版本号取自已发布的官方 CLI (npm opencode-ai 的 latest 与其二进制里的常量)
 USER_AGENT = 'opencode/1.19.0 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14'
 
-# 官方 1.19.0 交互式会话打的端点 (2026-10-14 抓包)。旧的 /zen/v1/... 是另一条
-# 服务, 免费层在那边一律 403; 换到这条 + 补齐 body 后才 200。
+# 免费层只在这条端点放行, /zen/v1/* 一律 403 (models 清单仍走 zenv1)
 CHAT_URL = 'https://opencode.ai/inference/v1/chat/completions'
 MODELS_URL = 'https://opencode.ai/zen/v1/models'
 
@@ -72,26 +63,17 @@ def defaults():
     out['extra_body'] = d.get('extra_body') or {}
     return out
 
-# 真机 12 个工具定义 (2026-10-14 从官方 1.19.0 抓包提取, 未做任何改写)。
-# 为什么必须真发: 免费层闸门把 body 也算进判据 —— 实测 (头用真机不变)
-#   tool_choice=none        → 403        tools 只有我们自己写的瘦 schema → 403
-#   tools 为空              → 403        前 6 个真机工具               → 200
-#   system/user 文本随意      → 200        只留 1 个真机工具             → 403
-# 即: tools 要给得像真的 + tool_choice=auto, 少一个就回 FreeTierError。
-# 闸门放行所需的最小集: 真机 schema 里必须同时有 bash 和 read。
-# 实测 (2026-10-14, 请求头保持真机形态):
-#   只要 read / 只要 bash / [bash,edit] / 前 5 个真机工具   → 403
-#   [bash,read] / 前 6 个 / 6 个不含 question                → 200
-#   read 重复 6 次 / bash+read + 4 个空壳凑数                → 403
-# 即: 每个 tool 都得是真机原版 schema, 且 bash 与 read 缺一不可 —— 不是数量门槛。
+# 真机 12 个工具定义 (字段照抄 data/zen_tools.json, 未改写)。
+# 闸门判据不在于数量: 每个 tool 都得是真机原版 schema, 且 bash 与 read 缺一不可;
+# 只要一个 / 瘦 schema / 空壳凑数 / 重复项都会被 403。
 DEFAULT_TOOL_NAMES = ('bash', 'read')
 _TOOLS = []
 
 
 def tools(names=None):
-    """真机工具定义 (data/zen_tools.json, 抓包原样)
+    """真机工具定义 (data/zen_tools.json, 原样)
 
-    names=None → 闸门最小集 (bash+read, 实测 200, 体积最小)
+    names=None → 闸门最小集 (bash+read, 体积最小)
     names='all' → 全部 12 个
     """
     global _TOOLS
@@ -131,13 +113,11 @@ def request_preview(model, prompt, system=None, tool_choice=None,
     与 `call_zen` 走同一套 `build_body` / `build_headers` / `_endpoints`,
     所以看到的就是真会发的 —— 排查免费层闸门时头与体都得能看见。
     headers 给的是**服务端视角**: 在本函数调用的头之上套了 urllib/http.client
-    实际会做的改写 (2026-10-15 本地 echo 服务端抓报文实测), 于是它和真机那 13 个
-    头一一对应, 少一个都不可能:
+    实际会做的改写, 与官方客户端的 13 个头一一对应:
       Host、Content-Length    http.client 补 (值是真: URL 的主机 + 这份体的字节数)
       Connection: close       urllib 写死 (真机是 keep-alive, 我们发不出去)
       头名 .title()           x-opencode-session → X-Opencode-Session (真机小写)
-    顺序: 我们的 10 个按真机序, 库补的两个 + Connection 追加在后 (实测报文里
-    它们排在开头, 那是 http.client 的写法); HTTP 头顺序无语义, 看集合。
+    顺序: 我们的 10 个在前, 库补的两个 + Connection 追加在后; HTTP 头顺序无语义, 看集合。
     """
     body_bytes = build_body(model, prompt, system, tool_choice, tool_names,
                             reasoning_effort, max_tokens)
@@ -196,9 +176,6 @@ class StickySession:
     退回"每次运行都新生成"。
 
     只固定 ses_id; msg/request id 照旧逐请求换新。
-
-    (缓存收益实测为 0: 免费层 usage.cached_tokens 恒 0, 开关耗时无差异。
-    要它是因为调用方要会话稳定, 不是为提速。)
     """
 
     def __init__(self, period=STICKY_PERIOD, path=None):
@@ -241,30 +218,22 @@ def _endpoints():
 
 
 def build_headers(ses_id=None, msg_id=None):
-    """占位 Bearer public + x-opencode-* 会话/指纹头, 逐项对齐真机
+    """占位 Bearer public + x-opencode-* 会话/指纹头, 逐项对齐官方客户端 1.19.0
 
-    2026-10-14/15 用 MITM 抓官方 1.19.0 请求逐条对照 (经得起复核), 真机
-    13 个头, 顺序也照抄 (x-opencode-request 在 session 之前):
+    13 个头, 顺序照抄 (x-opencode-request 在 session 之前):
       Authorization: Bearer public
       User-Agent: opencode/1.19.0 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14
       x-opencode-client: cli          x-opencode-project: global
       x-opencode-request: msg_<24位>  x-opencode-session: ses_<12位hex><14位base62>
-      x-opencode-session-id: <同 x-opencode-session 的值>   ← 曾漏发
-      Accept: */*                     Accept-Encoding: gzip, deflate, br, zstd  ← 曾漏发
-    真机还有三个头, 但**不由我们写** (写了也没用/会重复), 实测见 request_preview:
-      Host、Content-Length  http.client 自己补
-      Connection: keep-alive  urllib 在 do_open 里写死改成 `Connection: close`
-                              (源码原话: 本类不复用连接, 必须让服务端关掉),
-                              所以叠在 headers 里是死代码 —— 不写。
+      x-opencode-session-id: <同 x-opencode-session 的值>
+      Accept: */*                     Accept-Encoding: gzip, deflate, br, zstd
+    另有三个头不由我们写: Host / Content-Length 由 http.client 补; Connection 被
+    urllib 写死成 close (它不复用连接), 叠进 headers 是死代码。
 
-    与真机的两处不可控差异 (都不影响闸门, bisect_path 验过头名大小写):
+    两处与真机不可控的差异 (不影响闸门):
       ① 头名被 urllib `.title()` 规范化: x-opencode-session → X-Opencode-Session
-         (真机是小写); 要逐字一致得弃用 urllib 自己写 http.client 报文, 顺带
-         才能发 keep-alive —— 但 urllib 本来也不复用连接, 复用收益为 0, 不做。
-      ② Accept-Encoding 抄了真机, 万一上游真压缩 urllib 不会自己解 —— zen.py
-         的 `_unzipper` 兜着 (gzip/deflate 增量解, br/zstd 明确报错)。
-
-    闸门其实不看这些头 (见文件头: 判据是头形态 + body), 对齐是为了不留隐患。
+      ② Accept-Encoding 抄了真机, 上游真压缩时由 zen.py 的 `_unzipper` 增量解
+         (gzip/deflate; br/zstd 明确报错)
     """
     ses = ses_id or make_session_id()
     return {
