@@ -1,20 +1,18 @@
 """让 `requests.Session` 的每个请求都按规则表现算代理
 
-## 为什么不改 61 个调用点
+## 代理在传输层注入, 不改 61 处调用点
 
-`sources/` 下十一个源模块里有 61 处 `self._std.get(url, ...)`。逐个加
-`proxies=` 能生效, 但那是机械改动 —— 漏一处就是一个源绕过规则表, 而且下次
-有人加新方法又得记得传。**在传输层注入**只需改一个地方, 且对新方法自动生效。
+`sources/` 下十一个源模块里有 61 处 `self._std.get(url, ...)`, 逐个加 `proxies=`
+是机械改动 —— 漏一处就是一个源绕过规则表, 下次加新方法还得记得传。
+`HTTPAdapter.send(request, ..., proxies=...)` 的 `proxies` 正是 urllib3 选连接池
+的依据, 在这里覆盖只需改一个地方, 且对新方法自动生效。
 
-`HTTPAdapter.send(request, ..., proxies=...)` 的 `proxies` 正是 urllib3 选
-连接池的依据, 在这里覆盖就能决定这条请求走哪条代理。
+## 不能写进 session.proxies
 
-## 为什么不能写进 session.proxies
-
-`session.proxies` 是 session 级的, 一旦设定, 该 session 的**所有**请求共用同
-一条代理。而一个 `APIClient` 同时打十余个域名 (东财/雪球/新浪/同花顺/巨潮…),
-路由表的价值恰恰在于逐域名决策 ("境内直连、境外走代理")。绑在 session 上就
-退化成"整个股票模块一条代理", 等于把规则表架空。
+`session.proxies` 是 session 级的, 一设定则该 session 的**所有**请求共用同一条
+代理。而一个 `APIClient` 同时打十余个域名 (东财/雪球/新浪/同花顺/巨潮…), 路由表
+的价值恰在逐域名决策 ("境内直连、境外走代理")。绑在 session 上就退化成"整个股票
+模块一条代理", 等于把规则表架空。
 
 所以: session 保持干净, 代理在 `send` 里按 `request.url` 现算。
 
