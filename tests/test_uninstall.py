@@ -52,6 +52,14 @@ try:
     check(_un.install_mode(prefix='/home/u/.local/pipx/venvs/webtool',
                            base_prefix='/usr')[0] == 'pipx',
           'pipx 环境 → pipx uninstall')
+    _ph = Path(tempfile.mkdtemp(prefix='wt-pipxhome-')) / 'venvs' / 'webtool'
+    _ph.mkdir(parents=True)
+    (_ph / 'pipx_metadata.json').write_text('{}')
+    check(_un.install_mode(prefix=str(_ph), base_prefix='/usr')[0] == 'pipx',
+          'PIPX_HOME 自定义成不含 pipx/venvs 的路径 → 靠 pipx_metadata.json 仍认得出')
+    _vd = Path(tempfile.mkdtemp(prefix='wt-plainvenv-'))
+    check(_un.install_mode(prefix=str(_vd), base_prefix='/usr')[0] == 'venv',
+          '普通 venv (无 pipx 元数据) → 不会被误判成 pipx')
     check(_un.install_mode(prefix='/x/venv', base_prefix='/usr',
                            purelib='/x/venv/lib')[1].endswith(
                                '-m pip uninstall webtool'),

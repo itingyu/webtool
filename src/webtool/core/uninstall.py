@@ -29,6 +29,21 @@ REGEN = ('cache', 'state.json', 'sticky.json', 'feed_state.json',
          'feed_health.json')
 
 
+def _is_pipx_venv(prefix):
+    """是不是 pipx 建的 venv
+
+    别只看路径里有没有 'pipx/venvs' —— PIPX_HOME 是可配的，自定义成
+    `~/apps/pipxhome` 之后路径就不再含 'pipx/venvs'。pipx 会在自己的 venv 根
+    目录放 pipx_metadata.json，拿它当准绳，路径只作为兜底。
+    """
+    p = str(prefix).replace('\\', '/')
+    if 'pipx/venvs' in p:
+        return True
+    try:
+        return (Path(prefix) / 'pipx_metadata.json').is_file()
+    except OSError:
+        return False
+
 def install_mode(prefix=None, base_prefix=None, purelib=None):
     """(形态, 卸载命令, 附注) —— 只报命令, 不执行
 
@@ -40,7 +55,7 @@ def install_mode(prefix=None, base_prefix=None, purelib=None):
     purelib = str(purelib or sysconfig.get_paths().get('purelib', ''))
     py = sys.executable or 'python3'
     from webtool.core import version as _ver
-    if 'pipx/venvs' in prefix.replace('\\', '/'):
+    if _is_pipx_venv(prefix):
         return 'pipx', 'pipx uninstall webtool', 'pipx 环境, 用它自己的清单卸'
     if prefix != base_prefix:
         return 'venv', '%s -m pip uninstall webtool' % py, \
