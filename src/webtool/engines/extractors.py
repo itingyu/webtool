@@ -17,6 +17,9 @@
 单个提取器抛异常/缺依赖都不影响后续, 跳过即可; 缺的是谁记在 meta['_missing'],
 由上层提示补依赖。
 
+用谁由 `mode` 定 (CLI `--extract` / 配置 `extract`): `auto` = 内容层择优 (默认),
+写具体名字 = 只用那一个, 指定后没产出会自动退回 auto。
+
 返回的 meta 里带 `_via` = 最终生效的提取器名, 用于观测"这次是谁出的活"。
 """
 import re
@@ -110,6 +113,20 @@ def strip_front_matter(text):
 _MD_LINE = re.compile(r'^\s*(?:[#>\-*+|`]|\d+[.、])\s')   # markdown 结构行不算碎片
 _SENT_ENDS = '。！？；!?;'                                  # 句末标点: 句子的证据
 
+# 可用提取器。auto = 内容层一起跑再择优; 其余 = 只用指定的那个。
+MODES = ('auto', 'trafilatura', 'boilerplate', 'readability', 'inscriptis')
+
+
+def resolve_mode(mode):
+    """把配置/参数里的提取器名规整成合法值; 认不出来就是 auto
+
+    配置里写错一个名字就让 fetch 全崩是没道理的 —— 退回默认行为, 顶多不是你想要
+    的那个提取器。CLI 那头 `--extract` 传错会直接报错退出 (见 net/fetch.py),
+    因为那是当场打的字, 值得立刻纠正。
+    """
+    m = (mode or 'auto').strip().lower()
+    return m if m in MODES else 'auto'
+
 
 def fragment_ratio(text):
     """碎片率: 正文里"短且没有句末标点"的行占多少字符
@@ -155,28 +172,54 @@ def pick_best(cands):
     return min(scored)[2]
 
 
-def run_chain(html, url, meta):
+def run_chain(html, url, meta, mode='auto'):
     """按优先级遍历提取器, 返回 (正文, meta)
 
-    与"第一个非空就用"的老做法不同, 这里让**同层的提取器都跑一遍再择优**
-    (见 pick_best): 同一个页面, trafilatura 会把文章区的推广块 ("分享到微信
-    朋友圈" "扫描二维码关注") 一起收进来, readability 却切得干净 —— 谁先谁后
-    不该决定结果好坏。兜底层 (整页 dump) 只在内容层全空时才跑。
+    `mode` 决定用谁:
+
+    - `auto` (默认): 内容层 (trafilatura/boilerplate/readability) **一起跑再择优**
+      (见 pick_best)。同一个页面, trafilatura 会把文章区的推广块 ("分享到微信
+      朋友圈" "扫描二维码关注") 一起收进来, readability 却切得干净 —— 谁先谁后
+      不该决定结果好坏。兜底层 (整页 dump) 只在内容层全空时才跑。
+    - 具体名字: 只用那一个。要可预期、要快、或要复现某次结果时用它; 指定后没产出
+      会自动退回 auto, 不交白卷。
+
+    改这里之前先想清楚默认值该给谁 —— 实测 14 个真实页面上没有哪个单一提取器能
+    通吃: readability 中位碎片率 1% 但在长文合集页会丢掉六成正文, trafilatura
+    反过来 (中位碎片 6%, 在门户页带一堆推广块), 所以默认留给择优。
     """
     from webtool.core.plugins import table
-    got, dumps, missing = [], [], []
-    for name, spec in table('extractor').items():
+    mode = resolve_mode(mode)
+    specs = list(table('extractor').items())
+
+    def _try(name, spec):
+        """跑一个提取器: 返回正文 (可能空), 缺依赖记进 missing"""
+        try:
+            text, _m = spec['fn'](html, url, meta)
+        except ImportError as e:
+            missing.append(getattr(e, 'name', None) or name)
+            return ''
+        except Exception:
+            return ''
+        return text if (text and text.strip()) else ''
+
+    missing = []
+    if mode != 'auto':                    # 指定提取器: 只用它
+        spec = dict(specs).get(mode)
+        text = _try(mode, spec) if spec else ''
+        if text:
+            meta['_via'] = mode
+            meta['_missing'] = missing
+            return text, meta
+        # 指定的那个没产出 (没注册/缺依赖/这页拿不到): 退回 auto, 别交白卷
+        missing = []
+    got, dumps = [], []
+    for name, spec in specs:
         is_dump = bool(spec.get('dump'))
         if is_dump and got:
             continue                      # 内容层已有产出, 整页 dump 不必再跑
-        try:
-            text, _m = spec['fn'](html, url, meta)
-        except ImportError as e:          # 缺依赖不算失败, 记下来给上层提示
-            missing.append(getattr(e, 'name', None) or name)
-            continue
-        except Exception:
-            continue
-        if text and text.strip():
+        text = _try(name, spec)
+        if text:
             (dumps if is_dump else got).append((name, text))
     if got:
         name = pick_best(got)

@@ -27,6 +27,7 @@ DEFAULTS = {
     'fetch_proxy': None,
     'timeout': 15,
     'ua': 'auto',
+    'extract': 'auto',           # 正文提取器: auto=内容层择优 / 具名=只用那一个
     'cache_dir': str(USER_DIR / 'cache'),
     # --- TLS (实际决策在 webtool.core.tls, 这里只负责存) ---
     'ssl_verify': True,          # 证书校验总开关

@@ -241,6 +241,10 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
               profile: str = typer.Option(None, '--profile',
                                           help='传输指纹档案: chrome131_win/mac/linux/android, '
                                                'safari18_4_ios 等 (移动站/拿不到数据时试 android/ios)'),
+              extract: str = typer.Option(None, '--extract',
+                                          help='正文提取器: auto(默认, 内容层择优, 最干净) / '
+                                               'trafilatura / readability / boilerplate / '
+                                               'inscriptis; 也可用 config set extract 固定'),
               via: str = typer.Option('local', '--via',
                                       help='取正文通道: local=本地提取链(默认, 免配额) / '
                                            'auto=本地失败时兜底远程 reader / '
@@ -249,6 +253,7 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
     a = _CTX['args']
     a.url, a.url_file = url, url_file
     a.max_chars, a.raw, a.with_metadata, a.profile = max_chars, raw, with_metadata, profile
+    a.extract = extract
     a.via = via
     return _run('data', _do('fetch'), fmt, output, no_cache, no_proxy)
 

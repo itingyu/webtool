@@ -151,6 +151,11 @@ webtool upgrade                                 # 升级到最新 (pip 走 rules
   碎片率 = 正文里"短且没有句末标点"的行占多少字符 —— 正文是一条条句子，广告/导航/
   分享提示是一地碎片。整页 dump 类提取器（inscriptis 等）只在内容层全空时才上场。
   结果里的 `extract` 字段告诉你这次是谁出的活；某提取器因缺依赖被跳过会在 stderr 提示
+- 用哪个提取器可以固定：`--extract auto|trafilatura|readability|boilerplate|inscriptis`
+  （也可 `webtool config set extract <名字>` 持久化；命令行优先于配置）。默认 `auto`
+  = 上面那套择优，实测 14 个真实页面上没有哪个单一提取器能通吃：readability 中位碎片率
+  1% 但在长文合集页会丢掉六成正文，trafilatura 反过来（中位 6%，门户页带一堆推广块），
+  boilerplate 是纯标准库兜底、最保守。指定后没产出会自动退回 `auto`，不交白卷
 - 按 UA 分流的站点：`--profile chrome131_android` 切移动指纹重试
 - `--url-file` 批量；`--raw`；`--with-metadata`
 - `--via <通道>` 选取正文的来源：

@@ -34,6 +34,10 @@ CONFIG_KEYS = {
     'timeout':          ('请求超时秒数', '5 ~ 60 整数', int),
     'cache':            ('缓存开关', 'on / off', ('on', 'off')),
     'fetch_proxy':      ('抓取专用代理', '<url>; 空=跟随全局', None),
+    'extract':          ('正文提取器', 'auto=内容层择优 (默认, 最干净) / '
+                                       'trafilatura / readability / boilerplate / inscriptis',
+                         ('auto', 'trafilatura', 'readability', 'boilerplate',
+                          'inscriptis')),
     'proxy_rules':      ('路由规则 (内联)', 'JSON: {default, proxies, rules}; '
                          '更推荐 webtool proxy rule add', None),
     'rules_file':       ('路由规则文件路径', '默认 ~/.webtool/rules.json', None),

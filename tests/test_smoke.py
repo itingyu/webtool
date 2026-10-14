@@ -908,6 +908,28 @@ check(_rm.get('_via') in _et, f'run_chain 交代价提取器名 (_via={_rm.get("
 check('和顺石油涨停' in _rt, 'run_chain 产出含正文')
 check('微信扫一扫' not in _rt, 'run_chain 产出不含推广碎片')
 
+# 提取器可配置 (--extract / config extract), 默认 auto = 内容层择优
+from webtool.net import proxy as _prx
+from webtool.cli.config import CONFIG_KEYS as _CK
+
+check(_ex.MODES[0] == 'auto', 'MODES 第一个是 auto (默认值)')
+check(set(_ex.MODES) - {'auto'} <= set(_et), 'MODES 里的名字都在提取器注册表里')
+check('extract' in _prx.DEFAULTS,
+      'extract 登记进 DEFAULTS (没登记会被 load_config 过滤掉, 配置等于没写)')
+check('extract' in _CK and 'auto' in _CK['extract'][2],
+      'config set extract 有白名单校验')
+check(_ex.resolve_mode(None) == 'auto' and _ex.resolve_mode('') == 'auto',
+      '空配置 = auto')
+check(_ex.resolve_mode('  READability ') == 'readability', '名字大小写/空格容忍')
+check(_ex.resolve_mode('nosuch') == 'auto', '配置写错名字退回 auto, 不炸')
+
+_t2, _m2 = _ex.run_chain(_page, 'http://x.test/a', {}, mode='inscriptis')
+check(_m2.get('_via') == 'inscriptis', '指定提取器就用指定的那个')
+check(len(_t2) > len(_rt), '整页 dump 指定了也给 (比择优链长)')
+_t3, _m3 = _ex.run_chain(_page, 'http://x.test/a', {}, mode='boilerplate')
+check(_m3.get('_via') == 'boilerplate', '指定 boilerplate 生效')
+check('微信扫一扫' not in _t3, '指定的那个照样干净')
+
 if fails:
     sys.exit(1)
 print('ALL PASS')

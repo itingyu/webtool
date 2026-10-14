@@ -109,6 +109,10 @@ webtool/
 - `boilerplate` 是 readability 算法的纯标准库实现（`engines/boilerplate.py`，零关键词
   表）：按标签/隐藏样式清洗 → 段落打分并向上累积 → 定级（独占子节点下钻）→ 按
   「文气密度」清尾。lxml 装不上的平台（Termux/Android）靠它，不至于掉到整页 dump。
+- 用哪个提取器可配：`--extract` / `config extract`，默认 `auto`（择优）。留 `auto`
+  当默认是量出来的：14 个真实页面上 readability 中位碎片率 1% 但长文合集页丢六成正文，
+  trafilatura 中位 6% 却在门户页带一堆推广块 —— 没有单一提取器能通吃，硬选一个就是拿
+  一类页面换另一类。要可预期/要快就指定具名。
 - 提取结果里 `extract` 字段说明这次是谁出的活；某层提取器因缺依赖被跳过时，
   stderr 提示一次（复用 `deps.install_hint` 的补依赖指引）。
 

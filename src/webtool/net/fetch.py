@@ -38,12 +38,20 @@ def do_fetch(args, cfg):
         print(f'unknown --via {via!r}, available: {",".join(sorted(_VIA_CHANNELS))}',
               file=sys.stderr)
         return 2
+    # 正文提取器: 命令行给的错值当场报错 (当场打的字值得立刻纠正), 配置里的错值
+    # 静默退回 auto (config set 本来就按白名单校验, 剩下的是手改文件的场景)
+    cli_extract = getattr(args, 'extract', None)
+    if cli_extract and cli_extract.strip().lower() not in extractors.MODES:
+        print(f'unknown --extract {cli_extract!r}, available: '
+              f'{",".join(extractors.MODES)}', file=sys.stderr)
+        return 2
+    extract_mode = extractors.resolve_mode(cli_extract or cfg.get('extract'))
 
     def work(u):
         # 显式指定远程通道时直接走 reader, 不试本地链 (用户已表明意图)
         if via in _MCP_CHANNELS:
             return _fetch_via_mcp(u, args, cfg, via, timeout, proxy=proxy)
-        local = _fetch_one(u, args, cfg, proxy, timeout)
+        local = _fetch_one(u, args, cfg, proxy, timeout, extract_mode)
         # auto: 仅在本地链明确搞不定时才花配额, 不做启发式猜测
         if via == 'auto' and _needs_reader(local):
             for ch in _MCP_CHANNELS:
@@ -186,12 +194,13 @@ def _fetch_via_mcp(url, args, cfg, channel, timeout, prior=None, proxy=None):
     return out
 
 
-def _fetch_one(url, args, cfg, proxy, timeout):
+def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
     t0 = time.time()
     # via 进 key: 同一 URL 走本地链与走远程 reader 是两种产出, 共用缓存会串
     # 尾部的提取代数: 提取链换算法后要作废旧缓存, 否则公布出去的是上次的垃圾正文
     ckey = (f'{url}|{args.format}|{args.max_chars}|'
-            f'{getattr(args, "via", "") or "local"}|{_EXTRACT_GEN}')
+            f'{getattr(args, "via", "") or "local"}|{_EXTRACT_GEN}'
+            f'|{extract_mode}')
     cached = None if (args.no_cache or args.raw) else cache.get(cfg, 'fetch', ckey)
     if cached is not None:
         cached['cache'] = 'hit'
@@ -217,7 +226,7 @@ def _fetch_one(url, args, cfg, proxy, timeout):
     if args.raw:
         return {'url': url, 'status': status, 'html': html, 'via': via,
                 'took_ms': int((time.time() - t0) * 1000)}
-    content, meta = _extract(html, url)
+    content, meta = _extract(html, url, extract_mode)
     js_shell = meta.pop('_js_shell', None)
     extract_via = meta.pop('_via', '')
     _warn_missing(meta.pop('_missing', None))
@@ -308,11 +317,11 @@ def _is_nav_shell(content):
     return len(body) < 260 and bool(_NAV_SHELL_RE.search(body))
 
 
-def _extract(html, url):
-    """提取器策略链 (见 extractors.py): 壳页预检 → 内容层择优 → 兜底层"""
+def _extract(html, url, mode='auto'):
+    """提取器策略链 (见 extractors.py): 壳页预检 → 按 mode 取正文"""
     if extractors.is_js_shell(html):
         return '', {'_js_shell': '1', 'title': ''}
-    return extractors.run_chain(html, url, {})
+    return extractors.run_chain(html, url, {}, mode=mode)
 
 
 _warned_missing = set()
