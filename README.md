@@ -12,6 +12,35 @@ pip install 'webtool[full]'    # 全功能: secrets + geoip + stock
 pip install 'webtool[stock]'   # 只要股票能力 (requests/pandas/numpy/urllib3/efinance/openpyxl)
 ```
 
+系统 Python 被发行版保护时（Kali / Debian / Ubuntu 23.04+ / 新版 Alpine），上面那条会被拒：
+
+```
+error: externally-managed-environment … PEP 668
+```
+
+这不是包的问题，是发行版不让 pip 往系统 Python 里塞东西（追 PEP 668）。三条路，按推荐排序：
+
+```bash
+# 1) venv（最省事，官方也这么建议）
+sudo apt install python3-full python3-venv          # Alpine: apk add python3
+python3 -m venv ~/.webtool-venv
+~/.webtool-venv/bin/pip install 'git+https://github.com/itingyu/webtool'
+~/.webtool-venv/bin/webtool search "test"           # 直接用 venv 里的 webtool
+
+# 2) pipx（想要 webtool 这种"命令行应用"，它自动给你建 venv 并挂到 PATH）
+sudo apt install pipx && pipx install 'git+https://github.com/itingyu/webtool'
+
+# 3) --user（装到 ~/.local，不动系统 Python；注意 --user 是**开关不带值**）
+pip install --user 'git+https://github.com/itingyu/webtool'
+```
+
+`--break-system-packages` 能硬闯，但会把系统 Python 搅乱（Kali 上一堆工具靠它），不建议。
+千万别写 `--user=你的用户名` —— `--user` 不吃值，pip 会直接报
+`--user option does not take a value` 然后什么都不装。
+
+装完升级走同一条路：venv/pipx 环境里的 `webtool upgrade` 调的是**它自己**那个 pip；
+`webtool upgrade --check` 先干跑一遍问有没有新版（退出码 0 最新 / 1 有新版 / 2 判不出）。
+
 依赖声明在 `pyproject.toml`（**唯一权威**，`pip install` 会按它自动装；可选功能走 extras）。
 `requirements.txt` / `requirements-full.txt` 是从它生成的清单，改完 pyproject 跑
 `python3 scripts/gen_requirements.py` 重新生成（`tests/test_smoke.py` 会校验一致，手改会被测出来）。

@@ -79,6 +79,19 @@ def installed_version():
         return None
 
 
+def _hint(text):
+    """把两个高频报错翻译成下一步动作 (用户不该去读 PEP 号)"""
+    t = text or ''
+    if 'externally-managed-environment' in t or 'PEP 668' in t:
+        return ('系统 Python 被发行版保护 (PEP 668, Kali/Debian/新 Alpine 默认如此)。'
+                '请装到虚拟环境里: `python3 -m venv ~/.webtool-venv` 后用它里面的 '
+                'pip/webtool, 或 `pipx install ...`, 或 `pip install --user ...`。'
+                '`--break-system-packages` 能硬闯但会搅乱系统 Python, 不建议。')
+    if 'does not take a value' in t:
+        return 'pip 的 --user 是开关, 不带值: 写 `--user`, 不是 `--user=你的用户名`'
+    return None
+
+
 def _pip(args, timeout=PIP_TIMEOUT, env_extra=None):
     """跑 pip, 返回 (rc, stdout, stderr)
 
@@ -136,6 +149,7 @@ def check(spec=None, env_extra=None):
         info['state'] = 'unknown'
         info['error'] = (err or out).strip().splitlines()[-1:] and \
             (err or out).strip().splitlines()[-1] or 'pip 返回 %s' % rc
+        info['hint'] = _hint((err or '') + (out or ''))
     elif new and cur and new != cur:
         info['state'] = 'behind'
     else:
@@ -154,6 +168,8 @@ def describe(info):
              '状态      %s' % zh.get(info['state'], info['state'])]
     if info.get('error'):
         lines.append('备注      %s' % info['error'])
+    if info.get('hint'):
+        lines.append('怎么办    %s' % info['hint'])
     return '\n'.join(lines)
 
 
@@ -174,6 +190,9 @@ def upgrade(spec=None, env_extra=None):
     spec = spec or upgrade_target()[0]
     rc, out, err = _pip(['install', '--upgrade', spec], env_extra=env_extra)
     tail = [l for l in (out or '').strip().splitlines() if l.strip()][-6:]
+    hint = _hint((err or '') + (out or '')) if rc else None
+    if hint:
+        tail = tail[-2:] + ['怎么办: %s' % hint]
     after = installed_version()
     return {'ok': rc == 0, 'action': 'pip-upgrade' if rc == 0 else 'none',
             'version': after, 'route': _route_label(env_extra),

@@ -159,6 +159,19 @@ def main():
           'pip 成功 → action=pip-upgrade 且回显 pip 原话', res['action'])
     _up._pip = _real_pip
 
+    # 报错翻译: 用户不该去读 PEP 号
+    check('虚拟环境' in (_up._hint('error: externally-managed-environment') or ''),
+          'PEP 668 → 指到 venv/pipx/--user, 而不是甩个 PEP 链接')
+    check('开关' in (_up._hint('--user option does not take a value') or ''),
+          '--user=x 误用 → 指出 --user 不带值')
+    check(_up._hint('ERROR: Could not find a version that satisfies') is None,
+          '不认识的报错不乱猜原因')
+    _up._pip = _stub(1, None, err='error: externally-managed-environment\nPEP 668')
+    _info = _up.check()
+    check('虚拟环境' in (_info.get('hint') or '') and '怎么办' in _up.describe(_info),
+          'check 带上 hint, 且 describe 会打出来', _info['state'])
+    _up._pip = _real_pip
+
     # 代理: 子进程只能拿环境变量, 判定交 netx (rules.json)
     from webtool.net import netx as _netx
     _real_rp = _netx.resolve_proxy

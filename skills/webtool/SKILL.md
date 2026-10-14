@@ -207,6 +207,7 @@ webtool stock tools                           # 24 个动作清单;  health  # �
 
 - `upgrade` 只走 pip, 不碰本地源码; 装的是 editable/本地目录时, pip 会用 git 版覆盖它 —— 本地开发想更新请自己在仓库里收代码
 
+- 装的时候报 `externally-managed-environment` (Kali/Debian/新 Alpine 的 PEP 668 保护) → 装进 venv 或 `pipx install`, 别用 `--break-system-packages`; `--user` 是开关, 不带值
 ## 注意
 
 - 出网全走浏览器指纹（UA/TLS 由 impersonate 同源生成）。**走哪条线一次定死**：`proxy` 配置 + 路由表在请求前决定，请求失败就是失败，不做"直连→代理"或"代理→直连"的隐式切换（否则同一次调用走哪条线取决于它先在哪失败，而"代理失败退直连"恰恰会毁掉只允许代理出网的目标）。要全直连 `--no-proxy`，要单点覆盖 `engine_proxy.<引擎名>` 或规则表
