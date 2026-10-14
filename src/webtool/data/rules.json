@@ -1,0 +1,62 @@
+{
+  "priority": "direct",
+  "rules": [
+    {
+      "match": {
+        "domain": [
+          "opencode.ai"
+        ]
+      },
+      "action": "direct"
+    },
+    {
+      "match": {
+        "domain": [
+          "exa.ai"
+        ]
+      },
+      "action": "direct"
+    },
+    {
+      "match": {
+        "domain": [
+          "baidu.com",
+          "sogou.com",
+          "so.com",
+          "bing.com",
+          "toutiao.com",
+          "zhihu.com",
+          "weibo.com",
+          "sohu.com",
+          "163.com",
+          "qq.com",
+          "ifeng.com",
+          "sina.com.cn",
+          "sina.cn"
+        ]
+      },
+      "action": "direct"
+    },
+    {
+      "match": {
+        "domain": [
+          "eastmoney.com",
+          "10jqka.com.cn",
+          "xueqiu.com",
+          "cninfo.com.cn",
+          "cs.com.cn",
+          "hexun.com"
+        ]
+      },
+      "action": "direct"
+    },
+    {
+      "match": {
+        "domain": [
+          "cn"
+        ]
+      },
+      "action": "direct"
+    }
+  ]
+}

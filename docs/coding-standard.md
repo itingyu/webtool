@@ -158,6 +158,10 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 - **`plugins.json` 里没有任何线路字段**：`site.*.proxy`、`engine.*.params.proxy_hint` 都已删除。
   引擎和内置站点一律把线路交给规则表。自定义站点 `~/.webtool/sites/*.json` 的 `proxy` 是
   **用户配置**，继续有效（`direct` / `proxy` / `auto`）
+- **只在"只读用户目录那一份、且用户要直接编辑"的文件上做首次落地**：`core/bootstrap.ensure_user_files()`
+  在 CLI 首次启动时把包内 `data/rules.json` 复制到 `~/.webtool/rules.json`（已存在则不动）。
+  走"包内默认 + 用户覆盖"两层合并的 `config.json`/`plugins.json` 之类**不落地** —— 凭空生成
+  一份会盖住以后升级带来的新默认值。pip 没有可靠的 post-install 钩子，所以入口只能是首次启动
 - **线路只由配置决定，不做隐式切换**（`netx.resolve_proxy` 是唯一归一点）。"先直连、失败
   再代理"这类回退会让同一次请求走哪条线取决于它先在哪失败，"代理失败退直连"更会毁掉只允许
   代理出网的目标。写通道别加 `allow_fallback` 参数，也别在适配器里写死 `proxy=None` ——

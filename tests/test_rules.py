@@ -236,6 +236,27 @@ if SS.have_crypto():
 else:
     print('SKIP 未装 cryptography, 迁移用例跳过')
 
+print('\n=== 6. 首次启动落地默认 rules.json ===')
+from webtool.core import bootstrap as BOOT       # noqa: E402
+from webtool.core.config_data import DATA_DIR, USER_DIR  # noqa: E402
+
+_seed_dst = os.path.join(WEBTOOL_DIR, 'rules.json')
+if os.path.exists(_seed_dst):                     # 别的用例已写过就清掉
+    os.remove(_seed_dst)
+_made = BOOT.ensure_user_files()
+check(os.path.exists(_seed_dst), '缺失时把包内 rules.json 落到用户目录')
+check(os.path.join(WEBTOOL_DIR, 'rules.json') in _made, '返回值报出新建的文件')
+check(open(_seed_dst, encoding='utf-8').read()
+      == open(os.path.join(DATA_DIR, 'rules.json'), encoding='utf-8').read(),
+      '落地内容 = 包内默认逐字节一致')
+_again = BOOT.ensure_user_files()
+check(_again == [], f'已有文件不重复补 (实际 {_again})')
+with open(_seed_dst, 'w', encoding='utf-8') as _f:
+    _f.write('{"rules": [{"match": {"domain": ["keep.me"]}, "action": "block"}]}')
+BOOT.ensure_user_files()
+check('keep.me' in open(_seed_dst, encoding='utf-8').read(),
+      '用户改过的 rules.json 绝不被默认覆盖')
+
 print()
 print(f'{len(fails)} FAILED')
 sys.exit(1 if fails else 0)

@@ -311,6 +311,8 @@ webtool proxy geoip /path/to/GeoLite2-Country.mmdb          # 或 geoip.dat
 
 命名代理的密码与全局 proxy 走**同一套保险库**：`rules.json` 里只存 `http://user@10.0.0.1:8080`，密文在 `config.json` 的 `proxy_auth`，出网时自动解密。老配置里已有的明文密码会在加载时**自动迁移**（幂等，只做一次）。
 
+**首次运行**（任意一条命令）时若 `~/.webtool/rules.json` 不存在，会自动落一份默认规则：国内常见站点（搜索/门户/财经）与 `opencode.ai`、`exa.ai` 直连，其余跟随全局代理。已有该文件则**永不覆盖**，可直接编辑。
+
 - **顺序即优先级**，第一个命中的生效；`match` 内多个条件 AND，同一条件内多值 OR
 - 动作：`direct` / `block`（不发请求）/ `proxy`（全局代理）/ `proxy:<名字>`（命名代理）
 - 命名代理用 `webtool proxy named <名字> <代理URL>` 配（`named list` / `named del <名字>`），规则里写 `proxy:<名字>` 引用。**密码同样进保险库**，`rules.json` 只留 `user@host`

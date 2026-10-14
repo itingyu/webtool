@@ -662,6 +662,13 @@ def main(argv=None):
             print('webtool %s' % _v.get_version())
         return 0
     try:
+        # 首次启动补齐缺失的用户配置文件 (主要是 rules.json) —— 装完就有一份
+        # 可编辑的默认路由规则, 不用自己去 ~/.webtool 里造。
+        from webtool.core import bootstrap as _boot
+        _boot.ensure_user_files()
+    except Exception:                          # 配置落地绝不拦命令
+        pass
+    try:
         rc = app(args=argv, standalone_mode=False, prog_name='webtool')
         return rc if isinstance(rc, int) else 0
     except (typer.Exit, SystemExit) as e:      # --help / --version
