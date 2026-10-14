@@ -8,7 +8,7 @@
     c.em_f10_balance('600519.SH')     # 方法名不变, 上层零改动
 
 `APIClient` 只是把各源 mixin 合到一个类上, 所以:
-  - 153 个方法, 除 `_provenance` 记录的新增 2 个外, 名字/参数/行为与拆包前逐字一致
+  - 154 个方法, 除 `_provenance` 记录的新增 3 个外, 名字/参数/行为与拆包前逐字一致
   - session 只有一份 (`SourceBase.__init__`), token 与 cookie 缓存仍共享
   - 新增一个源 = 加一个 `sources/<源>.py`, 这里加一行 mixin, 别处不动
 

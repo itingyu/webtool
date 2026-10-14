@@ -13,7 +13,7 @@
 
 | 通道 | 网络栈 | 怎么接到规则表 | 调用点是否要改 |
 |---|---|---|---|
-| `bridge/sources/` (153 方法) | requests + curl_cffi | `RoutedAdapter` / `RoutedCffiSession` 包装, **每请求现算** | 不改 (61 处裸 `.get()` 自动生效) |
+| `bridge/sources/` (154 方法) | requests + curl_cffi | `RoutedAdapter` / `RoutedCffiSession` 包装, **每请求现算** | 不改 (61 处裸 `.get()` 自动生效) |
 | `stock/skill/` (2 处出网) | urllib | `bridge._stockmaster_net.get_opener(url)` | 改 2 行 (调用 opener 而非全局 `urlopen`) |
 | `bridge/eco.py` (akshare 等) | 库内部自建 session | 调用期间给 `requests.Session.request` 包一层 | 不改 (理由见下) |
 | `bridge/http.py` (裸 HTTP) | requests | 原本就调 `netx.resolve_proxy` | 不改 |

@@ -228,6 +228,32 @@ class EmSource(SourceBase):
         except Exception as e:
             return _err(str(e))
 
+    def em_dmsk_cashflow(self, code: str = "600519.SH", page_size: int = 30) -> dict:
+        """东财新版现金流量表 (RPT_DMSK_FN_CASHFLOW)
+
+        RPT_F10_FINANCE_BCASHFLOW 对多只股票返回空 (success=false), 备源走
+        大盘现金流量表; 与 balance/income 同构 (REPORT_DATE/TOTAL_OPERATE_INCOME)。
+        """
+        try:
+            r = self._std.get(
+                "https://datacenter-web.eastmoney.com/api/data/v1/get",
+                params={"reportName": "RPT_DMSK_FN_CASHFLOW", "columns": "ALL",
+                        "filter": f'(SECUCODE="{code}")',
+                        "pageNumber": 1, "pageSize": page_size,
+                        "sortTypes": -1, "source": "WEB", "client": "PC"},
+                timeout=self.BASE_TIMEOUT,
+            )
+            if r.status_code != 200:
+                return _err(f"status={r.status_code}", r.status_code)
+            j = r.json()
+            data = j.get("result", {}).get("data", [])
+            return _ok({
+                "code": code, "rows": len(data), "data": data,
+                "sample_fields": list(data[0].keys()) if data else [],
+            }, len(r.text))
+        except Exception as e:
+            return _err(str(e))
+
     def em_dmsk_income(self, code: str = "600519.SH", page_size: int = 30) -> dict:
         """东财新版利润表 (RPT_DMSK_FN_INCOME)
 

@@ -46,7 +46,7 @@ c.em_f10_balance('600519.SH')      # 方法名与拆包前逐字一致
 | `np.py` | 东财公告老域 | 2 | 统一 requests 会话 + 固定 UA |
 | `ef.py` | efinance | 3 | 本地库, 无网络栈直控 |
 
-合计 153 个方法, 除 `_provenance` 记录的新增 2 个外与重构前那份 `api_client.py` 的公开方法**一一对应**
+合计 154 个方法, 除 `_provenance` 记录的新增 3 个外与重构前那份 `api_client.py` 的公开方法**一一对应**
 (`test_smoke.py` 有断言)。
 
 ### 按域名归属, 不按方法名前缀

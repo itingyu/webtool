@@ -441,7 +441,7 @@ def _data_search_all(kw, lib, limit):
         total += n
     except Exception as e:                                  # noqa: BLE001
         out['sources']['eco'] = {'error': f'{type(e).__name__}: {e}'}
-    # 数据源层 153 方法: 分类别名 + docstring
+    # 数据源层 154 方法: 分类别名 + docstring
     try:
         cats = _raw.categories()
         hit = _raw.by_alias(cats, kw)
@@ -651,6 +651,44 @@ def _act_diagram(args, cfg):
                               mid=list(getattr(args, 'mid', None) or []))
 
 
+
+def _act_std(action_name):
+    """编排动作的通用子命令包装
+
+    与 mcp 透传的区别: 位置参数直接给 symbol/codes (不用 --arg symbol=),
+    渲染层按动作名走对表格, 编排层错误转 StockError 统一退出码。
+    """
+    def run(args, cfg):
+        params = {}
+        # 位置参数 → symbol (支持多个, 编排层只吃一个则取首个)
+        codes = [c for c in (list(args.codes) if args.codes else []) if c]
+        if codes and 'symbol' not in params:
+            params['symbol'] = codes[0]
+        # 指数动作: 中文别名/裸 6 位在动作层归一, 编排层只认标准形态
+        if action_name == 'stock_index' and params.get('symbol'):
+            params['symbol'] = _index_symbol(params['symbol'])
+        params.update(_args_dict(args))
+        return _srv.do_call(action_name, params, timeout=args.timeout)
+    return run
+
+
+_IDX_ALIAS = {
+    '上证指数': 'sh000001', '上证': 'sh000001', '上证50': 'sh000016',
+    '深证成指': 'sz399001', '创业板指': 'sz399006', '科创50': 'sh000688',
+    '沪深300': 'sh000300', '中证500': 'sh000905', '中证1000': 'sh000852',
+    '北证50': 'bj899050', '国证2000': 'sz399303',
+}
+
+def _index_symbol(s):
+    """中文别名 / 裸 6 位 → idx:交易所+代码 (编排层 normalize_index 的口径)"""
+    s = (s or '').strip()
+    if s in _IDX_ALIAS:
+        return 'idx:' + _IDX_ALIAS[s]
+    if re.fullmatch(r'\d{6}', s) and s[0] in '03':
+        return 'idx:' + ('sh' if s[0] == '0' else 'sz') + s
+    return s
+
+
 def _act_mcp(args, cfg):
     """直接调编排层的某个动作 —— CLI 未单独暴露的那些走这条
 
@@ -745,6 +783,24 @@ ACTIONS = {
     'mcp': _act_mcp, 'tools': _act_tools, 'health': _act_health,
     'holder': _act_holder, 'forecast': _act_forecast,
 
+    # 编排层动作升格 (原来只能 mcp --tool 透传)
+    'kline': _act_std('stock_kline'),
+    'index': _act_std('stock_index'),
+    'income': _act_std('stock_income_statement'),
+    'balance': _act_std('stock_balance_sheet'),
+    'cashflow': _act_std('stock_cashflow'),
+    'company': _act_std('stock_company'),
+    'business': _act_std('stock_business_analysis'),
+    'holders': _act_std('stock_top_holders'),
+    'holder_chg': _act_std('stock_holder_change'),
+    'industry': _act_std('stock_industry_list'),
+    'concept': _act_std('stock_concept_list'),
+    'industry_of': _act_std('stock_industry_concept'),
+    'dividend': _act_std('stock_dividend_rank'),
+    'margin': _act_std('stock_margin_list'),
+    'screener': _act_std('stock_screener'),
+    'ipo': _act_std('stock_ipo'),
+
     # 通用取数入口 (融合原 api/eco/http/em/docs 五组)
     'data': _act_data, 'data-find': _act_data_find, 'data-call': _act_data_call,
     'data-url': _act_data_url, 'data-list': _act_data_list,
@@ -835,12 +891,25 @@ USAGE = """用法: webtool stock <动作> [参数]
   docs-report <reportName>               单个接口的完整逆向条目 (参数表+字段列序映射)
   其余: docs-books / docs-stats / docs-book / docs-section / docs-endpoint
 
-原始 API (数据源层 153 方法 — 24 个动作未覆盖的能力)
+原始 API (数据源层 154 方法 — 编排层未覆盖的能力)
   api-list --by function       按**功能**分组 (行情/K线/财报/股东/公司/板块/
                               选股/资金/公告/指数/新股) —— 回答"要干什么"
   api <方法名> [--arg k=v]     直接调任一方法, 例: webtool stock api ths_stockpage_finance --arg code=600519
   holder <代码>                股东研究 (东财 持仓变动/机构调研)
   forecast <代码>              盈利预测 (东财)
+
+财务/要素类 (编排层升格, 多源回退)
+  kline <代码> [--arg period=week]     K 线 (东财/雪球/新浪)
+  index <指数> [--arg count=30]        指数行情 (支持中文别名/裸代码)
+  income|balance|cashflow <代码>       三大报表 (东财 F10 + 大盘表双源)
+  company|business <代码>              公司概况 / 主营构成
+  holders|holder_chg <代码>            十大股东 / 高管持股变动
+  industry|concept                     行业板块 / 概念板块清单
+  industry_of <代码>                   个股的板块归属
+  dividend [--arg year=2025]           分红排名
+  margin [--arg page=1]                两融标的
+  screener [--arg market=cn_a]         全市场筛器 (雪球/新浪)
+  ipo [--arg type=gem]                 IPO 清单 (主板/创业板/科创板)
 
 元动作
   health                       三侧探活 (master / 编排层 / 原始 API)
@@ -1012,7 +1081,7 @@ def _md(out, action):
         return
     if action in ('api-list', 'api-search') and isinstance(out, dict):
         # 功能分类表本身是"给人读的目录", 走默认的 ```json 围栏会毁掉可读性
-        # (153 个方法名挤成一行)。这里给真 markdown。
+        # (154 个方法名挤成一行)。这里给真 markdown。
         kw = out.get('keyword')
         title = '数据源层方法分类' if not kw else f'数据源层搜索: {kw}'
         if out.get('by') == 'function':

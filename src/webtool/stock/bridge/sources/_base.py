@@ -14,7 +14,7 @@
 `tencent_kline_global` / `tencent_us_kline` / `tencent_minute` 借用 (要 curl_cffi
 指纹才能过 web.ifzq.gtimg.cn, 但请求打的是腾讯域名), 属传输层, 放公共底座。
 
-对外仍是 `APIClient` (见 `__init__.py` 的聚合门面), 153 个方法齐备,
+对外仍是 `APIClient` (见 `__init__.py` 的聚合门面), 154 个方法齐备,
 所以 `rawapi` / 服务端 / stock-master 的调用方零改动。
 """
 import warnings

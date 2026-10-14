@@ -207,7 +207,12 @@ def normalize_index(symbol: str) -> dict[str, Any]:
 # Fallback 链辅助
 # ============================================================
 def _is_data_quality_ok(data: Any) -> bool:
-    """检查返回数据是否有效 (不是空 dict/全 NaN/空数组)"""
+    """检查返回数据是否有效 (不是空 dict/全 NaN/空数组/上游 success=False)
+
+    东财部分 F10 端点在查无数据时 HTTP 200 + `{"success": false,
+    "message": "返回数据为空"}` —— 对调用方这就是失败, 必须让 fallback 继续,
+    不能当成功透出 (曾致 income 动作首源空结果后不换源)。
+    """
     if data is None:
         return False
     if isinstance(data, (list, tuple, str)):
@@ -215,6 +220,11 @@ def _is_data_quality_ok(data: Any) -> bool:
     if not isinstance(data, dict):
         return True  # 未知类型放行
     if not data:
+        return False
+    # 上游显式失败 (东财 datacenter/F10 风格)
+    if data.get("success") is False:
+        return False
+    if data.get("result") is None and data.get("message"):
         return False
     # 关键价格字段 NaN 检测 (NaN != NaN)
     for k in ("最新价", "current", "now", "price", "close", "last_close"):
@@ -423,7 +433,8 @@ def t_stock_cashflow(args: dict) -> dict:
         return {"ok": False, "error": "cashflow 仅支持 A 股"}
     page_size = args.get("page_size", 3)
     client = get_client()
-    ops = [("em_f10", lambda: client.em_f10_cashflow(sym["em_finance"], page_size))]
+    ops = [("em_f10", lambda: client.em_f10_cashflow(sym["em_finance"], page_size)),
+           ("em_dmsk", lambda: client.em_dmsk_cashflow(sym["em_finance"], page_size))]
     return _fallback(ops)
 
 

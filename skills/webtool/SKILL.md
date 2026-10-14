@@ -34,7 +34,7 @@ webtool stock data find 龙虎榜                 # 一次搜 4 类目录 (eco/a
 webtool stock data call RPT_LICO_FN_CPD --arg date=20260331   # 按名调 (em配方→api→eco)
 webtool stock data call sse_yunhq_snap --arg code=sh600519    # 数据源层方法
 webtool stock data url "https://qt.gtimg.cn/q=sh600519"       # 裸 HTTP (反爬内置)
-webtool stock data list api                   # 数据源层 153 方法 (按源分组)
+webtool stock data list api                   # 数据源层 154 方法 (按源分组)
 webtool stock docs-search companyType         # 查底层接口文档 (URL/参数/字段含义)
 webtool stock holder 600519                  # 股东研究 (东财)
 webtool stock health                         # 三侧桥接探活
@@ -154,7 +154,7 @@ webtool stock eco-health                     # 各库可用性与接口数
 webtool stock eco-list stock_zh_a_hist        # 看接口签名与文档
 #   注意: akshare 有些接口很慢 (stock_zh_a_spot_em 全市场快照约 76s), --full 慎用
 
-# 第三侧: 数据源层 153 个低阶方法 (包化: stock/bridge/sources/, 按数据源分包)
+# 第三侧: 数据源层 154 个低阶方法 (包化: stock/bridge/sources/, 按数据源分包)
 # 编排层只聚合了 56 个成 24 个动作; 其余 97 个（股东研究/盈利预测/研报日历/
 # 早盘晚报/板块多维排行/分钟线/产业链分类…）从这里直接调
 webtool stock api-list                        # 按数据源分组列全部方法
@@ -166,7 +166,7 @@ webtool stock mcp --tool stock_kline --arg symbol=600519
 webtool stock tools                           # 24 个动作清单;  health  # 两侧探活
 ```
 
-- **两侧都只做桥接**：数据源与口径归数据源层与 stock-master 技能维护。三块（数据源层 153 方法 / stock-master skill / 编排层 24 动作）都已包进 `webtool.stock`，用静态 import 接入，不改 `sys.path`，**无需额外安装**；缺失时只让 stock 动作退 2，不影响其他命令
+- **两侧都只做桥接**：数据源与口径归数据源层与 stock-master 技能维护。三块（数据源层 154 方法 / stock-master skill / 编排层 24 动作）都已包进 `webtool.stock`，用静态 import 接入，不改 `sys.path`，**无需额外安装**；缺失时只让 stock 动作退 2，不影响其他命令
 - **依赖只有包内一条路**：`webtool.stock` 包内静态 import，没有 `STOCK_*_HOME` 环境变量覆盖（数据源层共享同一个 `APIClient`，token/session 缓存只有一份）。`webtool stock health` 三段都标 `source: packaged`
 - **纯进程内**：单次调用 0.1-2s。直接调编排层函数，不起子进程、不走协议握手、不套信封。stock-master 的 `webtool search` 子进程出口在运行时被注入成进程内实现，不改 skill 文件
 - **动作清单读编排层 `t_stock_*` 函数名**，增删动作自动跟上

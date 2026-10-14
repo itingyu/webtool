@@ -164,7 +164,7 @@ webtool stock diagram 600519 --kind logic --name 贵州茅台 --thesis "稀缺�
 webtool stock diagram --kind chain --name 白酒 --driver 高粱 --mid 酿造 --catalyst 提价
 webtool stock mcp --tool stock_kline --arg symbol=600519 --arg period=day
 webtool stock tools                             # 24 工具清单
-webtool stock api-list                          # 数据源层 153 方法 (按数据源)
+webtool stock data list api                      # 数据源层 154 方法 (按源分组)
 webtool stock api --method ths_rank_cxfl         # 直接调任一低阶方法
 webtool stock holder 600519                     # 股东研究 (东财)
 webtool stock forecast 600519                   # 盈利预测 (东财)
@@ -181,10 +181,10 @@ webtool stock health                            # 四侧探活
 ```
 
 - **两侧都不复制业务逻辑**，只是进程内 import；skill 未装时 `stock health` 报 unavailable，不拖垮 webtool 其他命令。依赖只有包内这一条路，没有环境变量能改
-- **第五侧：底层 HTTP 直调**（`stock/http.py`）。`rawapi` 只能调数据源层封好的 153 个方法、`eco` 只能调 akshare/tushare 现成函数——本模块**不封装**，直接拼 URL 发请求，因此逆向出的 900+ 接口全部可调，包括 akshare 没封或封了不可用的（东财 `companyType` 探测、`quoteColumns` 注入、`dates` 批量取表）。**反爬已内置**：雪球走 curl_cffi chrome110 指纹 + token warmup，新浪/中证自动带 Referer，东财 push2 自动补 `ut`、datacenter 自动补 `token`/`source`/`client`，腾讯 GBK 自动解码。动作：`http-get`/`http-post`/`http-rows`/`em-report`/`em-ctype`
+- **第五侧：底层 HTTP 直调**（`stock/http.py`）。`rawapi` 只能调数据源层封好的 154 个方法、`eco` 只能调 akshare/tushare 现成函数——本模块**不封装**，直接拼 URL 发请求，因此逆向出的 900+ 接口全部可调，包括 akshare 没封或封了不可用的（东财 `companyType` 探测、`quoteColumns` 注入、`dates` 批量取表）。**反爬已内置**：雪球走 curl_cffi chrome110 指纹 + token warmup，新浪/中证自动带 Referer，东财 push2 自动补 `ut`、datacenter 自动补 `token`/`source`/`client`，腾讯 GBK 自动解码。动作：`http-get`/`http-post`/`http-rows`/`em-report`/`em-ctype`
 - **第六侧：逆向接口文档**（`src/webtool/stock/data/reverse/`，7 分册 9134 行，从 akshare 源码**手工逆向**）。前三侧给的都是**函数名**，这一侧给的是**底层 HTTP 细节** —— 端点 URL、`reportName`/`filter`/`columns` 怎么拼、返回字段（`SECURITY_CODE`/`ACCEPT_DEPOSIT_INTERBACC` 这类缩写）对应第几列、哪些接口已下线/需要 token/列序会静默错位。每条记录带源码 `文件:行号` 可回溯。动作：`docs-books`/`docs-stats`/`docs-search`/`docs-book`/`docs-section`/`docs-report`/`docs-endpoint`。akshare 某函数返回空或字段错位时，`docs-report <reportName>` 是首选排查动作
 - **第四侧：生态库 1291 个接口**（`akshare` 1099 / `tushare` 124 / `baostock` 29 / `efinance`，返回 DataFrame）。覆盖 API 文档里 `函数.json` 记录的 akshare 生态，含宏观、另类数据、期货、基金、外汇等数据源层完全没有的领域。`webtool stock eco <接口>` 直接调，默认给形状+前 5 行，`--full` 取全量；`eco-search` 按中英文关键词搜接口
-- **第三侧：数据源层 153 个低阶方法**（`stock/bridge/sources/`，按数据源分包：ths/sina/xueqiu/em/gtimg/tencent/cninfo/sse/csindex/ef）。编排层只把其中 56 个聚合成 24 个动作，另外 97 个（股东研究/盈利预测/研报日历/早盘晚报/板块多维排行/分钟线/产业链分类…）通过 `webtool stock api <方法>` 直接调。三块（数据源层 / stock-master 技能 / 编排层）都包进 `webtool.stock`，静态 import 接入，装包即用；数据源层共享同一个 `APIClient`（token/session 缓存只有一份）。`webtool stock health` 三段都标 `source: packaged`
+- **第三侧：数据源层 154 个低阶方法**（`stock/bridge/sources/`，按数据源分包：ths/sina/xueqiu/em/gtimg/tencent/cninfo/sse/csindex/ef）。编排层只把其中 58 个聚合成 24 个动作，另外 96 个（股东研究/盈利预测/研报日历/早盘晚报/板块多维排行/分钟线/产业链分类…）通过 `webtool stock api <方法>` 直接调。三块（数据源层 / stock-master 技能 / 编排层）都包进 `webtool.stock`，静态 import 接入，装包即用；数据源层共享同一个 `APIClient`（token/session 缓存只有一份）。`webtool stock health` 三段都标 `source: packaged`
 - **动作清单读编排层 `t_stock_*` 函数名**，增删动作 webtool 自动跟上
 - **口径纪律照搬 stock-master**：涨停池输出必带真实数据日（该接口对无效日期会静默回旧数据）；北向 `status=3` 或接口回填额度上限一律标 ⚠「未取得」，**禁止当 0**；上游回了原始 HTML 未解析出条目时显式标注，不把 100KB 噪声当结果
 - `--arg` 的值猜类型时**纯数字一律留字符串**（600519 是代码不是整数），与 `webtool mcp` 的口径不同
