@@ -4,12 +4,13 @@
 免费层形状校验: tools 必须非空且含名为 bash 和 read
 的两个工具 (空壳 parameters={} 即可; 空/缺名 → 403 FreeTierError, 缺 function
 包装或 parameters 键 → 400), 分类器只认名字和形状, 不看 description/schema,
-tool_choice 值不影响; 默认只发这两个空壳, --full-tools 发全部 11 个 (已去敏)。
+tools 取真机定义、tool_choice 默认 auto —— 两者都是免费层闸门判据, 改不得。
 请求体: messages[0]=system / messages[-1]=user / tools 含 bash+read /
 tool_choice 存在 / stream=true。解析: 纯标准库 urllib + 逐行 SSE, read1() 读流, 字节层面切行 (decode 再切会把跨读边界的汉字写成 U+FFFD)。
 """
 
 import json
+import random
 import sys
 import time
 import urllib.error
@@ -90,11 +91,16 @@ def _opener(cfg, url=None, verify=None):
 _norm = urls.norm_key   # 请求去重键 (与 feed 共用同一把尺)
 
 
+def _tool_names(args):
+    """--all-tools → 全部 12 个真机 schema; 默认只发 bash+read (闸门最小集)"""
+    return 'all' if getattr(args, 'all_tools', False) else None
+
+
 def call_zen(model, prompt, system=None, session=None, on_delta=None,
-             tool_choice=None, full=False, proxy=None, on_reason=None):
+             tool_choice=None, tool_names=None, proxy=None, on_reason=None):
     """发一次请求, 流式返回 {ok, status, text, usage, ...}。不重试。"""
     cfg = {'proxy': proxy} if proxy else {}
-    body = build_body(model, prompt, system, tool_choice, full)
+    body = build_body(model, prompt, system, tool_choice, tool_names)
     headers = session.headers() if session else build_headers()
     chat_url = _endpoints()[0]
     req = urllib.request.Request(chat_url, data=body, headers=headers,
@@ -165,7 +171,7 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
         with e:
             body_txt = e.read().decode('utf-8', errors='replace')
         return {'ok': False, 'status': e.code, 'elapsed': time.time() - t0,
-                'error_body': body_txt}
+                'error_body': body_txt, 'retry_after': e.headers.get('Retry-After')}
     except Exception as e:
         # DNS 失败 / 连接被拒 / TLS 失败 / socket 超时。重试层只按状态码判断,
         # 这些必须自己兜住, 否则整个调用冒泡成 traceback。
@@ -218,17 +224,20 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
 
 
 def _route(cfg, url, verbose=False):
-    """cfg + 路由表 → 本次请求的线路 (None = 直连), 全 zen 只有这一处决定
+    """本次请求走哪条线 (None = 直连), 全 zen 只有这一处决定
 
-    `do_zen` 已经在 --no-proxy 时把 cfg['proxy'] 置 None, 所以这里不用
-    再看命令行 —— 单一入口避免"某个调用点忘了看 no_proxy"导致别人以为
-    走了直连其实走了代理 (或反过来)。
+    交给 netx 判: `proxyhelper.for_url(url)` → 'auto' → netx 查路由表
+    (`~/.webtool/rules.json`), 没命中规则才用 config 里的默认代理。
+    **不能**把 cfg['proxy'] 直接喂进去: 那是"显式指定", 会整体绕过规则表,
+    于是给 opencode.ai 配的 direct 形同虚设 (2026-10-14 修)。
+    `--no-proxy` 时 do_zen 已把 cfg['proxy'] 置 'direct' → 这里尊重, 强制直连。
     """
     from webtool.net import proxyhelper
-    route = proxyhelper.resolve((cfg or {}).get('proxy'), url)
-    if verbose and route:
+    route = None if (cfg or {}).get('proxy') == 'direct' else proxyhelper.for_url(url)
+    if verbose:
         import sys
-        print('[zen] 走代理 %s' % redact(route), file=sys.stderr)
+        print('[zen] 直连' if not route else '[zen] 走代理 %s' % redact(route),
+              file=sys.stderr)
     return route
 
 
@@ -266,10 +275,32 @@ def _worth_proxy(res):
     return True
 
 
+RETRY_BASE = 2.0      # 首次退避基数 (秒)
+RETRY_CAP = 60.0      # 单次退避上限
+RETRY_JITTER = 0.25   # ±25% 抖动, 免得并发重试踩在一起
+
+
+def _backoff(attempt, retry_after=None):
+    """指数退避 + 抖动: 2s → 4s → 8s → 16s …, 封顶 60s
+
+    服务端给了 Retry-After (429 常见) 就听它的; 该值只在 [0, 60] 内有效,
+    HTTP-date 形式不解析、退回指数。抖动是必须的: 固定间隔会让重试同步打点。
+    """
+    if retry_after is not None:
+        try:
+            return max(0.0, min(RETRY_CAP, float(str(retry_after).strip())))
+        except ValueError:
+            pass
+    raw = min(RETRY_CAP, RETRY_BASE * (2 ** (attempt - 1)))
+    return max(0.0, raw + raw * RETRY_JITTER * random.uniform(-1, 1))
+
+
 def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
-                   tool_choice=None, full=False, cfg=None, max_attempts=3,
+                   tool_choice=None, tool_names=None, cfg=None, max_attempts=2,
                    verbose=False, on_reason=None):
     """只重试瞬时故障: 连接错误 / 408 / 429 / 5xx。**同一线路**重试。
+
+    退避是指数的 (见 _backoff): 2/4/8/16s + 抖动, 60s 封顶, 默认 4 次;服务端 Retry-After 优先。
 
     status==200 的一律不重试 —— 流已经通了, 那是语义问题 (截断 / 要调工具),
     重试除了把已流出去的正文再打一遍没有任何意义。
@@ -283,7 +314,7 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
     route = _route(cfg, _endpoints()[0], verbose)
     for attempt in range(1, max(1, max_attempts) + 1):
         last = call_zen(model, prompt, system, session, on_delta, tool_choice,
-                        full, proxy=route, on_reason=on_reason)
+                        tool_names, proxy=route, on_reason=on_reason)
         if last.get('ok'):
             return last
         status = last.get('status', 0)
@@ -292,9 +323,9 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
         if 400 <= status < 500 and status not in (408, 429):
             return last
         if attempt < max_attempts:
-            wait = 1.5 * attempt
+            wait = _backoff(attempt, last.get('retry_after'))
             if verbose:
-                print('[zen] attempt %d/%d got %s, retry in %ss'
+                print('[zen] attempt %d/%d got %s, retry in %.1fs'
                       % (attempt, max_attempts, status, wait), file=sys.stderr)
             time.sleep(wait)
     return last
@@ -428,7 +459,7 @@ def _do_zen(args, cfg):
     # ---- dry-run: 打印请求, 不联网 ----
     if args.show_body or args.show_text:
         body = build_body(args.model, prompt, args.system, args.tool_choice,
-                          args.full_tools)
+                          _tool_names(args))
         d = json.loads(body)
         if args.show_text:
             print(json.dumps(d['messages'], indent=2, ensure_ascii=False))
@@ -455,7 +486,7 @@ def _do_zen(args, cfg):
         for r in probe:
             res = call_zen_retry(r['id'], '回复:OK', cfg=cfg, max_attempts=1,
                                  tool_choice=args.tool_choice,
-                                 full=args.full_tools)
+                                 tool_names=_tool_names(args))
             got.append({'id': r['id'], 'ok': bool(res.get('ok')),
                         'status': res.get('status'),
                         'elapsed': round(res.get('elapsed') or 0, 2),
@@ -498,7 +529,7 @@ def _do_zen(args, cfg):
         sys.stdout.flush()
 
     res = call_zen_retry(args.model, prompt, args.system, session, on_delta,
-                         args.tool_choice, args.full_tools, cfg,
+                         args.tool_choice, _tool_names(args), cfg,
                          max_attempts=args.retries,
                          verbose=args.stream, on_reason=on_reason)
     # 曾经这里失败后再 `call_zen_direct_then_proxy` 走一遍代理 —— 线路已在

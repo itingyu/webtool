@@ -546,6 +546,27 @@ check('if out.strip():' in _run_src and 'emit(out' in _run_src,
 _dz_src = inspect.getsource(_zen._do_zen)
 check('reason_sink = sys.stdout if tty else sys.stderr' in _dz_src,
       'zen 展示层: 终端里思考走 stdout, 仅重定向时才让出 stdout')
+# ===== zen 免费层闸门契约 (2026-10-14 抓包逐项二分得到, 改动都会掉回 403) =====
+_zp = __import__('webtool.cli.zenproto', fromlist=['x'])
+check(_zp._endpoints()[0].endswith('/inference/v1/chat/completions'),
+      'zen 打新推理端点 /inference/v1 (旧 /zen/v1 不给免费层)')
+_dt = {t['function']['name']: t for t in _zp.tools()}
+check(set(_dt) == {'bash', 'read'}, '默认工具集 = bash+read (闸门最小集)', str(sorted(_dt)))
+check(all(len(t['function'].get('description', '')) > 700 for t in _dt.values()),
+      '工具描述是原版全文 (截短会被 403)',
+      str([len(t['function'].get('description', '')) for t in _dt.values()]))
+check(all(t['function'].get('parameters', {}).get('properties') for t in _dt.values()),
+      '工具参数是真 schema, 不是空壳')
+_b = __import__('json').loads(_zp.build_body('big-pickle', 'hi'))
+check(_b['tool_choice'] == 'auto', '默认 tool_choice=auto (闸门判据)')
+check(len(_zp.tools('all')) == 12, 'tools(all) 给全 12 个真机定义')
+_bo = _zen._backoff
+_seq = [_bo(i) for i in (1, 2, 3, 4)]
+check(all(_seq[i + 1] > _seq[i] * 1.4 for i in range(3)),
+      '重试退避是指数增长 (不是线性 1.5s*n)', str([round(x, 1) for x in _seq]))
+check(_bo(1, '30') == 30.0 and _bo(1, '9999') <= 60.0,
+      '服务端 Retry-After 优先, 但封顶 60s')
+
 check('on_reason' in inspect.getsource(_zen.call_zen),
       'call_zen 有单独的 reason 回调 (不是把思考混进正文)')
 # 头集以官方 1.19.0 的 MITM 抓包为基准 (2026-10-14): 少发/多发都算回归

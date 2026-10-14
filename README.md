@@ -112,12 +112,12 @@ webtool zen "问题" --show-body        # 只打请求体, 不出网 (排查用)
 模型上下架频繁，先 `--list-free` 再用。清单列取接口字段（`id/created/owned_by`），
 免费层是命名约定推断的；能不能用只有 `--check` 真调一次才算数。
 
-403 FreeTierError 的真相（2026-10-14 实测）：**与请求无关，改头改 UA 无意义**。
-MITM 抓官方 1.19.0 的 zen 请求逐字对照后，我们的头/UA/session id 与真机一字不差；
-而**真机在本机环境下也被同一句 403 拒绝**（`can only be used from within OpenCode`）。
-两条出口（境内民用 111.55.204.114、美国机房 103.62.49.162）皆被拒 → 判据在出口 IP/地域/账号侧。
-要救只有换住宅出口（`~/.webtool/rules.json` 给 `opencode.ai` 指一条线路）或等上游放开。
-`/v1/models` 不受影响，通常照样能拉。
+免费层 403 FreeTierError 的真相（2026-10-14 用官方 1.19.0 抓包逐项二分坐实）：
+闸门看**两件事**，任缺其一即 403——
+1. 端点必须走 `/inference/v1/chat/completions`（旧的 `/zen/v1` 那条服务不给免费层）；
+2. body 里 `tools` 必须是官方原版 schema 且 `tool_choice=auto`。最小可用集是 **bash+read 两个**（全量 12 个也行）；只要 read 或只要 bash、空壳 schema、描述截短到 400 字以下，全部 403。
+请求头要带 `User-Agent` / `x-opencode-session-id` / `Authorization: Bearer public`，缺一项也 403（大小写/顺序/Accept-Encoding/Connection 都不敏感）。
+按此发请求即可拿到流式回答；连着猛打会被 `429 FreeUsageLimitError` 限流，退避重试（指数 2/4/8s，尊重 Retry-After）。
 
 - JSON 里的 `usage_available` = 上游是否返回用量；`false` 且 `ok: true` 是「调用成功但端点不给统计」，不是故障
 - 换端点改 `~/.webtool/zen.json` 的 `chat_url` / `models_url`（mtime 热生效），协议固定 OpenAI 形状

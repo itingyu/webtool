@@ -1,6 +1,6 @@
 {
   "zen": {
-    "chat_url": "https://opencode.ai/zen/v1/chat/completions",
+    "chat_url": "https://opencode.ai/inference/v1/chat/completions",
     "models_url": "https://opencode.ai/zen/v1/models"
   }
 }

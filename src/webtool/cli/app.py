@@ -196,10 +196,10 @@ def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空
                                       help='模型 id (不带 provider 前缀; 见 zen --list-models)'),
             system: str = typer.Option(None, '--system',
                                        help='system prompt (分类器只验 role:system 存在, 不读内容)'),
-            tool_choice: str = typer.Option('none', '--tool-choice',
-                                            help='是否允许模型调工具; 默认 none。调用只打印不执行'),
-            full_tools: bool = typer.Option(False, '--full-tools',
-                                            help='发完整的 11 个工具定义 (默认只发 bash+read)'),
+            tool_choice: str = typer.Option('auto', '--tool-choice',
+                                            help='是否允许模型调工具; 默认 auto (闸门判据, 改 none 会被拒)'),
+            all_tools: bool = typer.Option(False, '--all-tools',
+                                           help='发全部 12 个真机工具定义 (默认只发 bash+read, 同为闸门最小集)'),
             list_models: bool = typer.Option(False, '--list-models', help='列出 /v1/models 的全部 id'),
             list_free: bool = typer.Option(False, '--list-free',
                                            help='只列免费层 id (按命名约定筛, 不是保证)'),
@@ -216,7 +216,7 @@ def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空
                                         help='流式输出; --no-stream 缓冲到最后一次性输出'),
             reasoning: bool = typer.Option(True, '--reasoning/--no-reasoning',
                                            help='打印思考过程 (默认开); --no-reasoning 只要答案'),
-            retries: int = typer.Option(3, '--retries', help='瞬时故障 (连接错/408/429/5xx) 重试次数'),
+            retries: int = typer.Option(2, '--retries', help='瞬时故障 (连接错/408/429/5xx) 重试次数; 退避指数 2/4/8s'),
             sticky: bool = typer.Option(False, '--sticky',
                                         help='复用同一 ses_id (默认关: 实测 Zen 免费层不返回 prompt cache 统计, 开不开耗时无差异)'),
             fmt: str = Fmt, output: str = Output,
@@ -224,7 +224,7 @@ def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空
     """OpenCode Zen 免费层对话 (OpenAI 兼容, 公开模式, 无需 key)"""
     a = _CTX['args']
     a.prompt, a.model, a.system = ' '.join(prompt) if prompt else '', model, system
-    a.tool_choice, a.full_tools = tool_choice, full_tools
+    a.tool_choice, a.all_tools = tool_choice, all_tools
     a.list_models, a.list_free = list_models, list_free
     a.check, a.check_all, a.refresh = check, check_all, refresh
     a.show_body, a.show_text, a.stream = show_body, show_text, stream

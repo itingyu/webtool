@@ -3,12 +3,16 @@
 只有一个协议, 所以都是普通函数而不是策略类 —— 真要接第二种协议时再抽基类。
 
 认证: 免费层用占位 `Bearer public`, 不需要真 key。
-指纹头: UA 与 x-opencode-client/project 照官方客户端形制带 (见 build_headers),
-不是装饰, 别当冗余删 —— 但"少了哪个一定 403"在本工具能测的范围内没验证过,
-别在注释里替网关下结论。
 
-2026-10 现状: 头补全/UA 版本/session id 形状/Authorization 有无 全试过, 一律
-403 FreeTierError —— 判据在服务端(代码不开源), 客户端这层已经到头。
+免费层闸门的两道判据 (2026-10-14 用官方 1.19.0 抓包逐项二分坐实):
+  1. 请求头要够像官方客户端。缺 User-Agent / x-opencode-session-id /
+     Authorization 任一项 → 403; 大小写、顺序、Accept-Encoding、Connection
+     不敏感。头这一侧照 build_headers 发就行。
+  2. body 里的 tools + tool_choice。必须是真机原版 schema (自造瘦 schema / 空壳
+     凑数都不行)、tool_choice=auto (none 直接 403)。最小可用集是 bash+read 两个,
+     只要 read 或只要 bash 都会被拒。见 tools()。
+两条任一不满足即 FreeTierError; 两条都满足才 200 流式。system/user 文本、
+模型 id 之外的消息内容都不参与判定。
 """
 import json
 import secrets
@@ -21,44 +25,45 @@ import time
 # 形状由 ai-sdk 拼: `<provider名>/<版本> ai-sdk/provider-utils/<版本> runtime/bun/<版本>`
 USER_AGENT = 'opencode/1.19.0 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14'
 
-CHAT_URL = 'https://opencode.ai/zen/v1/chat/completions'
+# 官方 1.19.0 交互式会话打的端点 (2026-10-14 抓包)。旧的 /zen/v1/... 是另一条
+# 服务, 免费层在那边一律 403; 换到这条 + 补齐 body 后才 200。
+CHAT_URL = 'https://opencode.ai/inference/v1/chat/completions'
 MODELS_URL = 'https://opencode.ai/zen/v1/models'
 
 DEFAULT_SYSTEM = "You are a helpful assistant. Be brief."
 TOOL_CHOICES = ("none", "auto", "required")
 
-# 分类器只认这两个名字; 其余工具留着只是为了 --full-tools
-_FULL_TOOL_SPECS = [
-    ('bash', 'Executes a given bash command.'),
-    ('edit', 'Performs exact string replacements in files.'),
-    ('glob', 'Fast file pattern matching tool.'),
-    ('grep', 'Searches file contents with regular expressions.'),
-    ('read', 'Reads a file from the filesystem.'),
-    ('skill', 'Load a specialized skill when the task matches.'),
-    ('task', 'Launch a new agent to handle complex tasks.'),
-    ('todowrite', 'Maintain a structured task list.'),
-    ('webfetch', 'Fetches content from a specified URL.'),
-    ('websearch', 'Search the web using the session provider.'),
-    ('write', 'Writes a file to the local filesystem.'),
-]
-
-MINIMAL_TOOL_NAMES = ("bash", "read")
+# 真机 12 个工具定义 (2026-10-14 从官方 1.19.0 抓包提取, 未做任何改写)。
+# 为什么必须真发: 免费层闸门把 body 也算进判据 —— 实测 (头用真机不变)
+#   tool_choice=none        → 403        tools 只有我们自己写的瘦 schema → 403
+#   tools 为空              → 403        前 6 个真机工具               → 200
+#   system/user 文本随意      → 200        只留 1 个真机工具             → 403
+# 即: tools 要给得像真的 + tool_choice=auto, 少一个就回 FreeTierError。
+# 闸门放行所需的最小集: 真机 schema 里必须同时有 bash 和 read。
+# 实测 (2026-10-14, 请求头保持真机形态):
+#   只要 read / 只要 bash / [bash,edit] / 前 5 个真机工具   → 403
+#   [bash,read] / 前 6 个 / 6 个不含 question                → 200
+#   read 重复 6 次 / bash+read + 4 个空壳凑数                → 403
+# 即: 每个 tool 都得是真机原版 schema, 且 bash 与 read 缺一不可 —— 不是数量门槛。
+DEFAULT_TOOL_NAMES = ('bash', 'read')
+_TOOLS = []
 
 
-def minimal_tools():
-    """通过分类器的最小工具定义: bash + read, parameters 空对象。"""
-    return [{'type': 'function',
-             'function': {'name': n, 'parameters': {}}}
-            for n in MINIMAL_TOOL_NAMES]
+def tools(names=None):
+    """真机工具定义 (data/zen_tools.json, 抓包原样)
 
-
-def full_tools():
-    """原始的 11 个工具定义 (--full-tools)。描述已去敏, 不含本机路径。"""
-    return [{'type': 'function',
-             'function': {'name': n, 'description': d,
-                          'parameters': {'type': 'object', 'properties': {},
-                                         'required': []}}}
-            for n, d in _FULL_TOOL_SPECS]
+    names=None → 闸门最小集 (bash+read, 实测 200, 体积最小)
+    names='all' → 全部 12 个
+    """
+    global _TOOLS
+    if not _TOOLS:
+        from webtool.core.config_data import DATA_DIR
+        from webtool.core import jsonfmt
+        _TOOLS = jsonfmt.read(DATA_DIR / 'zen_tools.json').get('tools') or []
+    if names == 'all':
+        return _TOOLS
+    want = names or DEFAULT_TOOL_NAMES
+    return [t for t in _TOOLS if t['function']['name'] in want]
 
 
 _BASE62 = ('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
@@ -76,7 +81,10 @@ class IDGen:
             self.counter = 0
             self.last_ts = ts
         self.counter += 1
-        cur = ts * 0x1000 + self.counter
+        # 48 位 = 12 hex 字符, 与官方 id 的 hex 段等宽 (真机: msg_13af12f48001…)
+        # 早先没掩码: ms 时间戳 ×0x1000 是 53 位 → hex 段 14 位, 整个 msg_ id 长 32
+        # 而真机是 30, 即畸形 id —— 已修, 别退回。
+        cur = (ts * 0x1000 + self.counter) & ((1 << 48) - 1)
         if descending:
             cur = (~cur) & ((1 << 48) - 1)
         rand = ''.join(_BASE62[b % 62] for b in secrets.token_bytes(14))
@@ -150,8 +158,11 @@ def model_headers():
             'Authorization': 'Bearer public'}
 
 
-def build_body(model, prompt, system=None, tool_choice=None, full=False):
-    """OpenAI Chat Completions 请求体"""
+def build_body(model, prompt, system=None, tool_choice=None, tool_names=None):
+    """OpenAI Chat Completions 请求体
+
+    tools 用真机定义、tool_choice 默认 auto —— 两者都是闸门判据 (见文件头注释)。
+    """
     return json.dumps({
         'model': model,
         'max_tokens': 32000,
@@ -159,8 +170,8 @@ def build_body(model, prompt, system=None, tool_choice=None, full=False):
             {'role': 'system', 'content': system or DEFAULT_SYSTEM},
             {'role': 'user', 'content': prompt},
         ],
-        'tools': full_tools() if full else minimal_tools(),
-        'tool_choice': tool_choice or 'none',
+        'tools': tools(tool_names),
+        'tool_choice': tool_choice or 'auto',
         'stream': True,
         'stream_options': {'include_usage': True},
     }, ensure_ascii=False).encode('utf-8')
