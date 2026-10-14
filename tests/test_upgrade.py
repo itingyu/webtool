@@ -160,6 +160,60 @@ def main():
           'pip 成功 → action=pip-upgrade 且回显 pip 原话', res['action'])
     _up._pip = _real_pip
 
+    # git 源必须强制重装: pip 只比版本号, 同名同版本会直接跳过 (实测 commit 不动)
+    _seen = []
+
+    def _cap(args, timeout=None, env_extra=None):
+        _seen.append(list(args))
+        return 0, 'Successfully installed webtool-1.8.0', ''
+    _up._pip = _cap
+    _up.upgrade('webtool @ git+https://example.com/w')
+    check('--force-reinstall' in _seen[-1] and '--no-deps' in _seen[-1],
+          'git 升级: 强制重装+不动依赖 (否则 pip 报 satisfied 什么都不干)', _seen[-1])
+    _up.upgrade('webtool')
+    check('--force-reinstall' not in _seen[-1] and '--upgrade' in _seen[-1],
+          '索引来源仍走普通 --upgrade (版本号说了算)')
+
+    # 远端提交比对: 版本号没变时, 只有它看得见"新提交"
+    import types as _types
+    _real_sub = _up.subprocess
+    _real_du = _up._direct_url
+    _up._direct_url = lambda: json.dumps(
+        {'vcs_info': {'url': 'https://example.com/w', 'commit_id': 'a' * 40}})
+    _up.subprocess = _types.SimpleNamespace(
+        run=lambda *a, **k: _types.SimpleNamespace(
+            returncode=0, stdout='b' * 40 + '\tHEAD\n', stderr=''),
+        TimeoutExpired=TimeoutError)
+    v = _up.vcs_status()
+    check(v['behind'] is True and v['remote'] == 'b' * 40,
+          '远端 HEAD 与已装 commit 不同 → behind')
+    _up.subprocess = _types.SimpleNamespace(
+        run=lambda *a, **k: _types.SimpleNamespace(
+            returncode=0, stdout='a' * 40 + '\tHEAD\n', stderr=''),
+        TimeoutExpired=TimeoutError)
+    check(_up.vcs_status()['behind'] is False, '同一个 commit → 不报有新东西')
+    _up.subprocess = _types.SimpleNamespace(
+        run=lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError('no git')),
+        TimeoutExpired=TimeoutError)
+    _v = _up.vcs_status()
+    check(_v['behind'] is None and _v.get('error'),
+          '没装 git → 老实说问不到, 不假装已最新', _v.get('error'))
+    _up._direct_url = lambda: json.dumps({'dir_info': {'editable': True}})
+    check(_up.vcs_status() is None, '非 git 装法直接跳过这一步')
+
+    # check 把两者合起来: 版本号说最新, 但远端有新提交 → behind
+    _up._direct_url = lambda: json.dumps(
+        {'vcs_info': {'url': 'https://example.com/w', 'commit_id': 'a' * 40}})
+    _up.subprocess = _types.SimpleNamespace(
+        run=lambda *a, **k: _types.SimpleNamespace(
+            returncode=0, stdout='b' * 40 + '\tHEAD\n', stderr=''),
+        TimeoutExpired=TimeoutError)
+    _up._pip = _stub(0, {'install': []})
+    _info = _up.check()
+    check(_info['state'] == 'behind' and '远端有新提交' in _up.describe(_info),
+          'pip 说版本最新但远端有新提交 → 判 behind 并说明')
+    _up.subprocess, _up._direct_url, _up._pip = _real_sub, _real_du, _real_pip
+
     # 报错翻译: 用户不该去读 PEP 号
     check('虚拟环境' in (_up._hint('error: externally-managed-environment') or ''),
           'PEP 668 → 指到 venv/pipx/--user, 而不是甩个 PEP 链接')

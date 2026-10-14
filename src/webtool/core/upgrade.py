@@ -27,17 +27,24 @@ DEFAULT_REPO = 'https://github.com/itingyu/webtool'
 PIP_TIMEOUT = 600
 
 
-def _vcs_url(raw):
-    """direct_url.json → VCS 源 URL (不是 VCS 安装则 None)"""
+def _vcs_info(raw):
+    """direct_url.json → {'url':..., 'commit':...} (不是 VCS 安装则 {})"""
     if not raw:
-        return None
+        return {}
     try:
         d = json.loads(raw)
     except ValueError:
-        return None
+        return {}
     info = d.get('vcs_info') or {}
     url = (info.get('url') or '').strip()
-    return url or None
+    if not url:
+        return {}
+    return {'url': url, 'commit': (info.get('commit_id') or '').strip()}
+
+
+def _vcs_url(raw):
+    """direct_url.json → VCS 源 URL (不是 VCS 安装则 None)"""
+    return _vcs_info(raw).get('url')
 
 
 def _direct_url():
@@ -154,6 +161,11 @@ def check(spec=None, env_extra=None):
         info['state'] = 'behind'
     else:
         info['state'] = 'up_to_date'
+        vcs = vcs_status(env_extra)          # 同版本的新提交只有远端知道
+        if vcs:
+            info['vcs'] = vcs
+            if vcs.get('behind'):
+                info['state'] = 'behind'
     return info
 
 
@@ -166,6 +178,13 @@ def describe(info):
              '线路      %s' % (info.get('route') or '直连'),
              '最新      %s' % (info['latest'] or '?'),
              '状态      %s' % zh.get(info['state'], info['state'])]
+    vcs = info.get('vcs') or {}
+    if vcs.get('remote') or vcs.get('installed'):
+        lines.append('提交      远端 %s / 已装 %s%s' % (
+            (vcs.get('remote') or '?')[:7], (vcs.get('installed') or '?')[:7],
+            '   ← 远端有新提交' if vcs.get('behind') else ''))
+    if vcs.get('error'):
+        lines.append('提交      问不到 (%s)' % vcs['error'])
     if info.get('error'):
         lines.append('备注      %s' % info['error'])
     if info.get('hint'):
@@ -186,9 +205,18 @@ def _route_label(env_extra):
 
 
 def upgrade(spec=None, env_extra=None):
-    """真的升级; 返回 {ok, action, log}"""
+    """真的升级; 返回 {ok, action, log}
+
+    git 源要 `--force-reinstall --no-deps`: pip 对"直接 URL 需求"只比**版本号**,
+    同名同版本就报 "Requirement already satisfied" 然后什么都不干 —— 我们按 commit
+    发代码、版本号不跟着动, 不强制重装的话 `upgrade` 是个装饰品 (实测: commit 原地
+    不动)。`--no-deps` 是关键的另一半: 只换自己这份代码, 不去动依赖。
+    """
     spec = spec or upgrade_target()[0]
-    rc, out, err = _pip(['install', '--upgrade', spec], env_extra=env_extra)
+    args = ['install', '--upgrade', spec]
+    if 'git+' in spec:
+        args = ['install', '--force-reinstall', '--no-deps', spec]
+    rc, out, err = _pip(args, env_extra=env_extra)
     tail = [l for l in (out or '').strip().splitlines() if l.strip()][-6:]
     hint = _hint((err or '') + (out or '')) if rc else None
     if hint:
@@ -198,3 +226,35 @@ def upgrade(spec=None, env_extra=None):
             'version': after, 'route': _route_label(env_extra),
             'log': ['pip: %s (%s)' % (spec, _route_label(env_extra))] + tail
             + ([err.strip().splitlines()[-1]] if rc and err.strip() else [])}
+
+
+def vcs_status(env_extra=None):
+    """远端 HEAD vs 已装的 commit: 有没有新提交
+
+    pip 只比版本号, 看不出"同版本的新提交", 所以这一步自己问远端 (git ls-remote,
+    只问远端、不碰任何本地仓库)。没 git / 没网络 / 不是 git 装法 → 返回 None,
+    由调用方退回只看版本号, 不假装知道。
+    """
+    info = _vcs_info(_direct_url())
+    if not info.get('url'):
+        return None
+    env = dict(os.environ)
+    env.update(env_extra or {})
+    try:
+        r = subprocess.run(['git', 'ls-remote', info['url'], 'HEAD'],
+                           capture_output=True, text=True, timeout=60, env=env)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {'url': info['url'], 'installed': info.get('commit', ''),
+                'remote': None, 'behind': None, 'error': str(e) or '超时'}
+    if r.returncode != 0:
+        return {'url': info['url'], 'installed': info.get('commit', ''),
+                'remote': None, 'behind': None,
+                'error': (r.stderr or '').strip().splitlines()[-1:] and
+                (r.stderr or '').strip().splitlines()[-1] or 'git ls-remote 失败'}
+    remote = (r.stdout or '').strip().split('\t')[0].strip()
+    got = info.get('commit', '')
+    if not remote or not got:
+        return {'url': info['url'], 'installed': got, 'remote': remote or None,
+                'behind': None, 'error': 'commit 信息不全'}
+    return {'url': info['url'], 'installed': got, 'remote': remote,
+            'behind': remote != got}
