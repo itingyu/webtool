@@ -101,7 +101,7 @@ webtool zen "问题" --sticky             # 复用 ses_id (默认关)
 ```
 
 模型上下架频繁，别凭记忆报模型名，先 `--list-free`（表格列取接口字段，免费层按命名约定）。
-403 FreeTierError 有两种：某模型下架，或免费层整层被上游闸掉（正文含 "can only be used from within OpenCode"，此时所有免费模型一起 403，与线路/IP 无关）；能否真用只有 `--check` 说了算。
+403 FreeTierError 的真相（2026-10-14 实测，别再往头上花时间）：与请求无关。MITM 抓官方 1.19.0 的 zen 请求逐字对照后，我们的头/UA/session id 与真机一字不差，而**真机在本机环境下也被同一句 403 拒绝**；两条出口（境内民用 111.55.204.114、美国机房 103.62.49.162）皆被拒 → 判据在出口 IP/地域/账号侧。要救：给 opencode.ai 换住宅出口（~/.webtool/rules.json 加一条规则）或等上游放开；`--check` 是唯一判据。
 
 - `--sticky` 复用 ses_id，默认关：实测 Zen 免费层 `cached_tokens` 恒为 0，开不开耗时无差异，别当提速手段
 - JSON 里 `usage_available` = 上游是否返回用量；`false` 且 `ok: true` 是"调用成功但端点不给统计"，不是故障

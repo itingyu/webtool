@@ -120,14 +120,25 @@ def _endpoints():
 
 
 def build_headers(ses_id=None, msg_id=None):
-    """占位 Bearer public + x-opencode-* 会话/指纹头"""
+    """占位 Bearer public + x-opencode-* 会话/指纹头
+
+    2026-10-14 用 MITM 抓的官方 1.19.0 请求逐字对照 (经得起复核):
+      Authorization: Bearer public
+      User-Agent: opencode/1.19.0 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14
+      x-opencode-client: cli          x-opencode-project: global
+      x-opencode-request: msg_<24位>  x-opencode-session: ses_<12位hex><14位base62>
+      x-opencode-session-id: <同 x-opencode-session 的值>   ← 曾漏发
+    少发过 x-opencode-session-id; 补上后与真机一字不差 (但闸门不看这些, 见下)。
+    """
+    ses = ses_id or make_session_id()
     return {
         'Authorization': 'Bearer public',
         'Content-Type': 'application/json',
         'User-Agent': USER_AGENT,
         'x-opencode-client': 'cli',
         'x-opencode-project': 'global',
-        'x-opencode-session': ses_id or make_session_id(),
+        'x-opencode-session': ses,
+        'x-opencode-session-id': ses,
         'x-opencode-request': msg_id or make_message_id(),
         'Accept': '*/*',
     }

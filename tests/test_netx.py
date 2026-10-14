@@ -548,6 +548,16 @@ check('reason_sink = sys.stdout if tty else sys.stderr' in _dz_src,
       'zen 展示层: 终端里思考走 stdout, 仅重定向时才让出 stdout')
 check('on_reason' in inspect.getsource(_zen.call_zen),
       'call_zen 有单独的 reason 回调 (不是把思考混进正文)')
+# 头集以官方 1.19.0 的 MITM 抓包为基准 (2026-10-14): 少发/多发都算回归
+_OUR_HEADERS = {'authorization', 'content-type', 'user-agent',
+                'x-opencode-client', 'x-opencode-project', 'x-opencode-session',
+                'x-opencode-session-id', 'x-opencode-request', 'accept'}
+_zp = __import__('webtool.cli.zenproto', fromlist=['x'])
+_h = {k.lower() for k in _zp.build_headers()}
+check(_h == _OUR_HEADERS, 'zen 请求头与官方客户端抓包一致', str(sorted(_h ^ _OUR_HEADERS)))
+_hs = _zp.build_headers(ses_id='ses_test')
+check(_hs['x-opencode-session'] == _hs['x-opencode-session-id'],
+      'x-opencode-session 与 x-opencode-session-id 同值 (真机如此)')
 _zp_ua = inspect.getsource(__import__('webtool.cli.zenproto', fromlist=['x']))
 check(re.search(r"USER_AGENT = 'opencode/\d+\.\d+\.\d+ "
                 r"ai-sdk/provider-utils/\d+\.\d+\.\d+ "

@@ -112,9 +112,12 @@ webtool zen "问题" --show-body        # 只打请求体, 不出网 (排查用)
 模型上下架频繁，先 `--list-free` 再用。清单列取接口字段（`id/created/owned_by`），
 免费层是命名约定推断的；能不能用只有 `--check` 真调一次才算数。
 
-403 FreeTierError 有两种，别混为一谈：某模型已下架，或**免费层整层被上游闸掉**
-（正文是 "can only be used from within OpenCode"，此刻所有免费模型会一起 403）。
-后者跟 `--no-proxy`、线路、IP 都无关，`/v1/models` 通常照样能拉。
+403 FreeTierError 的真相（2026-10-14 实测）：**与请求无关，改头改 UA 无意义**。
+MITM 抓官方 1.19.0 的 zen 请求逐字对照后，我们的头/UA/session id 与真机一字不差；
+而**真机在本机环境下也被同一句 403 拒绝**（`can only be used from within OpenCode`）。
+两条出口（境内民用 111.55.204.114、美国机房 103.62.49.162）皆被拒 → 判据在出口 IP/地域/账号侧。
+要救只有换住宅出口（`~/.webtool/rules.json` 给 `opencode.ai` 指一条线路）或等上游放开。
+`/v1/models` 不受影响，通常照样能拉。
 
 - JSON 里的 `usage_available` = 上游是否返回用量；`false` 且 `ok: true` 是「调用成功但端点不给统计」，不是故障
 - 换端点改 `~/.webtool/zen.json` 的 `chat_url` / `models_url`（mtime 热生效），协议固定 OpenAI 形状
