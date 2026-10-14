@@ -479,7 +479,7 @@ def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar
               post: bool = typer.Option(False, '--post', help='data url 走 POST (表单用 --form)'),
               method_only: bool = typer.Option(False, '--method-only', help='data url 只回原始响应文本, 不转表格'),
               fmt: str = Fmt, output: str = Output):
-    """股票能力: stock-master + stock 24 工具 + 生态库(~1300) + 底层 HTTP 直调(900+ 接口) + 逆向文档"""
+    """股票能力: engine 脚本层 + 编排 24 工具 + 生态库(~1300) + 底层 HTTP 直调(900+ 接口) + 逆向文档"""
     a = _CTX['args']
     a.action, a.codes, a.date = action, list(codes or []), date
     a.only_buy, a.scope, a.pool, a.min_score = only_buy, scope, pool, min_score

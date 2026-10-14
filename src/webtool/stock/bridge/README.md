@@ -7,7 +7,8 @@
 1. **CLI 被迫知道实现细节。** `command.py` 同时做动作分发 (CLI 该干) 和
    `import` 七个文件 (数据层该干), 于是 `do_stock` 里堆了六路
    `except MasterMissing / SrvError / RawApiError / EcoError / DocsError /
-   HttpError` —— 唯一作用是判断"哪个文件抛的错"。
+   HttpError` —— 唯一作用是判断"哪个文件抛的错"。(`MasterMissing` 本轮已随
+   文件改名成 `EngineMissing`, 下文同。)
 2. **七种异常类型。** `EcoError` / `DocsError` / `SrvError` / `HttpError` /
    `RawApiError` / `EmError` / `MasterMissing` 各继承 `RuntimeError`,
    调用方没法只接一层。现在全部继承 `StockError` (见 `error.py`),
@@ -46,7 +47,8 @@ c.em_f10_balance('600519.SH')      # 方法名与拆包前逐字一致
 | `np.py` | 东财公告老域 | 2 | 统一 requests 会话 + 固定 UA |
 | `ef.py` | efinance | 3 | 本地库, 无网络栈直控 |
 
-合计 154 个方法, 除 `_provenance` 记录的新增 3 个外与重构前那份 `api_client.py` 的公开方法**一一对应**
+合计 156 个方法: 与重构前那份 `api_client.py` 的公开方法一一对应, 另加 `_provenance`
+记录的 3 个与从 stock-master 技能并进来的 2 个 (`gtimg_quote_flat` / `em_zt_pool`)、
 (`test_smoke.py` 有断言)。
 
 ### 按域名归属, 不按方法名前缀
@@ -66,7 +68,7 @@ c.em_f10_balance('600519.SH')      # 方法名与拆包前逐字一致
 
 | 模块 | 是什么 | 为什么不按源分 |
 |---|---|---|
-| `master.py` | stock-master 脚本层 | 跨源聚合 (涨停池要腾讯+东财), 业务逻辑高于数据源 |
+| `engine.py` | engine 脚本层 (选股/评分/研报口径) | 跨源聚合, 业务逻辑高于数据源; 取数仍经 sources |
 | `srv.py` | 服务端 24 个高阶工具 | 同上, 且自带 fallback 链 |
 | `eco.py` | akshare/tushare/baostock/efinance | 是"库集合"不是"站", 一个接口背后可能多源 |
 | `em.py` (bridge 层) | 东财 reportName 配方泛化 | 建立在 `sources/em.py` 之上, 是配方层不是源 |
@@ -75,9 +77,11 @@ c.em_f10_balance('600519.SH')      # 方法名与拆包前逐字一致
 
 ## 出网路由
 
-代理完全由 `~/.webtool/rules.json` + `config.json` 决定, 四条通道无一例外 ——
-代码里不硬编码代理地址, 也不按域名白名单直连。四种网络栈各自的接法
-(适配器 / opener / 作用域补丁 / 直调) 与验证方法见 [`ROUTING.md`](ROUTING.md)。
+代理完全由 `~/.webtool/rules.json` + `config.json` 决定, 每条通道无一例外 ——
+代码里不硬编码代理地址, 也不按域名白名单直连。三种网络栈各自的接法
+(适配器 / 作用域补丁 / 直调) 与验证方法见 [`ROUTING.md`](ROUTING.md)。
+engine 层不出网: 它的 HTTP 全部经 sources, 早先 skill 自带的那两个 urllib
+出口已并进 `sources/sina.py`、`sources/em.py`。
 
 ## 换版本
 

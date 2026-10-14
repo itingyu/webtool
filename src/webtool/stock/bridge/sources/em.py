@@ -99,6 +99,73 @@ class EmSource(SourceBase):
                     r["data"][k] = r["data"][k] / 100.0
         return r
 
+    def em_zt_pool(self, date: str = "") -> dict:
+        """涨停池 (push2ex getTopicZTPool) —— 含连板/首封时间/炸板次数/封单/行业
+
+        `date` 认 `YYYYMMDD` / `YYYY-MM-DD`，空则取接口默认。
+
+        **`date` 生效, `qdate` 不能当数据日**（2026-10-14 实测, 同日连续两次
+        结果一致）：
+
+        | 请求 date | 行数 | 响应 qdate |
+        |---|---|---|
+        | 20261008(四) | 43 | 20261014 |
+        | 20261009(五) | 69 | 20261014 |
+        | 20261010/11(周末) | 0 | 20261014 |
+        | 20261013(二) | 67 | 20261014 |
+        | 20261014(三) | 36 | 20261014 |
+        | 20260101(元旦) | 0 | 20261014 |
+
+        逐日行数与真实交易日对上（非交易日为空），所以**数据属于请求日**；而
+        `qdate` 恒等于"最近交易日"，拿它当数据日会把 10-09 的池子标成 10-14。
+        上游为何这样设计不明，按实测用：`requested` 才是数据日，`qdate` 只
+        作为原始字段透出，供调用方需要时自己看。
+
+        剩一个无法自证的点：接口不返回数据所属日，若它真在某天静默回退旧数据，
+        这里看不出来 —— 要强校验得拿当日涨停家数跟别的源对，属于调用方的事。
+        """
+        d = str(date or "").replace("-", "")
+        url = ("https://push2ex.eastmoney.com/getTopicZTPool"
+               "?ut=7eea3edcaed734bea9cbfc24409ed989"
+               "&dpt=wz.ztzt&Pageindex=0&pagesize=300&sort=fbt:asc")
+        if d:
+            url += f"&date={d}"
+        try:
+            r = self._std.get(url, timeout=self.BASE_TIMEOUT)
+            if r.status_code != 200:
+                return _err(f"status={r.status_code}", r.status_code)
+            js = r.json()
+        except Exception as e:                                # noqa: BLE001
+            return _err(f"{type(e).__name__}: {e}")
+        dd = js.get("data") or {}
+        data = dd.get("pool") or []
+
+        def _num(v, default=0.0):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return default
+
+        rows = []
+        for it in data:
+            fbt = str(it.get("fbt", "")).zfill(6)
+            zt = it.get("zttj") or {}
+            rows.append({
+                "code": str(it.get("c", "")), "name": it.get("n"),
+                "industry": it.get("hybk"),
+                "percent": round(_num(it.get("zdp")), 2),
+                "lbc": it.get("lbc") or 1,
+                "days": zt.get("days"), "boards": zt.get("ct"),
+                "first_seal": (f"{fbt[:2]}:{fbt[2:4]}:{fbt[4:6]}"
+                               if len(fbt) == 6 else fbt),
+                "break_count": it.get("zbc"),
+                "seal_fund": round(_num(it.get("fund")) / 1e8, 2),      # 亿
+                "turnover_rate": round(_num(it.get("hs")), 2),
+                "float_mktcap": round(_num(it.get("ltsz")) / 1e8, 2),   # 亿
+            })
+        return _ok({"requested": d, "qdate": str(dd.get("qdate") or ""),
+                    "count": len(rows), "rows": rows}, len(r.text))
+
     def em_kline(self, code: str = "688825", klt: int = 101,
                  beg: str = "0", end: str = "20500101", fqt: int = 1,
                  lmt: int = 60) -> dict:

@@ -216,6 +216,8 @@ _CASES = [
         ("gtimg_hq",              lambda c: c.gtimg_hq("sh600519,sh688825,hk00700")),
         # === 第11轮反爬: qt.gtimg.cn ===
         ("gtimg_hq",              lambda c: c.gtimg_hq("sh600519,sh688825,hk00700")),
+        ("gtimg_quote_flat",      lambda c: c.gtimg_quote_flat("600519,创业板指,920178")),
+        ("em_zt_pool",            lambda c: c.em_zt_pool("")),
         ("gtimg_us_hq",           lambda c: c.gtimg_us_hq("usTSLA,usAAPL")),
         ("gtimg_index",           lambda c: c.gtimg_index("sh000300,sh000001")),
         ("gtimg_hk_index",        lambda c: c.gtimg_hk_index("hkHSI,hkHSCEI")),

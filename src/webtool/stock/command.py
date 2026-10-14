@@ -1,16 +1,16 @@
 """webtool stock 子命令: 动作分发 + 输出渲染
 
-两座桥 (bridge/master.py 脚本层 / bridge/srv.py 编排层) 在这里汇合成一个扁平的动作表。动作分三类:
+两座桥 (bridge/engine.py 脚本层 / bridge/srv.py 编排层) 在这里汇合成一个扁平的动作表。动作分三类:
 
     数据动作  quote pool check calendar flow news announcement financials
-              analyze screen risk            —— 走 stock-master 脚本层
+              analyze screen risk            —— 走 engine 脚本层
     透传动作  mcp <tool>                     —— 按名调用 24 个动作 (未单独暴露的那些)
     元动作   tools health                    —— 能力清单与两侧探活
 
 输出与 webtool 其他数据命令一致: 数据动作按 args.format 自己渲染 (json 全字段 /
 text 行内可读 / markdown 表格), 走 cli.app._run 的 emit 落盘通道。
 
-口径纪律 (来自 stock-master 硬约束, 这里继承):
+口径纪律 (从 stock-master 继承, 现由 engine 维护):
   - 接口返回 0/空 不当正常值, 由各桥透传 status, 渲染时显式标注
   - 北向资金不可用必须显式 ⚠, 不填 0
   - 池/榜单类结果必带数据日 (date), 涨停池尤其 —— 接口对无效日期会静默回旧数据
@@ -24,7 +24,7 @@ from webtool.stock.bridge import docs as _docs
 from webtool.stock.bridge import http as _http
 from webtool.stock.bridge import eco as _eco
 from webtool.stock.bridge import _eco_net
-from webtool.stock.bridge import master as _master
+from webtool.stock.bridge import engine as _engine
 from webtool.stock.bridge import rawapi as _raw
 from webtool.stock.bridge import srv as _srv
 
@@ -36,7 +36,7 @@ def _norm_fmt(v, default='text'):
 def _unresolved(out):
     """检测"取数层回了但没解析出结构"的情况。
 
-    stock-master 的 clients 把上游载荷原样透传, 所以会碰到两种形状:
+    engine 的 clients 把上游载荷原样透传, 所以会碰到两种形状:
     同花顺 stockpage 是 SPA, 上游站点解析不出列表就把 100KB 原始 HTML 塞进 data.html;
     另一路把结构化结果 json.dumps 成了字符串塞进 data。
     这两种都不是"没数据", 强行当结果渲染会把 HTML 噪声喂给 Agent ——
@@ -89,47 +89,47 @@ def _code(args, required=True):
 
 
 def _act_quote(args, cfg):
-    return _master.do_quote(args.codes)
+    return _engine.do_quote(args.codes)
 
 
 def _act_pool(args, cfg):
-    return _master.do_pool(args.date, args.only_buy)
+    return _engine.do_pool(args.date, args.only_buy)
 
 
 def _act_check(args, cfg):
-    return _master.do_check(args.codes)
+    return _engine.do_check(args.codes)
 
 
 def _act_calendar(args, cfg):
-    return _master.do_calendar(args.date, args.n)
+    return _engine.do_calendar(args.date, args.n)
 
 
 def _act_flow(args, cfg):
-    return _master.do_capital_flow(args.scope)
+    return _engine.do_capital_flow(args.scope)
 
 
 def _act_news(args, cfg):
-    return _master.do_news(_code(args), args.limit)
+    return _engine.do_news(_code(args), args.limit)
 
 
 def _act_announcement(args, cfg):
-    return _master.do_announcements(_code(args), args.limit)
+    return _engine.do_announcements(_code(args), args.limit)
 
 
 def _act_financials(args, cfg):
-    return _master.do_financials(_code(args))
+    return _engine.do_financials(_code(args))
 
 
 def _act_analyze(args, cfg):
-    return _master.do_analyze(_code(args))
+    return _engine.do_analyze(_code(args))
 
 
 def _act_screen(args, cfg):
-    return _master.do_screen(args.pool, args.min_score, args.codes)
+    return _engine.do_screen(args.pool, args.min_score, args.codes)
 
 
 def _act_risk(args, cfg):
-    return _master.do_risk(args.codes)
+    return _engine.do_risk(args.codes)
 
 
 def _act_api(args, cfg):
@@ -787,26 +787,26 @@ def _act_data_health(args, cfg):
     }
 
 def _act_report(args, cfg):
-    return _master.do_report(code=_code(args, required=False), pool=args.pool,
+    return _engine.do_report(code=_code(args, required=False), pool=args.pool,
                              news=list(args.texts or []) or None)
 
 
 def _act_excel(args, cfg):
     if not args.excel:
         raise ValueError('excel 需要 --excel 指定输出路径, 例: --excel picks.xlsx')
-    return _master.do_excel(args.excel, pool='short', min_score=args.min_score)
+    return _engine.do_excel(args.excel, pool='short', min_score=args.min_score)
 
 
 def _act_sentiment(args, cfg):
     items = list(args.texts or [])
     if not items:
         # 没给 --text 就理解为"给这只票的新闻打分", 省一次取新闻的重复输入
-        items = _master._news_texts(_code(args))
-    return _master.do_sentiment(items)
+        items = _engine._news_texts(_code(args))
+    return _engine.do_sentiment(items)
 
 
 def _act_diagram(args, cfg):
-    return _master.do_diagram(args.kind or 'tree', code=_code(args, required=False),
+    return _engine.do_diagram(args.kind or 'tree', code=_code(args, required=False),
                               name=args.name, thesis=args.thesis,
                               drivers=list(args.drivers or []),
                               risks=list(args.risks or []),
@@ -879,20 +879,20 @@ def _act_tools(args, cfg):
 
 def _act_health(args, cfg):
     """四侧探活。任一侧不可用都照实报 unavailable, 不因为一侧挂了就不查另一侧"""
-    out = {'master': {}, 'orchestrator': {}, 'raw': {}}
-    out['master']['installed'] = _master.available()
-    if out['master']['installed']:
+    out = {'engine': {}, 'orchestrator': {}, 'raw': {}}
+    out['engine']['installed'] = _engine.available()
+    if out['engine']['installed']:
         t0 = time.time()
         try:
-            q = _master.do_quote(['600519'])
+            q = _engine.do_quote(['600519'])
             hit = next((x for x in q if x.get('ok')), None)
-            out['master'].update(ok=bool(hit), took_ms=int((time.time() - t0) * 1000),
+            out['engine'].update(ok=bool(hit), took_ms=int((time.time() - t0) * 1000),
                                  probe='quote 600519', sample=hit.get('name') if hit else None)
         except Exception as e:                              # noqa: BLE001
-            out['master'].update(ok=False, err=f'{type(e).__name__}: {e}')
+            out['engine'].update(ok=False, err=f'{type(e).__name__}: {e}')
     else:
-        out['master']['err'] = ('stock-master 技能缺失, 应随包安装在 '
-                                 'webtool/stock/skill/')
+        out['engine']['err'] = ('stock engine (业务脚本层) 缺失, 应随包安装在 '
+                                'webtool/stock/engine/')
 
     out['orchestrator']['found'] = _srv.available()
     if out['orchestrator']['found']:
@@ -915,15 +915,15 @@ def _act_health(args, cfg):
         out['raw']['err'] = ('数据源池不可用, 应随包安装在 '
                              'webtool/stock/bridge/sources/')
     out['eco'] = _eco.health()
-    # 出网路由: 四条通道都要过规则表, 体检要能一眼看出某条脱管了
+    # 出网路由: 各通道都要过规则表, 体检要能一眼看出某条脱管了
     out['route'] = {
         'sources': 'per-request (RoutedAdapter + RoutedCffiSession)',
-        'stock-master': 'per-request (opener)',
+        'engine': 'same as sources (engine 不出网, 取数一律经 sources)',
         'eco': {lib: _eco_net.probe(lib)
                 for lib in ('akshare', 'tushare', 'baostock', 'efinance')},
         'probe': _route_probe(),
     }
-    out['ok'] = bool(out['master'].get('ok') or out['orchestrator'].get('ok'))
+    out['ok'] = bool(out['engine'].get('ok') or out['orchestrator'].get('ok'))
     return out
 
 
@@ -1008,7 +1008,7 @@ def _args_dict(args):
 
 USAGE = """用法: webtool stock <动作> [参数]
 
-数据动作 (走 stock-master 脚本层)
+数据动作 (走 engine 脚本层)
   quote <代码...>              实时行情, 支持指数别名(上证指数/创业板指)
   pool [--date D] [--only-buy] 涨停池 (连板/首封/炸板/封单/行业)
   check <代码...>              可买性核查 (板块归属 + ST/退市风险)
@@ -1123,7 +1123,7 @@ def do_stock(args, cfg):
         print(f'error: stock 依赖未装 ({e.name or e}); '
               f'装: pip install "webtool[stock]"', file=sys.stderr)
         return 2
-    except _master.MasterMissing as e:
+    except _engine.EngineMissing as e:
         print(f'error: {e}', file=sys.stderr)
         return 2
     except _srv.SrvError as e:
@@ -1243,6 +1243,8 @@ def _md(out, action):
         return
     if action == 'pool' and isinstance(out, dict):
         print(f"## 涨停池 ({out.get('date')}) — {out.get('count')} 只\n")
+        if out.get('提示'):
+            print(f"> ⚠ {out['提示']}\n")
         _table(['代码', '名称', '连板', '行业', '封单亿', '炸板', '首封'],
                [(r.get('code'), r.get('name'), r.get('连板'), r.get('行业'),
                  r.get('封单亿'), r.get('炸板次数'), r.get('首封'))
@@ -1845,6 +1847,8 @@ def _text(out, action):
             print(f"涨停池失败: {out.get('err') or out.get('error')}")
             return
         print(f"涨停池 {out.get('date')} — {out.get('count')} 只")
+        if out.get('提示'):
+            print(f"⚠ {out['提示']}")
         for r in out.get('rows') or []:
             print(f"[{r.get('code')}] {r.get('name')}  {r.get('行业') or ''}  "
                   f"连板{r.get('连板', '—')}  {r.get('涨停统计') or ''}  "

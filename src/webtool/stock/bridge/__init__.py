@@ -9,21 +9,21 @@
 
 **按模块直接 import** (推荐 —— 就是普通包内模块, 没有动态加载):
 
-    from webtool.stock.bridge import master, rawapi, eco
-    master.do_quote(['600519'])
+    from webtool.stock.bridge import engine, rawapi, eco
+    engine.do_quote(['600519'])
 
 **延迟加载**给"某条桥可能缺依赖、缺了只让对应能力退 2"的场景用:
 
     from webtool.stock import bridge
-    bridge.load('master').do_quote(['600519'])
+    bridge.load('engine').do_quote(['600519'])
 
 ## 通道清单
 
 | 模块 | 通道 | 回答 |
 |---|---|---|
-| `sources/` | 按数据源拆的 API 池 | 154 个低阶方法 (同花顺/东财/雪球/新浪/腾讯/巨潮/中证/上交所/efinance) |
+| `sources/` | 按数据源拆的 API 池 | 156 个低阶方法 (同花顺/东财/雪球/新浪/腾讯/巨潮/中证/上交所/efinance) |
 | `srv.py` | stock 数据桥 (进程内直调 handler) | 24 个高阶聚合工具, 带 fallback 链 |
-| `master.py` | stock-master 脚本层 | 行情/涨停池/选股/评分/研报 |
+| `engine.py` | engine 脚本层 | 行情/涨停池/选股/评分/研报 |
 | `eco.py` | akshare/tushare/baostock/efinance | 长尾 + 宏观 + 全球 |
 | `em.py` | 东财 datacenter 配方 | 123 条 reportName 泛化调用 |
 | `docs.py` | 逆向接口文档 (纯本地) | 底层 URL/参数/字段含义 |
@@ -38,7 +38,7 @@ import importlib
 
 # 模块名 → 装包提示的渠道名
 _CHANNELS = {
-    'master': 'stock-master', 'srv': 'stock 数据桥', 'rawapi': '数据源池',
+    'engine': 'engine 脚本层', 'srv': 'stock 数据桥', 'rawapi': '数据源池',
     'eco': '生态库', 'em': '东财配方', 'docs': '逆向文档', 'http': 'HTTP 直调',
 }
 
@@ -46,7 +46,7 @@ _CHANNELS = {
 def load(name):
     """延迟 import 一条桥模块。
 
-    与直接 `from webtool.stock.bridge import master` 的区别只在失败时的
+    与直接 `from webtool.stock.bridge import engine` 的区别只在失败时的
     异常类型: 这里转成统一的 `BridgeMissing` 并给出装包提示, 适合上层
     想"缺了就退 2、别拖垮整条命令"的场景。
     """
@@ -62,7 +62,7 @@ def load(name):
 def health():
     """七条通道各自探活 —— 任一条不可用照实报, 不因一条挂了就不查别的"""
     probes = {
-        'master': lambda m: m.available(),
+        'engine': lambda m: m.available(),
         'srv': lambda m: m.available(),
         'rawapi': lambda m: m.available(),
         'eco': lambda m: m.available(),

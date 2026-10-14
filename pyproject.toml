@@ -58,9 +58,6 @@ webtool = [
   "stock/data/*.json",
   "stock/data/**/*.json",
   "stock/data/**/*.md",
-  # stock-master 技能的文档资源。scripts/ 是真包 (靠 __init__.py), 由
-  # packages.find 自动收进 wheel, 不必手写进 package-data; 只有非代码的
-  # 资源 (SKILL.md 与 references 文档) 需要显式列。
-  "stock/skill/*.md",
-  "stock/skill/**/*.md",
+  # engine/ 是纯代码包 (靠 __init__.py), 由 packages.find 自动收进 wheel,
+  # 不必手写进 package-data —— 文档与自测脚本留在技能目录, 不随包分发。
 ]

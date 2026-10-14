@@ -1,6 +1,6 @@
 """stock 统一错误类型
 
-七条取数通道的异常 (MasterMissing / SrvError / RawApiError / EcoError /
+七条取数通道的异常 (EngineMissing / SrvError / RawApiError / EcoError /
 DocsError / EmError / HttpError) 全部继承 `StockError`, 通道信息收进 `source`
 字段 —— 分文件是为了内部分工, 不该泄漏到调用方: 调用方只需 `except StockError`
 一路接住。
@@ -32,10 +32,10 @@ class StockError(RuntimeError):
         self.cause = cause
 
 
-class MasterMissing(StockError):
-    """stock-master 不可 import —— 装包损坏, 退 2"""
+class EngineMissing(StockError):
+    """stock engine (业务脚本层) 不可 import —— 装包损坏, 退 2"""
 
-    source = 'master'
+    source = 'engine'
     exit_code = 2
 
 

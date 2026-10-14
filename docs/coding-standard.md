@@ -11,7 +11,7 @@ webtool/
   cli/          L4 应用编排   app / config / plugins / sitesearch / zen / zenproto
                                mcp (通用 MCP 客户端)
   feeds/        L3 业务流程   command / sources / parse / fetch / cards / feedhealth
-  stock/        L3 业务流程   master (桥 stock-master skill) / srv (多源编排)
+  stock/        L3 业务流程   engine (桥 engine 脚本层) / srv (多源编排)
                                command (动作分发 + 渲染)
   radar/        L3 业务流程   routes / rules / instances / official / template
                                            / race / instances_cfg
@@ -186,10 +186,16 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   - `rawapi.call` **按签名校验参数**：多传参数直接报错而不是吞掉 —— 静默丢弃参数
     等于让调用方以为生效了，实际跑的是默认值
 - **全部依赖都在 `webtool.stock` 包内**（`bridge/sources/` 数据源、
-  `bridge/orchestrate.py` 编排层、`skill/` 技能），**静态 import 接入**：
+  `bridge/orchestrate.py` 编排层、`engine/` 业务脚本层），**静态 import 接入**：
   `from webtool.stock.bridge.sources import APIClient` /
-  `webtool.stock.skill.scripts.<name>`。装包即用，无需额外安装
-  - 目录名去连字符：`stock-master` 是 skill 的 YAML 名，不是合法标识符，当不了包名
+  `webtool.stock.engine.<name>`。装包即用，无需额外安装
+  - 目录名去连字符：`stock-master` 是 skill 的 YAML 名，不是合法标识符，当不了包名。
+    业务脚本层因此叫 `engine/`（原 `skill/scripts/`），技能文档与自测脚本留在
+    `/var/minis/skills/stock-master/` 那份，包内不留第二份副本
+  - **engine 不出网**：取数一律经 `bridge/sources/`。`engine/clients.py` 与
+    `engine/short_tool.py` 早期自带的 urllib 端点（腾讯行情、东财涨停池）已
+    并进 `sources/sina.py`（`gtimg_quote_flat`）与 `sources/em.py`（`em_zt_pool`），
+    `bridge/_stockmaster_net.py` 随之删除 —— 少一个出网出口就少一处能绕过规则表的地方
   - **不要用 `sys.path.insert` + `importlib` 接内部依赖**。sys.path 是全局可变状态，
     谁先 import 谁改变后续所有 import 的结果。早期 `rawapi` 与那份独立服务端各插
     一个目录，同名模块 `api_client` 真的加载了两份，两套 `lru_cache`(token/session)，
@@ -203,24 +209,21 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
     哪份"还取决于谁先 import。**要换版本就改包内那份**
   - `webtool stock health` 的 `orchestrator` 段 `found` 恒为真 —— 只有一种状态可报，
     所以它同时是一个"没被改回去"的回归哨兵
-  - 包化后 `scripts/` 是真包（靠 `__init__.py`），由 `packages.find` 自动收进 wheel，
-    `package-data` 只需列非代码资源（skill 的 md）。但 `stock/skill/**` 与
-    `stock/data/**` 都要显式列：键是**包名**、值是**相对包根**的路径，
+  - 包化后 `engine/` 是真包（靠 `__init__.py`），由 `packages.find` 自动收进 wheel；
+    它没有非代码资源，`package-data` 不必列它。但 `stock/data/**` 仍要显式列：键是**包名**、值是**相对包根**的路径，
     `data/**` 够不到 `stock/` 下的子目录。这个坑只在查 wheel 内容时才暴露，
     源码树里跑永远是好的
   **全程不起子进程、不经协议**：
   - 服务端 `TOOLS` 注册表每项自带 `handler` 函数 —— `stock/srv.py` 直接调 handler，
     拿到的是工具自己的 dict，**没有 content 信封的序列化往返**（`_call_tool` 那条路
     会把结果 dumps 成字符串再塞进 MCP content 再被解析回来，多一轮序列化 + 解析）
-  - stock-master 自己的两个子进程出口（`clients.mcp()` 起 `minis-mcp-cli`、
-    `clients.web_search()` 起 `webtool search`）在 `stock/master.py::_patch_inproc`
-    里被**运行时注入**成进程内实现，产物形状不变
-  - 注入只在 webtool 进程内生效，不改 skill 文件 —— skill 有自己的维护流程，改动应由
-    skill 侧提；webtool 只做运行时覆盖
-  - skill 缺失只让 stock 动作退 2，不影响 webtool 其余命令（所以桥接必须在函数内
-    import，不能放模块级）
+  - `engine/clients.mcp()` 是**进程内直调** `bridge/srv.py`（→ `orchestrate.py`），
+    不起子进程、不套信封；`engine/clients.web_search()` 仍起 `webtool search`
+    子进程（要的是搜索管线与渲染，不是一条裸请求）
+  - engine 缺失只让 stock 的脚本层动作退 2，不影响 webtool 其余命令（所以
+    `bridge/engine.py` 的 mod() 必须在函数内 import，不能放模块级）
 - **失败语义要与原 MCP 路径一致**：handler 抛异常（如 `normalize` 失败）或返回
-  `ok=False` → 抛 `SrvError`。skill 侧包装函数捕获后仍拿到 `{"ok":False,"err":...}`
+  `ok=False` → 抛 `SrvError`。engine 侧包装函数捕获后仍拿到 `{"ok":False,"err":...}`
   —— 直调 handler 若不捕获，单只票参数非法会整条命令崩掉
 - **`web_search` 的进程内实现走 `cli.app.main(argv)`**，不直接调 `pipeline.search.do_search`
   —— 后者要 29 个字段的 args 对象，自己拼等于复制一份 CLI 契约，迟早漂移

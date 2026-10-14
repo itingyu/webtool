@@ -30,7 +30,7 @@ MODULES = [
     'webtool.engines.google', 'webtool.engines.marginalia', 'webtool.engines.so360',
     'webtool.net.mcpclient', 'webtool.cli.mcp', 'webtool.engines.exa',
     'webtool.stock.command', 'webtool.stock.error',
-    'webtool.stock.bridge', 'webtool.stock.bridge.master',
+    'webtool.stock.bridge', 'webtool.stock.bridge.engine',
     'webtool.stock.bridge.srv', 'webtool.stock.bridge.rawapi',
     'webtool.stock.bridge.eco', 'webtool.stock.bridge.sources',
 ]
@@ -492,39 +492,44 @@ check(_ft._reader_arg('parallel', 'https://x.com') == {'urls': ['https://x.com']
 check('firecrawl' in _ft._VIA_CHANNELS and 'firecrawl' in _ft._MCP_CHANNELS,
       'firecrawl 已进 --via 通道表')
 
-# ---------- stock-master 技能 (包内静态 import) ----------
-# stock-master 是本仓自己的技能包, 装在 `webtool/stock/skill/` (SKILL.md +
-# references + scripts)。装包后若漏收, `webtool stock` 全线不可用, 而源码树里
-# 跑永远正常 —— 只有查 wheel 内容才能发现。这里锁住最容易退化的四点:
+# ---------- stock engine (包内静态 import) ----------
+# engine 是本仓第一方代码, 装在 `webtool/stock/engine/` (原 stock-master 技能
+# 的业务脚本层搬进来, 取数已全部并进 bridge/sources)。装包后若漏收,
+# `webtool stock` 的 analyze/screen/report 全线不可用, 而源码树里跑永远正常
+# —— 只有查 wheel 内容才能发现。这里锁住最容易退化的四点:
 #   1. 能 import, 且导入过程不碰 sys.path
 #   2. 顶层 'api_client' 不被创建 (双副本的根源)
 #   3. 编排层与 rawapi 落在同一个数据源模块对象上
-#   4. 打包规则没把 skill 的文档资源漏掉
+#   4. engine 不出网 (取数只有 sources 一个出口)
 
-from webtool.stock.bridge import master as _ms
+from webtool.stock.bridge import engine as _eng
 from webtool.stock.bridge import orchestrate as _orch
 from webtool.stock.bridge import rawapi as _raw
 from webtool.stock.bridge import srv as _srv_probe
 
-_SKILL_DIR = _ms.SKILL_DIR
-_STOCK_DIR = os.path.dirname(_SKILL_DIR)
+_ENGINE_DIR = _eng.ENGINE_DIR
+_STOCK_DIR = os.path.dirname(_ENGINE_DIR)
 
 print()
-print('=== stock-master 技能 (包内静态 import) ===')
-check(os.path.isfile(os.path.join(_SKILL_DIR, 'SKILL.md')), 'skill 下有 SKILL.md')
-check(os.path.isdir(os.path.join(_SKILL_DIR, 'scripts')), 'skill 下有 scripts/')
+print('=== stock engine (包内静态 import) ===')
+check(os.path.isfile(os.path.join(_ENGINE_DIR, '__init__.py')),
+      'engine 下有 __init__.py (哨兵判据是代码, 不是文档)')
+check(os.path.isdir(os.path.join(_ENGINE_DIR, 'screening')),
+      'engine 下有业务子包 (screening/analysis/...)')
 # 目录名必须是合法标识符: 'stock-master' 带连字符, 当不了包名
-check(os.path.basename(_SKILL_DIR) == 'skill',
-      '目录名是 skill (合法包名), 不是 stock-master')
-# 仓库里不该再有 _vendor —— 它曾被误当成"同步进来的三方代码", 而 stock-master
-# 本就是本仓自己的技能, 这个名字会误导后人不敢改
-check(not os.path.exists(os.path.join(_STOCK_DIR, '_vendor')),
-      'stock/ 下没有 _vendor (stock-master 是自有代码, 不装在 vendor 目录)')
+check(os.path.basename(_ENGINE_DIR) == 'engine',
+      '目录名是 engine (合法包名), 不是 stock-master')
+# 搬完之后不该再有 skill/ 残留 —— 文档与自测脚本随技能留在
+# /var/minis/skills/stock-master, 包内不留第二份必然走样的副本
+check(not os.path.exists(os.path.join(_STOCK_DIR, 'skill')),
+      'stock/ 下没有残留的 skill/ (功能已搬进 engine/)')
+check(not os.path.exists(os.path.join(_STOCK_DIR, 'bridge', '_stockmaster_net.py')),
+      'engine 不出网: bridge/_stockmaster_net.py 已删')
 # sys.path 零注入 —— sys.path 是全局可变状态, 谁先 import 谁改变后续所有
 # import 的结果
 _path_before = list(sys.path)
 try:
-    _ms.mod('clients')
+    _eng.mod('clients')
     _srv_probe._server_mod()
     _raw.client()
     check(list(sys.path) == _path_before,
@@ -538,24 +543,31 @@ try:
 except Exception as _e:                                     # noqa: BLE001
     check(False, f'包内 import 失败: {type(_e).__name__}: {_e}')
 
-# 技能内容完整: md 是给人读的 (漏了 references 就残了), py 是执行体
-_n_md = len([1 for r, _, fs in os.walk(_SKILL_DIR)
-             for f in fs if f.endswith('.md')])
-_n_py = len([1 for r, _, fs in os.walk(os.path.join(_SKILL_DIR, 'scripts'))
+# engine 内容完整: 代码是执行体, 文档不随包 (在技能目录维护)
+_n_py = len([1 for r, _, fs in os.walk(_ENGINE_DIR)
              for f in fs if f.endswith('.py')])
-check(_n_md > 20 and _n_py > 10,
-      f'stock-master 内容完整 (md {_n_md} / py {_n_py})')
-# scripts 内部不该再有裸 'from scripts' —— 包化时改成绝对路径, 漏改则
+check(_n_py > 12, f'engine 内容完整 (py {_n_py})')
+# engine 内部不该再有裸 'from scripts' —— 包化时改成绝对路径, 漏改则
 # 运行时只能靠 sys.path 里的外部目录才能 import 到
 _left = []
-for _r, _d, _fs in os.walk(os.path.join(_SKILL_DIR, 'scripts')):
+for _r, _d, _fs in os.walk(_ENGINE_DIR):
     for _fn in _fs:
         if _fn.endswith('.py'):
             _p = os.path.join(_r, _fn)
             with open(_p, encoding='utf-8') as _fh:
                 if 'from scripts' in _fh.read():
                     _left.append(os.path.relpath(_p, _STOCK_DIR))
-check(not _left, 'scripts 内部 import 已全部包化')
+check(not _left, 'engine 内部 import 已全部包化')
+# 取数不得绕过 sources: engine 侧不该出现裸 urllib / requests 出网
+_bypass = []
+for _r, _d, _fs in os.walk(_ENGINE_DIR):
+    for _fn in _fs:
+        if not _fn.endswith('.py'):
+            continue
+        _t = open(os.path.join(_r, _fn), encoding='utf-8').read()
+        if 'urlopen(' in _t or 'requests.get(' in _t:
+            _bypass.append(os.path.relpath(os.path.join(_r, _fn), _STOCK_DIR))
+check(not _bypass, 'engine 侧没有绕过 sources 的裸 HTTP' + (f': {_bypass}' if _bypass else ''))
 
 # 只走包内: rawapi 与编排层必须解析到同一个数据源模块对象
 import webtool.stock.bridge.sources as _pkg_api
@@ -600,13 +612,13 @@ import tomllib as _toml
 _pp = _toml.load(open(os.path.join(os.path.dirname(__file__), '..',
                                    'pyproject.toml'), 'rb'))
 _pats = _pp['tool']['setuptools']['package-data']['webtool']
-for _need in ('stock/data/**', 'stock/skill/**'):
+for _need in ('stock/data/**',):
     check(any(_need.split('**')[0] in p for p in _pats),
           f'package-data 覆盖 {_need}')
-# scripts 是真包, 靠 __init__.py 被 packages.find 自动收, 不必手写进
-# package-data; 但它的 md (技能文档) 仍要显式列
-check(os.path.isfile(os.path.join(_SKILL_DIR, 'scripts', '__init__.py')),
-      'scripts 是包 (靠 __init__.py)')
+# engine 是真包, 靠 __init__.py 被 packages.find 自动收, 不必手写进
+# package-data —— 它现在没有非代码资源要列 (文档留在技能目录)
+check(os.path.isfile(os.path.join(_ENGINE_DIR, '__init__.py')),
+      'engine 是包 (靠 __init__.py)')
 
 # 上面那些只证明源码树是好的 —— 源码树里跑永远正常, 漏打包只有装包后才炸。
 # 真验: 现场打一个 wheel, 比对文件清单。判据是**逐个文件**而不是"包在不在":
@@ -623,7 +635,8 @@ with _tf.TemporaryDirectory() as _td:
     if _whl:
         _names = set(_zf.ZipFile(os.path.join(_td, _whl[0])).namelist())
         for _need in ('webtool/stock/bridge/orchestrate.py',
-                      'webtool/stock/skill/SKILL.md',
+                      'webtool/stock/bridge/engine.py',
+                      'webtool/stock/engine/clients/__init__.py',
                       'webtool/stock/data/api_categories.json'):
             check(_need in _names, f'wheel 内含 {_need}')
         # 数据源池按源拆成十个模块, 漏一个那个源整条不可用 —— 逐个点名
@@ -631,32 +644,22 @@ with _tf.TemporaryDirectory() as _td:
                    'cninfo', 'csindex', 'sse', 'np', 'ef'):
             check(f'webtool/stock/bridge/sources/{_s}.py' in _names,
                   f'wheel 内含 sources/{_s}.py')
-        # scripts 逐文件比对: 源码树有 py, wheel 就必须有同名条目
+        # engine 逐文件比对: 源码树有 py, wheel 就必须有同名条目
         _src_py = {os.path.relpath(os.path.join(r, f),
-                                   _SKILL_DIR).replace(os.sep, '/')
-                   for r, _, fs in os.walk(os.path.join(_SKILL_DIR, 'scripts'))
+                                   _ENGINE_DIR).replace(os.sep, '/')
+                   for r, _, fs in os.walk(_ENGINE_DIR)
                    for f in fs if f.endswith('.py')}
-        _got = {n.split('skill/', 1)[1] for n in _names
-                if 'stock/skill/scripts/' in n and n.endswith('.py')}
+        _got = {n.split('engine/', 1)[1] for n in _names
+                if 'stock/engine/' in n and n.endswith('.py')}
         _miss = sorted(_src_py - _got)
         check(not _miss,
-              f'scripts 全部 {len(_src_py)} 个 py 都进了 wheel'
+              f'engine 全部 {len(_src_py)} 个 py 都进了 wheel'
               + (f' (缺 {len(_miss)}: {_miss[:3]})' if _miss else ''))
-        # skill 的 md 也得在 —— 那是给人读的依据, 漏了就没有口径
-        _src_md = {os.path.relpath(os.path.join(r, f), _SKILL_DIR)
-                   for r, _, fs in os.walk(_SKILL_DIR)
-                   for f in fs if f.endswith('.md')}
-        _miss_md = sorted(m for m in _src_md if not any(
-            n.endswith('stock/skill/' + m.replace(os.sep, '/'))
-            for n in _names))
-        check(not _miss_md,
-              f'skill 的 {len(_src_md)} 个 md 都进了 wheel'
-              + (f' (缺 {len(_miss_md)}: {_miss_md[:3]})' if _miss_md else ''))
 
 # ── 出网路由: 四条通道都必须问规则表 ──────────────────────────────
 print('\n=== 代理路由 (配置说了算) ===')
 from webtool.stock.bridge.sources import _routing, APIClient as _NewClient
-from webtool.stock.bridge import _stockmaster_net as _smn, _eco_net as _econet
+from webtool.stock.bridge import _eco_net as _econet
 
 _a = _NewClient()
 _adt = _a._std.get_adapter('https://push2.eastmoney.com/')
@@ -666,12 +669,6 @@ check(_a._xueqiu_session().__class__.__name__ == 'RoutedCffiSession',
       'sources 的 curl_cffi 会话也走规则表')
 check(_NewClient(proxy='direct')._px('https://push2.eastmoney.com/') is None,
       'proxy=direct 强制直连 (显式优先于规则表)')
-check(isinstance(_smn.get_opener('https://x.test/a'),
-                 __import__('urllib.request', fromlist=['x']).OpenerDirector),
-      'stock-master 出网有统一 opener')
-check(any('Proxy' in type(h).__name__ or hasattr(h, 'proxies')
-          for h in _smn.get_opener('https://x.test/a').handlers)
-      or True, 'opener 按 URL 建 (直连/代理两态共用同一入口)')
 check(_econet.probe('akshare').get('routed') is True,
       'eco: akshare 走 requests → 规则表能管到')
 check(_econet.probe('baostock').get('routed') is False,
@@ -695,7 +692,6 @@ try:
           '改配置 → resolve 立即跟随 (无硬编码代理)')
     check(_NewClient(proxy='auto')._px('https://followcase.example.com/')
           == 'http://127.0.0.1:9', '改配置 → sources 会话跟随')
-    check(_smn.get_opener('https://x.test/a') is not None, '改配置 → opener 可重建')
 except Exception as e:                                   # noqa: BLE001
     check(False, f'路由断言异常: {type(e).__name__}: {e}')
 finally:
@@ -735,7 +731,7 @@ if _pl.Path(_prov.ORIGINAL).is_file():
             _have |= set(_re.findall(r'^\s*def (\w+)\(', _f.read_text(encoding='utf-8'), _re.M))
     # test_all 已改写为独立 selftest.selftest, 按等价物计
     _miss = sorted(_orig_names - _have - {'test_all'})
-    check(not _miss, f'原文件 {_len(_orig_names) if False else len(_orig_names)} 个函数全部落到 sources/'
+    check(not _miss, f'原文件 {len(_orig_names)} 个函数全部落到 sources/'
           + (f' 缺 {_miss}' if _miss else ''))
     # 反向: self.X( 必须有定义 (否则运行时才炸)
     _known = _have | {'_proxy', '_px', '_kw'}

@@ -232,7 +232,7 @@ out3 = subprocess.run(
 # stock 的路由层 (sources/_adapter/_routing/_base: 那里是按 URL 现算代理的
 # 实现, 正是本测试想确保的"唯一的合法出处")
 _ok_exc = ('netx.py', 'transport.py', 'core/http.py',
-           'bridge/http.py', 'bridge/_eco_net.py', 'bridge/_stockmaster_net.py',
+           'bridge/http.py', 'bridge/_eco_net.py',
            'bridge/sources/_adapter.py', 'bridge/sources/_routing.py',
            'bridge/sources/_base.py')
 bad3 = [f for f in out3 if f.endswith('.py')

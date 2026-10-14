@@ -420,6 +420,76 @@ class SinaSource(SourceBase):
         except Exception as e:
             return _err(str(e))
 
+    # qt.gtimg.cn 的富字段索引 (0-based)。**这是全仓唯一一份** ——
+    # 校验法: 涨停价 == 昨收×1.1、换手 == 成交量÷流通股本、振幅 == (高-低)÷昨收
+    _GTIMG_F = {
+        'current': 3, 'prev_close': 4, 'open': 5, 'volume_hand': 6,
+        'time': 30, 'change': 31, 'percent': 32, 'high': 33, 'low': 34,
+        'amount_wan': 37, 'turnover_rate': 38, 'pe': 39,
+        'amplitude': 43, 'float_mktcap': 44, 'total_mktcap': 45, 'pb': 46,
+        'limit_up': 47, 'limit_down': 48, 'volume_ratio': 49, 'avg_price': 51,
+    }
+
+    def gtimg_quote_flat(self, codes) -> dict:
+        """腾讯行情 **富字段** 版 —— 逐只展平成 dict, 含涨跌停价/量比/换手/市值
+
+        与 `gtimg_hq` 的区别: 那个把原始 `v_sh600519="1~贵州茅台~..."` 原样
+        交出去 (给人看/给上层自己解析), 这个解析成字段并归一 symbol ——
+        短线动作 (可买性闸门、距涨停空间、量比) 要的就是这批字段。
+
+        市场前缀归一见 `_symbol.tencent`: 传 `SH600519` 会被腾讯静默忽略
+        (`pv_none_match`), 所以必须在入口转成小写形态。
+
+        字段不足 49 列 (停牌 / 代码不存在 / 指数缺涨跌停位) 的行不进 rows,
+        只记进 `missing`, 由调用方决定是报错还是跳过 —— 这里不替它判断。
+        """
+        if isinstance(codes, str):
+            codes = [c for c in codes.split(',') if c.strip()]
+        syms = [_symbol.tencent(c) for c in codes]
+        try:
+            r = self._std.get(
+                'https://qt.gtimg.cn/q=' + ','.join(syms),
+                timeout=self.BASE_TIMEOUT,
+            )
+            if r.status_code != 200:
+                return _err(f'status={r.status_code}', r.status_code)
+            raw = r.content.decode('gbk', errors='replace')
+        except Exception as e:                                # noqa: BLE001
+            return _err(f'{type(e).__name__}: {e}')
+
+        def _num(v):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+
+        rows, missing = [], []
+        for line in raw.strip().split(';'):
+            if '="' not in line:
+                continue
+            sym = line.split('=', 1)[0].strip().removeprefix('v_')
+            f = line.split('="', 1)[1].rstrip('";\n').split('~')
+            if len(f) < 49 or not f[3]:
+                missing.append(sym)
+                continue
+            row = {'symbol': sym, 'name': f[1], 'code': sym[2:],
+                   'source': 'tencent'}
+            for key, ix in self._GTIMG_F.items():
+                row[key] = _num(f[ix]) if ix < len(f) else None
+            row['quote_time'] = f[30] if len(f) > 30 else ''
+            # 距涨停空间 = 还有几个点封板 (0 或负数 = 已封/超涨停异常)
+            if row['current'] and row['limit_up']:
+                row['to_limit_pct'] = round(
+                    (row['limit_up'] / row['current'] - 1) * 100, 2)
+            else:
+                row['to_limit_pct'] = None
+            rows.append(row)
+        got = {r['symbol'] for r in rows} | set(missing)
+        for s in syms:                       # 接口整体无返回时也要点出请求过的
+            if s not in got:
+                missing.append(s)
+        return _ok({'rows': rows, 'missing': missing}, len(raw))
+
     def gtimg_us_hq(self, symbols: str = "usTSLA,usAAPL,usNVDA,usMSFT") -> dict:
         """腾讯财经美股行情 (qt.gtimg.cn q=usTSLA)
 
