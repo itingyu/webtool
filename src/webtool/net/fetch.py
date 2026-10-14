@@ -200,7 +200,7 @@ def _file_result(url, r, kind, mime, status, via, t0):
     out = {'url': url, 'kind': kind, 'type': mime or 'application/octet-stream',
            'extract': 'raw-binary', 'status': r.get('status', status),
            'via': r.get('via', via), 'took_ms': int((time.time() - t0) * 1000)}
-    for k in ('file', 'size', 'resumed_from', 'partial'):
+    for k in ('file', 'size', 'resumed_from', 'partial', 'jobs'):
         if r.get(k) is not None:
             out[k] = r[k]
     if r.get('error'):
@@ -438,7 +438,8 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
             url, dest or _dest_path(args, url, headers, mime),
             lambda h: open_stream(url, proxy=proxy, timeout=timeout, profile=profile,
                                   headers=h),
-            progress=getattr(args, 'progress', None), t0=t0,
+            progress=getattr(args, 'progress', None),
+            jobs=max(1, getattr(args, 'jobs', 1) or 1), t0=t0,
             opened=None if start else (resp, status, via, headers))
         return _file_result(url, r, kind, mime, status, via, t0)
     if start:

@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import sys
+import threading
 import time
 
 CHUNK = 64 * 1024
@@ -54,9 +55,11 @@ class Progress:
         self.label = label
         self.tty = sys.stderr.isatty() if progress is None else bool(progress)
         self._tick = 0.0
+        self.lock = threading.Lock()      # 多连接时几个线程共用一个进度
 
     def update(self, n):
-        self.done += n
+        with self.lock:
+            self.done += n
         now = time.time()
         # 每 0.2s 刷一次就够人看: 每个 chunk 都刷等于把终端写爆
         if not self.tty or now - self._tick < 0.2:
@@ -111,6 +114,8 @@ def resume_state(path, url):
     if meta.get('url') != url:
         os.remove(part)                  # 同一个落点换了 URL: 上一份不是这东西
         return 0, ''
+    if 'segs' in meta:
+        return 0, ''                     # 分片的现场归 download_parallel 管
     return os.path.getsize(part), meta.get('validator', '')
 
 
@@ -157,8 +162,22 @@ def request_headers(resumed, validator):
 
 
 def download(url, path, opener, *, progress=None, t0=None, chunk=CHUNK,
-             opened=None):
-    """下载 url 到 path。返回结果 dict (成功带 file/size, 失败带 error)
+             opened=None, jobs=1):
+    """下载 url 到 path (统一入口)。返回结果 dict (成功带 file/size, 失败带 error)
+
+    jobs>1 或"上次就是分片下到一半" → 多连接分片; 否则单连接。分片现场记在同一个
+    .part.meta 里, 所以续传时不必再指定 --jobs, 会接着上次的段数继续。
+    """
+    if jobs > 1 or _seg_meta(path, url) is not None:
+        return download_parallel(url, path, opener, jobs=jobs, progress=progress,
+                                 t0=t0, chunk=chunk)
+    return _download_single(url, path, opener, progress=progress, t0=t0, chunk=chunk,
+                            opened=opened)
+
+
+def _download_single(url, path, opener, *, progress=None, t0=None, chunk=CHUNK,
+                     opened=None):
+    """单连接下载。返回结果 dict (成功带 file/size, 失败带 error)
 
     opener(headers) -> (resp, status, via, headers): 流式请求由调用方注入,
     这里不碰浏览器指纹与代理。
@@ -251,6 +270,154 @@ def download(url, path, opener, *, progress=None, t0=None, chunk=CHUNK,
     pr.finish(resumed_from=resumed)
     return {'file': os.path.abspath(path), 'size': got, 'status': status, 'via': via,
             'resumed_from': resumed, 'took_ms': int((time.time() - t0) * 1000)}
+
+
+# --- 多连接分片下载 ----------------------------------------------------------
+# aria2/IDM 那一套: 先探一发 Range 确认服务端认账, 再把文件切成 N 段并发收。
+# 段不是各自一个文件再拼接 —— 那样完事还要读一遍写一遍 (等于把文件抄一次盘),
+# 而磁盘偏移写入本来就支持并发写不相交区间: 直接把 .part 预分配成总大小,
+# 每段 seek 到自己的偏移写。失败时各段进度记在 meta 里, 续传只补没下完的部分。
+
+JOBS_MAX = 8
+MIN_SPLIT = 1024 * 1024        # 小于 1MB 不值得切, 切了也是连接开销占大头
+
+
+def _seg_meta(path, url):
+    """读分片现场 (没有/不是分片/url 不符就返回 None)"""
+    part = part_path(path)
+    if not os.path.exists(part):
+        return None
+    try:
+        with open(_meta_path(part), encoding='utf-8') as f:
+            meta = json.load(f)
+    except Exception:
+        return None
+    if meta.get('url') != url or 'segs' not in meta:
+        return None
+    return meta
+
+
+def _segments(total, jobs):
+    """把 [0, total) 切成 jobs 段, 段尾含"""
+    step = total // jobs
+    segs = []
+    for i in range(jobs):
+        start = i * step
+        end = total - 1 if i == jobs - 1 else (i + 1) * step - 1
+        segs.append([start, end])
+    return segs
+
+
+def download_parallel(url, path, opener, *, jobs=4, progress=None, t0=None,
+                      chunk=CHUNK):
+    """多连接分片下载 (服务端不认 Range 就自动退回单连接)"""
+    import concurrent.futures as cf
+    t0 = t0 or time.time()
+    part = part_path(path)
+    os.makedirs(os.path.dirname(os.path.abspath(path)) or '.', exist_ok=True)
+    meta = _seg_meta(path, url)
+    if meta is None:
+        resp, status, via, headers = opener({'Accept-Encoding': 'identity',
+                                             'Range': 'bytes=0-0'})
+        total = total_of(headers, status, 0)
+        _close(resp)
+        if status != 206 or total <= 0:
+            # 200 就是"我不认 Range": 多连接无从下手, 单连接拿全量
+            return _download_single(url, path, opener, progress=progress, t0=t0,
+                                    chunk=chunk)
+        jobs = max(1, min(jobs, JOBS_MAX, max(1, total // MIN_SPLIT)))
+        meta = {'url': url, 'total': total, 'validator': validator_of(headers),
+                'segs': _segments(total, jobs), 'done': [0] * jobs}
+    total = meta['total']
+    segs = meta['segs']
+    jobs = len(segs)
+    stopped = threading.Event()
+    pr = Progress(total=total, done=sum(meta['done']), t0=t0, progress=progress,
+                  label=f'下载中 ({jobs} 连接)')
+    if jobs > 1:
+        print(f'  {jobs} 连接分片下载: 共 {human(total)}', file=sys.stderr)
+
+    def worker(i):
+        start, end = segs[i]
+        if stopped.is_set():
+            return None
+        off = start + meta['done'][i]
+        if off > end:
+            return None
+        req = {'Accept-Encoding': 'identity', 'Range': f'bytes={off}-{end}'}
+        if meta.get('validator'):
+            req['If-Range'] = meta['validator']
+        try:
+            resp, status, _v, _h = opener(req)
+        except Exception as e:
+            stopped.set()
+            return f'{type(e).__name__}: {str(e)[:80]}'
+        if status == 416:
+            _close(resp)
+            meta['done'][i] = end - start + 1
+            return None
+        if status != 206:
+            # If-Range 判定资源变了 (或服务端反悔): 整份作废重下, 不许拼
+            _close(resp)
+            stopped.set()
+            return f'服务端返回 {status} 而非 206 (资源可能已变)'
+        try:
+            with open(part, 'r+b') as f:
+                f.seek(off)
+                for buf in resp.iter_content(chunk):
+                    if not buf:
+                        continue
+                    if stopped.is_set():
+                        return 'aborted'
+                    f.write(buf)
+                    meta['done'][i] += len(buf)
+                    pr.update(len(buf))
+        except Exception as e:
+            stopped.set()
+            return f'{type(e).__name__}: {str(e)[:80]}'
+        finally:
+            _close(resp)
+        if start + meta['done'][i] - 1 < end:
+            stopped.set()
+            return '连接提前结束'
+        return None
+
+    # 按总大小把 .part 撑开, 各段才好在自己的偏移上直接写。注意**不能**用 'wb':
+    # 续传时这个文件里已经有下好的段, 'wb' 一开就把它们清零了 (truncate 不改大小,
+    # 但内容没了, 于是"续传"把已下的部分重新变成零字节)
+    if os.path.exists(part) and os.path.getsize(part) == total:
+        pass
+    else:
+        with open(part, 'r+b' if os.path.exists(part) else 'wb') as f:
+            f.truncate(total)
+    err = None
+    with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
+        for r in ex.map(worker, range(jobs)):
+            if r and not err:
+                err = r
+    got = sum(meta['done'])
+    if err or got < total:
+        _write_seg_meta(part, meta)
+        pr.done = got
+        _finish_progress(pr, path, got, total, 0)
+        return {'url': url,
+                'error': (f'{err}; ' if err else '')
+                         + f'分片未下完 ({human(got)}/{human(total)}), 再跑一次接着续',
+                'partial': os.path.abspath(part), 'resumed_from': got}
+    os.replace(part, path)
+    _drop_meta(part)
+    pr.done = got
+    pr.finish()
+    return {'file': os.path.abspath(path), 'size': got, 'status': 206,
+            'via': 'cffi', 'jobs': jobs, 'took_ms': int((time.time() - t0) * 1000)}
+
+
+def _write_seg_meta(part, meta):
+    try:
+        with open(_meta_path(part), 'w', encoding='utf-8') as f:
+            json.dump(meta, f)
+    except OSError:
+        pass
 
 
 def _finish_progress(pr, path, got, total, resumed, aborted=False):
