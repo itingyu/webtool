@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""webtool version / upgrade 的契约测试 (跑 python3 tests/test_upgrade.py)
+"""webtool --version / upgrade 的契约测试 (跑 python3 tests/test_upgrade.py)
 
-升级逻辑是真跑 git 的: 临时造一个裸仓库当"远端" + 两个克隆, 验快进升级与
-工作区脏时拒绝 —— 不打外网, 也不碰本仓库。
+升级逻辑全部走 pip: 判定与安装都交给 pip, 测试里 stub 掉 pip 调用 —— 不打网络,
+也不动本机的安装。
 """
 import contextlib
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -95,16 +96,16 @@ def main():
     _rc, _o = run('--version')
     check(_rc == 0 and _o.strip() == 'webtool %s' % proj_ver,
           'webtool --version 出单行版本号', _o.strip())
-    check(run('-V')[1].strip() == 'webtool %s' % proj_ver, '-V 同 --version')
+    check(run('-v')[1].strip() == 'webtool %s' % proj_ver, '-v 同 --version')
+    check(run('-V')[1].strip() == 'webtool %s' % proj_ver, '-V 也认 (老习惯)')
     check(run('zen', '--version')[1].strip() == 'webtool %s' % proj_ver,
           '子命令后面也能 --version (main 预扫, 不走 click)')
-    _rc, _o = run('version')
-    check(_rc == 0 and 'webtool %s' % proj_ver in _o and 'python' in _o,
-          'webtool version 出环境详情')
-    import json
-    _rc, _o = run('version', '-f', 'json')
+    _rc, _o = run('--version', '-f', 'json')
     check(_rc == 0 and json.loads(_o)['version'] == proj_ver,
-          'webtool version -f json 可解析')
+          'webtool --version -f json 出完整环境, 可解析')
+    _rc, _o = run('version')               # 已撤掉的子命令, 别再回来
+    check(_rc == 2 and 'version' not in _o,
+          'version 子命令已撤 (只留 -v/--version 标志), 误输报 rc=2')
 
     # ---------- 升级: 判定交给 pip (全部 stub, 不打网络) ----------
     check('git+' not in _up.upgrade_target()[0] or _up.upgrade_target()[0]

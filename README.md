@@ -72,7 +72,8 @@ webtool stock screen --min-score 70             # 短线选股 (含剔除清单)
 webtool stock flow --scope industry             # 资金流榜单
 webtool stock tools                             # stock 24 个动作清单
 webtool stock health                            # 两侧桥接探活
-webtool --version                               # 版本 / Python / 关键依赖 (报障先看这个)
+webtool -v | --version                          # 版本号 (放子命令后也认)
+webtool --version -f json                       # 完整体检: Python/平台/代码路径/依赖, 报障贴这个
 webtool upgrade --check                         # 只问有没有新版 (退 0 最新 / 1 有新版 / 2 判不出)
 webtool upgrade                                 # 升级到最新 (pip 走 rules.json 判定的线路)
 ```

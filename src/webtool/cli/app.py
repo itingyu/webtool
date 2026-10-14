@@ -489,20 +489,6 @@ def update_cmd(check_only: bool = typer.Option(False, '--check'),
     return _upgrade_run(check_only, from_, fmt, output)
 
 
-@app.command('version')
-def version_cmd(fmt: str = Fmt, output: str = Output):
-    """版本与运行环境 (Python/平台/代码路径/关键依赖), 报障时贴这个"""
-    def fn(args, cfg):
-        from webtool.core import version as _v
-        if (args.format or '') == 'json':
-            import json
-            print(json.dumps(_v.info(), ensure_ascii=False, indent=2))
-        else:
-            print(_v.describe())
-        return 0
-    return _run(None, fn, fmt, output, False, False)
-
-
 @app.command('config')
 def config_cmd(action: str = typer.Argument(..., help='list/get/set/unset'),
                key: str = typer.Argument(None),
@@ -609,6 +595,17 @@ def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar
     return _run(None, _entry_fn('stock'), fmt, output, False, False)
 
 
+def _argv_format(argv):
+    """预扫阶段 click 还没接管, 自己从原始 argv 取 -f/--format 的值"""
+    for i, a in enumerate(argv):
+        if a in ('-f', '--format') and i + 1 < len(argv):
+            return argv[i + 1].strip().lower()
+        for pre in ('--format=', '-f='):
+            if a.startswith(pre):
+                return a[len(pre):].strip().lower()
+    return ''
+
+
 def main(argv=None):
     """入口: argv=None 走 sys.argv; 退出码 0/2/130
 
@@ -616,11 +613,15 @@ def main(argv=None):
     这里统一转成 stderr 提示 + rc 2。
     """
     argv = list(sys.argv[1:] if argv is None else argv)
-    # --version/-V 在 click 解析前先扫: 放在子命令后面 (webtool zen --version)
+    # -v/-V/--version 在 click 解析前先扫: 放在子命令后面 (webtool zen --version)
     # click 会当作未知选项报错, 而用户想看的只是版本号。
-    if '--version' in argv or '-V' in argv:
+    if '--version' in argv or '-v' in argv or '-V' in argv:
         from webtool.core import version as _v
-        print('webtool %s' % _v.get_version())
+        if _argv_format(argv) == 'json':
+            import json
+            print(json.dumps(_v.info(), ensure_ascii=False, indent=2))
+        else:
+            print('webtool %s' % _v.get_version())
         return 0
     try:
         rc = app(args=argv, standalone_mode=False, prog_name='webtool')
