@@ -217,8 +217,8 @@ def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空
             reasoning: bool = typer.Option(True, '--reasoning/--no-reasoning',
                                            help='打印思考过程 (默认开); --no-reasoning 只要答案'),
             retries: int = typer.Option(2, '--retries', help='瞬时故障 (连接错/408/429/5xx) 重试次数; 退避指数 2/4/8s'),
-            sticky: bool = typer.Option(False, '--sticky',
-                                        help='复用同一 ses_id (默认关: 实测 Zen 免费层不返回 prompt cache 统计, 开不开耗时无差异)'),
+            sticky: bool = typer.Option(True, '--sticky/--no-sticky',
+                                        help='固定会话 id, 按整点轮换 (默认开); --no-sticky 每次运行换新'),
             fmt: str = Fmt, output: str = Output,
             no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """OpenCode Zen 免费层对话 (OpenAI 兼容, 公开模式, 无需 key)"""

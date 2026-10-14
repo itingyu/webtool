@@ -107,6 +107,7 @@ webtool zen --list-free --check-all   # 连收费模型一起验 (80+, 慢且易
 webtool zen "问题" --system "只回 JSON" --tool-choice none
 webtool zen "问题" --no-stream         # 一次性返回 (默认 SSE 流式)
 webtool zen "问题" --show-body        # 只打请求体, 不出网 (排查用)
+webtool zen "问题" --no-sticky        # 会话 id 每次运行换新 (默认粘性: 每整点轮换)
 ```
 
 模型上下架频繁，先 `--list-free` 再用。清单列取接口字段（`id/created/owned_by`），

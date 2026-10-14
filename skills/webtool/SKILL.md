@@ -97,13 +97,13 @@ webtool zen "问题" --model ling-3.1-flash-free
 webtool zen --list-free               # 免费层清单 (表格: 模型/提供方/上架/免费层)
 webtool zen --list-free --check       # 逐个真调出实测结果 (加 --check-all 验全表)
 webtool zen "问题" --system "只回 JSON" --tool-choice none
-webtool zen "问题" --sticky             # 复用 ses_id (默认关)
+webtool zen "问题" --no-sticky          # 每次运行都换 ses_id (默认是粘性)
 ```
 
 模型上下架频繁，别凭记忆报模型名，先 `--list-free`（表格列取接口字段，免费层按命名约定）。
 免费层 403 的两道判据（2026-10-14 抓包二分坐实）：① 端点必须 `/inference/v1/chat/completions`（`/zen/v1` 那条不给免费层）；② body 的 `tools` 要用官方原版 schema 且 `tool_choice=auto`，最小集 bash+read（只要一个、空壳 schema、描述截到 400 字以下都 403）。另需 `User-Agent`/`x-opencode-session-id`/`Authorization: Bearer public` 三个头。猛打会 429 限流，指数退避重试。
 
-- `--sticky` 复用 ses_id，默认关：实测 Zen 免费层 `cached_tokens` 恒为 0，开不开耗时无差异，别当提速手段
+- 会话 id 默认**粘性**：存 `~/.webtool/sticky.json`，按**整点**轮换（`floor(now/3600)`，HH:00:00 换新，不是"创建满一小时"），同小时内跨进程复用同值；`--no-sticky` 每次运行换新。注意它只有会话稳定性意义——实测免费层 `cached_tokens` 恒为 0，开不开耗时无差异，别当提速手段
 - JSON 里 `usage_available` = 上游是否返回用量；`false` 且 `ok: true` 是"调用成功但端点不给统计"，不是故障
 - 换端点改 `~/.webtool/zen.json` 的 `chat_url` / `models_url`，mtime 热生效；协议固定 OpenAI 形状
 

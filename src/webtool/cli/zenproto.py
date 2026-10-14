@@ -17,6 +17,9 @@
 import json
 import secrets
 import time
+from pathlib import Path
+
+from webtool.core.config_data import USER_DIR
 
 # 三段各有出处, 别随手改:
 #   opencode/<版本>            = 已发布 CLI 的版本 (npm opencode-ai 的 latest)
@@ -29,6 +32,9 @@ USER_AGENT = 'opencode/1.19.0 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14'
 # 服务, 免费层在那边一律 403; 换到这条 + 补齐 body 后才 200。
 CHAT_URL = 'https://opencode.ai/inference/v1/chat/completions'
 MODELS_URL = 'https://opencode.ai/zen/v1/models'
+
+STICKY_FILE = 'sticky.json'   # 粘性会话 id 的落盘位置 (USER_DIR 下)
+STICKY_PERIOD = 3600          # 轮换粒度: 按整点切 (bucket = floor(now/period))
 
 DEFAULT_SYSTEM = "You are a helpful assistant. Be brief."
 TOOL_CHOICES = ("none", "auto", "required")
@@ -103,19 +109,48 @@ def make_message_id():
 
 
 class StickySession:
-    """跨请求复用 ses_id (让上游有机会复用同一会话的服务端缓存)
+    """固定 ses_id 跨请求/跨进程复用, **每整点换一个**
 
-    实测 (2026-10, 10 次顺序调用 + 3 组对照): Zen 免费层 usage 里
-    cached_tokens 恒为 0, 同 prompt 连打也不涨; 开不开耗时无差异
-    (2.6-3.7s)。所以 CLI 默认关闭, 不按提速手段看待。
+    轮换按整点对齐: bucket = floor(now / 3600), 小时数一变就换新 id ——
+    所以新 ses_id 总在 HH:00:00 那一刻生效, 而不是"距上次创建满一小时"
+    (10:59 建的, 11:00 就换)。状态存 `~/.webtool/sticky.json`:
+    `{session_id, bucket, created}`; `WEBTOOL_DIR` 可改目录, `--no-sticky`
+    退回"每次运行都新生成"。
+
+    只固定 ses_id; msg/request id 照旧逐请求换新。
+
+    (缓存收益实测为 0: 免费层 usage.cached_tokens 恒 0, 开关耗时无差异。
+    要它是因为调用方要会话稳定, 不是为提速。)
     """
 
-    def __init__(self):
-        self.ses_id = make_session_id()
+    def __init__(self, period=STICKY_PERIOD, path=None):
+        self.period = period
+        self.path = Path(path) if path else (USER_DIR / STICKY_FILE)
+        self.bucket = int(time.time() // period)
+        self.ses_id, self.created = self._load()
 
-    def headers(self):
-        """每次请求换新的 msg/request id, ses_id 固定不变"""
-        return build_headers(self.ses_id, make_message_id())
+    def _load(self):
+        now = time.time()
+        try:
+            d = json.loads(self.path.read_text(encoding='utf-8'))
+            sid = d['session_id']
+            if str(sid).startswith('ses_') and int(d.get('bucket', -1)) == self.bucket:
+                return sid, float(d.get('created', now))
+        except (OSError, ValueError, KeyError, TypeError):
+            pass                                   # 缺文件/坏 JSON/字段怪 → 重建
+        sid, created = make_session_id(), now
+        try:                                       # 落盘失败不该拦下请求
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(
+                json.dumps({'session_id': sid, 'bucket': self.bucket,
+                            'created': created}), encoding='utf-8')
+        except OSError:
+            pass
+        return sid, created
+
+    def headers(self, msg_id=None):
+        """每次请求换新的 msg/request id, ses_id 固定"""
+        return build_headers(self.ses_id, msg_id or make_message_id())
 
 
 def _endpoints():

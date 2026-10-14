@@ -546,8 +546,32 @@ check('if out.strip():' in _run_src and 'emit(out' in _run_src,
 _dz_src = inspect.getsource(_zen._do_zen)
 check('reason_sink = sys.stdout if tty else sys.stderr' in _dz_src,
       'zen 展示层: 终端里思考走 stdout, 仅重定向时才让出 stdout')
+# ===== 粘性会话: 整点轮换 (同一小时内复用, 跨整点换新) =====
+import tempfile as _tf                                  # noqa: E402
+import time as _tm                                      # noqa: E402
+from webtool.cli import zenproto as _zp                 # noqa: E402
+_zd = _tf.mkdtemp()
+_sp = os.path.join(_zd, 'sticky.json')
+_new = lambda: _zp.StickySession(period=3600, path=_sp)  # noqa: E731
+_ss1 = _new()
+check(_ss1.ses_id == _new().ses_id, 'sticky: 同一小时内跨进程复用同一个 ses_id')
+_h1 = _ss1.headers()
+check(_h1['x-opencode-session-id'] == _ss1.ses_id
+      and _h1['x-opencode-session'] == _ss1.ses_id, 'session-id 与 session 同值')
+check(_ss1.headers()['x-opencode-request'] != _h1['x-opencode-request'],
+      'msg/request id 逐请求换新 (不跟着 sticky)')
+with open(_sp, encoding='utf-8') as _f:
+    _d = json.load(_f)
+check(set(_d) == {'session_id', 'bucket', 'created'}, 'sticky 状态含 {id,bucket,created}')
+check(_d['bucket'] == int(_tm.time() // 3600), 'sticky: bucket 即当前小时数 (按整点对齐)')
+_d['bucket'] -= 1                                       # 模拟"上一个整点"
+with open(_sp, 'w', encoding='utf-8') as _f:
+    json.dump(_d, _f)
+check(_new().ses_id != _ss1.ses_id, 'sticky: 跨整点换新 ses_id (按整点, 非满一小时)')
+check(_zp.StickySession(period=3600, path=os.path.join(_zd, 'none.json')).ses_id.startswith('ses_'),
+      'sticky: 状态文件缺失时自建, 不报错')
+
 # ===== zen 免费层闸门契约 (2026-10-14 抓包逐项二分得到, 改动都会掉回 403) =====
-_zp = __import__('webtool.cli.zenproto', fromlist=['x'])
 check(_zp._endpoints()[0].endswith('/inference/v1/chat/completions'),
       'zen 打新推理端点 /inference/v1 (旧 /zen/v1 不给免费层)')
 _dt = {t['function']['name']: t for t in _zp.tools()}
