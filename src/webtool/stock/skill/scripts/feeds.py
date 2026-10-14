@@ -94,18 +94,42 @@ def announcements(code, days=7, keyword='', page=1):
         if keyword and keyword not in title:
             continue
         out.append({'title': title,
-                    'date': (a.get('announcementTime') or a.get('adjunctUrl') or '')[:10],
+                    'date': _ann_date(a),
                     'url': a.get('adjunctUrl') or ''})
     return out
+
+
+def _ann_date(a):
+    """公告日期归一成 YYYY-MM-DD。
+
+    announcementTime 在 cninfo 源里是 epoch 毫秒 **int** (cninfo.py 原样透传),
+    直接 [:10] 会 TypeError。URL 形态 (…/2026-10-14/…) 才适合切片。
+    """
+    t = a.get('announcementTime')
+    if isinstance(t, (int, float)) and t > 0:
+        from datetime import datetime as _dt
+        return _dt.fromtimestamp(t / 1000).strftime('%Y-%m-%d')
+    if isinstance(t, str) and t.isdigit() and len(t) >= 13:
+        from datetime import datetime as _dt
+        return _dt.fromtimestamp(int(t) / 1000).strftime('%Y-%m-%d')
+    return (t or a.get('adjunctUrl') or '')[:10]
 
 
 # ── 排行 (新浪) ─────────────────────────────────────────────────────
 
 def rank_list(kind='涨幅榜', count=20):
-    """新浪排行榜; kind 保留 fetchers 的中文入参, 内部走 sina_market_sort"""
-    mapping = {'涨幅榜': '涨幅', '跌幅榜': '跌幅', '成交额榜': '成交额',
-               '换手率榜': '换手', '量比榜': '量比'}
-    d = client().sina_market_sort(mapping.get(kind, '涨幅'), count=count).get('data')
+    """新浪排行榜; kind 保留 fetchers 的中文入参, 内部走 sina_market_sort
+
+    原先写的是 `sina_market_sort(mapping.get(kind,'涨幅'), count=count)` ——
+    中文 kind 被当成 node 下发 (node 要的是 hs_a 这样的节点名), 而 count 又
+    绑到了 num 上, 真正的 sort 落到默认值。参数错位, 取回空。
+    """
+    mapping = {'涨幅榜': ('changepercent', 0), '跌幅榜': ('changepercent', 1),
+               '成交额榜': ('amount', 0), '成交量榜': ('volume', 0),
+               '换手率榜': ('turnoverratio', 0), '量比榜': ('volume', 0)}
+    sort, asc = mapping.get(kind, ('changepercent', 0))
+    d = client().sina_market_sort(
+        node='hs_a', num=count, sort=sort, asc=asc).get('data')
     return _sina_rows(d)
 
 
@@ -121,8 +145,62 @@ def _sina_rows(d):
 # ── 同花顺板块 ──────────────────────────────────────────────────────
 
 def ths_industry_list():
-    """行业板块列表; sources 版本补了 code/pct/leader (fetchers 只提取了名字)"""
+    """行业板块列表 (sources 版: 只有板块名列表)"""
     return client().ths_industry_list().get('data') or []
+
+
+def ths_industry_rows(limit=10):
+    """行业板块结构化行: [{name, pct, up, down, leader, leader_pct}]
+
+    sources/ths.py::ths_industry_list 只回 `{'names': [...]}` —— 板块名,
+    没有涨跌幅也没有领涨股。但本项目的调用方 (screening/) 要的是
+    name/pct/leader 这套字段, 原先靠一句 "sources 版本补了 code/pct/leader"
+    的注释蒙混, 实际 short_pool 直接 KeyError/切片失败。
+
+    这里按同花顺 thshy 列表页的真实列序解析:
+      序号 | 板块 | 涨跌幅% | 成交量(万手) | 成交额(亿) | 净流入(亿)
+      | 上涨家数 | 下跌家数 | 均价 | 领涨股 | 最新价 | 涨跌幅%
+
+    **领涨股代码这个接口拿不到** —— td 里只有名字, 没有 /stock/detail/code/
+    链接, 所以 leader_code 恒为空, 调用方必须自己判空。
+    """
+    import re
+    r = client()._ths_data(
+        '/thshy/index/field/199112/order/desc/page/1/ajax/1/free/1/',
+        host='q.10jqka.com.cn')
+    if not r.get('ok'):
+        return []
+    html = r['data'].get('html') or ''
+    m = re.search(r'<tbody.*?</tbody>', html, re.S)
+    if not m:
+        return []
+    rows = []
+    for tr in re.findall(r'<tr.*?</tr>', m.group(0), re.S):
+        tds = re.findall(r'<td[^>]*>(.*?)</td>', tr, re.S)
+        if len(tds) < 12:
+            continue
+        cells = [re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', t)).strip()
+                 for t in tds]
+
+        def _f(v):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+        rows.append({
+            'rank': cells[0],
+            'name': cells[1],
+            'pct': _f(cells[2]),
+            'turnover': _f(cells[4]),
+            'up': _f(cells[6]),
+            'down': _f(cells[7]),
+            'leader': cells[9],
+            'leader_pct': _f(cells[11]),
+            'leader_code': '',      # 该接口不返回, 恒空 (见 docstring)
+        })
+        if len(rows) >= max(int(limit or 0), 1):
+            break
+    return rows
 
 
 def ths_industry_kline(code, year=None):
@@ -137,9 +215,14 @@ def _this_year():
 # ── 工具 ────────────────────────────────────────────────────────────
 
 def _xq_symbol(code):
-    """6 位代码 -> 雪球 symbol"""
-    from webtool.stock.bridge.sources.xueqiu import XueqiuSource
-    return XueqiuSource._norm(code)
+    """6 位代码 -> 雪球 symbol
+
+    归一只有一处事实来源: sources/_symbol.py。原先这里调
+    `XueqiuSource._norm(code)` —— 该类没有这个方法, 一调就 AttributeError,
+    stock analyze / screen 的 K 线与行业链路全断在该行。
+    """
+    from webtool.stock.bridge.sources._symbol import xueqiu as _xq
+    return _xq(code)
 
 
 # ── 调用方用的名字别名 ───────────────────────────────────────────
@@ -156,15 +239,30 @@ def kline_list(code, count=120, period='day'):
     """
     r = kline(code, count=count, period=period)
     data = (r or {}).get('data') or {}
+    # 列序以雪球 column 为准 (不同品种可能增减列), 不写死下标:
+    #   [timestamp, volume, open, high, low, close, chg, percent,
+    #    turnoverrate, amount, volume_post, amount_post]
+    # 原先按 [开,收,高,低] 猜的位置是错的 —— open 实际在 [2],
+    # close 在 [5], 之前展平出来的 OHLC 全部错位
+    cols = data.get('column') or ['timestamp', 'volume', 'open', 'high',
+                                  'low', 'close', 'chg', 'percent',
+                                  'turnoverrate', 'amount']
+    ix = {name: i for i, name in enumerate(cols)}
+
+    def _g(it, name, default=None):
+        i = ix.get(name)
+        return it[i] if i is not None and i < len(it) else default
     out = []
     for it in data.get('item') or []:
-        if not isinstance(it, (list, tuple)) or len(it) < 9:
+        if not isinstance(it, (list, tuple)) or len(it) < 6:
             continue
         out.append({
-            'date': _ymd(it[0]),
-            'open': it[1], 'close': it[2], 'high': it[3], 'low': it[4],
-            'chg': it[5], 'pct': it[6], 'turnover': it[7], 'amount': it[8],
-            'volume': it[9] if len(it) > 9 else None,
+            'date': _ymd(_g(it, 'timestamp', 0)),
+            'open': _g(it, 'open'), 'close': _g(it, 'close'),
+            'high': _g(it, 'high'), 'low': _g(it, 'low'),
+            'chg': _g(it, 'chg'), 'pct': _g(it, 'percent'),
+            'turnover': _g(it, 'turnoverrate'),
+            'amount': _g(it, 'amount'), 'volume': _g(it, 'volume'),
         })
     return {'symbol': data.get('symbol', _xq_symbol(code)),
             'period': data.get('period', period),
@@ -183,8 +281,18 @@ def company_intro(code):
 
 
 def industry_list():
-    """fetchers.ths.industry_list 的等价物 (同花顺行业板块)"""
-    return ths_industry_list()
+    """fetchers.ths.industry_list 的等价物。
+
+    fetchers 版回的是**结构化行** [{name, pct, leader, leader_code, ...}],
+    而 sources 版的 ths_industry_list() 只有 {'names': [...]} —— 调用方
+    (screening/short_pool) 要按 leader_code 字段取值, 必须给结构化行。
+    """
+    return industry_rows(limit=30)
+
+
+def industry_rows(limit=10):
+    """结构化行业行; 实现在 ths_industry_rows, 这里是调用方命名入口"""
+    return ths_industry_rows(limit=limit)
 
 
 def industry_kline(code, year=None):

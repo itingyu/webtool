@@ -21,7 +21,14 @@ def _date_default(o):
 
 
 def _kline_df(items):
-    """雪球 K 线 list → DataFrame"""
+    """雪球 K 线 list → DataFrame。
+
+    feeds.kline_list 回 {symbol, period, count, items}, 这里兼容 dict /
+    list 两种形态; 传 dict 会把 'symbol' 这样的 str 当行解出
+    TypeError: string indices, 所以先解包。
+    """
+    if isinstance(items, dict):
+        items = items.get('items') or []
     if not items:
         return pd.DataFrame()
     rows = []
@@ -48,15 +55,18 @@ def analyze(code, news_items=None):
     """
     symbol = to_xueqiu_symbol(code)
 
-    # 1. 实时 quote
-    quote = xueqiu.quote(symbol)
-    if not quote or "error" in quote:
+    # 1. 实时 quote; feeds.quote 回 {原始代码: 行情}, 单只取任一值
+    qmap = xueqiu.quote(symbol)
+    quote = (qmap.get(symbol) or next(iter(qmap.values()), None)) \
+        if isinstance(qmap, dict) and qmap else None
+    if not quote or quote.get("error"):
         return {"code": code, "error": "quote 拉取失败"}
 
     name = quote.get("name") or code
 
-    # 2. K 线（60 天）
-    kline_items = xueqiu.kline_list(symbol, period="day", count=60)
+    # 2. K 线（60 天）; kline_list 回 {.., items}, 取 items
+    kres = xueqiu.kline_list(symbol, period="day", count=60)
+    kline_items = (kres.get('items') if isinstance(kres, dict) else kres) or []
     if not kline_items:
         return {"code": code, "name": name, "error": "K 线拉取失败"}
 
@@ -72,12 +82,20 @@ def analyze(code, news_items=None):
 
     # 5. 行业归属
     industry = xueqiu.industry(symbol)
+    # feeds.industry 回 {name, code, pct} 单对象; report_writer 吃的是
+    # 雪球列表形态 [{ind_name, ind_type, ...}] —— 这里归一成列表
+    if isinstance(industry, dict) and 'ind_type' not in industry:
+        industry = ([{'ind_type': 1, 'ind_name': industry.get('name') or '',
+                      'percent': industry.get('pct')}]
+                    if industry.get('name') else [])
 
     # 6. 公告（最近 7 天）
     ann = cninfo.announcements(code, days=7)
 
     # 7. 流通市值（雪球单位是元，转亿元）
-    float_cap_yi = (quote.get("float_market_capital") or 0) / 1e8
+    #    _flat_quote 的键是 float_mktcap (fetchers 契约), 原键恒 None → 0.0
+    float_cap_yi = (quote.get("float_mktcap")
+                    or quote.get("float_market_capital") or 0) / 1e8
 
     # 8. 决策信号
     signal = "持有"

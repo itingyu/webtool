@@ -17,11 +17,14 @@ class EmSource(SourceBase):
 
     def _em_get(self, url: str, params: dict) -> dict:
         try:
-            # push2 必须带 ut token, 否则沙盒 IP 被 ban (RemoteDisconnected)
+            # push2 必须带 ut token, 否则沙盒 IP 被 ban (RemoteDisconnected)。
+            # httpsdowngrade 会把 https 静默降成 http, 而 ulist.np/get 的
+            # http 端点会 RemoteDisconnected —— 锁死 https 绕开降级。
             params = dict(params)
             if "ut" not in params:
                 params["ut"] = "13697a1cc677c8bfa9a496437bfef419"
-            r = self._std.get(url, params=params, timeout=self.BASE_TIMEOUT)
+            r = self._std.get(url, params=params, timeout=self.BASE_TIMEOUT,
+                              headers={'X-Scheme-Lock': url.split(':')[0]})
             if r.status_code != 200:
                 return _err(f"status={r.status_code}", r.status_code)
             j = r.json()

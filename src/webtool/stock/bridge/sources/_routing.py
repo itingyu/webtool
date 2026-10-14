@@ -50,6 +50,15 @@ from webtool.core import tls
 _PROXY_CACHE: dict[str, str | None] = {}
 DEFAULT_PROXY = os.environ.get('STOCK_PROXY', 'auto')
 
+# 强制直连的域名后缀: 这些站对常见代理出口 IP 返回 502/000 (实测
+# push2.eastmoney.com 经 127.0.0.1:2080 全部 502, 直连 200; 同域名下
+# push2his/datacenter 走代理正常)。境内行情端点本就不需要代理。
+# 可用环境变量 STOCK_DIRECT_DOMAINS 追加, 逗号分隔后缀。
+_DIRECT_SUFFIXES = tuple(
+    s.strip().lower() for s in os.environ.get(
+        'STOCK_DIRECT_DOMAINS',
+        'push2.eastmoney.com,push2delay.eastmoney.com').split(',') if s.strip())
+
 
 def resolve(url: str, override: str | None = None) -> str | None:
     """URL → 该走哪条代理。返回 None = 直连。
@@ -62,9 +71,11 @@ def resolve(url: str, override: str | None = None) -> str | None:
     mode = DEFAULT_PROXY if override is None else override
     if mode in (None, 'direct'):
         return None
+    host = url.split('/')[2].lower() if '://' in url else url.lower()
+    if host.endswith(_DIRECT_SUFFIXES):
+        return None
     if mode != 'auto':
         return netx.resolve_proxy(mode, url)
-    host = url.split('/')[2].lower() if '://' in url else url.lower()
     if host not in _PROXY_CACHE:
         _PROXY_CACHE[host] = netx.resolve_proxy('auto', url)
     return _PROXY_CACHE[host]

@@ -126,16 +126,41 @@ class XueqiuSource(SourceBase):
         """
         mkt = _symbol.em_market(code)
         try:
-            j = self._xueqiu_session().get(
-                'https://push2.eastmoney.com/api/qt/stock/get',
-                params={'secid': f'{mkt}.{_symbol.em(code)}',
-                        'fields': 'f162,f167'},
-                timeout=10).json()
-            d = j.get('data') or {}
-            pe = d.get('f162')
-            pb = d.get('f167')
-            return ((pe / 100.0) if isinstance(pe, (int, float)) and pe else None,
-                    (pb / 100.0) if isinstance(pb, (int, float)) and pb else None)
+            # 走统一通道 (_em_get, 正确 UA/ut)。注意: push2 的 ulist.np/get
+            # 对本沙盒出口 IP 稳定断连 (stock/get 同刻 200, ulist 必炸, 已多轮
+            # 复测) —— 估值改用 stock/get 的 f116/f117 (总/流通市值, 元) +
+            # 涨跌字段换算不可行, PE/PB 退回雪球 K 线接口计算:
+            #   pe = price / (净利/股本) 太重; 直接用东财 F10 的
+            #   datacenter 通道 (RPT_F10_FINANCE_MAINFINADATA) 拿 EPS+BPS。
+            from webtool.stock.bridge.sources.em import EmSource
+            ems = EmSource()
+            # 1) 行情价 (push2 stock/get 稳定可达)
+            rq = ems._em_get('https://push2.eastmoney.com/api/qt/stock/get',
+                             {'secid': f'{mkt}.{_symbol.em(code)}',
+                              'fields': 'f43,f58'})
+            if not rq.get('ok'):
+                return None, None
+            price = (rq.get('data') or {}).get('f43')
+            if not isinstance(price, (int, float)) or not price:
+                return None, None
+            price = price / 100.0  # 两位精度
+            # 2) EPS / BPS (datacenter 通道, 可达)。注意 em_market 返回的是
+            #    push2 数字码 ('1'=沪), datacenter 要的是 'SH'/'SZ' 后缀
+            suffix = 'SH' if str(mkt) == '1' else 'SZ'
+            rf = ems._em_get(
+                'https://datacenter.eastmoney.com/securities/api/data/v1/get',
+                {'reportName': 'RPT_F10_FINANCE_MAINFINADATA',
+                 'columns': 'SECUCODE,EPSJB,BPS',
+                 'filter': f'(SECUCODE="{_symbol.em(code)}.{suffix}")',
+                 'pageSize': '1', 'sortColumns': 'REPORT_DATE',
+                 'sortTypes': '-1'})
+            rows = ((rf.get('data') or {}).get('result') or {}).get('data') or []
+            if not rows:
+                return None, None
+            eps, bps = rows[0].get('EPSJB'), rows[0].get('BPS')
+            pe = round(price / eps, 2) if isinstance(eps, (int, float)) and eps else None
+            pb = round(price / bps, 2) if isinstance(bps, (int, float)) and bps else None
+            return pe, pb
         except Exception:
             return None, None
 

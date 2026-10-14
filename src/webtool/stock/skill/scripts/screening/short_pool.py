@@ -44,7 +44,7 @@ def build_candidate_pool(top_n_movers=30, top_n_sectors=10):
 
     # 来源 1: 涨幅榜。不可买板块（300/301/688/8/920）常占据涨幅榜前列，
     # 因此取更宽的名单再过滤，最终只保留涨幅 2%-8% 的「温和强势」区间。
-    movers = sina.rank_list(num=max(top_n_movers, 300), sort="changepercent")
+    movers = sina.rank_list(kind='涨幅榜', count=max(top_n_movers, 300))
     for m in movers:
         c = m.get("code")
         if not c:
@@ -66,9 +66,9 @@ def build_candidate_pool(top_n_movers=30, top_n_sectors=10):
         }
 
     # 来源 2: 行业领涨股
-    sectors = ths.industry_list()[:top_n_sectors]
+    sectors = ths.industry_rows(limit=top_n_sectors)
     for s in sectors:
-        leader_code = s.get("leader_code")
+        leader_code = s.get("leader_code") or ""
         leader_name = s.get("leader")
         if not leader_code or len(leader_code) != 6:
             continue
@@ -78,7 +78,7 @@ def build_candidate_pool(top_n_movers=30, top_n_sectors=10):
             "code": leader_code,
             "name": leader_name,
             "source": f"行业领涨({s.get('name')})",
-            "changepercent": float(s.get("pct", "0%").rstrip("%") or 0),
+            "changepercent": float(s.get("leader_pct") or 0),
             "nmc_wan": None,
         }
 
@@ -123,13 +123,18 @@ def screen_one(code, name=None, min_score=60):
 
     symbol = to_xueqiu_symbol(code)
 
-    # 1. quote
-    quote = xueqiu.quote(symbol)
-    if not quote or "error" in quote:
+    # 1. quote; feeds.quote 回 {原始代码: 行情}, 单只取任一值
+    qmap = xueqiu.quote(symbol)
+    quote = (qmap.get(symbol) or next(iter(qmap.values()), None)) \
+        if isinstance(qmap, dict) and qmap else None
+    if not quote or quote.get("error"):
         return {"code": code, "name": name, "error": "quote 失败"}
 
     # 2. 硬门槛: 流通市值 ≥ 50 亿（雪球单位元，无上限）
-    float_cap_yi = (quote.get("float_market_capital") or 0) / 1e8
+    #    feeds.quote → _flat_quote 的键是 float_mktcap (fetchers 契约),
+    #    原先取 float_market_capital 恒为 None → 市值闸门把所有票错杀
+    float_cap_yi = (quote.get("float_mktcap")
+                    or quote.get("float_market_capital") or 0) / 1e8
     if float_cap_yi < 50:
         return {"code": code, "name": quote.get("name"),
                 "error": f"流通市值 {float_cap_yi:.1f} 亿 < 50 亿",
@@ -141,8 +146,9 @@ def screen_one(code, name=None, min_score=60):
         return {"code": code, "name": name_str,
                 "error": "ST/*ST 排除", "failed_gate": "ST"}
 
-    # 4. K 线
-    kline_items = xueqiu.kline_list(symbol, period="day", count=60)
+    # 4. K 线; kline_list 回 {symbol, period, count, items}, 取 items
+    kres = xueqiu.kline_list(symbol, period="day", count=60)
+    kline_items = (kres.get('items') if isinstance(kres, dict) else kres) or []
     if len(kline_items) < 30:
         return {"code": code, "name": name_str, "error": "K 线不足 30 日"}
 

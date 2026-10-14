@@ -187,13 +187,17 @@ class SinaSource(SourceBase):
 
     def sina_kline_min(self, symbol: str = "sh600519",
                        scale: int = 5, ma: str = "no",
-                       count: int = -1) -> dict:
+                       count: int = 320) -> dict:
         """新浪 K 线全粒度 (CN_MarketData.getKLineData, 真替身)
 
         走 money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData
               + 必须传 scale (5/15/30/60/240/1200分钟) 和 ma (no/ma5/ma10/ma20/ma30/vol/macd/kdj/boll/rsi)
 
         已验证: sh600519 / sz000001 / sh688825 / sh000001 / sz399001 全部 5-1200 分钟全粒度真通
+
+        count 默认 320 根 (≈ 一周 5 分钟线)。原先默认 -1 会拉全部历史
+        (~10000 根, 660KB JSON) —— CLI 一次性吐给 Agent 直接爆上下文;
+        要全历史显式传 count=-1。
 
         symbol 格式:
           A 股: sh600519, sz000001
