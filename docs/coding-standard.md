@@ -11,7 +11,7 @@ webtool/
   cli/          L4 应用编排   app / config / plugins / sitesearch / zen / zenproto
                                mcp (通用 MCP 客户端)
   feeds/        L3 业务流程   command / sources / parse / fetch / cards / feedhealth
-  stock/        L3 业务流程   engine (桥 engine 脚本层) / srv (多源编排)
+  stock/        L3 业务流程   engine (业务脚本层) / bridge (数据源层 + 多源编排)
                                command (动作分发 + 渲染)
   radar/        L3 业务流程   routes / rules / instances / official / template
                                            / race / instances_cfg
@@ -56,8 +56,7 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 ## 输出格式（`-f`）
 
 规范名只有 3 个，别名 `md`=markdown、`txt`=text，`render/output.py:FORMATS` 是单一事实来源。
-（曾加过 csv，因 CSV 公式注入风险与字段转义复杂度撤除——抓来的字段是不可信文本，
-导出表格必然引出「是否要防注入」的长期负担，而实际用途以 json 为主。）
+不提供 csv：抓来的字段是不可信文本，导出表格要背公式注入的负担。
 
 | 格式 | search | site | rank | feed | fetch | zen | stock | engines/plugins/cache/config |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
@@ -73,7 +72,7 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 约定：
 
 - **默认 txt**（`_run` 的 `fmt_default='text'`）：命令的主要消费者是人，直接可读。
-  要给程序/Agent 消费时显式 `-f json`。原先默认 json（fetch 除外）
+  要给程序/Agent 消费时显式 `-f json`
 - **非法值直接退出码 2**，不静默回落 text（`cli/app.py::_norm_fmt`）。回落会让 Agent
   拿到人类可读文本却毫无提示，解析阶段才炸
 - 数据命令自己按 `args.format` 渲染（`render.render` / `render.hotrender` /
@@ -87,13 +86,8 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   **`engines` 恒为数组**（单引擎命中也是 `["sogou"]` 而非 `"sogou"`）—— 形状一致，
   消费方不用写 `isinstance` 分支；数组长度就是交叉验证数。`engine` 单数字段不外泄。
 
-  曾实现过 `merge(slim=True)` + 输出前再剥一层的设计，已撤除 —— 那等于让数据先
-  长出多余字段再当场删掉，多余的参数和两次遍历都是纯负担，且派生 bug（剥字段
-  与诊断逻辑的执行顺序耦合）。
-
-  `text`/`markdown` 同口径：md 不再显示 `✕N` 与 `⚠poor`（引擎名列出几个就是几个，
-  权重低自然看得出差）。顶层 `quality_hint` 已随 7b2feca 一并移除（判定信息改由
-  `weight` / `engines` / `dropped_by_floor` 承载），文档里别再提。
+  `text`/`markdown` 同口径：md 不显示 `✕N` 与 `⚠poor`（引擎名列出几个就是几个，
+  权重低自然看得出差）。顶层判定信息由 `weight` / `engines` / `dropped_by_floor` 承载。
 
 ## 2. 导入
 
@@ -110,9 +104,9 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   是纯数据没有 module/params 可执行字段，注册表那套 fn 解析用不上；同文件意味着用户覆盖
   `plugins.json` 时引擎与预设一起生效。优先级 `--engine` > `--preset` > `config.default_engines` >
   清单默认开启项；未知 preset 退 2 不静默回退（静默回退会让用户以为跑了 A 组其实跑了默认组）
- - 新增搜索引擎的门槛：必须**免 key**、**HTTP 直连**、**HTML 里能拿到真实 URL**。实测 perplexity /
-  metaso 是 SPA（要浏览器渲染）、duckduckgo 直连 DNS 污染且代理返回反爬挑战页、brave 直连 DNS 污染
-  且代理 429 —— 这类都接不进来，别浪费一轮去试
+ - 新增搜索引擎的门槛：必须**免 key**、**HTTP 直连**、**HTML 里能拿到真实 URL**。
+  perplexity / metaso 是 SPA（要浏览器渲染），duckduckgo / brave 直连 DNS 污染且代理
+  返回反爬挑战页或 429 —— 这类接不进来，别浪费一轮去试
  - 改引擎解析后验证必须带 `--no-cache`（搜索结果默认缓存 30s，会让你以为改动没生效）  - 运行时调参（开关联动多模块）→ `webtool config set`（白名单在 `cli/config.py`）
 - 新增"看起来该配置化"的东西前先问：它是数据吗？改它需要重跑算法基准吗？数据才进 JSON
 - 模块级**禁止缓存插件表/配置快照**——一律调用点现取（`_plugin_table(kind)` / `config_data.load`），这是热更新名实相符的前提
@@ -150,10 +144,8 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   （无 key 的端点只能按公开文档推定 —— 这种代码要明说"未实测"，别让人误以为已验证）。
   入参形状同样按端点不同，见 `_reader_arg`
 - **端点表 `data/mcp.json` 不声明线路**，所有端点统一跟随 `proxy` 配置 + 路由表
-  （`auto` → 规则表 → 全局代理/直连）。曾给 exa 写死 `"proxy":"direct"`、引擎侧再
-  强制 `proxy=None`：免 key 配额按出口 IP 计，走全局代理等于用别人的配额池（实测带代理
-  必 429、直连稳定通过）—— 但这是**端点特性，不是替用户做决定**，写进数据表等于所有用户
-  的 exa 都被强制直连，而被墙的端点照样接不上。要走直连就加一条针对它域名的规则：
+  （`auto` → 规则表 → 全局代理/直连）。免 key 配额按出口 IP 计，走全局代理等于蹭别人
+  的配额池，要固定某端点直连就加一条针对它域名的规则：
   `webtool proxy rule add '{"domain":["exa.ai"]}' direct`
 - **`plugins.json` 里没有任何线路字段**：`site.*.proxy`、`engine.*.params.proxy_hint` 都已删除。
   引擎和内置站点一律把线路交给规则表。自定义站点 `~/.webtool/sites/*.json` 的 `proxy` 是
@@ -186,20 +178,20 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   feeds.fetch / hotsites / moresites / moresites2 / oversites），暂留私有名；
   真要复用得按规范去掉 `_` 并下沉到 `core` 或 `engines/base.py`
 - **`stock/` 是桥接层，不实现业务逻辑，且全链路纯进程内**。三侧口径都归各自维护方：
-  - **第四侧 `eco.py`** 桥生态库：**akshare 1099 / tushare 124 / baostock 29 / efinance**
-  （返回 DataFrame）。覆盖 `API调研/函数.json` 记录的 akshare 生态，含宏观、另类数据、
-  期货、基金、外汇等 api_client 完全没有的领域。`webtool stock eco <接口>` 调，
-  默认给 shape + 列名 + 前 5 行 —— akshare 很多接口返回几千行（`stock_zh_a_spot_em`
-  全市场快照 5923×23，实测 **76 秒**），直接印会刷屏，`--full` 才给全量。
-  `eco-search` 按中英文关键词搜（中文能命中是因为 akshare 很多接口文档首行写了中文）
+  - **第四侧 `eco.py`** 桥生态库：**akshare 1093 / tushare 122 / baostock 29 / efinance 55**
+  （返回 DataFrame），覆盖数据源层没有的领域（宏观、另类数据、期货、基金、外汇）。
+  `webtool stock eco --lib <库> --method <接口>` 调，默认给 shape + 列名 + 前 5 行，
+  `--full` 才给全量 —— akshare 不少接口返回几千行（`stock_zh_a_spot_em` 全市场快照
+  5923×23，约 76 秒），直接印会刷屏。
+  `eco-search` 按中英文关键词搜（中文能命中是因为 akshare 不少接口文档首行写了中文）
 - **生态库的数据列里常有 `datetime.date` / numpy 标量**，不是 JSON 原生类型。
   渲染层一律走 `command.py::_j` 兜底序列化 —— 直接 `json.dumps` 会 TypeError
   **崩在渲染层**，而那时数据其实已经取到了，白跑一次网络请求
 - **第三侧 `rawapi.py`** 桥 `bridge/sources/`（随仓内置）的
-    **153 个低阶方法**，按数据源分包：ths/sina/xueqiu/em/gtimg/tencent/
-    cninfo/sse/csindex/ef。编排层只把其中 56 个聚合成 24 个动作，
-    另外 95 个（股东研究/盈利预测/研报日历/早盘晚报/板块多维排行/分钟线/产业链分类）
-    从 `webtool stock api <方法>` 直接调
+    **156 个低阶方法**（`webtool stock data list api` 出清单），按数据源分包：
+    ths/sina/xueqiu/em/gtimg/tencent/cninfo/sse/csindex/ef/np。编排层把其中一部分
+    聚合成 24 个动作，其余（股东研究/盈利预测/研报日历/早盘晚报/板块多维排行/分钟线/
+    产业链分类 等）从 `webtool stock api <方法>` 直接调
   - `rawapi.call` **按签名校验参数**：多传参数直接报错而不是吞掉 —— 静默丢弃参数
     等于让调用方以为生效了，实际跑的是默认值
 - **全部依赖都在 `webtool.stock` 包内**（`bridge/sources/` 数据源、
@@ -229,7 +221,7 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
     `data/**` 够不到 `stock/` 下的子目录。这个坑只在查 wheel 内容时才暴露，
     源码树里跑永远是好的
   **全程不起子进程、不经协议**：
-  - 服务端 `TOOLS` 注册表每项自带 `handler` 函数 —— `stock/srv.py` 直接调 handler，
+  - 服务端 `TOOLS` 注册表每项自带 `handler` 函数 —— `bridge/srv.py` 直接调 handler，
     拿到的是工具自己的 dict，**没有 content 信封的序列化往返**（`_call_tool` 那条路
     会把结果 dumps 成字符串再塞进 MCP content 再被解析回来，多一轮序列化 + 解析）
   - `engine/clients.mcp()` 是**进程内直调** `bridge/srv.py`（→ `orchestrate.py`），
@@ -273,3 +265,14 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   json 保持原样 —— 程序消费方可能自己要那份 html，不该由渲染层替它决定丢弃
 - 打包数据在包根 `src/webtool/data/`（不在 `core/` 下），`core.config_data.DATA_DIR`
   指向它；`pyproject` 的 `package-data` 按此配
+
+## 7. 注释与文档纪律
+
+- 注释只写两类：**为什么这么做**（约束、坑、不直观的取舍）与**外部协议事实**（上游字段形状、必须带的头、限速）。代码本身在做什么，不写
+- 不写沿革：不出现「以前 / 原本 / 曾 / 已撤除 / 不再 / 改成 / 替换成」，也不写 bug 复盘与实测过程 —— 那些属于 git log 与提交信息
+- 不写自辩：不铺开论证「为什么不选另一种做法」；一句结论，完整理由放本文件的取舍清单，代码里只留指针
+- 不写没验证过的事实。上游形状、限速、配额必须来自实际调用或官方文档；推定的一律标注「未实测」
+- 会变的数字（接口数、方法数、限额）要么从常量/数据文件取，要么别写具体值，改成指向查询命令
+- 万能注释与装饰性分隔线一律删（`# ---------- 动作表 ----------` 这类分区线不承载信息）
+- docstring 首行一句话说清「这是什么」，参数复杂才展开；不留空话（如"统一入口"「方便调用」）
+- README / docs 同标准：只写当前行为与用法，改完核对与代码一致（命令名、选项、数字）
