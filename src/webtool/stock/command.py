@@ -745,24 +745,30 @@ def _act_data(args, cfg):
 
 
 def _data_nav():
-    h = _eco.health()
-    eco_n = sum(h.get(l, {}).get('funcs', 0)
-                for l in ('akshare', 'tushare', 'baostock', 'efinance'))
+    """data 主动作: 域总览导航 (与 data list 无参同源, 差集兜底防重计)"""
     eco_fs = _eco.funcs('akshare')
-    domains = {dom: {'desc': desc,
-                     'eco': len([f for f in eco_fs if re.search(pat, f)])}
-               for dom, (desc, _c, pat) in _DATA_DOMAINS.items()}
+    claimed = set()
+    domains = {}
+    for dom, (desc, _c, pat) in _DATA_DOMAINS.items():
+        if dom == '其他':
+            eco_n = len(eco_fs) - len(claimed)
+        else:
+            hit = set(f for f in eco_fs if re.search(pat, f))
+            claimed |= hit
+            eco_n = len(hit)
+        domains[dom] = {'desc': desc, 'eco': eco_n}
     return {
         'usage': {
-            'data <域> [find|call|url] ...': '按功能域取数, 12 个域见 domains',
+            'data list': '域总览 (每域接口数)',
+            'data list <域>': '域内明细 (api 分类 + eco 接口 + em 配方)',
+            'data <域> find <关键词>': '域内搜, 例: data 行情 find 茅台',
             'data find <关键词>': '跨域一次搜 eco/api/em/docs',
             'data call <名称>': '按名调 (em 配方 → api 方法 → eco 接口)',
             'data url <URL>': '裸 HTTP 直调, 反爬已内置',
-            'data list [域|api|eco|em]': '域清单或层清单',
             'data health': '数据面体检',
         },
         'domains': domains,
-        'counts': {'eco_akshare': eco_n, 'api': len(_raw.methods())},
+        'counts': {'eco_akshare': len(eco_fs), 'api': len(_raw.methods())},
         'note': '不知道接口叫什么 → data <域> 或 data find; '
                 '知道名字 → data call; 都封装不了 → data url',
     }
