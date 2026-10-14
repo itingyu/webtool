@@ -382,39 +382,63 @@ print('\n=== 13. cffi 主通道必须真跑 (不带 engine 的调用) ===')
 # cffi 一次没真跑, 全部静默落到 urllib。症状极隐蔽: 结果照样对, 只是指纹
 # 和代理错误信息全失真, 只有真正依赖浏览器指纹的站才会挂。
 import curl_cffi.requests as _cr                    # noqa: E402
+import inspect as _ins                              # noqa: E402
 _seen = {}
-_real_get = _cr.get
+_real_sess, _real_get = _cr.Session, _cr.get
+# 真库在**请求级**只认 Session.request 的这些参数。桩必须同样挑参数 ——
+# 曾经这里的 _fake_get(url, **kw) 什么 kwargs 都收, 于是给模块级 cr.get()
+# 传它不接受的 trust_env=False 时照样"通过", 而线上是当场 TypeError +
+# 静默回退 urllib (cffi 通道一次没真跑过), 指纹全丢。比真库宽松的桩 =
+# 假保证。
+_legal = set(_ins.signature(_real_sess.request).parameters) - {'self'}
 
 
-def _fake_get(url, **kw):
-    _seen.update(kw)
-    _seen['url'] = url
-    return type('R', (), {'content': b'<html>ok</html>',
-                          'headers': {'Content-Type': 'text/html'},
-                          'status_code': 200})()
+class _FakeSess:
+    def __init__(self, **kw):
+        _seen.clear()
+        _seen['ctor'] = kw
+
+    def get(self, url, **kw):
+        bad = set(kw) - _legal
+        if bad:
+            raise TypeError('Session.request() got an unexpected keyword '
+                            'argument %r' % sorted(bad)[0])
+        _seen.update(kw)
+        _seen['url'] = url
+        return type('R', (), {'content': b'<html>ok</html>',
+                              'headers': {'Content-Type': 'text/html'},
+                              'status_code': 200})()
 
 
-_cr.get = _fake_get
+def _forbidden_get(*a, **k):
+    raise AssertionError('netx 不该用模块级 curl_cffi.requests.get: '
+                         '它不接受 trust_env, 必须走 Session(trust_env=False)')
+
+
+_cr.Session, _cr.get = _FakeSess, _forbidden_get
 try:
     text, status = netx.get('https://example.com/x', proxy='direct')
     check(status == 200 and 'ok' in text,
           '不带 engine 的 netx.get 走的是 cffi (没落 urllib)', f'status={status}')
-    check(_seen.get('impersonate'),
+    check((_seen.get('ctor') or {}).get('trust_env') is False,
+          'cffi 会话在会话级关掉 trust_env', str(_seen.get('ctor')))
+    check(bool(_seen.get('impersonate')),
           'cffi 请求带了 impersonate 指纹', str(_seen.get('impersonate')))
     check('proxy' not in _seen,
           "proxy='direct' 时不给 cffi 传 proxy 参数 (否则强制挂代理)")
-    _seen.clear()
+    check(not (set(_seen) - _legal - {'ctor'}),
+          'cffi 请求用的都是真库认的参数',
+          str(sorted(set(_seen) - _legal - {'ctor'})))
     text, status = netx.get('https://example.com/y',
                             proxy='http://u:p@1.2.3.4:8080')
     check(_seen.get('proxy') == 'http://u:p@1.2.3.4:8080',
           '显式代理原样传给 cffi', str(_seen.get('proxy')))
-    _seen.clear()
     text, status = netx.get('https://example.com/z',
                             proxy='http://1.2.3.4:8080', engine='bing')
-    check(_seen.get('impersonate'),
+    check(bool(_seen.get('impersonate')),
           '带 engine 时也用对应指纹档案', str(_seen.get('impersonate')))
 finally:
-    _cr.get = _real_get
+    _cr.Session, _cr.get = _real_sess, _real_get
 
 print('\n=== 14. curl_cffi 会话必须认 proxy 的四种形态 ===')
 # 回归: _new_session 曾把 proxy 原样塞给 curl_cffi, 而 search 管线传的正是

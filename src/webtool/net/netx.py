@@ -162,10 +162,26 @@ def verify_arg(ver):
     return ver is not False
 
 
+def _new_cffi_session():
+    """每次请求新建 curl_cffi 会话 (trust_env=False, 线路只认配置文件)
+
+    trust_env 只能在**会话级**设: 模块级 `cr.get()` / `Session.get()` 都不
+    接受这个参数, 传了当场 TypeError, 而调用方又会静默回退 urllib —— 指纹
+    和线路一起失真, 症状是"结果照样对, 反爬照挡"。同一类坑这是第二次:
+    上一次是 `import transport as _t` 写在 `if engine:` 分支里, 不带 engine
+    的调用全落 urllib。
+
+    每次新建而不复用: 复用会把 cookie 顺手带到后续请求上 (会话级 jar),
+    与 transport 的做法也不一致。反复建会话要付握手成本, 但行为可预期。
+    """
+    from curl_cffi import requests as cr
+    return cr.Session(trust_env=False)
+
+
 def _get_cffi(url, *, proxy, timeout, headers, ver, engine, max_bytes,
               kind, referer):
     try:
-        from curl_cffi import requests as cr
+        sess = _new_cffi_session()
     except ImportError as e:
         raise NetError(f'curl_cffi 不可用: {e}') from e
     h = default_headers(url, headers, kind, referer)
@@ -181,8 +197,8 @@ def _get_cffi(url, *, proxy, timeout, headers, ver, engine, max_bytes,
     import webtool.net.transport as _t
     prof = _t.PROFILES[_t._pick_profile(engine)]
     try:
-        r = cr.get(url, headers=h, timeout=timeout,
-                   impersonate=prof['impersonate'], trust_env=False, **kw)
+        r = sess.get(url, headers=h, timeout=timeout,
+                     impersonate=prof['impersonate'], **kw)
     except Exception as e:
         if tls.is_tls_error(e):
             raise tls.TlsError(_tls_msg(url, e)) from e
