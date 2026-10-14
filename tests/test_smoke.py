@@ -945,6 +945,54 @@ _fm = '---\ntitle: X\nurl: http://x\n---\n# 正文标题\n\n内容。'
 check(_tx.md_to_text(_fm) == '---\ntitle: X\nurl: http://x\n---\n正文标题\n\n内容。',
       'YAML 元数据头原样保留 (含 --- 分隔线)')
 
+# --raw 的产出在 'html' 键上, 各格式都得认得 (以前只有 json 分支认, 默认 md/txt
+# 打出个空行还退出码 0)
+import io as _io
+import contextlib as _ctx
+from webtool.net import fetch as _ft
+
+
+class _A:
+    format = 'md'
+    raw = True
+
+
+_a = _A()
+_buf = _io.StringIO()
+with _ctx.redirect_stdout(_buf):
+    _ft._emit({'url': 'u', 'status': 200, 'via': 'local', 'took_ms': 1,
+               'html': '<html>x</html>'}, _a, True)
+check('<html>x</html>' in _buf.getvalue(), '--raw 在默认 (md) 格式下真的输出 HTML')
+
+_a.format = 'text'
+_buf = _io.StringIO()
+with _ctx.redirect_stdout(_buf):
+    _ft._emit({'url': 'u', 'status': 200, 'via': 'local', 'took_ms': 1,
+               'html': '<html>x</html>'}, _a, True)
+check('<html>x</html>' in _buf.getvalue(), '--raw 在 txt 格式下也输出 HTML (不抹标签)')
+
+_a.format = 'json'
+_buf = _io.StringIO()
+with _ctx.redirect_stdout(_buf):
+    _ft._emit({'url': 'u', 'status': 200, 'via': 'local', 'took_ms': 1,
+               'html': '<html>x</html>'}, _a, True)
+check('"html"' in _buf.getvalue(), '--raw 在 json 格式下带 html 字段')
+
+# 非 raw 路径不受影响
+_a.raw = False
+_a.format = 'md'
+_buf = _io.StringIO()
+with _ctx.redirect_stdout(_buf):
+    _ft._emit({'url': 'u', 'content': '## 标题\n\n正文。', 'chars': 6,
+               'cache': 'miss'}, _a, True)
+check('## 标题' in _buf.getvalue(), 'md 格式保留 markdown')
+_a.format = 'text'
+_buf = _io.StringIO()
+with _ctx.redirect_stdout(_buf):
+    _ft._emit({'url': 'u', 'content': '## 标题\n\n正文。', 'chars': 6,
+               'cache': 'miss'}, _a, True)
+check('##' not in _buf.getvalue() and '标题' in _buf.getvalue(), 'txt 格式抹掉标记')
+
 if fails:
     sys.exit(1)
 print('ALL PASS')

@@ -54,7 +54,7 @@ def do_fetch(args, cfg):
             return _fetch_via_mcp(u, args, cfg, via, timeout, proxy=proxy)
         local = _fetch_one(u, args, cfg, proxy, timeout, extract_mode)
         # auto: 仅在本地链明确搞不定时才花配额, 不做启发式猜测
-        if via == 'auto' and _needs_reader(local):
+        if via == 'auto' and not getattr(args, 'raw', False) and _needs_reader(local):
             for ch in _MCP_CHANNELS:
                 if ch == 'auto':
                     continue
@@ -353,11 +353,14 @@ def _emit(r, args, single):
         return
     if args.format == 'json':
         print(json.dumps(r, ensure_ascii=False, indent=1))
-    elif args.format == 'text':
+        return
+    # --raw 的产出放在 'html' 而不是 'content' —— 以前只在 json 分支认它, 于是
+    # `fetch --raw` (默认 md/txt) 打出个空行还退出码 0: 说好的原始 HTML 一个字没有。
+    body = r['html'] if 'html' in r else r.get('content', '')
+    if args.format == 'text' and 'html' not in r:
         # 只抹 [文字](url) 是不够的: `## 标题` `**重点**` `| 表格 |` 会原样留下,
         # 说好的纯文本到手还是 markdown。走 core.text.md_to_text 统一处理。
-        print(text.md_to_text(r.get('content', '')))
-    else:  # markdown
-        print(r.get('content', ''))
-        if not single:
-            print(f'\n---\nsource: {r["url"]} ({r.get("chars", 0)} chars, {r.get("cache", "?")})')
+        body = text.md_to_text(body)
+    print(body)
+    if args.format != 'text' and not single and 'html' not in r:
+        print(f'\n---\nsource: {r["url"]} ({r.get("chars", 0)} chars, {r.get("cache", "?")})')

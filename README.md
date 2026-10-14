@@ -159,7 +159,10 @@ webtool upgrade                                 # 升级到最新 (pip 走 rules
   1% 但在长文合集页会丢掉六成正文，trafilatura 反过来（中位 6%，门户页带一堆推广块），
   boilerplate 是纯标准库兜底、最保守。指定后没产出会自动退回 `auto`，不交白卷
 - 按 UA 分流的站点：`--profile chrome131_android` 切移动指纹重试
-- `--url-file` 批量；`--raw`；`--with-metadata`
+- `--url-file` 批量；`--with-metadata`
+- `--raw` 直接吐原始 HTML（跳过缓存与正文提取；也不会因为"正文薄"升级远程 reader
+  —— 你要的就是这页的 HTML）。任何 `-f` 下都给 HTML，只有 `-f json` 是包在
+  `{"url":…,"html":…}` 里
 - `--via <通道>` 选取正文的来源：
   | 通道 | 行为 |
   |---|---|
