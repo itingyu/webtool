@@ -27,9 +27,8 @@ webtool/
                 通用工具类     text / urls / jsonfmt
 ```
 
-包根只留 `__init__.py`——2026-10-12 起不再允许新的包根单文件模块（原
-`zen/zenproto/sitesearch/fetch/blocklist/adfilter/query_ops/extractors/customsites/feedhealth`
-已按层归位）。
+包根只留 `__init__.py`——不允许新的包根单文件模块，模块按层归位
+（CLI 层 `cli/`、抓取层 `pipeline/`、渲染层 `render/`、网络层 `net/`）。
 
 `radar/` 与 `feeds/` 是"业务包"的样板：一个能力域一个包，`__init__` 只做再导出，
 对外仍可 `import webtool.radar`。拆包的切分原则是**按数据源/职责切，不按函数个数切**——
@@ -99,7 +98,7 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 ## 2. 导入
 
 - **一律绝对导入**：`from webtool.core.config_data import load`；禁止 `from .x` / `from ..x`
-  （历史 116 处已于 2026-10 全量迁移，rg 检查：`rg "from \.|from \.\." src/` 应无输出）
+  （检查：`rg "from \.|from \.\." src/` 应无输出）
 - import 顺序：标准库 → 三方 → webtool，组间空行
 - 循环依赖靠"函数内延迟 import"打破只允许出现在真实循环场景，且写一行注释说明原因；能靠分层消除的不用这招
 
@@ -160,24 +159,26 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   和路由表）；`proxy_hint` 只保留 `'required'`（该引擎直连必然不通，代理不可用时跳过），
   `None` = 跟随路由表。自定义站点 `~/.webtool/sites/*.json` 的 `proxy` 是**用户配置**，
   继续有效
-- **线路只由配置决定，不做隐式切换**（`netx.resolve_proxy` 是唯一归一点）。历史上的
-  "先直连、失败再代理"/"代理失败退直连"让同一次请求走哪条线取决于它先在哪失败，且后者
-  会毁掉只允许代理出网的目标。新写通道别加 `allow_fallback` 参数，也别在适配器里写死
-  `proxy=None` —— 那等于无视管线传入的代理
+- **线路只由配置决定，不做隐式切换**（`netx.resolve_proxy` 是唯一归一点）。"先直连、失败
+  再代理"这类回退会让同一次请求走哪条线取决于它先在哪失败，"代理失败退直连"更会毁掉只允许
+  代理出网的目标。写通道别加 `allow_fallback` 参数，也别在适配器里写死 `proxy=None` ——
+  那等于无视管线传入的代理
 - **环境变量不是线路决策源**。`http_proxy`/`https_proxy` 在容器里很常见，各库默认都会读它
   （urllib 的默认 `ProxyHandler`、requests 与 curl_cffi 的 `trust_env=True`）—— 于是规则表
   判定"直连"的主机被悄悄送去代理，用户改配置文件改不动。已经在三处堵死：`core.http.build_opener`
   直连时也传一个空 `ProxyHandler`（它顶掉默认那个，自身没有 `*_open` 方法，装代理和读环境变量
   都不发生）、`transport._new_session` 与 `netx._get_cffi` 传 `trust_env=False`、数据源层
   requests/curl_cffi 会话 `trust_env=False`。新写通道照此办理
-- **不在代码里写死线路名单**。`_DIRECT_SUFFIXES`（push2 直连名单，`STOCK_DIRECT_DOMAINS` 环境
-  变量）与 `STOCK_PROXY` 兜底都已删除：判断发生在问规则表之前，会把显式传入的代理静默吃掉，且
-  与规则表构成同一件事的第二个决策源。要固定某站走直连就写 `~/.webtool/rules.json` —— 那份文件
+- **不在代码里写死线路名单**（push2 直连名单、`STOCK_DIRECT_DOMAINS` / `STOCK_PROXY` 这类
+  环境变量兜底）：写在代码里的判断发生在问规则表之前，会把显式传入的代理静默吃掉，且与规则表
+  构成同一件事的第二个决策源。要固定某站走直连就写 `~/.webtool/rules.json` —— 那份文件
   用户看得见也改得动
 - **规则命中由 `rules.json` 顶层的 `priority` 决定**（默认 `direct`）：`direct` 时任一匹配的
-  direct 规则生效（block 优先于它），不受前面更宽的 proxy 规则阻挡；`order` 是老的
+  direct 规则生效（block 优先于它），不受前面更宽的 proxy 规则阻挡；`order` 表示按文件顺序
   first-match-wins
-- **管理命令返回 rc!=0 时，`cli.app._run` 会丢弃 stdout 缓冲**（只保留退出码）。`plugins check` 失败即看不到内容，是既有问题。`cli/mcp.py` 因此把失败输出走 stderr —— 新写管理命令若有"失败也要给信息"的需求，同样走 stderr
+- **管理命令的退出码与输出是两件事**：rc!=0 时 `cli.app._run` 照样把已打出的报告发出去
+  （`upgrade --check` 有新版就退 1，报告照给），退出码只表达"有没有可用结果"。要机器读就配
+  `-f json`；要"失败也带信息"就直接打印或走 stderr
 - `engines/sites.py` 的 `_mk/_fetch/_headers` 被 6 个模块跨文件复用（customsites / sitesearch /
   feeds.fetch / hotsites / moresites / moresites2 / oversites），暂留私有名；
   真要复用得按规范去掉 `_` 并下沉到 `core` 或 `engines/base.py`
@@ -204,19 +205,18 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   `webtool.stock.engine.<name>`。装包即用，无需额外安装
   - 目录名必须是合法标识符（带连字符的名字当不了包名），业务脚本层因此叫 `engine/`。
     文档与自测脚本不进包：包内只放能跑的业务代码，副本留外面那份
-  - **engine 不出网**：取数一律经 `bridge/sources/`。`engine/clients.py` 与
-    `engine/short_tool.py` 早期自带的 urllib 端点（腾讯行情、东财涨停池）已
-    并进 `sources/sina.py`（`gtimg_quote_flat`）与 `sources/em.py`（`em_zt_pool`），
-    `bridge/_stockmaster_net.py` 随之删除 —— 少一个出网出口就少一处能绕过规则表的地方
+  - **engine 不出网**：取数一律经 `bridge/sources/`（腾讯行情、东财涨停池的端点在
+    `sources/sina.py` 的 `gtimg_quote_flat` 与 `sources/em.py` 的 `em_zt_pool`）。engine
+    自己起 urllib 出口不放行 —— 少一个出网出口就少一处能绕过规则表的地方
   - **不要用 `sys.path.insert` + `importlib` 接内部依赖**。sys.path 是全局可变状态，
-    谁先 import 谁改变后续所有 import 的结果。早期 `rawapi` 与那份独立服务端各插
-    一个目录，同名模块 `api_client` 真的加载了两份，两套 `lru_cache`(token/session)，
-    数据状态不共享 —— 包内 import 从结构上消除这个歧义
+    谁先 import 谁改变后续所有 import 的结果：两个目录各插一次，同名模块会被加载成两份，
+    各带一套 `lru_cache`(token/session)，数据状态互不相通 —— 包内 import 从结构上消除
+    这个歧义
     （测试断言：导入依赖全程 `sys.path` 不变，且顶层 `'api_client'` 从未进
     `sys.modules`）
-  - **不要留外部覆盖路径**。曾经有过 `STOCK_API_HOME` / `STOCK_MASTER_HOME` /
-    `STOCK_MCP_HOME` 三个环境变量从仓外目录加载，已删。理由不是"不支持换版本"，
-    而是覆盖路径加载出的模块与包内那份是**两个模块对象**：同一个进程里两份
+  - **不要留外部覆盖路径**（`STOCK_API_HOME` / `STOCK_MASTER_HOME` / `STOCK_MCP_HOME`
+    这类从仓外目录加载的环境变量）：覆盖路径加载出的模块与包内那份是**两个模块对象**，
+    同一个进程里两份
     `APIClient` 各带一份 token/session 缓存，cookie 互相看不见，而"我配的到底是
     哪份"还取决于谁先 import。**要换版本就改包内那份**
   - `webtool stock health` 的 `orchestrator` 段 `found` 恒为真 —— 只有一种状态可报，

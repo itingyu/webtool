@@ -40,7 +40,7 @@ geoip = ["maxminddb>=2.4"]
 # 股票能力。requests 是 stock/http.py 的**顶层** import (雪球会话走它,
 # curl_cffi 过不了 hexin-v), 之前没声明 —— 装包后 `webtool stock` 直接
 # ImportError, 而 stock 是延迟导入所以其他命令照常, 很难第一时间联想到。
-# numpy / urllib3 / efinance 同理 (2026-10-15 依赖审计捞出来的):
+# numpy / urllib3 / efinance 同理 (审计扫出 src 真实 import 但没声明):
 #   numpy   — stock/engine/analysis/tech_indicators.py 顶层 import
 #   urllib3 — stock/bridge/sources/_adapter.py 的 Retry, 函数内 import 但无兜底
 #   efinance— stock/bridge/sources/ef.py 的东财源, try/except 守卫 (装了才启用)
