@@ -686,9 +686,11 @@ try:
     _c['proxy'] = 'http://127.0.0.1:9'
     _json.dump(_c, open(_cfgp, 'w'), ensure_ascii=False)
     _routing.reset_cache()
-    check(_routing.resolve('https://push2.eastmoney.com/') == 'http://127.0.0.1:9',
+    # push2/push2delay 在 _DIRECT_SUFFIXES 里强制直连, 不跟随代理配置 ——
+    # 这是设计行为 (代理出口对这些端点 502), 测试改用普通域名验证跟随
+    check(_routing.resolve('https://hq.sinajs.cn/') == 'http://127.0.0.1:9',
           '改配置 → resolve 立即跟随 (无硬编码代理)')
-    check(_NewClient(proxy='auto')._px('https://push2.eastmoney.com/')
+    check(_NewClient(proxy='auto')._px('https://hq.sinajs.cn/')
           == 'http://127.0.0.1:9', '改配置 → sources 会话跟随')
     check(_smn.get_opener('https://x.test/a') is not None, '改配置 → opener 可重建')
 except Exception as e:                                   # noqa: BLE001
