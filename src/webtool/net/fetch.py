@@ -359,8 +359,10 @@ def _emit(r, args, single):
     body = r['html'] if 'html' in r else r.get('content', '')
     if args.format == 'text' and 'html' not in r:
         # 只抹 [文字](url) 是不够的: `## 标题` `**重点**` `| 表格 |` 会原样留下,
-        # 说好的纯文本到手还是 markdown。走 core.text.md_to_text 统一处理。
-        body = text.md_to_text(body)
+        # 说好的纯文本到手还是 markdown。走 core.text.md_to_text 统一处理, 并且
+        # 连 YAML 元数据头一起去掉 —— 正文纯文本前面不该顶一段机器头, 要元数据
+        # 走 `-f json`。
+        body = text.md_to_text(body, keep_meta=False)
     print(body)
     if args.format != 'text' and not single and 'html' not in r:
         print(f'\n---\nsource: {r["url"]} ({r.get("chars", 0)} chars, {r.get("cache", "?")})')

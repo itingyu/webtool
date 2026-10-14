@@ -145,8 +145,9 @@ webtool upgrade                                 # 升级到最新 (pip 走 rules
 
 ### fetch
 - HTML → markdown/text/json/html；SPA 壳页收割内嵌 SSR state，拿不到时显式报错
-- `-f txt` 是真的纯文本：`##`、`**`、`` ` ``、`[文字](url)`、表格竖线、代码围栏都抹掉
-  （`core.text.md_to_text`），只保留正文与 YAML 元数据头；`-f md` 才给 markdown
+- `-f txt` 是真的纯文本：`##`、`**`、`` ` ``、`[文字](url)`、表格竖线、代码围栏、markdown
+  转义（`\*`）全抹掉（`core.text.md_to_text`），**YAML 元数据头也去掉** —— 纯文本正文
+  前面不该顶一段机器头，要元数据走 `-f json`；`-f md` 才给 markdown（含元数据头）
 - **正文提取是"同层择优"而不是"先到先得"**：内容层的 trafilatura / boilerplate
   （readability 算法的纯标准库版）/ readability 都跑一遍，按
   「碎片率 + 长度」选最干净的（`分 = 碎片率 + 0.25 × (1 − 本文长度/最长候选)`）。

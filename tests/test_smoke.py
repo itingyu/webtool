@@ -944,6 +944,13 @@ check(_tx.md_to_text('a*b*c 与 snake_case 与 *斜体*') == 'a*b*c 与 snake_ca
 _fm = '---\ntitle: X\nurl: http://x\n---\n# 正文标题\n\n内容。'
 check(_tx.md_to_text(_fm) == '---\ntitle: X\nurl: http://x\n---\n正文标题\n\n内容。',
       'YAML 元数据头原样保留 (含 --- 分隔线)')
+check(_tx.md_to_text(_fm, keep_meta=False) == '正文标题\n\n内容。',
+      'keep_meta=False: 连元数据头一起去掉 (-f txt 的用法)')
+check(_tx.md_to_text(r'合作（\[email protected\] 见 [文档](https://a.com/x)）。')
+      == '合作（[email protected] 见 文档）。',
+      '标签里转义方括号的链接也能抹 (不然 [..](..) 原样留下)')
+check(_tx.md_to_text(r'价格 \*literally\* 与 a*b*c') == '价格 *literally* 与 a*b*c',
+      '转义星号还原成字面星号, 不当强调吃')
 
 # --raw 的产出在 'html' 键上, 各格式都得认得 (以前只有 json 分支认, 默认 md/txt
 # 打出个空行还退出码 0)
@@ -992,6 +999,16 @@ with _ctx.redirect_stdout(_buf):
     _ft._emit({'url': 'u', 'content': '## 标题\n\n正文。', 'chars': 6,
                'cache': 'miss'}, _a, True)
 check('##' not in _buf.getvalue() and '标题' in _buf.getvalue(), 'txt 格式抹掉标记')
+
+# -f txt 的前面不该再顶一段机器头
+_a.format = 'text'
+_a.raw = False
+_buf = _io.StringIO()
+with _ctx.redirect_stdout(_buf):
+    _ft._emit({'url': 'u', 'content': _fm, 'chars': 30, 'cache': 'miss'}, _a, True)
+check('title:' not in _buf.getvalue() and '正文标题' in _buf.getvalue(),
+      '-f txt 输出不含 YAML 元数据头')
+
 
 if fails:
     sys.exit(1)
