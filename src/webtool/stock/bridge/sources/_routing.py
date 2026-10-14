@@ -29,10 +29,13 @@
 优先级从高到低:
 
 1. 构造参数 `APIClient(proxy=...)` —— 一次调用内所有域统一走这条
-2. `proxy=None` / `'direct'` —— 强制直连, 无视路由表
-3. `'auto'` (默认) —— 逐 URL 问 `~/.webtool/config.json` 的规则表
+2. `'direct'` —— 强制直连, 无视路由表 (只有显式要求才会出现)
+3. 未指定 / `'auto'` (默认) —— 逐 URL 问 `~/.webtool/config.json` 的规则表
 
-环境变量 `STOCK_PROXY` 作为 CLI 之外的兜底, 便于容器里临时指定。
+选线**只由 config.json + rules.json 决定**: 代码里不写死线路, 也不留环境变量旁路
+(曾经有过 STOCK_DIRECT_DOMAINS 直连名单和 STOCK_PROXY 兜底, 都是同一件事的第二个
+决策源 —— 它们会与配置文件打架, 且用户改配置改不动, 已删)。要临时直连用
+`webtool --no-proxy`。
 
 ## 默认 UA
 
@@ -41,23 +44,22 @@
 """
 from __future__ import annotations
 
-import os
 
 from webtool.net import netx
 from webtool.core import tls
 
 # 进程内缓存: 同一域名反复查表会重复读配置 + 解析规则
 _PROXY_CACHE: dict[str, str | None] = {}
-DEFAULT_PROXY = os.environ.get('STOCK_PROXY', 'auto')
 
-# 强制直连的域名后缀: 这些站对常见代理出口 IP 返回 502/000 (实测
-# push2.eastmoney.com 经 127.0.0.1:2080 全部 502, 直连 200; 同域名下
-# push2his/datacenter 走代理正常)。境内行情端点本就不需要代理。
-# 可用环境变量 STOCK_DIRECT_DOMAINS 追加, 逗号分隔后缀。
-_DIRECT_SUFFIXES = tuple(
-    s.strip().lower() for s in os.environ.get(
-        'STOCK_DIRECT_DOMAINS',
-        'push2.eastmoney.com,push2delay.eastmoney.com').split(',') if s.strip())
+# 这里曾经有一份硬编码的直连名单 (push2/push2delay.eastmoney.com, 可用
+# STOCK_DIRECT_DOMAINS 追加), 理由是这些端点在代理出口返回 502。已删除:
+#   1. 规则表本来就覆盖它们 (rules.json 首条 '*.cn' + eastmoney 全系 → direct),
+#      同一件事有两个决策源, 只会互相打架;
+#   2. 它的判断在**问规则表之前**, 于是 `APIClient(proxy=...)` 这类显式指
+#      定会被静默吃掉 —— 与本文档开头"构造参数优先级最高"自相矛盾;
+#   3. 哪天出口 IP 换了、这些端点又能走代理了, 名单就是条用户改不动的死
+#      规则。要固定某站走直连, 请写进 ~/.webtool/rules.json, 那份文件用户
+#      看得见也改得动。
 
 
 def resolve(url: str, override: str | None = None) -> str | None:
@@ -68,12 +70,10 @@ def resolve(url: str, override: str | None = None) -> str | None:
     所以缓存的是「域名 → 命中哪条命名代理」这一步之外的内容: 这里缓存最终
     结果, 由 `netx.resolve_proxy` 负责密码补全的时机。
     """
-    mode = DEFAULT_PROXY if override is None else override
-    if mode in (None, 'direct'):
+    mode = 'auto' if override is None else override     # 没表态就跟配置走
+    if mode == 'direct':
         return None
     host = url.split('/')[2].lower() if '://' in url else url.lower()
-    if host.endswith(_DIRECT_SUFFIXES):
-        return None
     if mode != 'auto':
         return netx.resolve_proxy(mode, url)
     if host not in _PROXY_CACHE:
@@ -120,6 +120,7 @@ class RoutedCffiSession:
 
     def __init__(self, *a, override=None, **kw):
         from curl_cffi import requests as cr
+        kw.setdefault('trust_env', False)   # 环境变量不参与选线
         self._s = cr.Session(*a, **kw)
         self._override = override
 

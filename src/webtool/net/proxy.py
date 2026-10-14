@@ -353,10 +353,47 @@ def _ruleadd(args, cfg):
     if act_v == 'proxy' and name and name not in (spec.get('proxies') or {}):
         print(f'注意: 命名代理 "{name}" 尚未在 proxies 里定义, '
               f'该规则会解析失败', file=sys.stderr)
-    spec.setdefault('rules', []).append({'match': m, 'action': act})
+
+    # 插入位置: 默认追加末尾; --first 插 [0]; --pos N 插第 N 位。
+    # 追加之所以危险, 是因为 first-match-wins 下前面的宽规则会把它整条吃掉,
+    # 所以下面还要跑一次覆盖试算, 被吃掉就直接说, 别等用户自己发现规则没用。
+    rules = spec.setdefault('rules', [])
+    first = bool(getattr(args, 'first', False))
+    pos = getattr(args, 'pos', None)
+    if first and pos is not None:
+        print('--first 与 --pos 只能给一个', file=sys.stderr)
+        return 2
+    if first:
+        at = 0
+    elif pos is None:
+        at = len(rules)
+    else:
+        try:
+            at = int(pos)
+        except (TypeError, ValueError):
+            print('--pos 要整数', file=sys.stderr)
+            return 2
+        if not 0 <= at <= len(rules):
+            print(f'--pos 越界 (0 ~ {len(rules)})', file=sys.stderr)
+            return 2
+
+    rules.insert(at, {'match': m, 'action': act})
     _save_rules(cfg, spec)
-    print(f'规则已加 (第 {len(spec["rules"]) - 1} 条): '
+    print(f'规则已加 (第 {at} 条): '
           f'{json.dumps(m, ensure_ascii=False)} ⇒ {act}')
+
+    # 覆盖试算: 插进去也可能永远不生效, 当场说清楚
+    if at > 0:
+        try:
+            router = R.Router(spec)
+            hit = R.shadow_check(router, m, act, at)
+        except Exception:                                # noqa: BLE001
+            hit = None
+        if hit:
+            print(f'⚠ 这条规则不会生效: 上面的规则[{hit[0]}] ({hit[1]}) '
+                  f'已经覆盖了同样的域名, {("priority=direct 下 direct 规则压过 proxy 规则" if router.priority != "order" else "顺序在前")}'
+                  f'。要它生效请用 --first 或 --pos 插到规则[{hit[0]}] 之前',
+                  file=sys.stderr)
     return 0
 
 

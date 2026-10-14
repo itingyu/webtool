@@ -182,7 +182,7 @@ def _get_cffi(url, *, proxy, timeout, headers, ver, engine, max_bytes,
     prof = _t.PROFILES[_t._pick_profile(engine)]
     try:
         r = cr.get(url, headers=h, timeout=timeout,
-                   impersonate=prof['impersonate'], **kw)
+                   impersonate=prof['impersonate'], trust_env=False, **kw)
     except Exception as e:
         if tls.is_tls_error(e):
             raise tls.TlsError(_tls_msg(url, e)) from e

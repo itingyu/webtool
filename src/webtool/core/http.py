@@ -60,6 +60,13 @@ def build_opener(proxy=None, cookie_jar=None, url=None, verify=None,
         else:
             handlers.append(urllib.request.ProxyHandler(
                 {'http': proxy, 'https': proxy}))
+    else:
+        # 直连也要传一个**空** ProxyHandler。build_opener 见到同类的处理器就
+        # 不加默认的那个, 而默认 ProxyHandler 会读 http_proxy/https_proxy ——
+        # 不给的话, 规则表判定直连的主机被环境变量悄悄送去代理, 配置文件说了
+        # 不算 (容器里 HTTPS_PROXY 是常见配置)。空字典自身没有 *_open 方法,
+        # 装代理和读环境变量两件事都因此不发生。
+        handlers.append(urllib.request.ProxyHandler({}))
     if cookie_jar is not None:
         handlers.append(urllib.request.HTTPCookieProcessor(cookie_jar))
     if ssl_context is None:

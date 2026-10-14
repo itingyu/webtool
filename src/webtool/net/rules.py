@@ -167,6 +167,99 @@ def _asn_match(asn, spec):
 
 # ---------------------------------------------------------------- DNS / GeoIP
 
+# ------------------------------------------------------- 新规则覆盖试算
+
+def _beats(a, b, priority):
+    """动作 a 的规则压得住动作 b 的规则吗（用于"新规则会不会被吃掉"试算）"""
+    if a == 'block':
+        return True                       # 显式拒绝最高优先, 直连也压得住
+    if b == 'block':
+        return False
+    if priority == 'order':
+        return True                       # 顺序机制下, 排在前面就赢
+    return a == 'direct' and b != 'direct'
+
+
+def shadow_check(router, match, action, index):
+    """新规则插到 `index` 后, 会不会被前面的规则**完全**吃掉
+
+    返回 (序号, 动作) 或 None。这是**试算不是证明**: 只对纯域名规则
+    (domain / domain_suffix) 生效, 拿每个后缀本身和一个二级探针域名去撞
+    前面的规则, 全部撞中才算覆盖。带 port/scheme/cidr 的规则一律不猜,
+    宁可不报也不误报。
+    """
+    if not match or set(match) - {'domain', 'domain_suffix'}:
+        return None
+    doms = []
+    for key in ('domain', 'domain_suffix'):
+        v = match.get(key)
+        doms += v if isinstance(v, list) else ([v] if v else [])
+    probes = []
+    for pat in doms:
+        base = str(pat).lower().strip().lstrip('.')
+        if base.startswith('*.'):
+            base = base[2:]
+        if not base:
+            return None
+        probes += [base, 'zz-probe.' + base]      # 后缀本体 + 一个子域
+    try:
+        verb, _ = resolve_action(action)
+    except RuleError:
+        return None
+    for i, r in enumerate(router.rules[:index]):
+        if not isinstance(r, dict):
+            continue
+        try:
+            act_i, _ = resolve_action(r.get('action'))
+        except RuleError:
+            continue
+        if not _beats(act_i, verb, router.priority):
+            continue
+        m = r.get('match') or {}
+        if all(router._match(m, h, None, 'https', _IPRef(h)) for h in probes):
+            return i, act_i
+    return None
+
+
+# ---------------------------------------------------------------- URL 解析
+
+_DEFAULT_PORTS = {'http': 80, 'https': 443, 'ws': 80, 'wss': 443}
+
+
+def _split_url(url):
+    """URL → (host, port, scheme)。解析不出来给 ('', None, 'http')
+
+    URL 不写端口时补上 scheme 的默认端口 (http 80 / https 443) —— 规则里写
+    `{"port": [443]}` 的本意就是"https 流量", 若 port 只认显式端口, 这条规则
+    对 `https://host/` 永远不生效, 且不报错, 是条查不出来的死规则。
+    """
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return '', None, 'http'
+    scheme = (parts.scheme or 'http').lower()
+    try:
+        port = parts.port
+    except ValueError:
+        port = None                      # 端口写了非数字, 当没写
+    if port is None:
+        port = _DEFAULT_PORTS.get(scheme)
+    return (parts.hostname or ''), port, scheme
+
+
+class _IPRef:
+    """惰性 DNS —— 只有真的用到 IP 类条件时才解析, 一次扫描内只解析一次"""
+
+    def __init__(self, host):
+        self.host, self._done, self._ip = host, False, None
+
+    def __call__(self):
+        if not self._done:
+            self._ip = resolve_ip(self.host)
+            self._done = True
+        return self._ip
+
+
 def resolve_ip(host, timeout=3.0):
     """域名 → IP (带进程内缓存)。已是 IP 直接返回。"""
     if not host:
@@ -272,6 +365,17 @@ class Router:
             self.default_action = 'proxy' if default_proxy else 'direct'
         self.default_proxy = default_proxy
         self.warnings = []      # 配置问题累积 (比如 geoip 库没配)
+        # 命中策略:
+        #   direct —— **direct 规则优先**: 任一条匹配规则是 direct 就用它, 不受前面
+        #             更宽的 proxy 规则阻挡; block 例外(deny > allow)
+        #   order  —— 老口径: 纯 first-match-wins, 文件里谁在前谁生效
+        # 写错的取值一律退回 direct 并告警, 不静默当 order —— 那等于用户
+        # 以为自己开了 direct 规则优先, 实际还是顺序优先, 排查毫无线索。
+        prio = str(spec.get('priority') or 'direct').lower()
+        if prio not in ('direct', 'order'):
+            self.warnings.append(f"priority 取值 '{prio}' 无效, 按 'direct' 处理")
+            prio = 'direct'
+        self.priority = prio
         for i, r in enumerate(self.rules):
             # 规则是用户手写的 JSON, 混进一个字符串/数字是完全正常的编辑事故。
             # 这里必须逐条跳过而不是让 r.get() 抛 AttributeError —— 后者会让
@@ -287,23 +391,53 @@ class Router:
                 self.warnings.append(f'rules[{i}] {e}')
 
     def rule(self, url):
-        """URL → (action, proxy_name, 命中的规则序号 或 None)"""
-        try:
-            parts = urlsplit(url)
-        except ValueError:
-            parts = None
-        scheme = (parts.scheme or 'http').lower() if parts else 'http'
-        host = (parts.hostname or '') if parts else ''
-        try:
-            port = parts.port if parts else None
-        except ValueError:
-            port = None
-        _ip = []                       # 惰性求值: 首个用到 IP 的规则才解析 DNS
+        """URL → (action, proxy_name, 命中的规则序号 或 None)
 
-        def ip_ref():
-            if not _ip:
-                _ip.append(resolve_ip(host))
-            return _ip[0]
+        命中策略见 `self.priority`（rules.json 顶层 `"priority"`）：
+        `direct` 时 direct 规则优先，前面的宽 proxy 规则压不过后面的 direct 规则。
+        """
+        host, port, scheme = _split_url(url)
+        ip_ref = _IPRef(host)
+        first = None                    # 第一条命中的 (priority=order 就用它)
+        direct = block = None           # 直连 / 拦截候选
+        for i, r in enumerate(self.rules):
+            if not isinstance(r, dict):
+                continue
+            m = r.get('match')
+            if not isinstance(m, dict) or not m:
+                continue
+            if not self._match(m, host, port, scheme, ip_ref):
+                continue
+            try:
+                act, name = resolve_action(r.get('action'))
+            except RuleError:
+                # 动作非法的规则在 __init__ 里已经警告过, 这里跳过继续往下
+                # 找。让它抛出去的话, 一条手写错的规则会让**所有**请求
+                # 全挂, 而不是"这一条没生效" —— 故障范围差着量级。
+                continue
+            if first is None:
+                first = (act, name, i)
+            if act == 'block':
+                block = (act, name, i)
+                break               # deny 最高优先, 后面不必再扫
+            if act == 'direct' and direct is None:
+                direct = (act, name, i)
+        if block:
+            return block
+        if direct and self.priority != 'order':
+            return direct
+        return first or (self.default_action, None, None)
+
+    def matched(self, url):
+        """所有命中规则 [(序号, 动作字符串)], 文件顺序。
+
+        给 `explain` 用: 只有把"匹配了但没生效"的也列出来, 用户才能看出
+        自己写的规则是被 direct 规则优先压掉了, 而不是没匹配上 —— 这两者
+        只报最终命中项时长得一模一样。
+        """
+        host, port, scheme = _split_url(url)
+        ip_ref = _IPRef(host)
+        out = []
         for i, r in enumerate(self.rules):
             if not isinstance(r, dict):
                 continue
@@ -311,15 +445,8 @@ class Router:
             if not isinstance(m, dict) or not m:
                 continue
             if self._match(m, host, port, scheme, ip_ref):
-                try:
-                    act, name = resolve_action(r.get('action'))
-                except RuleError:
-                    # 动作非法的规则在 __init__ 里已经警告过, 这里跳过继续往下
-                    # 找。让它抛出去的话, 一条手写错的规则会让**所有**请求
-                    # 全挂, 而不是"这一条没生效" —— 故障范围差着量级。
-                    continue
-                return act, name, i
-        return self.default_action, None, None
+                out.append((i, str(r.get('action'))))
+        return out
 
     def _match(self, m, host, port, scheme, ip_ref):
         """match 各条件 AND; 需要 IP 的条件惰性求值 (避免无谓 DNS)"""
@@ -404,14 +531,32 @@ class Router:
             target = self.default_proxy
         else:
             target = None
-        return {
+        out = {
             'url': url,
             'action': act,
             'proxy_name': name,
             'rule_index': idx,
             'rule': self.rules[idx] if idx is not None else None,
             'resolved_proxy': _mask(target),
+            'priority': self.priority,
         }
+        hits = self.matched(url)
+        if hits:
+            out['matched'] = [{'index': i, 'action': a, 'effective': i == idx}
+                              for i, a in hits]
+        # 有命中但没生效的 —— 要么被 direct 规则优先压掉, 要么被靠前的先吃掉。
+        # 不点出来的话, 用户看着跟自己写的规则"没匹配上"是一回事。
+        for i, a in hits:
+            if i == idx:
+                continue
+            if self.priority != 'order' and act == 'direct' and a.startswith('proxy'):
+                out['note'] = (f"规则[{i}] ({a}) 也匹配, 但规则[{idx}] 是 direct: "
+                               f"priority=direct 下 direct 规则压过 proxy 规则")
+            else:
+                out.setdefault('note', (f"规则[{i}] ({a}) 也匹配, 未生效: "
+                                        f"规则[{idx}] 在先 / 优先级更高"))
+            break
+        return out
 
 
 def _warn_once(warnings, key, msg):

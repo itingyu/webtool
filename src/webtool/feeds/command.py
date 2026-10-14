@@ -125,7 +125,7 @@ def do_feed(args, cfg):
                                         refresh=getattr(args, 'radar_refresh', False))
         except Exception as e:
             print(f'路由库载入失败: {str(e)[:200]}\n'
-                  f'  (docs.rsshub.app 直连超时, 需配代理: webtool proxy set http://127.0.0.1:2080)',
+                  '  (docs.rsshub.app 直连超时, 需配代理: webtool proxy set <代理地址>)',
                   file=sys.stderr)
             return 2
         if from_url:

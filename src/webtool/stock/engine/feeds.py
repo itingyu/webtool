@@ -196,6 +196,7 @@ def ths_industry_rows(limit=10):
         import requests as _rq
         from webtool.stock.bridge.sources import _routing
         s = _rq.Session()
+        s.trust_env = False               # 线路只由配置/规则表决定
         s.proxies = _routing.proxies_for('https://q.10jqka.com.cn/') or {}
         s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                           'Referer': 'https://q.10jqka.com.cn/',

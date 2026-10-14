@@ -84,6 +84,8 @@ class SourceBase:
         self._proxy = proxy
         self._std = requests.Session()
         self._std.proxies = {}            # 显式清空: 不继承环境变量
+        self._std.trust_env = False       # 光清 proxies 不够: trust_env 还会
+                                          # 把 http_proxy 合进来
         # 带路由的适配器: 每个请求按目标 URL 现算代理 (规则表说了算),
         # 内含 retry (解决间歇性 RemoteDisconnected)。61 个调用点零改动生效 ——
         # 逐个加 proxies= 漏一处就是一个源绕过规则表。

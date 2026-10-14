@@ -242,7 +242,10 @@ def _new_session(profile_name, proxy=None, engine=None, url=None):
         p = profile_name
     else:
         p = PROFILES[profile_name]
-    s = _cr.Session(impersonate=p['impersonate'], proxy=proxy or None)
+    # trust_env=False: curl_cffi 默认读 http_proxy/https_proxy, 于是'直连' 的主机
+    # 会被环境变量送去代理 —— 线路只认配置文件, 不信环境
+    s = _cr.Session(impersonate=p['impersonate'], proxy=proxy or None,
+                    trust_env=False)
     if engine:
         for c in state.load_cookies(engine):
             try:

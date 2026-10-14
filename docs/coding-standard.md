@@ -164,6 +164,19 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   "先直连、失败再代理"/"代理失败退直连"让同一次请求走哪条线取决于它先在哪失败，且后者
   会毁掉只允许代理出网的目标。新写通道别加 `allow_fallback` 参数，也别在适配器里写死
   `proxy=None` —— 那等于无视管线传入的代理
+- **环境变量不是线路决策源**。`http_proxy`/`https_proxy` 在容器里很常见，各库默认都会读它
+  （urllib 的默认 `ProxyHandler`、requests 与 curl_cffi 的 `trust_env=True`）—— 于是规则表
+  判定"直连"的主机被悄悄送去代理，用户改配置文件改不动。已经在三处堵死：`core.http.build_opener`
+  直连时也传一个空 `ProxyHandler`（它顶掉默认那个，自身没有 `*_open` 方法，装代理和读环境变量
+  都不发生）、`transport._new_session` 与 `netx._get_cffi` 传 `trust_env=False`、数据源层
+  requests/curl_cffi 会话 `trust_env=False`。新写通道照此办理
+- **不在代码里写死线路名单**。`_DIRECT_SUFFIXES`（push2 直连名单，`STOCK_DIRECT_DOMAINS` 环境
+  变量）与 `STOCK_PROXY` 兜底都已删除：判断发生在问规则表之前，会把显式传入的代理静默吃掉，且
+  与规则表构成同一件事的第二个决策源。要固定某站走直连就写 `~/.webtool/rules.json` —— 那份文件
+  用户看得见也改得动
+- **规则命中由 `rules.json` 顶层的 `priority` 决定**（默认 `direct`）：`direct` 时任一匹配的
+  direct 规则生效（block 优先于它），不受前面更宽的 proxy 规则阻挡；`order` 是老的
+  first-match-wins
 - **管理命令返回 rc!=0 时，`cli.app._run` 会丢弃 stdout 缓冲**（只保留退出码）。`plugins check` 失败即看不到内容，是既有问题。`cli/mcp.py` 因此把失败输出走 stderr —— 新写管理命令若有"失败也要给信息"的需求，同样走 stderr
 - `engines/sites.py` 的 `_mk/_fetch/_headers` 被 6 个模块跨文件复用（customsites / sitesearch /
   feeds.fetch / hotsites / moresites / moresites2 / oversites），暂留私有名；

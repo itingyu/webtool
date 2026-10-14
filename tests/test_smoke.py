@@ -669,6 +669,56 @@ check(_a._xueqiu_session().__class__.__name__ == 'RoutedCffiSession',
       'sources 的 curl_cffi 会话也走规则表')
 check(_NewClient(proxy='direct')._px('https://push2.eastmoney.com/') is None,
       'proxy=direct 强制直连 (显式优先于规则表)')
+# push2 的直连曾经写在一份硬编码名单里 (_DIRECT_SUFFIXES), 判断发生在问
+# 规则表**之前**, 于是显式传入的代理会被静默吃掉。名单已删, 现在只有规则表
+# 说话 —— 这两条断言就是防止有人再把名单加回来。
+check(not hasattr(_routing, '_DIRECT_SUFFIXES'),
+      '不再有硬编码直连名单 (push2 的直连由规则表决定)')
+check(not hasattr(_routing, 'DEFAULT_PROXY'),
+      '选线没有环境变量旁路 (STOCK_PROXY 已删, 只认 config.json + rules.json)')
+# 全仓扫一遍: 不许有任何模块拿环境变量决定线路
+import glob as _glob, re as _re
+_env_route = []
+for _f in _glob.glob('src/webtool/**/*.py', recursive=True):
+    for _i, _line in enumerate(open(_f, encoding='utf-8').read().splitlines(), 1):
+        if _re.search(r'environ|getenv', _line) and _re.search(r'PROXY', _line):
+            _env_route.append(f'{_f}:{_i}')
+check(not _env_route,
+      '没有模块用环境变量决定线路 (代理只由配置文件决定)'
+      + (f' — 命中 {_env_route[:5]}' if _env_route else ''))
+# 环境变量不是线路决策源。容器里常配 http_proxy/https_proxy, 一旦被各库的
+# 默认行为吃进去 (urllib 的默认 ProxyHandler / requests 与 curl_cffi 的
+# trust_env), 规则表判定的"直连"就名存实亡 —— 这里把环境变量设成死代理,
+# 验证每类会话都不认它。
+_env_bak = {_k: os.environ.get(_k)
+            for _k in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY')}
+try:
+    for _k in _env_bak:
+        os.environ[_k] = 'http://127.0.0.1:9'
+    import urllib.request as _urlreq
+    from webtool.core import http as _core_http
+    from webtool.net import transport as _transport
+    _op = _core_http.build_opener(None, url='https://example.com/')
+    check(not any(isinstance(h, _urlreq.ProxyHandler) and h.proxies
+                  for h in _op.handlers),
+          'urllib 直连时不读 http_proxy (空 ProxyHandler 顶掉默认处理器)')
+    _sess, _ = _transport._new_session('chrome131_win', proxy=None,
+                                       url='https://example.com/')
+    check(getattr(_sess, 'trust_env', True) is False,
+          'curl_cffi 会话 trust_env=False (不读环境变量)')
+    check(_NewClient()._std.trust_env is False,
+          '数据源 requests 会话 trust_env=False')
+    check(_routing.RoutedCffiSession()._s.trust_env is False,
+          '数据源 curl_cffi 会话 trust_env=False')
+finally:
+    for _k, _v in _env_bak.items():
+        if _v is None:
+            os.environ.pop(_k, None)
+        else:
+            os.environ[_k] = _v
+check(_routing.resolve('https://push2.eastmoney.com/api/qt/clist/get',
+                       'http://127.0.0.1:2080') == 'http://127.0.0.1:2080',
+      '显式构造参数代理不再被硬编码直连名单吃掉 (构造参数 > 规则表)')
 check(_econet.probe('akshare').get('routed') is True,
       'eco: akshare 走 requests → 规则表能管到')
 check(_econet.probe('baostock').get('routed') is False,
@@ -683,10 +733,9 @@ try:
     _c['proxy'] = 'http://127.0.0.1:9'
     _json.dump(_c, open(_cfgp, 'w'), ensure_ascii=False)
     _routing.reset_cache()
-    # push2/push2delay 在 _DIRECT_SUFFIXES 里强制直连, 不跟随代理配置 ——
-    # 这是设计行为 (代理出口对这些端点 502), 测试改用普通域名验证跟随。
-    # 注意: hq.sinajs.cn 会被用户 rules.json 的 '*.cn' → direct 命中,
-    # 所以用一个不在直连名单、也不被任何规则覆盖的假域名来验证"配置说了算"
+    # push2/push2delay 的直连现在只由规则表决定, 没有硬编码名单抢在它前面;
+    # 注意 hq.sinajs.cn 会被 '*.cn' → direct 命中, 所以用一个不被任何规则
+    # 覆盖的假域名来验证"配置说了算"
     check(_routing.resolve('https://followcase.example.com/')
           == 'http://127.0.0.1:9',
           '改配置 → resolve 立即跟随 (无硬编码代理)')
