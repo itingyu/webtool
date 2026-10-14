@@ -30,7 +30,10 @@ webtool stock screen --min-score 70           # 短线选股 (含剔除清单)
 webtool stock tools                           # 24 个动作清单
 webtool stock report 600519                   # 成稿研报 (markdown)
 webtool stock sentiment --text "业绩超预期"     # 消息面打分 -100~+100
-webtool stock data find 龙虎榜                 # 一次搜 4 类目录 (eco/api/em配方/docs)
+webtool stock data find 龙虎榜                 # 跨域搜 4 类目录 (eco/api/em配方/docs)
+webtool stock data list                       # 15 个功能域总览 (每域接口数)
+webtool stock data list 龙虎榜                 # 域内明细 (api 分类 + eco 接口 + em 配方)
+webtool stock data 行情 find 茅台              # 域内搜 (eco 结果按域过滤)
 webtool stock data call RPT_LICO_FN_CPD --arg date=20260331   # 按名调 (em配方→api→eco)
 webtool stock data call sse_yunhq_snap --arg code=sh600519    # 数据源层方法
 webtool stock data url "https://qt.gtimg.cn/q=sh600519"       # 裸 HTTP (反爬内置)
