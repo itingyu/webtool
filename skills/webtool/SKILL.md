@@ -30,12 +30,12 @@ webtool stock screen --min-score 70           # 短线选股 (含剔除清单)
 webtool stock tools                           # 24 个动作清单
 webtool stock report 600519                   # 成稿研报 (markdown)
 webtool stock sentiment --text "业绩超预期"     # 消息面打分 -100~+100
-webtool stock api-list                       # 数据源层 153 方法 (按源分组)
-webtool stock docs-stats                    # 逆向接口文档统计 (7 分册, 900+ 接口)
-webtool stock docs-search companyType        # 查底层接口文档 (URL/参数/字段含义)
-webtool stock docs-report RPT_LICO_FN_CPD    # 单接口逆向条目 (参数表+字段列序映射)
-webtool stock eco-search 龙虎榜              # 在 akshare 1099 个接口里搜 (支持中文)
-webtool stock eco --method stock_zh_a_hist --arg symbol=600519   # 生态库调用
+webtool stock data find 龙虎榜                 # 一次搜 4 类目录 (eco/api/em配方/docs)
+webtool stock data call RPT_LICO_FN_CPD --arg date=20260331   # 按名调 (em配方→api→eco)
+webtool stock data call sse_yunhq_snap --arg code=sh600519    # 数据源层方法
+webtool stock data url "https://qt.gtimg.cn/q=sh600519"       # 裸 HTTP (反爬内置)
+webtool stock data list api                   # 数据源层 153 方法 (按源分组)
+webtool stock docs-search companyType         # 查底层接口文档 (URL/参数/字段含义)
 webtool stock holder 600519                  # 股东研究 (东财)
 webtool stock health                         # 三侧桥接探活
 webtool config set default_engines bing,sogou

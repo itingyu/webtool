@@ -476,6 +476,8 @@ def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar
               form: str = typer.Option('', '--form', help='POST 表单, 形如 k=v&k2=v2'),
               raw: bool = typer.Option(False, '--raw', help='输出 JSON 记录而非表格'),
               http_timeout: float = typer.Option(20.0, '--http-timeout', help='http-* 请求超时秒'),
+              post: bool = typer.Option(False, '--post', help='data url 走 POST (表单用 --form)'),
+              method_only: bool = typer.Option(False, '--method-only', help='data url 只回原始响应文本, 不转表格'),
               fmt: str = Fmt, output: str = Output):
     """股票能力: stock-master + stock 24 工具 + 生态库(~1300) + 底层 HTTP 直调(900+ 接口) + 逆向文档"""
     a = _CTX['args']
@@ -493,6 +495,7 @@ def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar
     a.url, a.referer, a.encoding, a.pick, a.raw = url, referer, encoding, pick, raw
     a.form = _form
     a.http_timeout = http_timeout
+    a.post, a.method_only = post, method_only
     a.lib, a.full = lib, full
     a.texts = list(text or [])
     a.excel, a.kind, a.name, a.thesis = excel, kind, name, thesis
