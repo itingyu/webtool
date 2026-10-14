@@ -844,6 +844,22 @@ for _mode, _need in (('pipx', 'pipx'), ('venv', 'pip'),
     check(_need in _t and 'pip install "webtool[' not in _t,
           '装法 %s 给对命令 (%s)' % (_mode, _t.split('重装: ')[-1]))
 
+# Termux/Android: PyPI 没有 android 轮子, cryptography/numpy/pandas 只能构建
+# (cryptography 还要 Rust), 让他"重装 webtool"就是让他原地打转。
+check(_deps.on_termux() is False, '沙箱不是 Termux: 判定不许误报')
+_o_termux = _deps.on_termux
+_deps.on_termux = lambda: True
+try:
+    _tc = _deps.install_hint('cryptography')
+    check('pkg install python-cryptography' in _tc and '重装' not in _tc,
+          'Termux: 缺 cryptography 指 pkg install, 不说"重装 webtool"')
+    check('tur-repo' in _deps.install_hint('pandas'),
+          'Termux: pandas 只在 TUR, 指引要带 tur-repo 那一步')
+    check('pkg install' not in _deps.install_hint('akshare'),
+          'Termux: 纯 Python 的库仍走 pip 重装, 不乱指系统包')
+finally:
+    _deps.on_termux = _o_termux
+
 if fails:
     sys.exit(1)
 print('ALL PASS')

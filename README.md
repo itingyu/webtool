@@ -37,6 +37,30 @@ pip install --user 'git+https://github.com/itingyu/webtool'
 千万别写 `--user=你的用户名` —— `--user` 不吃值，pip 会直接报
 `--user option does not take a value` 然后什么都不装。
 
+**Termux / Android 上不能直接 `pip install`** —— PyPI 只发 manylinux/macos/win 的
+轮子，没有 `android_*` 平台，`cryptography`/`numpy`/`pandas`/`lxml` 只能从源码构建。
+其中 `cryptography` 要 Rust，而 rustup 不认 `aarch64-unknown-linux-android` 这个 target，
+装在 `Preparing metadata` 那步就断：
+
+```
+Target triple not supported by rustup: aarch64-unknown-linux-android
+ERROR: Failed to build 'cryptography' when installing build dependencies
+```
+
+那条路走不通，得让 Termux 自己的包供原生库（**flavour 要选 termux，不是 glibc** 的那种）：
+
+```bash
+pkg install tur-repo                        # pandas 只在 TUR 第三方源里
+pkg install python-cryptography python-numpy python-pandas python-lxml
+pip install 'git+https://github.com/itingyu/webtool'
+```
+
+先装原生库、再 `pip install`：pip 看到它们已被满足就只装**纯 Python 的那些**
+（trafilatura / typer / akshare / efinance / openpyxl …）和 `curl_cffi`
+（它自带 `android_24_arm64_v8a` 轮子）。顺序不能反 —— 反过来 pip 一上来就要构建
+cryptography，又回到上面那个报错。少库时 webtool 的报错也会直接给出 `pkg install`
+那一条（`core/deps.py` 认得出 Termux），不会再让你"重装 webtool"原地打转。
+
 git 装法的升级是**强制重装自己那份代码**：我们不按 commit 改版本号，pip 光比版本号会以为
 "已最新"什么都不干，所以 `upgrade` 对 git 源走 `--force-reinstall --no-deps`（只换代码，不动依赖）。
 `upgrade --check` 除了版本号还会比一次远端 HEAD，所以**同版本的新提交也看得见**；索引来源
