@@ -1,0 +1,11 @@
+# 自动生成, 不要手改 —— 改 pyproject.toml 后跑:
+#   python3 scripts/gen_requirements.py
+# (tests/test_smoke.py 会校验本文件与 pyproject 一致)
+trafilatura>=2.0
+readability-lxml
+html2text
+inscriptis
+pysocks
+curl_cffi>=0.16
+typer>=0.12
+certifi

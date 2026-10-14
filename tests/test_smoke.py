@@ -797,6 +797,43 @@ else:
     print(f'SKIP 切分来源不在 ({_prov.ORIGINAL}), 无法校验完整性')
 
 
+# ===== 依赖声明 (2026-10-15 审计补漏: certifi / numpy / urllib3 / efinance) =====
+# 三件事都要锁住, 否则装完包才在某个子命令里 ImportError:
+#   ① src 里 import 的第三方库必须都在 pyproject 里声明 (审计脚本判)
+#   ② requirements*.txt 由 pyproject 生成, 不能各说各话
+#   ③ 核心依赖里必须含运行必需的那几个 (漏了它们整个 CLI 起不来)
+_rd = _pl.Path(__file__).resolve().parent.parent
+_audit = _sp.run([sys.executable, str(_rd / 'scripts' / 'audit_deps.py')],
+                 cwd=_rd, capture_output=True, text=True)
+_miss_txt = ''
+if _audit.returncode:                       # 列出缺哪些, 别只说"失败"
+    _miss_txt = _audit.stdout.split('=== import 了但没声明')[1].splitlines()[1].strip()
+_msg = 'src 里 import 的第三方库都已声明 (scripts/audit_deps.py)'
+if _miss_txt:
+    _msg += ' —— 缺: ' + _miss_txt
+check(_audit.returncode == 0, _msg)
+_gen = _sp.run([sys.executable, str(_rd / 'scripts' / 'gen_requirements.py'),
+                '--check'], cwd=_rd, capture_output=True, text=True)
+check(_gen.returncode == 0, 'requirements*.txt 与 pyproject 一致 (自动生成, 别手改)'
+      + (' —— ' + _gen.stdout.strip() if _gen.returncode else ''))
+try:                                   # py3.9/3.10 用 tomli 兜底
+    import tomllib as _tl              # noqa: E402
+except ModuleNotFoundError:            # pragma: no cover
+    import tomli as _tl                # noqa: E402
+with open(_rd / 'pyproject.toml', 'rb') as _f:
+    _proj = _tl.load(_f)['project']
+_core = ' '.join(_proj['dependencies'])
+check(all(k in _core for k in ('trafilatura', 'curl_cffi', 'typer', 'pysocks',
+                               'certifi')),
+      '核心依赖: 装包即装 (抓取/通道/CLI/CA 四件套在内)')
+_opt = _proj['optional-dependencies']
+check({'secrets', 'geoip', 'stock', 'full'} <= set(_opt)
+      and 'certifi' in _core,
+      '可选依赖分组齐 (secrets/geoip/stock/full), certifi 归核心不归可选')
+check(all(any(x in s for s in _opt['stock'])
+          for x in ('requests', 'pandas', 'numpy', 'urllib3', 'efinance', 'openpyxl')),
+      'stock 组含审计补的 numpy/urllib3/efinance (以前只有 requests/pandas)')
+
 if fails:
     sys.exit(1)
 print('ALL PASS')
