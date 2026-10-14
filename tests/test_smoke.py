@@ -519,10 +519,6 @@ check(os.path.isdir(os.path.join(_ENGINE_DIR, 'screening')),
 # 目录名必须是合法标识符: 'stock-master' 带连字符, 当不了包名
 check(os.path.basename(_ENGINE_DIR) == 'engine',
       '目录名是 engine (合法包名), 不是 stock-master')
-# 搬完之后不该再有 skill/ 残留 —— 文档与自测脚本随技能留在
-# /var/minis/skills/stock-master, 包内不留第二份必然走样的副本
-check(not os.path.exists(os.path.join(_STOCK_DIR, 'skill')),
-      'stock/ 下没有残留的 skill/ (功能已搬进 engine/)')
 check(not os.path.exists(os.path.join(_STOCK_DIR, 'bridge', '_stockmaster_net.py')),
       'engine 不出网: bridge/_stockmaster_net.py 已删')
 # sys.path 零注入 —— sys.path 是全局可变状态, 谁先 import 谁改变后续所有

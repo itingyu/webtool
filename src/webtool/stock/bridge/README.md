@@ -80,7 +80,7 @@ c.em_f10_balance('600519.SH')      # 方法名与拆包前逐字一致
 代理完全由 `~/.webtool/rules.json` + `config.json` 决定, 每条通道无一例外 ——
 代码里不硬编码代理地址, 也不按域名白名单直连。三种网络栈各自的接法
 (适配器 / 作用域补丁 / 直调) 与验证方法见 [`ROUTING.md`](ROUTING.md)。
-engine 层不出网: 它的 HTTP 全部经 sources, 早先 skill 自带的那两个 urllib
+engine 层不出网: 它的 HTTP 全部经 sources, 早先引擎自带的那两个 urllib
 出口已并进 `sources/sina.py`、`sources/em.py`。
 
 ## 换版本

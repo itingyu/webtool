@@ -202,9 +202,8 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   `bridge/orchestrate.py` 编排层、`engine/` 业务脚本层），**静态 import 接入**：
   `from webtool.stock.bridge.sources import APIClient` /
   `webtool.stock.engine.<name>`。装包即用，无需额外安装
-  - 目录名去连字符：`stock-master` 是 skill 的 YAML 名，不是合法标识符，当不了包名。
-    业务脚本层因此叫 `engine/`（原 `skill/scripts/`），技能文档与自测脚本留在
-    `/var/minis/skills/stock-master/` 那份，包内不留第二份副本
+  - 目录名必须是合法标识符（带连字符的名字当不了包名），业务脚本层因此叫 `engine/`。
+    文档与自测脚本不进包：包内只放能跑的业务代码，副本留外面那份
   - **engine 不出网**：取数一律经 `bridge/sources/`。`engine/clients.py` 与
     `engine/short_tool.py` 早期自带的 urllib 端点（腾讯行情、东财涨停池）已
     并进 `sources/sina.py`（`gtimg_quote_flat`）与 `sources/em.py`（`em_zt_pool`），

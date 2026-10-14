@@ -234,7 +234,7 @@ webtool stock docs-stats                       # 逆向文档总量 (7 分册 / 
 webtool stock health                            # 四侧探活
 ```
 
-- **两侧都不复制业务逻辑**，只是进程内 import；skill 未装时 `stock health` 报 unavailable，不拖垮 webtool 其他命令。依赖只有包内这一条路，没有环境变量能改
+- **两侧都不复制业务逻辑**，只是进程内 import；外部数据源没装时 `stock health` 报 unavailable，不拖垮 webtool 其他命令。依赖只有包内这一条路，没有环境变量能改
 - **第五侧：底层 HTTP 直调**（`stock/http.py`）。`rawapi` 只能调数据源层封好的 156 个方法、`eco` 只能调 akshare/tushare 现成函数——本模块**不封装**，直接拼 URL 发请求，因此逆向出的 900+ 接口全部可调，包括 akshare 没封或封了不可用的（东财 `companyType` 探测、`quoteColumns` 注入、`dates` 批量取表）。**反爬已内置**：雪球走 curl_cffi chrome110 指纹 + token warmup，新浪/中证自动带 Referer，东财 push2 自动补 `ut`、datacenter 自动补 `token`/`source`/`client`，腾讯 GBK 自动解码。动作：`http-get`/`http-post`/`http-rows`/`em-report`/`em-ctype`
 - **第六侧：逆向接口文档**（`src/webtool/stock/data/reverse/`，7 分册 9134 行，从 akshare 源码**手工逆向**）。前三侧给的都是**函数名**，这一侧给的是**底层 HTTP 细节** —— 端点 URL、`reportName`/`filter`/`columns` 怎么拼、返回字段（`SECURITY_CODE`/`ACCEPT_DEPOSIT_INTERBACC` 这类缩写）对应第几列、哪些接口已下线/需要 token/列序会静默错位。每条记录带源码 `文件:行号` 可回溯。动作：`docs-books`/`docs-stats`/`docs-search`/`docs-book`/`docs-section`/`docs-report`/`docs-endpoint`。akshare 某函数返回空或字段错位时，`docs-report <reportName>` 是首选排查动作
 - **第四侧：生态库 1291 个接口**（`akshare` 1099 / `tushare` 124 / `baostock` 29 / `efinance`，返回 DataFrame）。覆盖 API 文档里 `函数.json` 记录的 akshare 生态，含宏观、另类数据、期货、基金、外汇等数据源层完全没有的领域。`webtool stock eco <接口>` 直接调，默认给形状+前 5 行，`--full` 取全量；`eco-search` 按中英文关键词搜接口
@@ -382,8 +382,6 @@ webtool proxy delpass <用户名>
 
 `webtool plugins list`（清单与来源：builtin/user/code）、`plugins check`（逐个加载体检，报失败项）、`plugins reload`（重载外部模块并清配置缓存）。配置坏了不会拖垮进程，退回内置默认并在 `plugins check` 报错。
 
-## 给 Agent 用
+## 深入文档
 
-复制 `skills/webtool/SKILL.md` 到 Agent 的 skill 目录（Claude Code `.claude/skills/`、Minis `/var/minis/skills/`）。
-
-深入文档：`docs/coding-standard.md`（**编码规范/分层，改代码先读**）· `docs/design.md`（架构）· `docs/feed-sources.md`（feed 源实测）· `docs/custom-sites.md`（site 扩展）· `docs/engine-notes.md`（引擎通道记录）。
+`docs/coding-standard.md`（**编码规范/分层，改代码先读**）· `docs/design.md`（架构）· `docs/feed-sources.md`（feed 源实测）· `docs/custom-sites.md`（site 扩展）· `docs/engine-notes.md`（引擎通道记录）。
