@@ -20,7 +20,7 @@ MODULES = [
     'webtool.net.transport', 'webtool.net.proxy', 'webtool.net.captcha', 'webtool.net.spa',
     'webtool.render.render', 'webtool.render.hotrender', 'webtool.render.output',
     'webtool.feeds.command', 'webtool.feeds.sources', 'webtool.feeds.parse', 'webtool.feeds.fetch', 'webtool.feeds.cards', 'webtool.radar', 'webtool.radar.race', 'webtool.radar.template',
-    'webtool.radar.routes', 'webtool.radar.rules', 'webtool.radar.instances',
+    'webtool.radar.routes', 'webtool.radar.instances',
     'webtool.radar.official', 'webtool.radar.instances_cfg', 'webtool.cli.zen',
     'webtool.cli.sitesearch', 'webtool.net.fetch', 'webtool.engines.extractors',
     'webtool.filters.blocklist', 'webtool.filters.adfilter', 'webtool.pipeline.query_ops',
@@ -687,10 +687,13 @@ try:
     _json.dump(_c, open(_cfgp, 'w'), ensure_ascii=False)
     _routing.reset_cache()
     # push2/push2delay 在 _DIRECT_SUFFIXES 里强制直连, 不跟随代理配置 ——
-    # 这是设计行为 (代理出口对这些端点 502), 测试改用普通域名验证跟随
-    check(_routing.resolve('https://hq.sinajs.cn/') == 'http://127.0.0.1:9',
+    # 这是设计行为 (代理出口对这些端点 502), 测试改用普通域名验证跟随。
+    # 注意: hq.sinajs.cn 会被用户 rules.json 的 '*.cn' → direct 命中,
+    # 所以用一个不在直连名单、也不被任何规则覆盖的假域名来验证"配置说了算"
+    check(_routing.resolve('https://followcase.example.com/')
+          == 'http://127.0.0.1:9',
           '改配置 → resolve 立即跟随 (无硬编码代理)')
-    check(_NewClient(proxy='auto')._px('https://hq.sinajs.cn/')
+    check(_NewClient(proxy='auto')._px('https://followcase.example.com/')
           == 'http://127.0.0.1:9', '改配置 → sources 会话跟随')
     check(_smn.get_opener('https://x.test/a') is not None, '改配置 → opener 可重建')
 except Exception as e:                                   # noqa: BLE001

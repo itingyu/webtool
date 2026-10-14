@@ -276,7 +276,7 @@ class SinaSource(SourceBase):
         """
         try:
             r = self._std.get(
-                f"https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletin.php",
+                "https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletin.php",
                 params={"stockid": code},
                 timeout=self.BASE_TIMEOUT,
             )
@@ -290,7 +290,7 @@ class SinaSource(SourceBase):
         """新浪 corp 公司公告 HTML (vCB_Bulletin)"""
         try:
             r = self._std.get(
-                f"https://vip.stock.finance.sina.com.cn/corp/view/vCB_Bulletin.php",
+                "https://vip.stock.finance.sina.com.cn/corp/view/vCB_Bulletin.php",
                 params={"stockid": code},
                 timeout=self.BASE_TIMEOUT,
             )
@@ -333,7 +333,7 @@ class SinaSource(SourceBase):
         """新浪 corp 全部新闻 HTML (vCB_AllNews)"""
         try:
             r = self._std.get(
-                f"https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllNews.php",
+                "https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllNews.php",
                 params={"stockid": code},
                 timeout=self.BASE_TIMEOUT,
             )

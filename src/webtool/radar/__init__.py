@@ -15,10 +15,6 @@ from webtool.radar.official import (best_instance, official_coverage,
 from webtool.radar.race import race
 from webtool.radar.routes import (from_url, load_routes, routes_stats,
                                   search_routes)
-from webtool.radar.rules import load_rules
-from webtool.radar.rules import render as render_rule
-from webtool.radar.rules import search as search_rules
-from webtool.radar.rules import stats as rules_stats
 from webtool.radar.template import MissingParams, fill_path, parse_params, render_url
 
 # 旧名兼容: 原 radar.py 单文件时代的私有名, 调用点还没全改过来
@@ -27,8 +23,8 @@ _default_instances = default_instances
 
 __all__ = [
     'PROBE_ROUTE', 'MissingParams', 'best_instance', 'default_instances',
-    'fill_path', 'from_url', 'instances', 'load_routes', 'load_rules',
+    'fill_path', 'from_url', 'instances', 'load_routes',
     'official_coverage', 'official_feeds', 'official_section_url', 'parse_params',
-    'probe_official', 'race', 'render_rule', 'render_url', 'routes_stats',
-    'search_routes', 'search_rules', 'rules_stats',
+    'probe_official', 'race', 'render_url', 'routes_stats',
+    'search_routes',
 ]

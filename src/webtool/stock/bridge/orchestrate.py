@@ -569,7 +569,8 @@ def t_stock_announcement(args: dict) -> dict:
         return {"ok": False, "error": "announcement 仅支持 A 股"}
     page = args.get("page", 1)
     page_size = args.get("page_size", 10)
-    se_date = args.get("se_date", "2025-01-01~2026-08-09")
+    # (原 se_date 默认值从未被 ops 引用 —— t_stock_announcement 走东财源,
+    #  巨潮日期窗在 np_notice_ann 失败回退时才用, 由调用方传)
     # 推断 org_id: 主板 gssh0600519, 科创板 9920000008 等 (简化: 给个默认尝试)
     # 实际更可靠: 先 np_notice_ann 拿 art_code, 再 cninfo_announcement 拉 PDF
     client = get_client()
@@ -605,7 +606,7 @@ def t_stock_capital_flow(args: dict) -> dict:
             ("em_mutual", lambda: client.em_mutual_hold(50)),
         ]
     else:
-        return {"ok": False, "error": f"scope must be industry/individual/north"}
+        return {"ok": False, "error": "scope must be industry/individual/north"}
     return _fallback(ops)
 
 

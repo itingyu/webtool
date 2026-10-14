@@ -60,7 +60,7 @@ def _rename_map(node, src_lines):
 
 
 def extract():
-    recipes, sources = {}, {}
+    recipes = {}
     for path in glob.glob(os.path.join(AKSHARE, '**', '*.py'), recursive=True):
         try:
             src = open(path, encoding='utf-8', errors='ignore').read()

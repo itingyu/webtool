@@ -46,7 +46,7 @@ import re
 class ThsSource(SourceBase):
     """同花顺 (10jqka) 方法集 —— 由 sources/__init__.py 的 APIClient 混入"""
 
-    def ths_session(self) -> "requests.Session":
+    def ths_session(self) -> "requests.Session":  # noqa: F821 (仅类型注解)
         if self._ths is None:
             self._ths = _ths_session(_ths_factory)
         return self._ths

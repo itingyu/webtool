@@ -198,7 +198,6 @@ def _do_search(args, cfg, filter_ad=True):
         else:
             results = spec['fn'](results, {'args': args, 'cfg': cfg})
     stats = {'blocked': n_blocked}
-    n_before = len(results)
     results = _merge(results, args.query,
                      use_semantic=True, dedupe=True,
                      apply_blocklist=False, stats=stats,
@@ -252,7 +251,6 @@ def _do_search(args, cfg, filter_ad=True):
         if topup_fetched:
             # 补量后重过滤+重排序: 补来的已在 top_up 内过广告+黑名单(按真域,
             # 补前已解码), 这里再整体 merge 去重排序即可
-            n_before = len(results)
             results = _merge(results, args.query,
                              use_semantic=True, dedupe=True,
                              apply_blocklist=False, stats=stats,

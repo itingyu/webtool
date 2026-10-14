@@ -246,7 +246,7 @@ def _group(path, kind, name):
     try:
         val = (_decode_geoip_group(b, start, n) if kind == 'geoip'
                else _decode_geosite_group(b, start, n))
-    except (GeoDataError, IndexError, ValueError, struct.error) as e:
+    except (GeoDataError, IndexError, ValueError, struct.error):
         # 截断/损坏的数据文件: 索引能建但某段解不开。必须降级成空而不是把
         # TypeError 抛到请求链路 —— 规则判不出来时应当"不匹配", 不是整个请求崩
         val = ()

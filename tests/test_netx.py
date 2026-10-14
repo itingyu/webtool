@@ -491,7 +491,6 @@ import importlib                                # noqa: E402
 _ri = importlib.import_module('webtool.radar.instances')
 _ro = importlib.import_module('webtool.radar.official')
 _rr = importlib.import_module('webtool.radar.routes')
-_rul = importlib.import_module('webtool.radar.rules')
 _zen_src = inspect.getsource(_zen.call_zen_retry)
 check('proxy=None)' not in _zen_src,
       'call_zen_retry 不再写死 proxy=None 直连', _zen_src[-120:].strip()[:80])
@@ -507,10 +506,10 @@ check('proxy = _route(cfg, models_url)' in _m_src,
 _f_src = inspect.getsource(netfetch._fetch_via_mcp)
 check("proxy=proxy if proxy is not None else 'auto'" in _f_src,
       '远程 reader 与本地链线路一致 (不再隐式直连)')
-# radar 三件套: proxy=None 曾 = 直连, 与 instances 的 auto 语义打架
+# radar 两件套 (rules.py 已删: load_rules 一调必炸的零调用死模块):
+# proxy=None 曾 = 直连, 与 instances 的 auto 语义打架
 for _fn, _nm in ((_ri.instances, 'instances'),
-                 (_rr.load_routes, 'load_routes'),
-                 (_rul.load_rules, 'load_rules')):
+                 (_rr.load_routes, 'load_routes')):
     check('or \'auto\'' in inspect.getsource(_fn),
           f'radar.{_nm} 的 proxy=None 按 auto 处理 (非强制直连)')
 check("proxy = proxy or 'auto'" in inspect.getsource(_ro.probe_official),

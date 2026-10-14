@@ -187,13 +187,13 @@ def _news(query, max_results, proxy, timeout, market, page):
     # RSS 用持久会话 (chrome 指纹 + cookie 预热): 首页领 NID 再拉 RSS,
     # 会话跨调用 state 持久化; 裸请求部分代理出口会被 302 challenge
     text = None
+    rss_url = url
     try:
         s, p = transport._new_session('chrome131_win', proxy, 'google',
                                       url=rss_url)
         # 预热失败不致命, RSS 照打
         transport.warm_session(s, 'https://news.google.com/', timeout=timeout,
                                profile=p)
-        rss_url = url
         text, status = transport.session_get(rss_url, s, kind='plain',
                                              timeout=timeout, profile=p)
         transport._persist_cookies(s, 'google')

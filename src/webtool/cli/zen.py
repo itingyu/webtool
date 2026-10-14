@@ -9,6 +9,7 @@ tool_choice 存在 / stream=true。解析: 纯标准库 urllib + 逐行 SSE, rea
 """
 
 import json
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -370,12 +371,52 @@ def _print_model_ids(ids, fmt):
             print(i)
     return 0
 
-    if not prompt:
-        print('用法: webtool zen "你的问题" [--model M]\n'
-              '      webtool zen --list-models      # /v1/models 全部 id\n'
-              '      webtool zen --list-free --check  # 免费层 + 逐个实调验证\n'
-              '      webtool zen --show-body "问题"   # 看请求体, 不联网', file=sys.stderr)
-        return 2
+    # 原 373-418 行: return 0 之后的 45 行不可达代码 (引用未定义的 prompt/
+    # args/sys/cfg), zen 真正的对话逻辑在 do_zen。2026-10 批次二清理删除。
+
+
+def _do_zen(args, cfg):
+    """zen 对话主体 (do_zen 是代理开关薄壳)"""
+    prompt = ' '.join(getattr(args, 'prompt', None) or []).strip()
+
+    # ---- dry-run: 打印请求, 不联网 ----
+    if args.show_body or args.show_text:
+        body = build_body(args.model, prompt, args.system, args.tool_choice,
+                          args.full_tools)
+        d = json.loads(body)
+        if args.show_text:
+            print(json.dumps(d['messages'], indent=2, ensure_ascii=False))
+        else:
+            print(json.dumps(d, indent=2, ensure_ascii=False))
+        return 0
+
+    # ---- 模型清单 ----
+    if args.list_models or args.list_free:
+        ids = fetch_models(cfg, refresh=args.refresh, proxy=None)
+        if not ids:
+            print('zen: 拿不到 /v1/models (试 --refresh, 或检查代理)',
+                  file=sys.stderr)
+            return 1
+        if args.list_free:
+            ids = [i for i in ids if is_free_model(i)]
+            if not args.check:
+                return _print_model_ids(ids, args.format)
+            ok_n = 0
+            for i in ids:
+                # 必须走完整路径 (stream=True), 分类器认形状
+                r = call_zen_retry(i, '回复:OK', cfg=cfg, max_attempts=1,
+                                   tool_choice=args.tool_choice,
+                                   full=args.full_tools)
+                if r.get('ok') and (r.get('text') or '').strip():
+                    ok_n += 1
+                    print('%s\tOK\t%ss' % (i, round(r.get('elapsed', 0), 2)))
+                else:
+                    why = (r.get('error_body') or '')[:80].replace('\n', ' ')
+                    print('%s\tFAIL\t%s\t%s' % (i, r.get('status'), why))
+            print('-- %d/%d 可用 (命名约定只是启发式, 这才是判据)'
+                  % (ok_n, len(ids)), file=sys.stderr)
+            return 0 if ok_n else 1
+        return _print_model_ids(ids, args.format)
 
     # ---- 真正的调用 ----
     session = StickySession() if args.sticky else None

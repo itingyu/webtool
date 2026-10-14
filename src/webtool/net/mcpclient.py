@@ -20,7 +20,6 @@ import time
 import urllib.error
 import urllib.request
 
-import urllib.request
 
 JSONRPC_VERSION = '2.0'
 DEFAULT_TIMEOUT = 45

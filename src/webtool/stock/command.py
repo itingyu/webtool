@@ -1778,7 +1778,7 @@ def _text(out, action):
             print(c)
             rest = {k: v for k, v in out.items() if k != 'content'}
             if rest:
-                print(f'\n--- meta ---')
+                print('\n--- meta ---')
                 print(json.dumps(rest, ensure_ascii=False, indent=1))
             return
         print(json.dumps(out, ensure_ascii=False, indent=1))
