@@ -193,7 +193,7 @@ def do_report(code=None, pool=None, news=None):
     if pool == 'short':
         result = do_screen('short')
         return {'kind': 'short_screen', 'report': rw.short_screen_report(result)}
-    raise ValueError('report 需要 --code (单股报告) 或 --pool short (短线池报告)')
+    raise ValueError('report 需要位置参数给代码 (单股报告) 或 --pool short (短线池报告)')
 
 
 def do_excel(path, pool='short', min_score=60):
@@ -232,7 +232,7 @@ def do_diagram(kind, code=None, name=None, thesis=None,
             name, drivers or [], mid or [], catalysts or [])}
     if kind == 'logic':
         if not (code and name):
-            raise ValueError('logic 需要 --code 与 --name')
+            raise ValueError('logic 需要位置参数给代码, 与 --name')
         return {'kind': kind, 'md': lr.investment_logic(
             code, name, thesis or '', drivers or [], risks or [], catalysts or [])}
     raise ValueError(f'未知图类型: {kind} (可用: logic / tree / chain)')

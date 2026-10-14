@@ -660,7 +660,7 @@ def plugins_cmd(action: str = typer.Argument('list', help='list/check/reload/ena
 def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar/flow/news/'
                                                         'announcement/financials/analyze/'
                                                         'screen/risk/mcp/tools/health'),
-              codes: list[str] = typer.Argument(None, help='股票代码 (quote/check/risk 用, 可多个)'),
+              codes: list[str] = typer.Argument(None, help='股票代码 (位置参数: quote/check/risk 可多个, 其余单股动作取首个)'),
               date: str = typer.Option(None, '--date', help='数据日 (pool/calendar; last=上一交易日)'),
               only_buy: bool = typer.Option(False, '--only-buy', help='pool 只留可买板块'),
               scope: str = typer.Option('industry', '--scope',

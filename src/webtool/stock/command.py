@@ -1024,7 +1024,7 @@ USAGE = """用法: webtool stock <动作> [参数]
   excel --excel 路径 [--min-score N]   选股池导出 xlsx (需 openpyxl)
   sentiment <代码> | --text "..."      消息面打分 -100~+100 (不给 --text 则给该股新闻打分)
   diagram --kind logic|tree|chain [...] mermaid 图
-             tree  无参; logic 需 --code --name --thesis;
+             tree  无参; logic 需 代码 --name [--thesis];
              chain 需 --name --driver(上游) --mid(中游) --catalyst(下游)
 
 透传动作 (按名调用 24 个动作)
