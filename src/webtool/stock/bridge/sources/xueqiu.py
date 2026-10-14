@@ -74,8 +74,8 @@ class XueqiuSource(SourceBase):
         if isinstance(codes, str):
             codes = [codes]
         out = {}
-        # `xueqiu_quote` 只认单个 symbol —— 传 list 也只回第一只 (实测),
-        # 所以这里逐只查。要真批量得改 v5 端点, 那属于另一个源的事。
+        # `xueqiu_quote` 只认单个 symbol —— 传 list 也只回第一只, 所以这里逐只查。
+        # 要真批量得改 v5 端点, 那属于另一个源的事。
         for code in list(codes):
             r = self.xueqiu_quote(code)
             q = (r.get('data') or {}).get('quote') if r.get('ok') else None
@@ -181,7 +181,7 @@ class XueqiuSource(SourceBase):
     def xueqiu_fill_valuation(self, codes, fields=('pe', 'pb')) -> dict:
         """给展平行情补 PE/PB —— 东财 F10 一次批量取回
 
-        与其让每个调用方自己补, 不如在这里补一次; 取不到的保持 None,
+        统一在这里补一次; 取不到的保持 None,
         调用方要按"缺失"处理而不是当 0。
         """
         import re as _re
@@ -215,7 +215,7 @@ class XueqiuSource(SourceBase):
         # 落在足够远的过去 —— 用固定 span 时请求 250 根日 K 只回 16 根
         # (span=30 天只够 16 个交易日), 而周/月 K 更离谱, 结果是长周期
         # 指标 (MA60 / 年线 / 季线) 全部算错。
-        # 实测: day×1.6 / week×7×1.4 / month×30×1.3 再加 15 天冗余。
+        # 经验系数: day×1.6 / week×7×1.4 / month×30×1.3, 再加 15 天冗余。
         mult = {"day": 1.6, "week": 7 * 1.4, "month": 30 * 1.3}.get(period, 1.6)
         cal_days = int(count * mult) + 15
         return self._xq_get(

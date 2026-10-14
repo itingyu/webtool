@@ -194,8 +194,8 @@ class Http:
         交易所站点不用每次调用都手填 verify=False。
 
         proxy=None 用实例级 (默认 'auto' 问路由表); 传 URL/None 覆盖。
-        代理归一 (auto→路由表、user@host→补保险库密码) 交给 netx, 这里不再
-        各自判断 —— 这正是之前 stock 通道完全绕开代理的原因。
+        代理归一 (auto→路由表、user@host→补保险库密码) 交给 netx, 这里不各自
+        判断 —— 自己判一份就等于绕过路由表与保险库。
         """
         m = (method or 'GET').upper()
         hdrs = self._headers_for(url, headers, referer)

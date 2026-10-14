@@ -222,10 +222,8 @@ def _export_cookies(session):
 def _new_session(profile_name, proxy=None, engine=None, url=None):
     """新会话: 指纹档案 (名或 dict) + state 里的持久 cookie 预载
 
-    `proxy` 走 netx 归一 —— 这里曾把参数原样塞给 curl_cffi, 于是调用方传
-    'auto' (search 管线传的正是这个) 会让 curl 去解析一个叫 "auto" 的主机名:
-    `Could not resolve proxy: auto`。sogou/baidu/google/marginalia 全线命中,
-    症状是"配了代理反而全挂"。
+    `proxy` 走 netx 归一 —— 'auto' 之类的值原样塞给 curl_cffi 会被当成主机名解析
+    (`Could not resolve proxy: auto`), 配了代理反而全挂。
 
     **url 必须传**: 'auto' 的线路由路由表按域名决定, 没有目标 URL 就只能退回
     默认动作, 于是 `*.cn` direct 这类规则对会话失效 (引擎的会话恰恰是打
@@ -297,7 +295,7 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=15,
     _pace(rate_engine or engine)
 
     # 代理归一交给 netx (唯一该碰代理的地方): 'auto' → 问路由表, 'user@host' →
-    # 补保险库密码。这里不再自己判断, 免得又多一份和 netx 不一致的副本。
+    # 补保险库密码。这里不自己判断, 免得出现第二份与 netx 不一致的副本。
     from webtool.net import netx as _netx
     proxy = _netx.resolve_proxy(proxy, url)
 
@@ -333,10 +331,9 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=15,
             f'{engine} 验证页拦截({sign}), 已重试{_depth}次仍被拦; '
             f'冷却{captcha.cooldown_left(engine)}s, 请换引擎')
     time.sleep(min(2 ** _depth, 4) + random.uniform(0, 0.8))
-    # 梯子只换**指纹会话**(丢弃 cookie 重新握手), 线路不变。
-    # 曾经这里是"代理 → 直连互换": 被拦了就偷偷退直连。取消的理由是线路必须由
-    # proxyhelper/路由表一次决定 —— 被拦就换条线, 会让"这条规则为什么对某些
-    # 请求不生效"变得无法排查, 而且对必须走代理的目标, 换直连只是换一种错法。
+    # 梯子只换**指纹会话**(丢弃 cookie 重新握手), 线路不变 —— 被拦就偷偷退直连,
+    # 会让"这条规则为什么对某些请求不生效"无法排查, 对必须走代理的目标也只是
+    # 换一种错法。
     try:
         return get(url, kind=kind, referer=referer, proxy=proxy,
                    timeout=timeout, engine=engine, rate_engine=rate_engine,

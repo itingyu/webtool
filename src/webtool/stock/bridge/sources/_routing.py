@@ -51,15 +51,9 @@ from webtool.core import tls
 # 进程内缓存: 同一域名反复查表会重复读配置 + 解析规则
 _PROXY_CACHE: dict[str, str | None] = {}
 
-# 这里曾经有一份硬编码的直连名单 (push2/push2delay.eastmoney.com, 可用
-# STOCK_DIRECT_DOMAINS 追加), 理由是这些端点在代理出口返回 502。已删除:
-#   1. 规则表本来就覆盖它们 (rules.json 首条 '*.cn' + eastmoney 全系 → direct),
-#      同一件事有两个决策源, 只会互相打架;
-#   2. 它的判断在**问规则表之前**, 于是 `APIClient(proxy=...)` 这类显式指
-#      定会被静默吃掉 —— 与本文档开头"构造参数优先级最高"自相矛盾;
-#   3. 哪天出口 IP 换了、这些端点又能走代理了, 名单就是条用户改不动的死
-#      规则。要固定某站走直连, 请写进 ~/.webtool/rules.json, 那份文件用户
-#      看得见也改得动。
+# 不走"端点自带线路"的名单: 线路只由构造参数 override 与 rules.json 决定,
+# 多一个决策源会与规则表打架, 还会静默吃掉构造参数的显式指定。要固定某站
+# 直连就写进 ~/.webtool/rules.json —— 那份文件用户看得见也改得动。
 
 
 def resolve(url: str, override: str | None = None) -> str | None:

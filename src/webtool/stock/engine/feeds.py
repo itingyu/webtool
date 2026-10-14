@@ -192,7 +192,7 @@ def ths_industry_rows(limit=10):
     html = (r.get('data') or {}).get('html') or ''
     if not html:
         # q 站偶发回 401 验证页 (html 为空), 换 v cookie 重试一次
-        # (实测带 Cookie: v=xxx 可过, sources 层会话缺这个头)
+        # (带 Cookie: v=xxx 可过, 因为 sources 层会话缺这个头)
         import requests as _rq
         from webtool.stock.bridge.sources import _routing
         s = _rq.Session()
@@ -281,8 +281,8 @@ def kline_list(code, count=120, period='day'):
     # 列序以雪球 column 为准 (不同品种可能增减列), 不写死下标:
     #   [timestamp, volume, open, high, low, close, chg, percent,
     #    turnoverrate, amount, volume_post, amount_post]
-    # 原先按 [开,收,高,低] 猜的位置是错的 —— open 实际在 [2],
-    # close 在 [5], 之前展平出来的 OHLC 全部错位
+    # 字段位置按上游 column 序: open 在 [2], close 在 [5] ——
+    # 按 [开,收,高,低] 猜会全部错位
     cols = data.get('column') or ['timestamp', 'volume', 'open', 'high',
                                   'low', 'close', 'chg', 'percent',
                                   'turnoverrate', 'amount']

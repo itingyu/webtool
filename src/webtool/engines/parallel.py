@@ -77,8 +77,8 @@ def _parse(text, max_results):
     """MCP 返回的 JSON → [{rank, title, url, snippet}]
 
     结构: {"search_id":..., "results":[{"url","title","publish_date","excerpts":[...]}]}
-    注意 publish_date 大量为 null (实测 10 条里 6-8 条), excerpts 是数组且
-    首条可能很长 —— 拼前若干条后按上限截断。
+    注意 publish_date 常为 null, excerpts 是数组且首条可能很长 ——
+    拼前若干条后按上限截断。
     """
     try:
         d = json.loads(text or '')

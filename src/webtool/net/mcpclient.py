@@ -6,10 +6,10 @@ API key, 就能 list_tools / call_tool。
 为什么要自己写: MCP 生态的官方 SDK (mcp / fastmcp) 依赖重、版本变动快, 而
 这里只要"发一次 POST + 解析响应"这点能力, 纯 stdlib 足够, 且不受 SDK 升级影响。
 
-协议要点 (实测 exa/mcp.exa.ai 确认):
+协议要点 (按 exa/mcp.exa.ai 的实际响应):
 - 请求是普通 HTTP POST, body 为 JSON-RPC 2.0 信封
 - Accept 必须同时含 application/json 与 text/event-stream, 少一个服务端直接
-  拒 (实测只给 json 返回 -32000 Not Acceptable)
+  拒 (只给 json 回 -32000 Not Acceptable)
 - 响应可能是纯 JSON, 也可能是 SSE 流 (text/event-stream); 两者都要能解,
   故按 Content-Type + body 前缀双路嗅探 (见 parse_response)
 
@@ -49,8 +49,7 @@ def build_headers(api_key='', protocol_version=''):
     if protocol_version:
         headers['MCP-Protocol-Version'] = protocol_version
     if api_key:
-        # 只发 x-api-key: 实测带无效 key 与不带 key 完全等价 (服务端不校验,
-        # 也不因此放宽工具集), 发三种头名纯属冗余
+        # 只发 x-api-key: 服务端不校验也认这一个头, 三种头名并列纯属冗余
         headers['x-api-key'] = api_key
     return headers
 
@@ -123,7 +122,7 @@ def _error(message, code=-1, data=None):
 
 PROTOCOL_VERSION = '2025-06-18'
 _SESSION_HEADER = 'Mcp-Session-Id'
-# 服务端要求先握手时的特征串 (实测: "Missing mcp-session-id header")
+# 服务端要求先握手时的特征串 (回 "Missing mcp-session-id header")
 _NEEDS_SESSION = 'mcp-session-id'
 
 

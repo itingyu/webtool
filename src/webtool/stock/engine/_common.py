@@ -8,8 +8,7 @@ engine 共享层 —— 纯口径工具
 `sources` 一处实现，这里再留一份只会漂。
 
 代码归一的唯一事实来源是 `bridge/sources/_symbol.py`，本模块只做转发，
-不重写规则（历史上这里与 short_tool / clients 各有一份前缀表，920xxx 的归属
-三处不一致，打错过 symbol）。
+不重写规则 —— 多一份前缀表就是多一次打错 symbol 的机会（920xxx 的归属尤其易错）。
 """
 from datetime import datetime
 import sys
@@ -78,7 +77,7 @@ def stock_links(code):
           eastmoney_quote / eastmoney_f10 / eastmoney_flow / eastmoney_notice /
           xueqiu / ths / sina
 
-    实测状态（2026-08-09，浏览器 GET 实测）：
+    通道状态 (浏览器 GET):
       - eastmoney_* ✅   HTTP 200 + title/DOM 正常
       - xueqiu      ✅   SPA，浏览器渲染后含完整内容
       - ths         ✅   需用 mobile UA（desktop UA HEAD 返回 403，不影响 GET）

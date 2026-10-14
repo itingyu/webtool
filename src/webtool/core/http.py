@@ -94,10 +94,10 @@ def http_get(url, proxy=None, timeout=15, headers=None, opener=None,
     未给时), 与 curl_cffi 通道同源 — 裸 Python-urllib 指纹一律不出网。
 
     verify=None 走全局 TLS 策略; 传 True/False 定点覆盖 (自签站点豁免用)。
-    传了 opener 则证书策略由 opener 自己负责, verify 不再生效。
+    传了 opener 则由它自己负责证书策略, verify 不生效。
     proxy='auto' 表示问路由表 (域名/IP/端口/协议/GeoIP 规则)。
     """
-    # 代理归一与默认头都交给 netx —— 别处不再各自判断 'auto'/补密码
+    # 代理归一与默认头都交给 netx —— 别处不各自判断 'auto'/补密码
     from webtool.net import netx as _netx
     proxy = _netx.resolve_proxy(proxy, url)
     h = _netx.default_headers(url, headers)
