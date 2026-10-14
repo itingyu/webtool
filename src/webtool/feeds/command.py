@@ -197,7 +197,7 @@ def do_feed(args, cfg):
         print('  webtool feed sspai ithome        指定源 (预设名或任意 RSS/Atom URL)')
         print('  webtool feed                     无参数 = 默认源(标 *), 按源分组原序')
         print('  webtool feed sspai -q "汽车"     语义筛选 (BM25 + 按相关度重排)')
-        print('  webtool feed --add NAME URL      添加自定义源 (存 ~/.webtool/feeds.json)')
+        print('  webtool feed --add NAME --add URL [--add 描述]   添加自定义源 (存 ~/.webtool/feeds.json)')
         print('  webtool feed --del NAME          删除自定义源 (预设源不可删)')
         print('  webtool feed NAME --new-only     增量: 只出上次之后的新条目')
         print('  webtool feed health              查看坏源登记表 (官网挂了的站)')
