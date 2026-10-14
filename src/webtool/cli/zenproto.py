@@ -146,9 +146,18 @@ def build_body(model, prompt, system=None, tool_choice=None, full=False):
     }, ensure_ascii=False).encode('utf-8')
 
 
-def parse_models(data):
-    """OpenAI 形状的模型清单 dict → id 列表"""
-    return [m.get('id') for m in (data or {}).get('data', []) if m.get('id')]
+def parse_models_full(data):
+    """模型清单 dict → [{id, created, owned_by}]
+
+    只搬接口原样给的字段, 不做任何推断 —— 上游哪天多给一列(上下文/价格),
+    这里加一行就能进表; 少给的字段补 None, 界面不用为空值让步。
+    """
+    out = []
+    for m in (data or {}).get('data') or []:
+        if isinstance(m, dict) and m.get('id'):
+            out.append({'id': m['id'], 'created': m.get('created'),
+                        'owned_by': m.get('owned_by')})
+    return out
 
 
 def parse_sse(lines):

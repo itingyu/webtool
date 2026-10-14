@@ -72,7 +72,7 @@ def do_site(args, cfg):
         # 自己写的配置, 那个字段继续有效 (direct / proxy / auto)。
         proxy = (cfg.get('engine_proxy') or {}).get(f'site:{args.site}')
         if args.no_proxy:
-            proxy = None
+            proxy = 'direct'      # 'direct' 才是强制直连, None 会被当成 auto
         elif proxy is None:
             proxy = (spec.get('proxy', 'auto')
                      if kind == 'custom' else 'auto')

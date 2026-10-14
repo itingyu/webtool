@@ -94,12 +94,14 @@ JSON 扩展格式见 `docs/custom-sites.md`（`~/.webtool/sites/*.json`，可覆
 ```sh
 webtool zen "你好"                    # 默认 big-pickle
 webtool zen "问题" --model ling-3.1-flash-free
-webtool zen --list-free               # 免费模型清单 (实时拉, 不硬编码)
+webtool zen --list-free               # 免费层清单 (表格: 模型/提供方/上架/免费层)
+webtool zen --list-free --check       # 逐个真调出实测结果 (加 --check-all 验全表)
 webtool zen "问题" --system "只回 JSON" --tool-choice none
 webtool zen "问题" --sticky             # 复用 ses_id (默认关)
 ```
 
-模型上下架频繁，别凭记忆报模型名，先 `--list-free`。报 403 FreeTierError = 模型已下架，刷新清单。
+模型上下架频繁，别凭记忆报模型名，先 `--list-free`（表格列取接口字段，免费层按命名约定）。
+403 FreeTierError 有两种：某模型下架，或免费层整层被上游闸掉（正文含 "can only be used from within OpenCode"，此时所有免费模型一起 403，与线路/IP 无关）；能否真用只有 `--check` 说了算。
 
 - `--sticky` 复用 ses_id，默认关：实测 Zen 免费层 `cached_tokens` 恒为 0，开不开耗时无差异，别当提速手段
 - JSON 里 `usage_available` = 上游是否返回用量；`false` 且 `ok: true` 是"调用成功但端点不给统计"，不是故障

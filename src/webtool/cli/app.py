@@ -81,9 +81,14 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='text'):
                 # 一串 importlib 栈, 而其余命令完全正常, 很难联想到缺包。
                 raise _UsageError(
                     f'缺少依赖 {e.name or e}; 股票能力装: pip install "webtool[stock]"')
+        out = buf.getvalue()
         if rc not in (0, None):
+            # 命令已经跑出报告了, 退出码只是"有没有可用结果"的判据 (如 zen
+            # --check 全挂) —— 别因为退出码非零就把人要看的报告丢掉。
+            if out.strip():
+                emit(out, args.format, output)
             return rc
-        return emit(buf.getvalue(), args.format, output)
+        return emit(out, args.format, output)
     # 管理命令: 未指定 -f 时按 txt 渲染 (与数据命令默认一致)。
     # 但把 args.format 交回 None, 让 config list 这类内部会按 format 分支的
     # 命令走它自己的人类可读默认, 而不是看到 'text' 就交结构化数据。
@@ -199,14 +204,18 @@ def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空
             list_free: bool = typer.Option(False, '--list-free',
                                            help='只列免费层 id (按命名约定筛, 不是保证)'),
             check: bool = typer.Option(False, '--check',
-                                       help='配合 --list-free: 真调每个模型验证能不能用'),
+                                       help='真调一次验证可用性 (默认只验免费层)'),
+            check_all: bool = typer.Option(False, '--check-all',
+                                           help='--check 时连收费模型一起验 (80+ 个, 慢且易被上游限流)'),
             refresh: bool = typer.Option(False, '--refresh', help='绕过 1h 模型清单缓存'),
             show_body: bool = typer.Option(False, '--show-body',
                                            help='打印将要发送的请求体并退出, 不联网'),
             show_text: bool = typer.Option(False, '--show-text',
                                            help='只打印 messages (原样 JSON), 不联网'),
-            stream: bool = typer.Option(True, '--no-stream/--stream',
-                                        help='不流式, 缓冲到最后一次性输出'),
+            stream: bool = typer.Option(True, '--stream/--no-stream',
+                                        help='流式输出; --no-stream 缓冲到最后一次性输出'),
+            reasoning: bool = typer.Option(True, '--reasoning/--no-reasoning',
+                                           help='打印思考过程 (默认开); --no-reasoning 只要答案'),
             retries: int = typer.Option(3, '--retries', help='瞬时故障 (连接错/408/429/5xx) 重试次数'),
             sticky: bool = typer.Option(False, '--sticky',
                                         help='复用同一 ses_id (默认关: 实测 Zen 免费层不返回 prompt cache 统计, 开不开耗时无差异)'),
@@ -216,9 +225,11 @@ def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空
     a = _CTX['args']
     a.prompt, a.model, a.system = ' '.join(prompt) if prompt else '', model, system
     a.tool_choice, a.full_tools = tool_choice, full_tools
-    a.list_models, a.list_free, a.check, a.refresh = list_models, list_free, check, refresh
+    a.list_models, a.list_free = list_models, list_free
+    a.check, a.check_all, a.refresh = check, check_all, refresh
     a.show_body, a.show_text, a.stream = show_body, show_text, stream
     a.retries, a.sticky = retries, sticky
+    a.reasoning = reasoning
     return _run('data', _entry_fn('zen'), fmt, output, no_cache, no_proxy)
 
 

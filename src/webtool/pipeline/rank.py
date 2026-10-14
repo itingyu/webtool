@@ -53,7 +53,9 @@ def _resolve(name, n, q, cfg, no_proxy):
     proxyhelper 一次定好, 失败直接报错。
     """
     timeout = cfg.get('timeout', 15)
-    gproxy = None if no_proxy else 'auto'      # 交给路由表按域名/IP/协议分流
+    # 'direct' 是强制直连的约定值 —— 写成 None 会被 proxyhelper 当成 auto,
+    # 于是 --no-proxy 反而"跟配置走"
+    gproxy = 'direct' if no_proxy else 'auto'   # 交给路由表按域名/IP/协议分流
     try:
         items = _pull_once(name, n, q, gproxy, timeout)
         if items:

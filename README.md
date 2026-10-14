@@ -100,13 +100,21 @@ JSON 扩展见 `docs/custom-sites.md`（`~/.webtool/sites/*.json`）。
 ```bash
 webtool zen "你好"                    # 默认 big-pickle
 webtool zen "问题" --model ling-3.1-flash-free
-webtool zen --list-free               # 免费模型清单 (实时拉)
+webtool zen --list-free               # 免费层清单 (表格: 模型/提供方/上架/免费层)
+webtool zen --list-models             # 全量清单
+webtool zen --list-free --check       # 逐个真调, 出"实测/耗时/首答" (默认只验免费层)
+webtool zen --list-free --check-all   # 连收费模型一起验 (80+, 慢且易被限流)
 webtool zen "问题" --system "只回 JSON" --tool-choice none
 webtool zen "问题" --no-stream         # 一次性返回 (默认 SSE 流式)
 webtool zen "问题" --show-body        # 只打请求体, 不出网 (排查用)
 ```
 
-模型上下架频繁，先 `--list-free` 再用；403 FreeTierError = 模型已下架。
+模型上下架频繁，先 `--list-free` 再用。清单列取接口字段（`id/created/owned_by`），
+免费层是命名约定推断的；能不能用只有 `--check` 真调一次才算数。
+
+403 FreeTierError 有两种，别混为一谈：某模型已下架，或**免费层整层被上游闸掉**
+（正文是 "can only be used from within OpenCode"，此刻所有免费模型会一起 403）。
+后者跟 `--no-proxy`、线路、IP 都无关，`/v1/models` 通常照样能拉。
 
 - JSON 里的 `usage_available` = 上游是否返回用量；`false` 且 `ok: true` 是「调用成功但端点不给统计」，不是故障
 - 换端点改 `~/.webtool/zen.json` 的 `chat_url` / `models_url`（mtime 热生效），协议固定 OpenAI 形状

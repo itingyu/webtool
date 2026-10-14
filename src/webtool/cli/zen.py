@@ -17,7 +17,7 @@ import urllib.request
 from webtool.core import urls
 from webtool.core.secrets_store import redact
 from webtool.cli.zenproto import (StickySession, _endpoints, build_body,
-                              build_headers, model_headers, parse_models,
+                              build_headers, model_headers, parse_models_full,
                               parse_sse)
 
 # socket 空闲超时。urlopen 的 timeout 只管"多久没收到字节", 不是墙钟预算;
@@ -32,40 +32,47 @@ def is_free_model(model_id):
 
 
 
-def fetch_models(cfg, refresh=False, timeout=15.0, proxy=None):
-    """实时拉 /v1/models (缓存 1h)。
+def fetch_models_detail(cfg, refresh=False, timeout=15.0, proxy=None):
+    """实时拉 /v1/models → 全量行 [{id, created, owned_by}] (缓存 1h)
 
-    刻意不内置名单: 免费模型上架/下架频繁, 硬编码名单很快过期。命名约定
-    也只是启发式 —— 真正的判据是 `zen --list-models --check` 实发一次。
-
-    `proxy=None` 时按 cfg + 路由表自己定线路 (与对话请求同一条), 免得
-    "能聊天但拉不到模型清单" —— 两者打的是同一个端点。
+    走的是原来那份 fetch_models 的路子: 同一个缓存键、同一条线路 (_route),
+    两者打的是同一个端点, 免得"能聊天却拉不到模型清单"。差别只在于多留了
+    接口原样给的字段 —— 上游哪天多给一列(上下文/价格), 加一行就能进表;
+    老缓存里的 ids 结构照旧读得动。
     """
     from webtool.core import cache as _cache
     key = 'zen/models'
     chat_url, models_url = _endpoints()
     if not refresh:
         hit = _cache.get(cfg, 'zen', key)
+        if hit and isinstance(hit.get('models'), list) and hit['models']:
+            return hit['models']
         if hit and isinstance(hit.get('ids'), list) and hit['ids']:
-            return hit['ids']
+            return [{'id': i, 'created': None, 'owned_by': None}
+                    for i in hit['ids']]                # 旧缓存结构
     if proxy is None:
-        proxy = _route(cfg, models_url)
+        proxy = _route(cfg, models_url, verbose=True)
     req = urllib.request.Request(models_url, headers=model_headers())
     try:
         with _opener({'proxy': proxy} if proxy else {}, url=models_url).open(
                 req, timeout=timeout) as r:
             d = json.loads(r.read())
-        ids = parse_models(d)
+        rows = parse_models_full(d)
     except Exception as e:                       # 超时/DNS/TLS 都要兜住
-        import sys
         print('[zen] %s 拉取失败: %s' % (models_url, str(e)[:120]),
               file=sys.stderr)
         return []
-    if not ids:
+    if not rows:
         return []
-    _cache.put(cfg, 'zen', key, {'ids': ids, 'ts': time.time()})
-    return ids
+    _cache.put(cfg, 'zen', key, {'models': rows,
+                                 'ids': [r['id'] for r in rows],
+                                 'ts': time.time()})
+    return rows
 
+
+def fetch_models(cfg, refresh=False, timeout=15.0, proxy=None):
+    """模型 id 列表 (老接口, 保留给已有调用方)"""
+    return [r['id'] for r in fetch_models_detail(cfg, refresh, timeout, proxy)]
 
 
 def _opener(cfg, url=None, verify=None):
@@ -83,7 +90,7 @@ _norm = urls.norm_key   # 请求去重键 (与 feed 共用同一把尺)
 
 
 def call_zen(model, prompt, system=None, session=None, on_delta=None,
-             tool_choice=None, full=False, proxy=None):
+             tool_choice=None, full=False, proxy=None, on_reason=None):
     """发一次请求, 流式返回 {ok, status, text, usage, ...}。不重试。"""
     cfg = {'proxy': proxy} if proxy else {}
     body = build_body(model, prompt, system, tool_choice, full)
@@ -105,6 +112,8 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
                     on_delta(text)
             if reason:
                 reason_parts.append(reason)
+                if on_reason:
+                    on_reason(reason)
             for c in calls:
                 acc = tool_acc.setdefault(c['index'],
                                           {'id': None, 'type': None,
@@ -258,7 +267,7 @@ def _worth_proxy(res):
 
 def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
                    tool_choice=None, full=False, cfg=None, max_attempts=3,
-                   verbose=False):
+                   verbose=False, on_reason=None):
     """只重试瞬时故障: 连接错误 / 408 / 429 / 5xx。**同一线路**重试。
 
     status==200 的一律不重试 —— 流已经通了, 那是语义问题 (截断 / 要调工具),
@@ -273,7 +282,7 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
     route = _route(cfg, _endpoints()[0], verbose)
     for attempt in range(1, max(1, max_attempts) + 1):
         last = call_zen(model, prompt, system, session, on_delta, tool_choice,
-                        full, proxy=route)
+                        full, proxy=route, on_reason=on_reason)
         if last.get('ok'):
             return last
         status = last.get('status', 0)
@@ -316,63 +325,99 @@ def _fmt_payload(res, args):
     return out
 
 
-def _do_zen(args, cfg):
-    import sys
-    prompt = ' '.join(getattr(args, 'prompt', None) or []).strip()
-
-    # ---- dry-run: 打印请求, 不联网 ----
-    if args.show_body or args.show_text:
-        body = build_body(args.model, prompt, args.system, args.tool_choice,
-                          args.full_tools)
-        d = json.loads(body)
-        if args.show_text:
-            print(json.dumps(d['messages'], indent=2, ensure_ascii=False))
-        else:
-            print(json.dumps(d, indent=2, ensure_ascii=False))
-        return 0
-
-    # ---- 模型清单 ----
-    if args.list_models or args.list_free:
-        ids = fetch_models(cfg, refresh=args.refresh, proxy=None)
-        if not ids:
-            print('zen: 拿不到 /v1/models (试 --refresh, 或检查代理)',
-                  file=sys.stderr)
-            return 1
-        if args.list_free:
-            ids = [i for i in ids if is_free_model(i)]
-            if not args.check:
-                return _print_model_ids(ids, args.format)
-            ok_n = 0
-            ok_n = 0
-            for i in ids:
-                # 必须走完整路径 (stream=True), 分类器认形状
-                r = call_zen_retry(i, '回复:OK', cfg=cfg, max_attempts=1,
-                                   tool_choice=args.tool_choice,
-                                   full=args.full_tools)
-                if r.get('ok') and (r.get('text') or '').strip():
-                    ok_n += 1
-                    print('%s\tOK\t%ss' % (i, round(r.get('elapsed', 0), 2)))
-                else:
-                    why = (r.get('error_body') or '')[:80].replace('\n', ' ')
-                    print('%s\tFAIL\t%s\t%s' % (i, r.get('status'), why))
-            print('-- %d/%d 可用 (命名约定只是启发式, 这才是判据)'
-                  % (ok_n, len(ids)), file=sys.stderr)
-            return 0 if ok_n else 1
-        return _print_model_ids(ids, args.format)
+def _disp_width(text):
+    """终端显示宽度: 中日韩全角字符占两列"""
+    import unicodedata
+    return sum(2 if unicodedata.east_asian_width(c) in 'WF' else 1 for c in text)
 
 
-def _print_model_ids(ids, fmt):
-    """模型清单按 -f 输出; 默认 text 保持一行一个 id 的老样子"""
+def _pad(text, width):
+    return text + ' ' * max(0, width - _disp_width(text))
+
+
+def _table(header, body):
+    """等宽对齐的纯文本表; 列宽按显示宽度算, 中文表头不对齐才怪"""
+    widths = [_disp_width(h) for h in header]
+    for line in body:
+        for i, cell in enumerate(line):
+            widths[i] = max(widths[i], _disp_width(cell))
+    out = ['  '.join(_pad(h, w) for h, w in zip(header, widths)).rstrip(),
+           '  '.join('-' * w for w in widths)]
+    out += ['  '.join(_pad(c, w) for c, w in zip(line, widths)).rstrip()
+            for line in body]
+    return '\n'.join(out)
+
+
+def _fmt_ts(ts):
+    """接口给的 created (epoch 秒) → 本地时间; 给不了就 '-'"""
+    import datetime
+    if not ts:
+        return '-'
+    try:
+        return datetime.datetime.fromtimestamp(int(ts)).strftime('%m-%d %H:%M')
+    except (ValueError, OSError, OverflowError):
+        return '-'
+
+
+def _print_models(rows, fmt):
+    """模型清单: 列全部取自 /v1/models 的响应字段 (id/created/owned_by)。
+
+    免费层是命名约定推断的, 表尾注明 —— 不内置任何本地模型元数据: 免费层
+    名单上游每周都在变, 写进来第二天就是错的。
+    """
     import json as _json
     if fmt == 'json':
-        print(_json.dumps({'models': ids, 'count': len(ids)}, ensure_ascii=False, indent=1))
-    else:
-        for i in ids:
-            print(i)
+        print(_json.dumps({'models': rows, 'count': len(rows)},
+                          ensure_ascii=False, indent=1))
+        return 0
+    body = [[r.get('id') or '-', r.get('owned_by') or '-',
+             _fmt_ts(r.get('created')),
+             '是' if is_free_model(r.get('id') or '') else '否']
+            for r in rows]
+    print(_table(['模型', '提供方', '上架', '免费层'], body))
+    print(f'\n共 {len(body)} 个模型'
+          f' (免费层 {sum(1 for b in body if b[3] == "是")} 个)')
+    print('提供方/上架来自接口字段; 免费层按命名约定推断, 不是接口字段')
+    for idx, name in ((1, '提供方'), (2, '上架时间')):
+        vals = {b[idx] for b in body}
+        if len(vals) == 1 and next(iter(vals)) != '-':
+            print(f'注: {name}本批全部为 {next(iter(vals))} —— '
+                  f'上游这批就是这个值, 不是渲染丢了')
     return 0
 
-    # 原 373-418 行: return 0 之后的 45 行不可达代码 (引用未定义的 prompt/
-    # args/sys/cfg), zen 真正的对话逻辑在 do_zen。2026-10 批次二清理删除。
+
+def _brief_error(status, body):
+    """403/400 的正文往往是一坨 JSON, 表里要的是里面那句话"""
+    body = (body or '').strip().replace('\n', ' ')
+    try:
+        d = json.loads(body)
+        err = d.get('error')
+        msg = err.get('message') if isinstance(err, dict) else err
+        body = str(msg or d.get('message') or body)
+    except ValueError:
+        pass
+    return ('HTTP %s %s' % (status, body)).strip()[:60]
+
+
+def _print_check(rows, fmt):
+    """--check 的实测结果: 能不能用要真调一次, 名字说明不了任何事"""
+    import json as _json
+    if fmt == 'json':
+        print(_json.dumps({'checked': rows, 'count': len(rows)},
+                          ensure_ascii=False, indent=1))
+        return 0 if any(r['ok'] for r in rows) else 1
+    body, ok_n = [], 0
+    for r in rows:
+        ok_n += 1 if r['ok'] else 0
+        if r['ok']:
+            brief = r['text'][:28].replace('\n', ' ') or '(空)'
+            body.append([r['id'], '可用', f"{r['elapsed']}s", brief])
+        else:
+            body.append([r['id'], '不可用', '-',
+                         _brief_error(r['status'], r['error'])])
+    print(_table(['模型', '实测', '耗时', '首答 / 失败原因'], body))
+    print(f'\n{ok_n}/{len(rows)} 可用')
+    return 0 if ok_n else 1
 
 
 def _do_zen(args, cfg):
@@ -392,51 +437,69 @@ def _do_zen(args, cfg):
 
     # ---- 模型清单 ----
     if args.list_models or args.list_free:
-        ids = fetch_models(cfg, refresh=args.refresh, proxy=None)
-        if not ids:
+        rows = fetch_models_detail(cfg, refresh=args.refresh, proxy=None)
+        if not rows:
             print('zen: 拿不到 /v1/models (试 --refresh, 或检查代理)',
                   file=sys.stderr)
             return 1
         if args.list_free:
-            ids = [i for i in ids if is_free_model(i)]
-            if not args.check:
-                return _print_model_ids(ids, args.format)
-            ok_n = 0
-            for i in ids:
-                # 必须走完整路径 (stream=True), 分类器认形状
-                r = call_zen_retry(i, '回复:OK', cfg=cfg, max_attempts=1,
-                                   tool_choice=args.tool_choice,
-                                   full=args.full_tools)
-                if r.get('ok') and (r.get('text') or '').strip():
-                    ok_n += 1
-                    print('%s\tOK\t%ss' % (i, round(r.get('elapsed', 0), 2)))
-                else:
-                    why = (r.get('error_body') or '')[:80].replace('\n', ' ')
-                    print('%s\tFAIL\t%s\t%s' % (i, r.get('status'), why))
-            print('-- %d/%d 可用 (命名约定只是启发式, 这才是判据)'
-                  % (ok_n, len(ids)), file=sys.stderr)
-            return 0 if ok_n else 1
-        return _print_model_ids(ids, args.format)
+            rows = [r for r in rows if is_free_model(r.get('id') or '')]
+        if not args.check:
+            return _print_models(rows, args.format)
+        # --check: 真调一遍。默认只验免费层那几行 —— 全表 80+ 个既慢又容易
+        # 被上游限流, 而这里要挑的就是免费层; 想全验给 --check-all。
+        probe = rows if getattr(args, 'check_all', False) else \
+            [r for r in rows if is_free_model(r.get('id') or '')]
+        got = []
+        for r in probe:
+            res = call_zen_retry(r['id'], '回复:OK', cfg=cfg, max_attempts=1,
+                                 tool_choice=args.tool_choice,
+                                 full=args.full_tools)
+            got.append({'id': r['id'], 'ok': bool(res.get('ok')),
+                        'status': res.get('status'),
+                        'elapsed': round(res.get('elapsed') or 0, 2),
+                        'text': (res.get('text') or '').strip(),
+                        'error': (res.get('error_body') or '').strip()})
+        return _print_check(got, args.format)
 
     # ---- 真正的调用 ----
     session = StickySession() if args.sticky else None
     # 实时刷屏只在"人在看终端"时做: stdout 被管道接走、或要 -f json 时, 缓冲
     # 一次输出, 否则终端上会先看到流式再看到完整结果, 重复一遍。
     fmt = getattr(args, 'format', None) or 'text'
-    live = args.stream and fmt != 'json' and sys.stdout.isatty()
+    tty = sys.stdout.isatty()
+    live = args.stream and fmt != 'json' and tty
+    show_reason = getattr(args, 'reasoning', True) and fmt != 'json'
+    # 人在终端: 思考与回答都走 stdout, 用 [思考]/[回答] 分段 —— 推理过程是
+    # 输出的一部分, 不是错误, 没必要塞进 stderr 当成诊断信息。
+    # stdout 被重定向时: 只留回答, 思考挪去 stderr, 管道里拿到的正文才干净。
+    reason_sink = sys.stdout if tty else sys.stderr
     streamed = []
+    marks = {'reason': False, 'text': False}
+
+    def on_reason(chunk):
+        if not (live and show_reason):
+            return
+        if not marks['reason']:
+            marks['reason'] = True
+            sys.stdout.write('[思考] ')
+        sys.stdout.write(chunk)
+        sys.stdout.flush()
 
     def on_delta(text):
         if not live:
             return
         streamed.append(text)
-        sys.stderr.write(text)
-        sys.stderr.flush()
+        if show_reason and not marks['text']:
+            marks['text'] = True
+            sys.stdout.write('\n[回答] ' if marks['reason'] else '')
+        sys.stdout.write(text)
+        sys.stdout.flush()
 
     res = call_zen_retry(args.model, prompt, args.system, session, on_delta,
                          args.tool_choice, args.full_tools, cfg,
                          max_attempts=args.retries,
-                         verbose=args.stream)
+                         verbose=args.stream, on_reason=on_reason)
     # 曾经这里失败后再 `call_zen_direct_then_proxy` 走一遍代理 —— 线路已在
     # call_zen_retry 内一次定死, 重试也只重试同一条线, 不再换线。
     for c in res.get('tool_calls_detail') or []:
@@ -450,6 +513,12 @@ def _do_zen(args, cfg):
     elif live and streamed:
         print('')              # 已流出去, 补个换行收尾
     else:
+        # 缓冲模式: 思考先打 (终端走 stdout, 重定向走 stderr), 回答只走 stdout
+        if show_reason and (res.get('reasoning') or '').strip():
+            print('[思考] %s' % res['reasoning'].strip(), file=reason_sink)
+            if tty:                       # 终端上给回答也起个头, 两段一眼分得开
+                print('[回答] %s' % res.get('text', ''))
+                return 0 if res.get('ok') else 2
         print(res.get('text', ''))
     if not res.get('ok'):
         print('[zen] %s %s' % (res.get('status'),
@@ -462,6 +531,9 @@ def _do_zen(args, cfg):
 def do_zen(args, cfg):
     if getattr(args, 'no_proxy', False):
         cfg = dict(cfg)
-        cfg['proxy'] = None
+        # 必须写 'direct' 这个字符串 —— 下游 proxyhelper 把 None 解释成 "auto"
+        # (跟配置/规则表走), 于是 --no-proxy 会绕一圈又走回代理; 'direct' 才是
+        # 强制直连的约定值 (netx / transport / core.http 三处都认)。
+        cfg['proxy'] = 'direct'
     return _do_zen(args, cfg)
 

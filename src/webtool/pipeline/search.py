@@ -140,7 +140,8 @@ def _do_search(args, cfg, filter_ad=True):
             if args.no_proxy:
                 if hint == 'required':
                     continue            # --no-proxy 时 required 引擎直接跳过
-                proxy = None            # 命令行指定不走代理, 最高优先
+                proxy = 'direct'        # 命令行指定不走代理, 最高优先
+                                        # (写 'direct', None 会被下游当成 auto)
             elif eproxy is not None:
                 proxy = eproxy          # 引擎级配置次之
             elif hint == 'required':

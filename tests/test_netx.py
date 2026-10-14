@@ -484,6 +484,7 @@ print('\n=== 15. 残留直连审计 (本轮补挖出来的几处) ===')
 # 模型清单"。两处都必须按 cfg 走。
 import inspect                                  # noqa: E402
 from webtool.cli import zen as _zen             # noqa: E402
+from webtool.cli import app as _app              # noqa: E402
 from webtool.net import fetch as netfetch        # noqa: E402
 import importlib                                # noqa: E402
 # radar/__init__.py 把 instances/routes/rules re-export 成同名函数, 属性遮蔽了
@@ -498,9 +499,35 @@ check('_route(cfg' in _zen_src or '_route(' in _zen_src,
       'call_zen_retry 的线路来自 _route (cfg + 路由表)')
 check(hasattr(_zen, 'call_zen_on_route'),
       "zen 的按配置入口叫 call_zen_on_route (名字不再宣称 failover)")
-_m_src = inspect.getsource(_zen.fetch_models)
-check('proxy = _route(cfg, models_url)' in _m_src,
-      'fetch_models 模型清单与对话请求走同一条线路')
+_m_src = inspect.getsource(_zen.fetch_models_detail)
+check('proxy = _route(cfg, models_url, verbose=True)' in _m_src,
+      'fetch_models_detail 模型清单与对话请求走同一条线路')
+check('def fetch_models(' in inspect.getsource(_zen) and
+      'fetch_models_detail(' in inspect.getsource(_zen.fetch_models),
+      'fetch_models 仍可用 (id 列表, 薄封装在 detail 之上)')
+# ── 三个改过的坑, 各留一条回归断言 ──────────────────────────────
+# 1) 布尔标志声明顺序: '--no-x/--x' 会让 --x 解析成 False (Typer 语义颠倒),
+#    实测确认过; 心跳开关必须"正名在前"。
+_app_src = inspect.getsource(_app)
+for _flag in ("'--stream/--no-stream'", "'--reasoning/--no-reasoning'"):
+    check(_flag in _app_src, f'app.py 布尔标志写法正确 {_flag}')
+check("'--no-stream/--stream'" not in _app_src and
+      "'--no-reasoning/--reasoning'" not in _app_src,
+      'app.py 不再有颠倒写法的布尔标志')
+# 2) 退出码非零时不能把报告丢掉 (zen --check 全挂时人得看得到表)
+_run_src = inspect.getsource(_app._run)
+check('if out.strip():' in _run_src and 'emit(out' in _run_src,
+      '_run 在非零退出码下也把已生成的报告 emit 出去')
+# 3) 思考不是错误流: 人在终端时思考与回答都走 stdout, 重定向才分流
+_dz_src = inspect.getsource(_zen._do_zen)
+check('reason_sink = sys.stdout if tty else sys.stderr' in _dz_src,
+      'zen 展示层: 终端里思考走 stdout, 仅重定向时才让出 stdout')
+check('on_reason' in inspect.getsource(_zen.call_zen),
+      'call_zen 有单独的 reason 回调 (不是把思考混进正文)')
+_m_src2 = inspect.getsource(_zen._print_models)
+check('created' in _m_src2 and 'owned_by' in _m_src2 and
+      '未' not in _m_src2.split('免费层')[0][-40:],
+      '模型表只用接口字段 (id/created/owned_by) + 命名约定的免费层')
 # mcp fetch --via exa/parallel/firecrawl: call_verb 的默认 proxy=None 会让它
 # 直连, 而同一 URL 的本地链走代理 —— 两条出口两种 IP。
 _f_src = inspect.getsource(netfetch._fetch_via_mcp)
