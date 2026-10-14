@@ -1,18 +1,24 @@
-"""传输层探活: 轻量探测代理/直连连通性 (rank 自动降级用)"""
+"""传输层探活: 轻量探测代理/直连连通性 (rank 自动降级用)
+
+探活本身也是一次出网, 所以同样要遵守统一出网层的策略 (netx): 代理里的
+`user@host` 要补上保险库密码, 否则带认证的代理会在这里被误判成"不可用"
+—— 上层据此放弃重试, 排查方向完全指不到真实原因 (凭据缺失)。
+"""
+from webtool.net import netx
 
 
 def head_probe(proxy=None, timeout=6):
     """经 proxy (None=直连) HEAD https://www.bing.com/generate_204,
     拿到任何 HTTP 状态码即视为连通。失败抛异常/返回 False。"""
     from curl_cffi import requests as _cr
+    px = netx.resolve_proxy(proxy)
+    kw = {'proxy': px} if px else {}
     r = _cr.head('https://www.bing.com/generate_204',
-                 impersonate='chrome131', proxy=proxy or None,
-                 timeout=timeout, allow_redirects=False)
+                 impersonate='chrome131',
+                 timeout=timeout, allow_redirects=False, **kw)
     return r.status_code < 600
 
-
 _proxy_alive = {}
-
 
 def proxy_ok(proxy, timeout=6):
     """探活 + 进程内缓存: HEAD https://www.bing.com/generate_204 经代理可达即可用。
@@ -22,12 +28,19 @@ def proxy_ok(proxy, timeout=6):
     """
     if not proxy:
         return False
-    if proxy in _proxy_alive:
-        return _proxy_alive[proxy]
+    # 缓存键用归一后的形态: 'user@host' 与 'user:明文@host' 指向同一条代理,
+    # 分开缓存会让同一条代理被探两次 (后者还必然失败, 因为密码没补)
+    try:
+        px = netx.resolve_proxy(proxy)
+    except Exception:
+        px = proxy
+    key = px or proxy
+    if key in _proxy_alive:
+        return _proxy_alive[key]
     ok = False
     try:
-        ok = bool(head_probe(proxy, timeout))
+        ok = bool(head_probe(px, timeout))
     except Exception:
         ok = False
-    _proxy_alive[proxy] = ok
+    _proxy_alive[key] = ok
     return ok

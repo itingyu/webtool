@@ -31,7 +31,7 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, page=1):
 def _fetch_result_main(url, proxy, timeout):
     """挑战握手: GET → sst 链接 → 等待 → 带 cookie 重放, 直到 main 区出结果"""
     prof_name = transport._pick_profile('marginalia')
-    s, prof = transport._new_session(prof_name, proxy, None)
+    s, prof = transport._new_session(prof_name, proxy, None, url=url)
     main = ''
     for _hop in range(_MAX_HOPS):
         try:

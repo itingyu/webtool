@@ -1,6 +1,6 @@
 """feed 拉取与官网/RSSHub 交叉校验
 
-pull_one 单源直连优先; crosscheck 同时拉官网 feed 与 RSSHub 路由, 按 URL
+pull_one 单源按配置/路由表取 (不再有"直连优先再代理"); crosscheck 同时拉官网 feed 与 RSSHub 路由, 按 URL
 集合的重叠率判定「官网能否等价替代路由」(RSSHub 侧为分母)。
 """
 
@@ -12,6 +12,7 @@ import time
 from webtool.core import urls
 from webtool.engines.sites import _fetch, _headers
 from webtool.feeds.parse import parse_feed
+from webtool.net import proxyhelper
 
 _norm_u = urls.norm_key      # URL 去重键 (比对同一篇文章)
 _sec_of = urls.section_of   # URL 首段路径 = 栏目名
@@ -26,16 +27,6 @@ def pull_one(name, url, n, proxy, timeout):
                   'application/xml, text/xml, */*'})
     txt, st, _ = _fetch(url, proxy, timeout, headers)
     return parse_feed(txt, name)[:n]
-
-
-def _resolve_proxy(cfg, no_proxy):
-    """直连优先 → 失败且全局代理可用则代理重试"""
-    def once(p):
-        def _pull(item):
-            nm, spec = item
-            return nm, pull_one(nm, spec['url'], spec['_n'], p, cfg.get('timeout', 15))
-        return _pull
-    return once
 
 
 def instance_candidates(preferred, explicit, cfg):
@@ -110,16 +101,19 @@ def _crosscheck(official, rss_url, section, n, cfg, timeout=None,
     want = max(n, 10) * 3
 
     def pull(url, tag):
-        """返回 (items, ms)。直连优先再代理, 记成功那次的耗时。"""
+        """返回 (items, ms)。按配置/路由表取一次 (线路只由配置决定)。
+
+        曾经是 `for px in ([None] + [cfg.get('proxy')])` 的两轮 failover: 直连
+        能通就永远不碰代理, 代理挂了就静默退直连。改成单线路后, 走哪条由
+        proxyhelper/路由表决定, 失败的原因也不会被掩盖。
+        """
         t0 = time.perf_counter()
-        for px in ([None] + ([cfg.get('proxy')] if cfg.get('proxy') else [])):
-            try:
-                got = pull_one(tag, url, want, px, tmo)
-                if got:
-                    return got, int((time.perf_counter() - t0) * 1000)
-            except Exception:
-                continue
-        return [], int((time.perf_counter() - t0) * 1000)
+        px = proxyhelper.resolve(cfg.get('proxy'), url)
+        try:
+            got = pull_one(tag, url, want, px, tmo)
+        except Exception:
+            got = []
+        return got, int((time.perf_counter() - t0) * 1000)
 
     cands = [c for c in (instances or []) if c] or [None]
     t_all = time.perf_counter()

@@ -11,7 +11,7 @@ webtool/
   cli/          L4 应用编排   app / config / plugins / sitesearch / zen / zenproto
                                mcp (通用 MCP 客户端)
   feeds/        L3 业务流程   command / sources / parse / fetch / cards / feedhealth
-  stock/        L3 业务流程   master (桥 stock-master skill) / mcp (桥 stock MCP)
+  stock/        L3 业务流程   master (桥 stock-master skill) / srv (多源编排)
                                command (动作分发 + 渲染)
   radar/        L3 业务流程   routes / rules / instances / official / template
                                            / race / instances_cfg
@@ -139,7 +139,7 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 - `pipeline/search.py` 的 `proxy_hint/_proxy_alive` 同理是兼容再导出，实现在 `net/transport.py`
 - **MCP 端点既可以只是 `mcp` 的调用目标，也可以直接充当搜索引擎或 fetch 兜底通道**。
   `engines/parallel.py` 与 `engines/firecrawl.py` 是样板：`engines/exa.py`（三者同源）
-  端点声明（url / verbs / proxy / api_key_env）全部读 `data/mcp.json`，与 `webtool mcp` 共用同一份数据，
+  端点声明（url / verbs / api_key_env）全部读 `data/mcp.json`，与 `webtool mcp` 共用同一份数据，
   engines 层不 import `cli/`（L1 不得反向依赖 L4），只 import `net/mcpclient` 出网 + `core/config_data` 读声明。
   要让某个 MCP 端点进 `search` 引擎池，实现 `search(query, max_results, proxy, timeout, market, **_)` 返回
   `[{rank, title, url, snippet}]`，再在 `data/plugins.json` 的 `engine` 段登记 `module` + `enabled_by_default`。
@@ -149,12 +149,21 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   exa 回已拼好的 markdown 纯文本。新增通道时**先实测形状**再写分支，并在该通道的 docstring 注明是否已用真 key 验证过
   （无 key 的端点只能按公开文档推定 —— 这种代码要明说"未实测"，别让人误以为已验证）。
   入参形状同样按端点不同，见 `_reader_arg`
-- **MCP 端点的代理策略**由 `data/mcp.json` 声明，缺省跟随全局配置（同其余命令），
-  `"proxy":"direct"` 强制直连。exa 声明了 `direct`：免 key 配额按出口 IP 计，走全局代理
-  等于用别人的配额池（实测同一命令带代理必 429、直连稳定通过）。这是**端点特性不是
-  MCP 通用约定** —— 别把整个 MCP 层都改成默认直连，否则被墙的端点接不上。
-  命令侧解析在 `cli/mcp.py::_proxy_for`；引擎侧（`engines/exa.py`）因拿不到 `args.no_proxy`，
-  由自己按端点声明强制 `proxy=None`，两处逻辑同源但各按自己的调用形状落地
+- **端点表 `data/mcp.json` 不声明线路**，所有端点统一跟随 `proxy` 配置 + 路由表
+  （`auto` → 规则表 → 全局代理/直连）。曾给 exa 写死 `"proxy":"direct"`、引擎侧再
+  强制 `proxy=None`：免 key 配额按出口 IP 计，走全局代理等于用别人的配额池（实测带代理
+  必 429、直连稳定通过）—— 但这是**端点特性，不是替用户做决定**，写进数据表等于所有用户
+  的 exa 都被强制直连，而被墙的端点照样接不上。要走直连就显式配
+  `webtool config set engine_proxy.exa direct` 或加一条规则
+- **`plugins.json` 同理不再有 `site.*.proxy` / `engine.*.params.proxy_hint:"direct"`**：
+  `site` 那条是真强制直连（`sitesearch.py` 见到 direct 就把 proxy 置 None，绕开 config
+  和路由表）；`proxy_hint` 只保留 `'required'`（该引擎直连必然不通，代理不可用时跳过），
+  `None` = 跟随路由表。自定义站点 `~/.webtool/sites/*.json` 的 `proxy` 是**用户配置**，
+  继续有效
+- **线路只由配置决定，不做隐式切换**（`netx.resolve_proxy` 是唯一归一点）。历史上的
+  "先直连、失败再代理"/"代理失败退直连"让同一次请求走哪条线取决于它先在哪失败，且后者
+  会毁掉只允许代理出网的目标。新写通道别加 `allow_fallback` 参数，也别在适配器里写死
+  `proxy=None` —— 那等于无视管线传入的代理
 - **管理命令返回 rc!=0 时，`cli.app._run` 会丢弃 stdout 缓冲**（只保留退出码）。`plugins check` 失败即看不到内容，是既有问题。`cli/mcp.py` 因此把失败输出走 stderr —— 新写管理命令若有"失败也要给信息"的需求，同样走 stderr
 - `engines/sites.py` 的 `_mk/_fetch/_headers` 被 6 个模块跨文件复用（customsites / sitesearch /
   feeds.fetch / hotsites / moresites / moresites2 / oversites），暂留私有名；
@@ -169,16 +178,37 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 - **生态库的数据列里常有 `datetime.date` / numpy 标量**，不是 JSON 原生类型。
   渲染层一律走 `command.py::_j` 兜底序列化 —— 直接 `json.dumps` 会 TypeError
   **崩在渲染层**，而那时数据其实已经取到了，白跑一次网络请求
-- **第三侧 `rawapi.py`** 桥 `/var/minis/shared/股票/API调研/api_client.py` 的
-    **151 个低阶方法**（`STOCK_API_HOME` 可覆盖），8 大数据源 ths/sina/xueqiu/em/
-    gtimg/tencent/cninfo/sse/csindex/ef。服务端只把其中 56 个聚合成 24 个高阶工具，
-    另外 96 个（股东研究/盈利预测/研报日历/早盘晚报/板块多维排行/分钟线/产业链分类）
+- **第三侧 `rawapi.py`** 桥 `bridge/sources/`（随仓内置）的
+    **153 个低阶方法**，按数据源分包：ths/sina/xueqiu/em/gtimg/tencent/
+    cninfo/sse/csindex/ef。编排层只把其中 56 个聚合成 24 个动作，
+    另外 95 个（股东研究/盈利预测/研报日历/早盘晚报/板块多维排行/分钟线/产业链分类）
     从 `webtool stock api <方法>` 直接调
   - `rawapi.call` **按签名校验参数**：多传参数直接报错而不是吞掉 —— 静默丢弃参数
     等于让调用方以为生效了，实际跑的是默认值
-  stock-master 在 `/var/minis/skills/stock-master`（`STOCK_MASTER_HOME` 可覆盖），
-  stock 数据服务端在 `/var/minis/mcp-servers/stock_mcp_server.py`（`STOCK_MCP_HOME`
-  可覆盖）。**全程不起子进程、不经 MCP 协议**：
+- **全部依赖都在 `webtool.stock` 包内**（`bridge/sources/` 数据源、
+  `bridge/orchestrate.py` 编排层、`skill/` 技能），**静态 import 接入**：
+  `from webtool.stock.bridge.sources import APIClient` /
+  `webtool.stock.skill.scripts.<name>`。装包即用，无需额外安装
+  - 目录名去连字符：`stock-master` 是 skill 的 YAML 名，不是合法标识符，当不了包名
+  - **不要用 `sys.path.insert` + `importlib` 接内部依赖**。sys.path 是全局可变状态，
+    谁先 import 谁改变后续所有 import 的结果。早期 `rawapi` 与那份独立服务端各插
+    一个目录，同名模块 `api_client` 真的加载了两份，两套 `lru_cache`(token/session)，
+    数据状态不共享 —— 包内 import 从结构上消除这个歧义
+    （测试断言：导入依赖全程 `sys.path` 不变，且顶层 `'api_client'` 从未进
+    `sys.modules`）
+  - **不要留外部覆盖路径**。曾经有过 `STOCK_API_HOME` / `STOCK_MASTER_HOME` /
+    `STOCK_MCP_HOME` 三个环境变量从仓外目录加载，已删。理由不是"不支持换版本"，
+    而是覆盖路径加载出的模块与包内那份是**两个模块对象**：同一个进程里两份
+    `APIClient` 各带一份 token/session 缓存，cookie 互相看不见，而"我配的到底是
+    哪份"还取决于谁先 import。**要换版本就改包内那份**
+  - `webtool stock health` 的 `orchestrator` 段 `found` 恒为真 —— 只有一种状态可报，
+    所以它同时是一个"没被改回去"的回归哨兵
+  - 包化后 `scripts/` 是真包（靠 `__init__.py`），由 `packages.find` 自动收进 wheel，
+    `package-data` 只需列非代码资源（skill 的 md）。但 `stock/skill/**` 与
+    `stock/data/**` 都要显式列：键是**包名**、值是**相对包根**的路径，
+    `data/**` 够不到 `stock/` 下的子目录。这个坑只在查 wheel 内容时才暴露，
+    源码树里跑永远是好的
+  **全程不起子进程、不经协议**：
   - 服务端 `TOOLS` 注册表每项自带 `handler` 函数 —— `stock/srv.py` 直接调 handler，
     拿到的是工具自己的 dict，**没有 content 信封的序列化往返**（`_call_tool` 那条路
     会把结果 dumps 成字符串再塞进 MCP content 再被解析回来，多一轮序列化 + 解析）
@@ -212,16 +242,15 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   （数组只取 `ind_type==1` 的一级行业名）—— 直接读 `passed_count` 会渲染成"通过 None"
 - **`analyze` 的 text 走 `_text_analyze`**：结论先行（评分/信号/三档入场/止损），
   默认吐裸 JSON 会把"能不能买、什么价买"埋在 20 行里；程序读字段用 `-f json`
-- 已知残留：`announcement` 动作会起 1 个 `curl` 子进程，来自服务端依赖
-  `/var/minis/shared/股票/API调研/api_client.py::np_notice_ann`（东财公告接口）——
-  是数据层自己的实现，不在 webtool 桥接范围内
-- **stock MCP 的载荷形状按工具不同，`stock/command.py` 靠 `_items_of`（广度优先下钻
+- `announcement` 动作曾起 1 个 `curl` 子进程（`np_notice_ann` 东财公告接口），
+  已消除：改为 `self._std.get()` 走统一会话。理由与验证见 `bridge/ROUTING.md`
+- **stock 动作的载荷形状按动作不同，`stock/command.py` 靠 `_items_of`（广度优先下钻
   `items/list/rows`）统一认领**：news 是 `data.items`，announcement 是 `data.data.list`，
   capital_flow north 是 `data.data.data.{hk2sh,...}`（无列表）。**认不出就标注不猜** ——
-  同花顺 stockpage 是 SPA，MCP 解析不出列表会回 100KB 原始 HTML，印出来等于把噪声
+  同花顺 stockpage 是 SPA，上游站点解析不出列表会回 100KB 原始 HTML，印出来等于把噪声
   当结果
 - **stock 的 `--arg` 类型推断与 `cli/mcp.py` 有意不同**：纯数字一律留字符串（600519 是
-  A股代码，整数会被 MCP schema 拒）。改这段前先确认不是在给非代码字段传数字
+  A股代码，整数会被动作参数校验拒）。改这段前先确认不是在给非代码字段传数字
 - **`stock/command.py::_render` 对未解析载荷只在 text/markdown 标 stderr 警告**，
   json 保持原样 —— 程序消费方可能自己要那份 html，不该由渲染层替它决定丢弃
 - 打包数据在包根 `src/webtool/data/`（不在 `core/` 下），`core.config_data.DATA_DIR`

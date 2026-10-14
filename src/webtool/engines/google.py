@@ -88,7 +88,7 @@ def _web(query, max_results, proxy, timeout, market, page):
     extra = {'Cookie': 'SOCS=CAISHAgBEhJnd3NfMjAyMzAxMjQtMF9SQzIaAmVuIAEgBkgB'}
     text, status, via = transport.get(
         url, kind='nav', referer='https://www.google.com/', proxy=proxy,
-        timeout=timeout, engine='google', allow_fallback=False, headers=extra,
+        timeout=timeout, engine='google', headers=extra,
         lang=transport.LANG_EN)
     if status in (429, 403) or 'unusual traffic' in text or '/sorry/' in text:
         # 不在此处 mark_blocked: google 冷却 300s×min(hits,4) 指数加长,
@@ -97,7 +97,9 @@ def _web(query, max_results, proxy, timeout, market, page):
         try:
             from webtool import gcaptcha as _gc
             if _gc.is_challenge(text, status=status) or '/sorry/' in text:
-                gs, gp = transport._new_session('chrome131_win', proxy, 'google')
+                gs, gp = transport._new_session(
+                    'chrome131_win', proxy, 'google',
+                    url='https://www.google.com/sorry/')
                 try:
                     ok2, text2, how = _gc.solve(gs, text, 'https://www.google.com/sorry/', timeout=timeout)
                 finally:
@@ -186,7 +188,8 @@ def _news(query, max_results, proxy, timeout, market, page):
     # 会话跨调用 state 持久化; 裸请求部分代理出口会被 302 challenge
     text = None
     try:
-        s, p = transport._new_session('chrome131_win', proxy, 'google')
+        s, p = transport._new_session('chrome131_win', proxy, 'google',
+                                      url=rss_url)
         # 预热失败不致命, RSS 照打
         transport.warm_session(s, 'https://news.google.com/', timeout=timeout,
                                profile=p)

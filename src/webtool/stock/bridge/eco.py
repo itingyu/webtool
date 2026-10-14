@@ -1,7 +1,7 @@
 """桥接环境里的第三方金融数据生态库 (akshare / tushare / baostock / efinance)
 
 `shared/股票/API调研/函数.json` 记录了这些库 1099 个接口的实测结果, 其中
-741 个可用 (ok-noargs)。它们比 `api_client` 的 151 个方法大一个量级, 且各有
+741 个可用 (ok-noargs)。它们比数据源层的 153 个方法大一个量级, 且各有
 独到之处:
 
 - **akshare** (1137 导出): 最全 —— 龙虎榜/板块资金/宏观/商品/可转债/基金/
@@ -9,14 +9,14 @@
 - **tushare** (134): 需要 token 的专业数据 (研报盈利预测、股东数、限售解禁…),
   token 在环境变量里, 没配就明说而不是静默失败
 - **baostock** (38): 免费的日/周/线历史数据与财务数据
-- **efinance**: 与 api_client 内部用的同一套
+- **efinance**: 与数据源层内部用的同一套
 
 ## 与前两层的分工
 
 | 层 | 覆盖 | 特点 |
 |---|---|---|
 | `srv.py` (服务端 24 工具) | 高阶聚合 | 口径统一、有 fallback 链 |
-| `rawapi.py` (api_client 151) | 8 源低阶 | 每次调用都现取, 无重试 |
+| `rawapi.py` (数据源层 153) | 按源分包 | 每次调用都现取, 无重试 |
 | **本模块** (生态库 ~1300) | 长尾 + 宏观 + 全球 | **有重试与限流**, 返回 DataFrame 摘要 |
 
 ## 性能与限流纪律 ⚠️
@@ -36,6 +36,8 @@ import inspect
 import os
 import sys
 import time
+from webtool.stock.error import EcoError
+from webtool.stock.bridge import _eco_net
 
 TIMEOUT = float(os.environ.get('STOCK_ECO_TIMEOUT', '120'))
 
@@ -53,8 +55,6 @@ _SLOW_HINTS = {
 }
 
 
-class EcoError(RuntimeError):
-    """生态库不可用 / 接口不存在 / 调用失败或超时"""
 
 
 def health():
@@ -247,7 +247,10 @@ def call(lib, name, kwargs=None, preview_rows=5, full=False):
     fn = _lookup(lib, name)
     t0 = time.time()
     try:
-        df = fn(**(kwargs or {}))
+        # 生态库内部自带 session, 改不动; 作用域内让 requests 按规则表走,
+        # 出了 with 自动还原, 不泄漏给同进程后续抓取
+        with _eco_net.routed():
+            df = fn(**(kwargs or {}))
     except TypeError as e:
         # 生态库函数的参数名极不一致 (symbol/code/symbols), 猜错就是 TypeError。
         # 直接把签名告诉调用方, 比让他猜参数名快得多。

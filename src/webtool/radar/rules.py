@@ -19,7 +19,11 @@ RADAR_TTL = 7 * 86400
 
 
 def load_rules(proxy=None, refresh=False, timeout=20):
-    """载入 radar rules (缓存优先), 返回 dict; 失败抛异常"""
+    """载入 radar rules (缓存优先), 返回 dict; 失败抛异常
+
+    `proxy=None` 按 'auto' 处理 (问路由表), 不是强制直连 —— 与同目录
+    `instances.load_instances` / `routes.load_routes` 一致。
+    """
     if not refresh and RADAR_FILE.exists():
         try:
             o = json.loads(RADAR_FILE.read_text())
@@ -29,24 +33,23 @@ def load_rules(proxy=None, refresh=False, timeout=20):
             pass
     from webtool.net import transport
     errs = []
+    px = proxyhelper.resolve(proxy or 'auto')
     for base in default_instances():
-        # 直连优先 (CF 对代理出口更敏感), 失败再试代理
-        attempts = [None] + ([proxy] if proxy else [])
-        for px in attempts:
-            try:
-                text, st, _ = transport.get(base + '/api/radar/rules', kind='plain',
-                                            timeout=timeout, proxy=px,
-                                            allow_fallback=False)
-                if st == 200 and text.lstrip().startswith('{'):
-                    rules = json.loads(text)
-                    RADAR_FILE.parent.mkdir(parents=True, exist_ok=True)
-                    RADAR_FILE.write_text(json.dumps(
-                        {'ts': time.time(), 'base': base, 'rules': rules},
-                        ensure_ascii=False))
-                    return rules
-                errs.append(f'{base}: HTTP {st}')
-            except Exception as e:
-                errs.append(f'{base}: {str(e)[:60]}')
+        # 单线路: 曾经"直连优先, 失败再试代理"(理由是 CF 对代理出口更敏感),
+        # 但那让哪条线路生效取决于它先在哪失败。现在按配置/路由表一次定好。
+        try:
+            text, st, _ = transport.get(base + '/api/radar/rules', kind='plain',
+                                        timeout=timeout, proxy=px)
+            if st == 200 and text.lstrip().startswith('{'):
+                rules = json.loads(text)
+                RADAR_FILE.parent.mkdir(parents=True, exist_ok=True)
+                RADAR_FILE.write_text(json.dumps(
+                    {'ts': time.time(), 'base': base, 'rules': rules},
+                    ensure_ascii=False))
+                return rules
+            errs.append(f'{base}: HTTP {st}')
+        except Exception as e:
+            errs.append(f'{base}: {str(e)[:60]}')
     raise RuntimeError('radar rules 拉取失败 (全实例): ' + '; '.join(errs))
 
 

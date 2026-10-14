@@ -3,6 +3,10 @@
 UA 与 impersonate 版本严格对齐, header 按 kind 分型 (nav 页面导航 / xhr 页面
 JS 请求 / api 公开 REST), sec-fetch-site 按可注册域判定; cookie 经 state
 持久化; 被拦走 冷却→退避换指纹→代理直连互换 降级梯; 每引擎限速+抖动。
+
+证书校验统一走 core.tls (ssl_verify / ca_bundle / verify_hosts), 每请求
+按 URL 现算 verify 后传给 curl_cffi; 证书失败抛 TlsError 直接上抛, 不进
+降级梯 —— 换指纹换代理对证书问题一点用没有, 只是把 1 次失败放大成 4 次。
 """
 import random
 import socket
@@ -11,11 +15,19 @@ import time
 import urllib.parse
 
 from curl_cffi import requests as _cr
+from curl_cffi.requests.exceptions import CertificateVerifyError
 HAS_CFFI = True
 
 from webtool.core import state
+from webtool.core import secrets_store
+from webtool.core import tls
 from webtool.core import urls
+from webtool.core.tls import TlsError
 from webtool.net import captcha
+
+# 证书类异常的判定统一交给 core.tls.is_tls_error —— urllib 把 SSLError 裹在
+# URLError.reason 里, requests.SSLError 又不是 ssl.SSLError 的子类,
+# 任何类型元组都盖不全, 漏网的后果是证书失败被降级梯当成普通抖动重试 4 次
 
 # ---------------- 浏览器指纹档案 (UA 与 impersonate 版本严格对齐) ----------------
 
@@ -74,6 +86,19 @@ LANG_EN = 'en-US,en;q=0.9'
 
 
 _registrable = urls.registrable   # 可注册域判定 (含 com.cn/co.uk 等二级后缀)
+
+# 各引擎的实际入口。_new_session 只拿得到 engine 名, 而 'auto' 的线路要按
+# 域名问路由表 —— 没有 URL 就只能退回默认动作, 于是 `*.cn` direct 这类规则
+# 对会话失效 (而引擎会话打的恰恰是境内站, 最容易被分流)。调用方有实际 URL
+# 时优先传 url=, 这里是没传时的兜底。
+_ENGINE_URL = {
+    'bing': 'https://cn.bing.com/search',
+    'sogou': 'https://www.sogou.com/web',
+    'baidu': 'https://www.baidu.com/s',
+    'so360': 'https://www.so.com/s',
+    'google': 'https://www.google.com/search',
+    'marginalia': 'https://search.marginalia.nu/search',
+}
 
 
 # ---------------- 节奏控制 (每引擎最小间隔 + 抖动) ----------------
@@ -194,8 +219,25 @@ def _export_cookies(session):
     return out
 
 
-def _new_session(profile_name, proxy=None, engine=None):
-    """新会话: 指纹档案 (名或 dict) + state 里的持久 cookie 预载"""
+def _new_session(profile_name, proxy=None, engine=None, url=None):
+    """新会话: 指纹档案 (名或 dict) + state 里的持久 cookie 预载
+
+    `proxy` 走 netx 归一 —— 这里曾把参数原样塞给 curl_cffi, 于是调用方传
+    'auto' (search 管线传的正是这个) 会让 curl 去解析一个叫 "auto" 的主机名:
+    `Could not resolve proxy: auto`。sogou/baidu/google/marginalia 全线命中,
+    症状是"配了代理反而全挂"。
+
+    **url 必须传**: 'auto' 的线路由路由表按域名决定, 没有目标 URL 就只能退回
+    默认动作, 于是 `*.cn` direct 这类规则对会话失效 (引擎的会话恰恰是打
+    境内站, 最容易被规则分流)。引擎手上都有实际要请求的 URL, 传进来即可。
+    归一是幂等的 —— 引擎自己先 resolve 过再传已归一的 URL, 不会二次补密码。
+
+    engines 取每个引擎的实际入口 (只用于判定线路, 不发请求)。
+    """
+    from webtool.net import netx
+    if url is None and engine:
+        url = _ENGINE_URL.get(engine)
+    proxy = netx.resolve_proxy(proxy, url)
     if isinstance(profile_name, dict):
         p = profile_name
     else:
@@ -226,19 +268,23 @@ class CooldownError(RuntimeError):
     """引擎处于反爬冷却期, 应换引擎"""
 
 
+__all__ = ['BlockedError', 'CooldownError', 'TlsError', 'get', 'headers_for',
+           'resolve_redirect', 'session_get', 'warm_session', 'proxy_hint',
+           'PROFILES', 'LANG_ZH', 'LANG_EN', 'ACCEPT_XHR']
+
+
 # ---------------- 主入口 ----------------
 
 def get(url, *, kind='nav', referer=None, proxy=None, timeout=15,
-        engine=None, rate_engine=None, headers=None, lang=LANG_ZH,
-        allow_fallback=True, max_bytes=8 * 1024 * 1024, profile=None,
-        session=None, _depth=0):
+        engine=None, rate_engine=None, headers=None, lang=LANG_ZH, max_bytes=8 * 1024 * 1024, profile=None,
+        session=None, verify=None, _depth=0):
     """浏览器指纹 GET → (text, status, via)
 
     via: 'cffi' | 'urllib'
     - engine: 反爬冷却/验证码检测/cookie 持久化都挂在这个名字上 (baidu/sogou/...)
     - rate_engine: 节奏控制的桶 (一般与 engine 相同, resolve 类可单列)
-    - allow_fallback=False: 不做代理→直连互换 (google 这类直连无意义的通道)
     - session: 外部管理的会话 (引擎自带预热流程时传入), 此时指纹档案取 profile
+    - verify: 证书校验覆盖 (None=按 core.tls 全局策略; True/False 定点决定)
     """
     if engine and _depth == 0 and captcha.suspended(engine):
         # 冷却门只在顶层检查: 降级梯内部重试不受影响 (否则会撞上自己刚记的冷却)
@@ -247,11 +293,16 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=15,
             f'请换引擎或 webtool engines 查看')
     _pace(rate_engine or engine)
 
+    # 代理归一交给 netx (唯一该碰代理的地方): 'auto' → 问路由表, 'user@host' →
+    # 补保险库密码。这里不再自己判断, 免得又多一份和 netx 不一致的副本。
+    from webtool.net import netx as _netx
+    proxy = _netx.resolve_proxy(proxy, url)
+
     text, status, via = _get_once(url, kind=kind, referer=referer, proxy=proxy,
                                   timeout=timeout, engine=engine,
                                   headers=headers, lang=lang,
                                   max_bytes=max_bytes, profile=profile,
-                                  session=session)
+                                  session=session, verify=verify)
     # 验证码检测 + 降级梯 (只对挂了引擎名的通道做, fetch/resolve 不折腾)
     if not (engine and text):
         return text, status, via
@@ -271,15 +322,17 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=15,
             f'{engine} 验证页拦截({sign}), 已重试{_depth}次仍被拦; '
             f'冷却{captcha.cooldown_left(engine)}s, 请换引擎')
     time.sleep(min(2 ** _depth, 4) + random.uniform(0, 0.8))
-    # 梯子: 换指纹新会话(原配置) → 代理互换 → 再换指纹
-    swap_proxy = None if (proxy and _depth == 1 and allow_fallback) else proxy
+    # 梯子只换**指纹会话**(丢弃 cookie 重新握手), 线路不变。
+    # 曾经这里是"代理 → 直连互换": 被拦了就偷偷退直连。取消的理由是线路必须由
+    # proxyhelper/路由表一次决定 —— 被拦就换条线, 会让"这条规则为什么对某些
+    # 请求不生效"变得无法排查, 而且对必须走代理的目标, 换直连只是换一种错法。
     try:
-        return get(url, kind=kind, referer=referer, proxy=swap_proxy,
+        return get(url, kind=kind, referer=referer, proxy=proxy,
                    timeout=timeout, engine=engine, rate_engine=rate_engine,
-                   headers=headers, lang=lang, allow_fallback=allow_fallback,
+                   headers=headers, lang=lang,
                    max_bytes=max_bytes, profile=profile, session=None,
-                   _depth=_depth + 1)
-    except CooldownError:
+                   verify=verify, _depth=_depth + 1)
+    except (CooldownError, TlsError):
         raise
     except BlockedError:
         # 梯内递归已把最终 BlockedError 组装好, 直接上抛 (google 等上层按此降级 news)
@@ -290,9 +343,19 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=15,
 
 
 def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
-              lang, max_bytes, profile, session):
-    """单次请求: curl_cffi 浏览器指纹 → (cffi 崩了才走) urllib 全指纹兜底"""
+              lang, max_bytes, profile, session, verify=None):
+    """单次请求: curl_cffi 浏览器指纹 → (cffi 崩了才走) urllib 全指纹兜底
+
+    证书策略每请求现算 (tls.policy 会看 verify_hosts 白名单), cffi 与 urllib
+    两条通道拿同一个决定, 不会出现"cffi 拒了 urllib 放行"的分裂。
+
+    代理里的 `user@host` 在这里补上保险库密码 —— 配置文件里只有用户名与密文,
+    明文密码不落盘; curl_cffi 与 urllib 两条通道都在这里补, 行为一致。
+    """
     proxy_arg = None if proxy == 'direct' else proxy
+    if proxy_arg:
+        # 密码缺失要立刻说清楚, 不能拿空密码去撞 407 (那报错完全指不到原因)
+        proxy_arg = secrets_store.resolve_auth(proxy_arg)
     last_cffi_err = 'skipped'
     # --- 通道1: curl_cffi ---
     try:
@@ -310,11 +373,16 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
             s = _new_session(prof, proxy_arg, engine)[0]
         h = headers_for(kind, url, referer=referer, lang=lang, profile=p,
                         extra=headers)
-        r = s.get(url, headers=h, timeout=timeout, allow_redirects=True)
+        r = s.get(url, headers=h, timeout=timeout, allow_redirects=True,
+                  verify=tls.policy(url, verify))
         text = r.text[:max_bytes]
         if session is None:
             _persist_cookies(s, engine)
         return text, r.status_code, 'cffi'
+    except CertificateVerifyError as e:
+        # 硬失败: 证书不对就是不对, 换指纹/换代理/换 urllib 全都救不了,
+        # 直接上抛, 别让降级梯把 1 次失败放大成 4 次
+        raise TlsError(_tls_msg(url, verify, e)) from e
     except Exception as e:
         last_cffi_err = f'{type(e).__name__}: {str(e)[:150]}'
     # 通道2: urllib (仅 cffi 自身崩溃时)
@@ -323,11 +391,32 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
                     extra=headers)
     try:
         text, status = http_get(url, proxy=proxy_arg, timeout=timeout,
-                                headers=h, max_bytes=max_bytes)
+                                headers=h, max_bytes=max_bytes, verify=verify)
         return text, status, 'urllib'
     except Exception as e:
+        # urllib 把证书错误裹在 URLError.reason 里, 类型元组盖不住, 走分类器
+        if tls.is_tls_error(e):
+            raise TlsError(_tls_msg(url, verify, e)) from e
         raise RuntimeError(f'GET {url} failed [cffi: {last_cffi_err}; '
                            f'urllib: {type(e).__name__}: {str(e)[:120]}]')
+
+
+def _tls_msg(url, verify, e):
+    """证书失败提示: 分清"配置错了"和"站点证书本身有问题", 并给出修法"""
+    if isinstance(e, tls.TlsConfigError):
+        return f'TLS 配置错误: {e}'
+    host = tls.host_of(url)
+    if verify is False:
+        why = '调用方显式指定了 verify=False'
+    elif host and tls.hit_insecure(host):
+        why = f'{host} 在 verify_hosts 名单里 (校验已关)'
+    else:
+        why = 'ssl_verify=on 严格校验中'
+    return (f'证书校验失败: {url[:90]}\n'
+            f'  原因: {str(e)[:180]}\n'
+            f'  现状: {why}\n'
+            f'  修法: 站点自签/证书过期 → webtool config set verify_hosts {host or "<域名>"}\n'
+            f'        代理 MITM    → 把代理 CA 并进去: webtool config set ca_bundle <ca.pem>')
 
 
 _fp_lock = threading.Lock()
@@ -346,7 +435,7 @@ def _pick_profile(engine):
 # ---------------- 便捷入口 ----------------
 
 def resolve_redirect(url, *, referer=None, proxy=None, timeout=10,
-                     profile=None):
+                     profile=None, verify=None):
     """302/跳转链解析: 不跟随重定向, 返回 Location (非跳转返回 None)"""
     _pace(None)
     proxy_arg = None if proxy == 'direct' else proxy
@@ -354,50 +443,65 @@ def resolve_redirect(url, *, referer=None, proxy=None, timeout=10,
         prof = profile or _pick_profile(None)
         s, p = _new_session(prof, proxy_arg, None)
         h = headers_for('nav', url, referer=referer, profile=p)
-        r = s.get(url, headers=h, timeout=timeout, allow_redirects=False)
+        r = s.get(url, headers=h, timeout=timeout, allow_redirects=False,
+                  verify=tls.policy(url, verify))
         loc = r.headers.get('Location', '') or ''
         if loc.startswith('http'):
             return loc
         if loc:
             base = urllib.parse.urlparse(url)
             return f'{base.scheme}://{base.netloc}' + loc
+    except CertificateVerifyError as e:
+        # 证书失败不静默返回 None —— 那会被上层当成"此 URL 无跳转",
+        # 变成一个查不出原因的错误结果
+        raise TlsError(_tls_msg(url, verify, e)) from e
     except Exception:
         pass
     return None
 
 
 def session_get(url, session, *, kind='nav', referer=None, timeout=15,
-                headers=None, lang=LANG_ZH, profile=None,
+                headers=None, lang=LANG_ZH, profile=None, verify=None,
                 max_bytes=8 * 1024 * 1024):
     """在外部管理的会话上请求 (引擎自带预热流程时用), 返回 (text, status)"""
     p = profile or PROFILES['chrome131_win']
     h = headers_for(kind, url, referer=referer, lang=lang, profile=p,
                     extra=headers)
-    r = session.get(url, headers=h, timeout=timeout)
+    try:
+        r = session.get(url, headers=h, timeout=timeout,
+                        verify=tls.policy(url, verify))
+    except CertificateVerifyError as e:
+        raise TlsError(_tls_msg(url, verify, e)) from e
     return r.text[:max_bytes], r.status_code
 
 
 def warm_session(session, home, *, kind='nav', referer=None, timeout=10,
-                 profile=None, max_bytes=512 * 1024):
+                 profile=None, verify=None, max_bytes=512 * 1024):
     """公共首页预热: 领会话 cookie + 一次落地导航。
 
     SUID/SNUID/NID 这类 cookie 只在首页响应里下发, 裸打搜索端点会被判成
     无来源的机器人查询。指纹头按 profile 生成, 与后续请求同源。
-    返回是否成功, 不抛异常: 预热尽力而为, 失败也要继续。
+    返回是否成功, 不抛异常: 预热尽力而为, 失败也要继续
+    (证书失败除外 —— 那是配置/站点问题, 继续走只会得到一堆无意义的失败)。
     """
     try:
         session_get(home, session, kind=kind, referer=referer,
-                    timeout=timeout, profile=profile, max_bytes=max_bytes)
+                    timeout=timeout, profile=profile, verify=verify,
+                    max_bytes=max_bytes)
         return True
+    except TlsError:
+        raise
     except Exception:
         return False
 
 # ---------------- 代理策略 (原 search.py, engines 层也要用) ----------------
-# 各引擎代理建议来自插件清单 engine.*.params.proxy_hint:
-# None=跟随全局; 'required'=必须代理; 'direct'=建议直连
-# google 为 required — 代理未配置或探活失败(进程挂/端口不通)都静默跳过, 不搜谷歌
+# 各引擎代理建议来自插件清单 engine.*.params.proxy_hint, 只有一种取值:
+#   'required' = 该引擎直连必然不通, 代理未配置或探活失败就跳过 (不报错)
+# 其余一律走 'auto' → 路由表。不再有 'direct' —— "建议直连"曾经会让这个字段
+# 看起来像在锁死线路, 实际 search 路径根本没读它, 只有 `site list` 展示;
+# 真要指定线路用 `webtool config set engine_proxy.<engine> ...`。
 def proxy_hint(engine):
-    """按插件元数据取代理策略, 未声明的引擎保守跟随全局"""
+    """按插件元数据取代理策略, 未声明 (=None) 表示跟随路由表"""
     from webtool.core.plugins import table as _plugin_table
     spec = _plugin_table('engine').get(engine) or {}
     return spec.get('proxy_hint')

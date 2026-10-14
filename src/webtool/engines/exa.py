@@ -3,17 +3,20 @@
 与 bing/sogou/baidu 那批"抓 HTML 自己解析"不同, 这里把出网交给 MCP 客户端
 (`net/mcpclient`), 只负责拼参数 + 把返回的纯文本解析成标准结果结构。
 
-端点声明 (url / verbs / proxy / api_key_env) 全部读 `data/mcp.json`, 与
+端点声明 (url / verbs / api_key_env) 全部读 `data/mcp.json`, 与
 `webtool mcp call exa ...` 同一份数据, 加端点只改 JSON 不改代码。本模块不再
 import `cli/` —— engines 是 L1, cli 是 L4, 不得反向依赖。
 
-两处与常规引擎不同, 都是有意为之:
+代理: **不写死**。历史版本这里硬编码 `proxy=None` 并在端点表标 `proxy: direct`,
+理由是 Exa 免 key 配额按出口 IP 计、走代理等于蹭别人的配额池。但那是**服务方
+的计量策略**, 不该由代码替用户决定 —— 用户可能自己就有可用额度, 或者他的代理
+出口 IP 恰好有配额。所以改为跟随配置:
 
-1. **强制直连**。Exa 免 key 配额按出口 IP 计, 走全局代理等于蹭别人的配额池,
-   实测同一命令带代理必 429、直连稳定通过。故忽略管线传入的 proxy, 只认端点表
-   里的 `proxy: direct` 声明。
-2. **numResults 封顶**。管线为提高命中率会传 max_results=_pull (>=15), 但 MCP
-   单次调用条数越多越慢且更易触发限流, 故对上游封顶, 返回值再截断到调用方要的数。
+- `webtool config set engine_proxy.exa direct`  ← 确实需要直连时这么配
+- 或在规则表里按域名分流 (规则对 MCP 端点同样生效)
+
+只有 `numResults` 封顶这一项仍写死: MCP 单次调用条数越多越慢且更易触发限流,
+故对上游封顶, 返回值再截断到调用方要的数。
 """
 import os
 
@@ -90,7 +93,7 @@ def _parse(text, max_results):
 
 
 def search(query, max_results=10, proxy=None, timeout=15, market=None, **_):
-    """Exa 语义搜索; 免 key 直连, 强制不过代理 (见模块 docstring)"""
+    """Exa 语义搜索。代理跟随配置 (需直连: config set engine_proxy.exa direct)"""
     spec = _spec()
     tool = (spec.get('verbs') or {}).get('search')
     if not tool:
@@ -102,17 +105,18 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, **_):
         {'query': query, 'numResults': n},
         api_key=os.environ.get(spec.get('api_key_env', ''), ''),
         timeout=max(timeout or 0, _MIN_TIMEOUT),
-        proxy=None,          # 端点表声明 direct, 见 docstring
+        proxy=proxy if proxy is not None else 'auto',
     )
     if 'error' in r:
         code = (r['error'] or {}).get('code')
         msg = r['error'].get('message') if isinstance(r['error'], dict) else str(r['error'])
         if code == 429:
-            # 免 key 配额按出口 IP 计、响应头无预告, 只能撞 429 才知道
             raise RuntimeError(
-                f'Exa 429 (免 key 配额按出口 IP 计, 本引擎强制直连); '
-                f'仍受限则配 {spec.get("api_key_env", "EXA_API_KEY")} '
-                f'(https://dashboard.exa.ai/api-keys)。原始错误: {msg}')
+                f'Exa 429: 免 key 配额按出口 IP 计, 换出口 IP 不会变多。'
+                f'配 {spec.get("api_key_env", "EXA_API_KEY")} 可用独立额度 '
+                f'(https://dashboard.exa.ai/api-keys); '
+                f'或让该端点直连: webtool config set engine_proxy.exa direct。'
+                f'原始错误: {msg}')
         raise RuntimeError(f'Exa 调用失败: {msg}')
     if r.get('is_error'):
         raise RuntimeError(f'Exa 返回错误: {truncate(r.get("text", ""), 200)}')

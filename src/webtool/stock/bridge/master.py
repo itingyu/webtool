@@ -1,105 +1,38 @@
-"""桥接 stock-master skill 的 scripts 包
+"""stock-master 技能的桥接层
 
-stock-master 是独立 skill, 装在 /var/minis/skills/stock-master, 不在 webtool 的
-依赖图里。这里只做进程内 import 桥: 把 skill 根塞进 sys.path, 再 import 它的
-scripts.clients / analysis / screening。
+stock-master 是本仓自己的技能包, 装在 `webtool/stock/skill/` (SKILL.md +
+references + scripts)。它自带工作流编排与业务口径 (选股池、评分、研报模板),
+本模块只做两件事: 定位它、把它的动作转发出去。
 
-为什么不把 stock-master 收成 webtool 的依赖:
-  1. stock-master 自身是 skill 交付件 (SKILL.md + references + scripts), 版本由它自己管
-  2. 它的 clients 已带多源 fallback 与单位约定, 收进来等于复制一份口径
-  3. skill 缺失时 stock 子命令应明确报 "未安装", 而不是让 webtool 整体 import 失败
-
-路径可用 STOCK_MASTER_HOME 环境变量覆盖 (测试与多份安装场景)。
+对外只有 `mod(name)` —— 静态 import `webtool.stock.skill.scripts.<name>`,
+不找路径、不动 sys.path。延迟 import 是为了让技能缺失时只让 stock 动作退 2,
+而不是拖垮整个 webtool。
 """
 import importlib
 import json
 import os
 import sys
+from webtool.stock.error import MasterMissing
 
-DEFAULT_HOME = '/var/minis/skills/stock-master'
-
-
-class MasterMissing(RuntimeError):
-    """stock-master 未安装或不可 import —— 由调用方转成退出码 2 与可读提示"""
-
-
-def home():
-    return os.environ.get('STOCK_MASTER_HOME') or DEFAULT_HOME
+SKILL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skill')
 
 
 def available():
-    return os.path.isfile(os.path.join(home(), 'SKILL.md'))
-
-
-def _ensure_path():
-    p = home()
-    if p not in sys.path:
-        sys.path.insert(0, p)
+    return os.path.isfile(os.path.join(SKILL_DIR, 'SKILL.md'))
 
 
 def mod(name):
     """import stock-master 的 scripts.<name>; 失败抛 MasterMissing (带原因)"""
-    _ensure_path()
     try:
-        return importlib.import_module(f'scripts.{name}')
+        return importlib.import_module(f'webtool.stock.skill.scripts.{name}')
     except ImportError as e:
         raise MasterMissing(
-            f'stock-master 不可用: {e}; 期望装在 {home()} '
-            f'(可用 STOCK_MASTER_HOME 覆盖)') from e
+            f'stock-master 不可用: {e}; 它应随包安装在 webtool/stock/skill/scripts/') from e
 
 
 def clients():
     """数据层唯一入口: quote / limit_up_pool / announcements / capital_flow / code_ok ..."""
-    c = mod('clients')
-    if not getattr(c, '_webtool_inproc', False):
-        _patch_inproc(c)
-    return c
-
-
-def _patch_inproc(c):
-    """把 stock-master 的两个子进程出口换成进程内实现。
-
-    stock-master 的 clients.mcp() 每次 `subprocess.run(["minis-mcp-cli", ...])`
-    (约 2.5s/次), clients.web_search() 每次 `subprocess.run(["webtool", "search", ...])`
-    (webtool 自己起自己, 纯浪费)。这里在模块上覆盖这两个函数, 让它们走
-    stock/srv.py 的进程内通道与 webtool 自己的 search:
-
-      - 产物形状完全一致 ({"ok","source","data",...} / {"ok","query","results"})
-      - 只在 webtool 进程内生效, 不改 skill 文件 —— skill 有自己的维护流程,
-        改动应由 skill 侧提; webtool 只在运行时注入
-
-    web_search 走 `cli.app.main(argv)` 而不是直接调 `pipeline.search.do_search`,
-    因为后者要 29 个字段的 args 对象, 自己拼等于复制一份 CLI 契约, 迟早漂移。
-
-    标记 _webtool_inproc 防重复注入 (clients 可能被多次 import 命中同一模块对象)。
-    """
-    c._webtool_inproc = True
-
-    def _mcp(tool, **kwargs):
-        from webtool.stock import srv as _srv
-        try:
-            return _srv.call(tool, kwargs)
-        except _srv.SrvError as e:
-            _log(f'MCP {tool} 失败: {e}', level='WARN')
-            return {'ok': False, 'err': str(e)}
-
-    def _web_search(query, max_n=8):
-        import contextlib
-        import io
-        from webtool.cli.app import main
-        buf = io.StringIO()
-        try:
-            with contextlib.redirect_stdout(buf):
-                rc = main(['search', query, '-n', str(max_n), '-f', 'json'])
-            out = json.loads(buf.getvalue() or '{}')
-            return {'ok': rc == 0 and bool(out.get('results')),
-                    'query': query, 'results': out.get('results', [])}
-        except Exception as e:                              # noqa: BLE001
-            _log(f'webtool 搜索失败: {type(e).__name__}: {e}', level='WARN')
-            return {'ok': False, 'query': query, 'err': str(e), 'results': []}
-
-    c.mcp = _mcp
-    c.web_search = _web_search
+    return mod('clients')
 
 
 def _log(msg, level='INFO'):
@@ -166,11 +99,10 @@ def do_capital_flow(scope='industry'):
 
 
 def do_news(code, limit=10):
-    """个股新闻 (stock MCP 通道)
+    """个股新闻。
 
-    limit 在**本侧**截断: 服务端 stock_news 只接 symbol, 没有 page_size 参数
-    (同花顺 stockpage 一次给全量), 所以 --limit 只能是取回后裁剪。原先直接把
-    limit 丢掉, `-n 3` 与 `-n 50` 输出一模一样。
+    limit 只能取回后裁剪: `stock_news` 只接 symbol, 没有分页参数 —— 同花顺
+    stockpage 一次给全量, 截断是这里做的。
     """
     r = clients().news(code)
     items = _items(r)
@@ -194,12 +126,12 @@ def _replace_items(data, new_items):
 
 
 def do_announcements(code, page_size=10):
-    """公告列表 (stock MCP 通道)"""
+    """公告列表。page_size 透传给编排层的 stock_announcement。"""
     return clients().announcements(code, page_size)
 
 
 def do_financials(code):
-    """核心财务指标 (stock MCP 通道)"""
+    """核心财务指标 (PE/PB/ROE/毛利率/营收净利同比 等)。"""
     return clients().financials(code)
 
 
@@ -296,9 +228,9 @@ def do_diagram(kind, code=None, name=None, thesis=None,
 def _news_texts(code, limit=10):
     """取个股新闻的纯文本, 供消息面打分 / 研报附新闻。
 
-    服务端载荷可能是 items / data.list 等不同嵌套, 且同花顺那条路会回原始
-    HTML 未解析 —— 两种情况都取不到可用文本, 此时返回空列表让下游按"无新闻"
-    处理, 不把 HTML 塞进打分器。
+    载荷可能是 items / data.list 等不同嵌套, 且同花顺那条路会回原始 HTML
+    未解析 —— 两种情况都取不到可用文本, 此时返回空列表让下游按"无新闻"处理,
+    不把 HTML 塞进打分器。
     """
     r = do_news(code, limit)
     out = []
@@ -313,7 +245,7 @@ def _news_texts(code, limit=10):
 
 
 def _items(payload):
-    """从服务端载荷里挖条目列表 (广度优先下钻 items/list/rows)。"""
+    """从载荷里挖条目列表 (广度优先下钻 items/list/rows)。"""
     queue = [(payload, 0)]
     while queue:
         node, d = queue.pop(0)

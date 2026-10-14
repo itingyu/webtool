@@ -1,21 +1,22 @@
-"""桥接 api_client.APIClient 的 151 个低阶方法
+"""桥接数据源层的 153 个低阶方法
 
-`/var/minis/shared/股票/API调研/api_client.py` 是本次股票能力的**数据底座**:
-雪球/同花顺/东财/新浪/巨潮/百度/腾讯/中证 8 大源、26 个 HTTP endpoint 与 5 个
-efinance 函数的统一封装, 每源自带 fallback 链与重试。
+`bridge/sources/` (随包内置, 源自 `shared/股票/API调研/api_client.py`) 是股票
+能力的**数据底座**: 按数据源拆成同花顺/东财/雪球/新浪/腾讯/巨潮/中证/
+上交所/东财公告域/efinance 十个模块, 聚合为同一个 `APIClient` —— 153 个方法、
+23 个域名与 3 个 efinance 函数, 每源自带 fallback 链与重试。
 
-stock 服务端只把其中一部分聚合成 24 个高阶工具给 Agent 用; 剩下的低阶方法
+编排层只把其中一部分聚合成 24 个高阶动作; 剩下的低阶方法
 (股东研究、盈利预测、财务分析、研报日历、早盘晚报、板块多维排行、分钟线、
 产业链分类……) 仍然有价值, 通过本模块按需直接调用。
 
 ## 分工
 
-- 高阶、已聚合的能力 → 走 `stock/srv.py` (服务端 24 工具)
-- 低阶、没被聚合的     → 走本模块 (151 方法全量可调)
+- 高阶、已聚合的能力 → 走 `stock/bridge/srv.py` (24 个动作)
+- 低阶、没被聚合的     → 走本模块 (153 方法全量可调)
 
 ## 两个维度
 
-151 个方法有两套索引, 各回答一个问题:
+153 个方法有两套索引, 各回答一个问题:
 
 | 维度 | API | 回答 |
 |---|---|---|
@@ -26,43 +27,43 @@ stock 服务端只把其中一部分聚合成 24 个高阶工具给 Agent 用; �
 不是。分类表是数据 (data/api_categories.json), 加载时与实际方法对账 ——
 加了方法没加分类会落到 uncategorized 而不是静默消失。
 
-`webtool stock api <方法> --arg K=V` 是通用入口, 服务端未覆盖的能力都能调;
+`webtool stock api <方法> --arg K=V` 是通用入口, 编排层未覆盖的能力都能调;
 高频的几个另加了专门动作 (holder/forecast 等), 免记方法名。
 
-⚠️ 返回形状与 stock 服务端一致: `{"ok":bool, "data":..., "error":...}`,
+⚠️ 返回形状与编排层一致: `{"ok":bool, "data":..., "error":...}`,
 失败抛 RawApiError 由上层转成退出码 1, 不静默返回空。
 """
-import importlib
 import inspect
 import json
 import os
-import sys
-
-HOME = os.environ.get('STOCK_API_HOME', '/var/minis/shared/股票/API调研')
-CLIENT_MOD = 'api_client'
+from webtool.stock.error import RawApiError
 
 _client = None
 
 
-class RawApiError(RuntimeError):
-    """api_client 不可用 / 方法不存在 / 调用失败"""
+
+
+def _module_ref():
+    """数据源层的模块对象 (不实例化)。给一致性自检用。"""
+    try:
+        from webtool.stock.bridge import sources as mod
+    except ImportError as e:
+        raise RawApiError(
+            f'数据源包导入失败: {e}; 它应随包安装在 '
+            f'webtool/stock/bridge/sources/') from e
+    return mod
 
 
 def client():
     """进程内拿 APIClient 单例 (它内部有 lru_cache 的 token/session, 复用才对)。
 
-    延迟 import + 缓存: 放在模块级会让 webtool 所有命令都依赖这个路径存在,
-    而它缺失只该让 stock 的 raw 动作退 2。
+    `bridge/sources/` 是包内模块, 直接静态 import —— 不找路径、不动
+    sys.path、不做动态加载。想换版本就改包内这份 (见 bridge/README.md)。
     """
     global _client
     if _client is not None:
         return _client
-    if HOME not in sys.path:
-        sys.path.insert(0, HOME)
-    try:
-        mod = importlib.import_module(CLIENT_MOD)
-    except ImportError as e:
-        raise RawApiError(f'api_client 导入失败: {e} (STOCK_API_HOME 可覆盖路径)') from e
+    mod = _module_ref()
     try:
         _client = mod.APIClient()
     except Exception as e:                                  # noqa: BLE001
@@ -113,7 +114,7 @@ def categories():
     global _CATS
     if _CATS is not None:
         return _CATS
-    p = os.path.join(os.path.dirname(__file__), 'data', 'api_categories.json')
+    p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'api_categories.json')
     try:
         with open(p, encoding='utf-8') as f:
             raw = json.load(f)['categories']
@@ -210,7 +211,7 @@ def method_doc(method):
 
 
 def call(method, kwargs=None):
-    """调一个 api_client 方法。参数按签名校验, 不做隐式转换。"""
+    """调数据源层的一个方法。参数按签名校验, 不做隐式转换。"""
     c = client()
     fn = getattr(c, method, None)
     if fn is None or method.startswith('_') or not callable(fn):

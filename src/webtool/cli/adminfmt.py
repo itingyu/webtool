@@ -48,7 +48,9 @@ def _rows(data):
     会把整个列表塞进单元格 → 展平成 {kind, name, source} 的平表。
     """
     if isinstance(data, list):
-        return [r for r in data if isinstance(r, dict)]
+        # 标量列表 (如 config get verify_hosts → ["a.com"]) 不能按 dict 行
+        # 过滤, 否则全被滤空渲染成 (空); 包成 {'value': v} 走同一套渲染
+        return [r if isinstance(r, dict) else {'value': r} for r in data]
     if isinstance(data, dict):
         # 全部值都是 list → 两层结构, 展平
         if data and all(isinstance(v, list) for v in data.values()):

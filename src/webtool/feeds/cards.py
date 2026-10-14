@@ -176,24 +176,25 @@ def print_route_cards(cards, kw, args, cfg):
     tried, last_err, items = [], None, None
     cands = ([None] if fetch_note else
              instance_candidates(base, getattr(args, 'instance', None), cfg))
+    # 线路一次定死: 曾经内层还套了 `for px in ([None] + [cfg['proxy']])` 的两轮
+    # failover, 于是"换实例"和"换线路"两个维度混在一起 —— 哪个实例能用取决于
+    # 它先在哪条线挂, 代理配好了还要每个实例先去撞一次直连墙。失败只换实例。
+    px = (None if getattr(args, 'no_proxy', False)
+          else cfg.get('proxy') or 'auto')
     for cand in cands:
         if cand:
             tried.append(cand)
-        for px in ([None] + ([cfg.get('proxy')] if cfg.get('proxy') else [])):
-            try:
-                items = pull_one(src_name, fetch_url, n, px,
-                                 cfg.get('timeout', 20))
-            except Exception as e:
-                last_err = str(e)[:120]
-                continue
-            if items:
-                if cand and cand != base:
-                    _out(f'  (主实例 {base} 拉不到, 换 {cand} 成功)', file=sys.stderr)
-                break
-            last_err = '可达但 0 条'
-        else:
+        try:
+            items = pull_one(src_name, fetch_url, n, px,
+                             cfg.get('timeout', 20))
+        except Exception as e:
+            last_err = str(e)[:120]
             continue
-        break
+        if items:
+            if cand and cand != base:
+                _out(f'  (主实例 {base} 拉不到, 换 {cand} 成功)', file=sys.stderr)
+            break
+        last_err = '可达但 0 条'
     else:
         _out(f'拉取失败 ({last_err or "未知"})'
              + (f'; 已试 {len(tried)} 个实例: {", ".join(tried)}' if tried else ''),

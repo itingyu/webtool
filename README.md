@@ -28,20 +28,21 @@ webtool zen "问题"                            # OpenCode Zen 免费层对话, 
 webtool proxy set http://127.0.0.1:2080       # 代理 (google 等被墙源必须)
 webtool search "LLM 榜单" -e exa                # Exa 语义搜索 (MCP, 免 key)
 webtool mcp list exa                            # 列 MCP 端点的工具
-webtool stock quote 600519 创业板指              # 实时行情 (桥接 stock-master + stock MCP)
+webtool stock quote 600519 创业板指              # 实时行情 (桥接 stock-master + 多源编排)
 webtool stock analyze 600519                    # 单股深度 (技术面+100分制评分+决策信号)
 webtool stock pool --only-buy                   # 涨停池 (只留可买板块)
 webtool stock screen --min-score 70             # 短线选股 (含剔除清单)
 webtool stock flow --scope industry             # 资金流榜单
-webtool stock tools                             # stock MCP 24 个工具清单
+webtool stock tools                             # stock 24 个动作清单
 webtool stock health                            # 两侧桥接探活
 ```
 
 ## 功能
 
 ### search
-- 引擎：bing（直连）/ sogou（直连）/ baidu（直连）/ so360（直连）/ google（必须代理，429 降级 news RSS，链接已还原原文 URL）/ marginalia（直连）/ exa（MCP 语义搜索，免 key，**默认不开**）/ parallel（MCP 语义搜索，**匿名免 key**，**默认不开**）/ firecrawl（MCP 搜索，**匿名免 key**，**默认不开**）
-  - `exa` 走 Exa MCP 的 `web_search_exa`，强制直连（免 key 配额按出口 IP 计，走代理必 429），不进默认组合，按需 `-e exa` 或加进 preset。
+- 引擎：bing / sogou / baidu / so360 / marginalia（境内可直连，配了规则/代理也照样走）／ google（直连必然不通，代理不可用时静默跳过，429 降级 news RSS，链接已还原原文 URL）／ exa（MCP 语义搜索，免 key，**默认不开**）/ parallel（MCP 语义搜索，**匿名免 key**，**默认不开**）/ firecrawl（MCP 搜索，**匿名免 key**，**默认不开**）
+  - 走哪条线由 `webtool config set proxy` + 规则表决定，引擎之间不再有硬编码差异。境内站想要直连：`webtool proxy rule add '{"geosite":["cn"]}' direct`
+  - `exa` 走 Exa MCP 的 `web_search_exa`，免 key 配额按**出口 IP** 计，走代理等于蹭别人的配额池（实测带代理必 429）。需要它时用 `webtool config set engine_proxy.exa direct` 或加一条 exa 域名的 `direct` 规则，**没有隐式绕过**。不进默认组合，按需 `-e exa` 或加进 preset
   - `parallel` 走 Parallel Search MCP 的 `web_search`，**匿名免 key 可用**（fast 模式），注册后每月 $5 循环额度（$1/1000 请求 ≈ 5000 次/月），配 `PARALLEL_API_KEY` 自动生效。返回 JSON 含 `publish_date`，比 exa 的纯文本更好解析，实测也更快（1.4–2.0s vs 2.6s）。
   - `firecrawl` 走 Firecrawl MCP 的 `firecrawl_search`，**匿名免 key 可用**，免费层 500 次/月 search 或 1000 页 scrape，配 `FIRECRAWL_API_KEY` 自动生效。它的 `firecrawl_scrape` 能过 JS 渲染页，是 `fetch --via` 的最佳兜底通道。
   - 三者召回都是**语义**而非关键词，与 bing/sogou 重叠少，作为长尾与英文技术内容的补充源最划算。实测召回各有胜负（同一查询 exa 条数更多、parallel 更快且带日期），按需挑或并用。
@@ -51,9 +52,9 @@ webtool stock health                            # 两侧桥接探活
 
   ```bash
   webtool engines presets                         # 列预设
-  webtool search "查询词" --preset zh              # bing,sogou,baidu,so360（全部免代理）
-  webtool search "query" --preset en              # bing,google,marginalia（含需代理的 google）
-  webtool search "查询词" --preset direct          # 全部免代理，代理挂了也能用
+  webtool search "查询词" --preset zh              # bing,sogou,baidu,so360
+  webtool search "query" --preset en              # bing,google,marginalia (含直连不通的 google)
+  webtool search "查询词" --preset direct          # 全部免代理需求的引擎 (配了全局代理仍走代理, 要真直连加 --no-proxy)
   ```
 
   预设定义在 `plugins.json` 的 `presets` 段（`{"zh": {"desc": "...", "engines": [...]}}`），用户可在 `~/.webtool/plugins.json` 同构增删。用了 `--preset` 时 `-f json` 会回写 `preset` 与 `engines_used`，便于复现"这批跑的是哪组"；未知 preset 直接退 2 并列出可用名，**不静默回退**（否则用户以为跑了 A 组其实跑了默认组）
@@ -122,10 +123,10 @@ webtool mcp call exa web_search_exa --arg query="..." --arg numResults=3
 webtool mcp call https://my.site/mcp my_tool '{}' # 任意 URL 直接传
 ```
 
-**Exa、Parallel、Firecrawl 都已并入 `search` 引擎池**（`webtool search -e exa` / `-e parallel` / `-e firecrawl`），不再有独立的 `webtool exa` 命令 —— 原 `exa search` 用引擎替代，`exa fetch` / `exa list` 分别由 `webtool fetch` 与 `webtool mcp list exa` 覆盖。端点声明（url / verbs / proxy / api_key_env）在 `data/mcp.json`，三个 `engines/*.py` 与 `webtool mcp`、`webtool fetch --via` 共用同一份数据。三者均匿名免 key：Exa 撞限额返回 429 并提示配 `EXA_API_KEY`；Parallel 注册后每月 $5 额度，配 `PARALLEL_API_KEY` 生效；Firecrawl 免费层 500 次/月 search 或 1000 页 scrape，配 `FIRECRAWL_API_KEY` 生效。
+**Exa、Parallel、Firecrawl 都已并入 `search` 引擎池**（`webtool search -e exa` / `-e parallel` / `-e firecrawl`），不再有独立的 `webtool exa` 命令 —— 原 `exa search` 用引擎替代，`exa fetch` / `exa list` 分别由 `webtool fetch` 与 `webtool mcp list exa` 覆盖。端点声明（url / verbs / api_key_env）在 `data/mcp.json`，三个 `engines/*.py` 与 `webtool mcp`、`webtool fetch --via` 共用同一份数据。三者均匿名免 key：Exa 撞限额返回 429 并提示配 `EXA_API_KEY`；Parallel 注册后每月 $5 额度，配 `PARALLEL_API_KEY` 生效；Firecrawl 免费层 500 次/月 search 或 1000 页 scrape，配 `FIRECRAWL_API_KEY` 生效。
 
 - 端点别名在 `src/webtool/data/mcp.json`，用户可建 `~/.webtool/mcp.json` 同构覆盖：`{"mcp":{"my_srv":{"url":"...","api_key_env":"MY_KEY","verbs":{"search":"..."}}}}`
-- **代理策略**：端点可声明 `"proxy":"direct"` 强制直连（同 site 插件的 `proxy_hint` 约定）。exa 免 key 配额按**出口 IP** 计，走全局代理等于蹭别人的配额池——实测同一命令带代理必 429、直连稳定通过，故端点表已声明 `direct`。其余端点缺省跟随全局配置，`--no-proxy` 可临时覆盖
+- **代理策略**：端点表不再声明线路，所有端点统一跟随 `proxy` 配置与规则表。要给单个端点指定线路用 `webtool config set engine_proxy.exa direct`，或加一条针对它域名的规则；`--no-proxy` 全局临时绕过。exa 免 key 配额按**出口 IP** 计，走全局代理等于蹭别人的配额池——实测同一命令带代理必 429、直连稳定通过，所以需要它时得**显式**配直连
 - key 一律经**环境变量名**映射，配置文件不存明文；免 key 服务不发认证头
 - **传参两条通道，可并存**：`--arg k=v`（可多次；值按 JSON 字面量猜 `int`/`bool`/`null`/数组，含空格/中文/URL 的原样保留）或位置 JSON `'{"k":"v"}'`；两者同时给时 `--arg` 覆盖同名键
 - `--tools a,b` 下发工具白名单（`?tools=`），缩小 Agent 选择面
@@ -163,7 +164,7 @@ webtool stock diagram 600519 --kind logic --name 贵州茅台 --thesis "稀缺�
 webtool stock diagram --kind chain --name 白酒 --driver 高粱 --mid 酿造 --catalyst 提价
 webtool stock mcp --tool stock_kline --arg symbol=600519 --arg period=day
 webtool stock tools                             # 24 工具清单
-webtool stock api-list                          # api_client 151 方法 (按数据源)
+webtool stock api-list                          # 数据源层 153 方法 (按数据源)
 webtool stock api --method ths_rank_cxfl         # 直接调任一低阶方法
 webtool stock holder 600519                     # 股东研究 (东财)
 webtool stock forecast 600519                   # 盈利预测 (东财)
@@ -179,13 +180,13 @@ webtool stock docs-stats                       # 逆向文档总量 (7 分册 / 
 webtool stock health                            # 四侧探活
 ```
 
-- **两侧都不复制业务逻辑**，只是进程内 import；skill 未装时 `stock health` 报 unavailable，不拖垮 webtool 其他命令。路径可用 `STOCK_MASTER_HOME` / `STOCK_MCP_HOME` 覆盖
-- **第五侧：底层 HTTP 直调**（`stock/http.py`）。`rawapi` 只能调 api_client 封好的 151 个方法、`eco` 只能调 akshare/tushare 现成函数——本模块**不封装**，直接拼 URL 发请求，因此逆向出的 900+ 接口全部可调，包括 akshare 没封或封了不可用的（东财 `companyType` 探测、`quoteColumns` 注入、`dates` 批量取表）。**反爬已内置**：雪球走 curl_cffi chrome110 指纹 + token warmup，新浪/中证自动带 Referer，东财 push2 自动补 `ut`、datacenter 自动补 `token`/`source`/`client`，腾讯 GBK 自动解码。动作：`http-get`/`http-post`/`http-rows`/`em-report`/`em-ctype`
+- **两侧都不复制业务逻辑**，只是进程内 import；skill 未装时 `stock health` 报 unavailable，不拖垮 webtool 其他命令。依赖只有包内这一条路，没有环境变量能改
+- **第五侧：底层 HTTP 直调**（`stock/http.py`）。`rawapi` 只能调数据源层封好的 153 个方法、`eco` 只能调 akshare/tushare 现成函数——本模块**不封装**，直接拼 URL 发请求，因此逆向出的 900+ 接口全部可调，包括 akshare 没封或封了不可用的（东财 `companyType` 探测、`quoteColumns` 注入、`dates` 批量取表）。**反爬已内置**：雪球走 curl_cffi chrome110 指纹 + token warmup，新浪/中证自动带 Referer，东财 push2 自动补 `ut`、datacenter 自动补 `token`/`source`/`client`，腾讯 GBK 自动解码。动作：`http-get`/`http-post`/`http-rows`/`em-report`/`em-ctype`
 - **第六侧：逆向接口文档**（`src/webtool/stock/data/reverse/`，7 分册 9134 行，从 akshare 源码**手工逆向**）。前三侧给的都是**函数名**，这一侧给的是**底层 HTTP 细节** —— 端点 URL、`reportName`/`filter`/`columns` 怎么拼、返回字段（`SECURITY_CODE`/`ACCEPT_DEPOSIT_INTERBACC` 这类缩写）对应第几列、哪些接口已下线/需要 token/列序会静默错位。每条记录带源码 `文件:行号` 可回溯。动作：`docs-books`/`docs-stats`/`docs-search`/`docs-book`/`docs-section`/`docs-report`/`docs-endpoint`。akshare 某函数返回空或字段错位时，`docs-report <reportName>` 是首选排查动作
-- **第四侧：生态库 1291 个接口**（`akshare` 1099 / `tushare` 124 / `baostock` 29 / `efinance`，返回 DataFrame）。覆盖 API 文档里 `函数.json` 记录的 akshare 生态，含宏观、另类数据、期货、基金、外汇等 api_client 完全没有的领域。`webtool stock eco <接口>` 直接调，默认给形状+前 5 行，`--full` 取全量；`eco-search` 按中英文关键词搜接口
-- **第三侧：`api_client` 151 个低阶方法**（`shared/股票/API调研/`，8 数据源：ths/sina/xueqiu/em/gtimg/tencent/cninfo/sse/csindex/ef）。服务端只把其中 56 个聚合成 24 个高阶工具，另外 96 个（股东研究/盈利预测/研报日历/早盘晚报/板块多维排行/分钟线/产业链分类…）通过 `webtool stock api <方法>` 直接调。`STOCK_API_HOME` 可覆盖路径
-- **工具清单读服务端 `TOOLS` 注册表**，服务端增删工具 webtool 自动跟上；本地表只在服务端 import 不了时兜底
-- **口径纪律照搬 stock-master**：涨停池输出必带真实数据日（该接口对无效日期会静默回旧数据）；北向 `status=3` 或接口回填额度上限一律标 ⚠「未取得」，**禁止当 0**；MCP 回了原始 HTML 未解析出条目时显式标注，不把 100KB 噪声当结果
+- **第四侧：生态库 1291 个接口**（`akshare` 1099 / `tushare` 124 / `baostock` 29 / `efinance`，返回 DataFrame）。覆盖 API 文档里 `函数.json` 记录的 akshare 生态，含宏观、另类数据、期货、基金、外汇等数据源层完全没有的领域。`webtool stock eco <接口>` 直接调，默认给形状+前 5 行，`--full` 取全量；`eco-search` 按中英文关键词搜接口
+- **第三侧：数据源层 153 个低阶方法**（`stock/bridge/sources/`，按数据源分包：ths/sina/xueqiu/em/gtimg/tencent/cninfo/sse/csindex/ef）。编排层只把其中 56 个聚合成 24 个动作，另外 97 个（股东研究/盈利预测/研报日历/早盘晚报/板块多维排行/分钟线/产业链分类…）通过 `webtool stock api <方法>` 直接调。三块（数据源层 / stock-master 技能 / 编排层）都包进 `webtool.stock`，静态 import 接入，装包即用；数据源层共享同一个 `APIClient`（token/session 缓存只有一份）。`webtool stock health` 三段都标 `source: packaged`
+- **动作清单读编排层 `t_stock_*` 函数名**，增删动作 webtool 自动跟上
+- **口径纪律照搬 stock-master**：涨停池输出必带真实数据日（该接口对无效日期会静默回旧数据）；北向 `status=3` 或接口回填额度上限一律标 ⚠「未取得」，**禁止当 0**；上游回了原始 HTML 未解析出条目时显式标注，不把 100KB 噪声当结果
 - `--arg` 的值猜类型时**纯数字一律留字符串**（600519 是代码不是整数），与 `webtool mcp` 的口径不同
 - `screen` 的 text 输出必含**剔除清单与闸门原因** —— 只给通过名单会让调用方以为没被选中的票不存在
 - 退出码：0 成功 / 1 数据动作失败 / 2 用法错误
@@ -195,8 +196,74 @@ webtool stock health                            # 四侧探活
 - `-n` 条数 / `-f` 格式（`md`≡`markdown`、`txt`≡`text`，大小写不敏感）/ `-o` 落盘（按 `-f` 补扩展名）/ `--no-cache` / `--no-proxy`
 - 退出码：0 成功 / 2 用法错误（提示走 stderr）
 - 缓存 TTL：search 60s / fetch 10s / 跳转解析 10min（`config set cache_ttl.<桶>=<秒>` 覆盖）
-- 出网全走浏览器指纹，直连优先、失败才探活代理重试；google / docs.rsshub.app 必须代理
+- 出网全走浏览器指纹，**走哪条线一次定死**：配置 + 路由表在请求前决定，请求失败就是失败，不做"直连→代理"的隐式切换（否则同一次调用走哪条线取决于它先在哪失败，且"代理失败退直连"会毁掉只允许代理出网的目标）。要临时全直连用 `--no-proxy`，要单点覆盖用 `engine_proxy.<引擎名>` 或规则表
 - 报错自带处置建议，照做即可
+
+### 证书校验
+
+三条出网通道（curl_cffi / urllib / requests）共用同一份证书决策，都由 `webtool.core.tls` 出，不各自读环境变量：
+
+```bash
+webtool config set ssl_verify on|off                    # 总开关，默认 on
+webtool config set ca_bundle /path/to/ca.pem            # 自定义 CA，替代系统 CA
+webtool config set verify_hosts czce.com.cn,gtjaqh.com  # 点名豁免，其余域仍严格
+webtool config list                                    # 看**实际生效**策略与 CA 来源
+```
+
+- **默认严格校验**（fail-closed）。`ca_bundle` 写不存在会当场报错，不会静默降级
+- **`verify_hosts` 优先于全局开关**：郑商所 / 国泰君安 / 99期货 这类交易所站点用自签或过期证书，为抓它们关全局校验等于把代理 MITM 也一起放进来了；名单模式只对指定域开口（覆盖子域）
+- **证书失败不重试**：抛 `TlsError` 直接上抛，不进换指纹/换代理的降级梯 —— 证书不对就是不对，重试只会把 1 次失败放大成 4 次
+- **无 CA 自动降级**：精简环境没装 `ca-certificates` 时严格校验会让所有 HTTPS 失败且报错指不到根因，故自动降级为不校验并在 `config list` 打警告；装上后自动恢复严格校验
+- 调用方也可定点覆盖：`Http(verify=False)`（stock 裸调层）、`transport.get(url, verify=...)`
+
+### 规则路由
+
+按**请求目标**分流，不只是按引擎名。同一个引擎里境内直连、境外走代理，或者把某条 CDN 子域单独扔给另一台机器：
+
+```bash
+webtool proxy rule add '{"domain":["*.cn"]}' direct        # 境内直连
+webtool proxy rule add '{"geosite":["cn"]}' direct         # 同上, 但按域名库判, 不解析 IP
+webtool proxy rule add '{"geoip":["CN","HK"]}' direct      # 按 IP 归属地
+webtool proxy rule add '{"port":[8080]}' proxy:tokyo        # 命中走命名代理
+webtool proxy rule add '{"domain":["ads.tracker.io"]}' block
+webtool proxy rule del 2                                    # 删第 3 条 (0 起)
+webtool proxy rules                                         # 列规则
+webtool proxy rules https://www.baidu.com/x                 # 试算这条请求走哪条线
+webtool proxy named tokyo socks5://user@127.0.0.1:1081      # 命名代理 (密码进保险库)
+webtool proxy geosite /path/to/geosite.dat                  # 配域名分类库 (1500+ 分类)
+webtool proxy geoip /path/to/GeoLite2-Country.mmdb          # 或 geoip.dat
+```
+
+命名代理的密码与全局 proxy 走**同一套保险库**：`rules.json` 里只存 `http://user@10.0.0.1:8080`，密文在 `config.json` 的 `proxy_auth`，出网时自动解密。老配置里已有的明文密码会在加载时**自动迁移**（幂等，只做一次）。
+
+- **顺序即优先级**，第一个命中的生效；`match` 内多个条件 AND，同一条件内多值 OR
+- 动作：`direct` / `block`（不发请求）/ `proxy`（全局代理）/ `proxy:<名字>`（命名代理）
+- 命名代理用 `webtool proxy named <名字> <代理URL>` 配（`named list` / `named del <名字>`），规则里写 `proxy:<名字>` 引用。**密码同样进保险库**，`rules.json` 只留 `user@host`
+- **geosite 不需要 DNS**：判「这域名算不算 CN」按域名分类查库即可，不会因为 CDN 就近解析把 IP 判到别国去。数据支持 MaxMind `.mmdb` 与 v2ray/sing-box 的 `geoip.dat`/`geosite.dat`（[Loyalsoldier/v2ray-rules-dat](https://github.com/Loyalsoldier/v2ray-rules-dat)）；16MB 的库按需解码 + 进程内缓存，只有规则里真引用到的分类才付解码开销
+- **判不出来 = 不匹配**：没配库时相关规则跳过并给出提示，而不是当成匹配让流量全部走错方向
+- 手写错一条规则只废那一条：非法动作、非对象、缺 `match` 都会被跳过并在 `proxy rules` 里列出原因，不会拖垮整个进程
+- 规则表坏掉时退回全局代理而不是纯直连 —— 后者会让必须代理的目标直接连不通
+- 命名代理写 `proxies` 段：`{"tokyo":{"url":"socks5://127.0.0.1:1081"}}`
+
+### 代理凭据
+
+`proxy set` 的 URL 里若带密码，密码会被加密存进保险库，配置文件只留用户名，出网前才在内存解密：
+
+```bash
+webtool proxy set http://user:pass@127.0.0.1:2080   # 密码自动加密, 配置只留 user@host
+webtool proxy setpass <用户名>                      # 终端交互输入, 不回显 (推荐)
+webtool proxy setpass <用户名> "<密码>"              # 位置参数: 方便脚本, 但会进 shell history
+echo "<密码>" | webtool proxy setpass <用户名>       # 管道: Agent / 脚本
+webtool proxy passwd                                # 保险库状态 (密钥来源/用户清单)
+webtool proxy delpass <用户名>
+```
+
+密码来源按优先级：`getpass` 交互输入（真终端默认，**不回显**）→ stdin 管道 → 位置参数。交互使用应该省略密码参数，否则明文会留在 shell history 和 `ps` 输出里。
+
+- 密文落 `~/.webtool/config.json` 的 `proxy_auth`，`enc:v1:` 前缀标记版本；主密钥在 `~/.webtool/secret.key`（0400），也可用 `WEBTOOL_SECRET_KEY` 环境变量覆盖（容器/CI 场景密钥不进文件）
+- **拿不到密钥 = 密文永久解不开**，不做 base64 之类的假加密；保险库里缺某个用户的密码时直接报错指出该跑哪条命令，不会拿空密码去撞一个毫无线索的 407
+- 日志与报错里的 `user:pass@` 出口处统一脱敏成 `user:***@`（`webtool proxy rules`、`proxy test` 的输出都不含明文）
+- `cryptography` 是软依赖（`pip install webtool[secrets]`）；没装时拒绝存密码而不是降级成明文
 
 ## 扩展
 
@@ -221,7 +288,7 @@ webtool stock health                            # 四侧探活
 |---|---|---|
 | `engine` | `(query, max_results, proxy, timeout, market) -> [结果]` | `base` 决定排序权重 |
 | `hot` | `(query, limit, proxy, timeout) -> [结果]` | `search` 决定能否直接传关键词 |
-| `site` | `(query, limit, proxy, timeout, **kw) -> [结果]` | `proxy` 为 `direct`/`proxy` |
+| `site` | `(query, limit, proxy, timeout, **kw) -> [结果]` | 线路由调用方传入，适配器自己不决定 |
 | `extractor` | `(html, url, meta) -> (正文, meta)` | 返回 `('' , {...})` 表示降级 |
 | `resolver` | `(url, proxy, timeout) -> 新 url` | `match` 指认跳转链特征 |
 | `filter` | `(results, ctx) -> [结果]` | 剔除不该出现在结果里的条目 |

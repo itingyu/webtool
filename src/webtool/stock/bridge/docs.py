@@ -9,7 +9,7 @@
 | 层 | 覆盖 | 回答什么 |
 |---|---|---|
 | `srv.py` (24 工具) | 高阶聚合 | "给我茅台的财务" |
-| `rawapi.py` (151) / `eco.py` (~1300) | 调用接口 | "用哪个函数调" |
+| `rawapi.py` (153) / `eco.py` (~1300) | 调用接口 | "用哪个函数调" |
 | **本模块** | 900+ 逆向文档 | **"底层 URL/参数/字段什么意思"** |
 
 ## 为什么需要它
@@ -26,15 +26,14 @@
 import json
 import os
 import re
+from webtool.stock.error import DocsError
 
-_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'reverse')
+_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'reverse')
 _IDX = os.path.join(_DIR, '_index.json')
 
 _cache = {}
 
 
-class DocsError(RuntimeError):
-    """逆向文档不存在 / 检索失败"""
 
 
 def _index():

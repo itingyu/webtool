@@ -1,10 +1,10 @@
 """webtool stock 子命令: 动作分发 + 输出渲染
 
-两座桥 (master.py / mcp.py) 在这里汇合成一个扁平的动作表。动作分三类:
+两座桥 (bridge/master.py 脚本层 / bridge/srv.py 编排层) 在这里汇合成一个扁平的动作表。动作分三类:
 
     数据动作  quote pool check calendar flow news announcement financials
               analyze screen risk            —— 走 stock-master 脚本层
-    MCP 动作  mcp <tool>                     —— 透传调用服务端 24 个工具
+    透传动作  mcp <tool>                     —— 按名调用 24 个动作 (未单独暴露的那些)
     元动作   tools health                    —— 能力清单与两侧探活
 
 输出与 webtool 其他数据命令一致: 数据动作按 args.format 自己渲染 (json 全字段 /
@@ -20,12 +20,13 @@ import re
 import sys
 import time
 
-from webtool.stock import docs as _docs
-from webtool.stock import http as _http
-from webtool.stock import eco as _eco
-from webtool.stock import master as _master
-from webtool.stock import rawapi as _raw
-from webtool.stock import srv as _srv
+from webtool.stock.bridge import docs as _docs
+from webtool.stock.bridge import http as _http
+from webtool.stock.bridge import eco as _eco
+from webtool.stock.bridge import _eco_net
+from webtool.stock.bridge import master as _master
+from webtool.stock.bridge import rawapi as _raw
+from webtool.stock.bridge import srv as _srv
 
 
 def _norm_fmt(v, default='text'):
@@ -33,10 +34,10 @@ def _norm_fmt(v, default='text'):
 
 
 def _unresolved(out):
-    """检测"服务端回了但没解析出结构"的情况。
+    """检测"取数层回了但没解析出结构"的情况。
 
-    stock-master 的 clients 把服务端载荷原样透传, 所以会碰到两种形状:
-    同花顺 stockpage 是 SPA, 服务端解析不出列表就把 100KB 原始 HTML 塞进 data.html;
+    stock-master 的 clients 把上游载荷原样透传, 所以会碰到两种形状:
+    同花顺 stockpage 是 SPA, 上游站点解析不出列表就把 100KB 原始 HTML 塞进 data.html;
     另一路把结构化结果 json.dumps 成了字符串塞进 data。
     这两种都不是"没数据", 强行当结果渲染会把 HTML 噪声喂给 Agent ——
     按硬约束第 9 条显式标注, 由调用方决定是换源还是自行解析。
@@ -132,12 +133,12 @@ def _act_risk(args, cfg):
 
 
 def _act_api(args, cfg):
-    """通用入口: 调 api_client 任一方法 (服务端 24 工具未覆盖的能力)"""
+    """通用入口: 调数据源层任一方法 (24 个动作未覆盖的能力)"""
     return _raw.call(args.method, _args_dict(args))
 
 
 def _act_api_list(args, cfg):
-    """api_client 方法清单。--by function 给功能维度 (回答"要干什么"),
+    """数据源层方法清单。--by function 给功能维度 (回答"要干什么"),
     默认按数据源分组 (回答"哪个站")。"""
     if (getattr(args, 'by', '') or 'source') == 'function':
         groups = _raw.methods_by_function()
@@ -207,7 +208,7 @@ def _act_api_search(args, cfg):
 
 
 def _act_holder(args, cfg):
-    """股东研究 (东财) —— 持仓变动/机构调研, 比服务端 top_holders 更细"""
+    """股东研究 (东财) —— 持仓变动/机构调研, 比 stock_top_holders 动作更细"""
     code = _code(args)
     mkt = 'SH' if code.startswith('6') else ('SZ' if code[0] in '03' else 'BJ')
     return _raw.call('em_shareholder_research', {'code': f'{mkt}{code}'})
@@ -454,10 +455,16 @@ def _act_diagram(args, cfg):
 
 
 def _act_mcp(args, cfg):
+    """直接调编排层的某个动作 —— CLI 未单独暴露的那些走这条
+
+    定位是**逃生口**, 不是主要用法: 有对应子命令 (financials / news / flow /
+    announcement / holder 等) 就用子命令, 参数校验与渲染都更完整。这里只用来
+    触达 CLI 尚未单独暴露的动作。
+    """
     if not getattr(args, 'tool', None):
         names = sorted(_srv.tool_names())
         raise ValueError(
-            f'mcp 动作需要 --tool 指定工具名, 可用: {", ".join(names[:6])} ... '
+            f'mcp 动作需要 --tool 指定动作名, 可用: {", ".join(names[:6])} ... '
             f'(完整清单: webtool stock tools)')
     params = {}
     for kv in (getattr(args, 'params', None) or ()):
@@ -473,10 +480,8 @@ def _act_tools(args, cfg):
 
 
 def _act_health(args, cfg):
-    """两侧探活。任一侧不可用都照实报 unavailable, 不因为一侧挂了就不查另一侧"""
-    out = {'master': {}, 'mcp': {}}
-    home = _master.home()
-    out['master']['home'] = home
+    """四侧探活。任一侧不可用都照实报 unavailable, 不因为一侧挂了就不查另一侧"""
+    out = {'master': {}, 'orchestrator': {}, 'raw': {}}
     out['master']['installed'] = _master.available()
     if out['master']['installed']:
         t0 = time.time()
@@ -488,30 +493,49 @@ def _act_health(args, cfg):
         except Exception as e:                              # noqa: BLE001
             out['master'].update(ok=False, err=f'{type(e).__name__}: {e}')
     else:
-        out['master']['err'] = f'未装在 {home} (可用 STOCK_MASTER_HOME 覆盖)'
+        out['master']['err'] = ('stock-master 技能缺失, 应随包安装在 '
+                                 'webtool/stock/skill/')
 
-    out['mcp']['server'] = f'{_srv.SERVER_HOME}/{_srv.SERVER_MOD}.py'
-    out['mcp']['found'] = _srv.available()
-    if out['mcp']['found']:
+    out['orchestrator']['found'] = _srv.available()
+    if out['orchestrator']['found']:
         t0 = time.time()
         try:
             _srv.call('stock_health_check', {})
-            out['mcp'].update(ok=True, took_ms=int((time.time() - t0) * 1000),
-                              tools=len(_srv.tool_names()))
+            out['orchestrator'].update(
+                ok=True, took_ms=int((time.time() - t0) * 1000),
+                actions=len(_srv.tool_names()), module=_srv.ORCHESTRATE_MOD)
         except Exception as e:                              # noqa: BLE001
-            out['mcp'].update(ok=False, err=f'{type(e).__name__}: {e}')
+            out['orchestrator'].update(ok=False, err=f'{type(e).__name__}: {e}')
     else:
-        out['mcp']['err'] = f'服务端不可用 (STOCK_MCP_HOME 可覆盖路径)'
+        out['orchestrator']['err'] = ('编排层模块缺失, 应随包安装在 '
+                                      f'webtool/stock/{_srv.ORCHESTRATE_MOD}')
     out['raw'] = {}
-    out['raw']['home'] = _raw.HOME
     out['raw']['found'] = _raw.available()
     if out['raw']['found']:
         out['raw'].update(ok=True, methods=len(_raw.methods()))
     else:
-        out['raw']['err'] = f'api_client 不可用 (STOCK_API_HOME 可覆盖)'
+        out['raw']['err'] = ('数据源池不可用, 应随包安装在 '
+                             'webtool/stock/bridge/sources/')
     out['eco'] = _eco.health()
+    # 出网路由: 四条通道都要过规则表, 体检要能一眼看出某条脱管了
+    out['route'] = {
+        'sources': 'per-request (RoutedAdapter + RoutedCffiSession)',
+        'stock-master': 'per-request (opener)',
+        'eco': {lib: _eco_net.probe(lib)
+                for lib in ('akshare', 'tushare', 'baostock', 'efinance')},
+        'probe': _route_probe(),
+    }
     out['ok'] = bool(out['master'].get('ok') or out['mcp'].get('ok'))
     return out
+
+
+def _route_probe():
+    """规则表对一个典型数据源域名的实际决策 —— 让用户能确认配置生效了"""
+    from webtool.stock.bridge.sources import _routing
+    return {u: _routing.resolve(u)
+            for u in ('https://push2.eastmoney.com/',
+                      'https://stock.xueqiu.com/',
+                      'https://qt.gtimg.cn/')}
 
 
 ACTIONS = {
@@ -568,9 +592,9 @@ USAGE = """用法: webtool stock <动作> [参数]
              tree  无参; logic 需 --code --name --thesis;
              chain 需 --name --driver(上游) --mid(中游) --catalyst(下游)
 
-MCP 动作 (透传调用服务端 24 个工具)
-  mcp <工具名> [--arg k=v]     透传调用, 例: webtool stock mcp stock_indicators --arg symbol=600519
-  tools [关键词]               列工具清单
+透传动作 (按名调用 24 个动作)
+  mcp <动作名> [--arg k=v]     透传调用, 例: webtool stock mcp stock_indicators --arg symbol=600519
+  tools [关键词]               列动作清单
 
 生态库 (akshare ~1093 / tushare ~122 / baostock 29 / efinance 55 —— 实数以 eco-health 为准)
   eco --lib akshare --method <接口> [--arg k=v] [--full]  直接调, 默认给形状+前几行
@@ -600,7 +624,7 @@ MCP 动作 (透传调用服务端 24 个工具)
   docs-report <reportName>               单个接口的完整逆向条目 (参数表+字段列序映射)
   docs-endpoint <URL片段>                反查某端点出现在哪些分册
 
-原始 API (api_client 151 方法, 8 数据源 —— 服务端未覆盖的能力)
+原始 API (数据源层 153 方法 — 24 个动作未覆盖的能力)
   api-list                     按数据源分组列全部方法
   api-list --by function       按**功能**分组 (行情/K线/财报/股东/公司/板块/
                               选股/资金/公告/指数/新股) —— 回答"要干什么"
@@ -610,15 +634,15 @@ MCP 动作 (透传调用服务端 24 个工具)
   forecast <代码>              盈利预测 (东财)
 
 元动作
-  health                       三侧探活 (master / 服务端 / 原始 API)
+  health                       三侧探活 (master / 编排层 / 原始 API)
 """
 
 
 def _coerce(v):
     """--arg 的值猜类型。与 cli/mcp.py 的差别: 纯数字一律留字符串。
 
-    股票代码 (600519 / 00700) 恒是字符串标识, 服务端 schema 也是 string;
-    按 JSON 字面量猜成 int 会被工具拒 (symbol must be non-empty string, got 600519)。
+    股票代码 (600519 / 00700) 恒是字符串标识, 动作参数也按 string 收;
+    按 JSON 字面量猜成 int 会被拒 (symbol must be non-empty string, got 600519)。
     其余值 (排序字段/枚举/布尔/嵌套 JSON) 仍按 JSON 解析。
     """
     s = v.strip()
@@ -645,6 +669,13 @@ def do_stock(args, cfg):
 
     try:
         out = fn(args, cfg)
+    except ImportError as e:
+        # requests 是 stock/http.py 的顶层 import, 而 stock 整体是延迟导入
+        # —— 少装一个包的表现是 `webtool stock` 抛一串 importlib 栈, 而
+        # search/fetch 等其他命令完全正常, 很难联想到是依赖缺失。
+        print(f'error: stock 依赖未装 ({e.name or e}); '
+              f'装: pip install "webtool[stock]"', file=sys.stderr)
+        return 2
     except _master.MasterMissing as e:
         print(f'error: {e}', file=sys.stderr)
         return 2
@@ -688,7 +719,7 @@ def _render(out, fmt, action):
         print(_j(out, 10 ** 9))
         return
     if action in ('api', 'forecast', 'api-list', 'api-search'):
-        # api_client 的接口形态千差万别 (含本身就返回 HTML 的), 那个"本该是
+        # 数据源层的接口形态千差万别 (含本身就返回 HTML 的), 那个"本该是
         # 列表却回了原始 HTML"的守卫对它不适用, 会把正常响应误报成未解析。
         note = None
     if note:
@@ -751,8 +782,8 @@ def _md(out, action):
                                 f.get('failed_gate'), f.get('error')) + ' |')
         return
     if action == 'tools' and isinstance(out, dict) and 'tools' in out:
-        print(f'## stock MCP 工具 ({out.get("count", len(out["tools"]))} 个)\n')
-        _table(['工具', '说明'], [(t['name'], t.get('desc')) for t in out['tools']])
+        print(f'## stock 动作 ({out.get("count", len(out["tools"]))} 个)\n')
+        _table(['动作', '说明'], [(t['name'], t.get('desc')) for t in out['tools']])
         return
     if action == 'quote':
         print('## 实时行情\n')
@@ -770,11 +801,11 @@ def _md(out, action):
         return
     if action in ('api-list', 'api-search') and isinstance(out, dict):
         # 功能分类表本身是"给人读的目录", 走默认的 ```json 围栏会毁掉可读性
-        # (151 个方法名挤成一行)。这里给真 markdown。
+        # (153 个方法名挤成一行)。这里给真 markdown。
         kw = out.get('keyword')
-        title = 'api_client 方法分类' if not kw else f'api_client 搜索: {kw}'
+        title = '数据源层方法分类' if not kw else f'数据源层搜索: {kw}'
         if out.get('by') == 'function':
-            title = f'api_client 共 {out.get("count")} 个方法 — 按功能'
+            title = f'数据源层共 {out.get("count")} 个方法 — 按功能'
         print(f'## {title}\n')
         groups = out.get('categories') or {}
         if groups:
@@ -809,7 +840,7 @@ def _md(out, action):
 
 
 def _items_of(data, depth=6):
-    """从 MCP 载荷里挖出条目列表 (广度优先下钻)。
+    """从动作返回的载荷里挖出条目列表 (广度优先下钻)。
 
     嵌套深度不固定: stock_news 是 data.items, stock_announcement 是 data.data.list,
     stock_capital_flow north 是 data.data.data.{hk2sh,sh2hk,...} (无列表)。
@@ -998,7 +1029,7 @@ def _text_item(it):
 
 
 def _text_srv(out, note_only=False):
-    """服务端载荷的 text 渲染: 结构化则列条目, 未解析只给提示。
+    """动作载荷的 text 渲染: 结构化则列条目, 未解析只给提示。
 
     载荷固定是 {"ok", "source", "data"(可能是 dict / 字符串化 JSON / raw html)}。
     """
@@ -1106,7 +1137,7 @@ def _text_flow(out):
 def _text_raw(out, action=''):
     """原始 API 载荷: 摘要 + 键结构, 不倾倒原始 JSON。
 
-    api_client 返回的数据量动辄几十 KB (股东研究一家 34KB), 全量印出来
+    数据源层返回的数据量动辄几十 KB (股东研究一家 34KB), 全量印出来
     既刷屏又淹掉重点。这里只给: 状态 / 来源 / 各键的条目数与首条要点。
     要全量用 -f json。
     """
@@ -1114,7 +1145,7 @@ def _text_raw(out, action=''):
         print(json.dumps(out, ensure_ascii=False)[:2000])
         return
     if action == 'api-list':
-        print(f"api_client 共 {out.get('count')} 个方法 "
+        print(f"数据源层共 {out.get('count')} 个方法 "
               f"(按{(out.get('by') or 'source')}):")
         if out.get('by') == 'function':
             for label, c in (out.get('categories') or {}).items():
@@ -1319,7 +1350,7 @@ def _text(out, action):
         return
     if action in ('api', 'forecast', 'api-list', 'api-search'):
         # 不跑 _unresolved 守卫: 那守卫针对 news/announcement 那类"本该给列表
-        # 却回了原始 HTML"的情况。api_client 有些接口(如 ths_stockpage_finance)
+        # 却回了原始 HTML"的情况。数据源层有些接口 (如 ths_stockpage_finance)
         # 本身就返回 HTML 表格, 套同一个守卫会误报成"未解析"。
         _text_raw(out, action)
         return

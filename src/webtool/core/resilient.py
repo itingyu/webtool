@@ -3,40 +3,24 @@
 opener 参数保留兼容旧调用, 实际不再使用。
 """
 from webtool.net import transport
+from webtool.net import proxyhelper
 
 
 def fetch(url, proxy=None, timeout=15, headers=None, opener=None,
-          fallback_direct=True, profile=None):
+          profile=None):
     """返回 (text, status, via)  via: 'proxy' | 'direct' | 'cffi' | 'urllib'
 
-    - 配置了代理: 走 transport(代理), 失败/被拦再降级直连
-    - fallback_direct=False 时不做互换 (google 等代理专用通道)
+    **单线路, 不 failover**。走哪条线由 proxyhelper 依据配置 + 路由表一次决定,
+    请求失败就报错 —— 不再"代理失败退直连重试"。理由: 失败后退直连会掩盖真实
+    原因 (代理挂了 → 目标拒绝/超时, 报出来的是后者), 而且对"只允许代理出网"的
+    目标, 退直连只是换一种错法。
+
     - profile: 传输指纹档案名 (transport.PROFILES 键, 如 'chrome131_android'),
       None 时由 transport 自选桌面档案
     """
-    attempts = []
-    order = []
-    if proxy and proxy != 'direct':
-        order = [(proxy, 'proxy'), (None, 'direct')] if fallback_direct \
-            else [(proxy, 'proxy')]
-    else:
-        order = [(None, 'direct')]
-
+    p = proxyhelper.resolve(proxy, url)
     prof = profile if (isinstance(profile, str) and profile in transport.PROFILES) else None
-    last_err = None
-    for p, tag in order:
-        try:
-            text, status, via = transport.get(
-                url, kind='nav', proxy=p, timeout=timeout,
-                headers=headers, allow_fallback=False, profile=prof)
-            if status in (403, 429, 500, 502, 503, 504) and tag == 'proxy' \
-                    and fallback_direct and len(order) > 1:
-                attempts.append(f'{tag}:HTTP{status}')
-                last_err = f'{tag} HTTP {status}'
-                continue
-            return text, status, tag
-        except Exception as e:
-            attempts.append(f'{tag}:{type(e).__name__}')
-            last_err = f'{tag}: {e}'
-            continue
-    raise RuntimeError(f'{url} failed [{", ".join(attempts)}] last={last_err}')
+    text, status, via = transport.get(
+        url, kind='nav', proxy=p, timeout=timeout,
+        headers=headers, profile=prof)
+    return text, status, via

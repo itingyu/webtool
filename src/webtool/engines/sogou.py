@@ -17,7 +17,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from webtool.net import captcha, transport
+from webtool.net import captcha, netx, transport
 from webtool.core.http import build_opener
 
 ENDPOINT = 'https://www.sogou.com/web'
@@ -68,11 +68,12 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None,
 
 def _pc_cffi(q, proxy, timeout):
     """持久 cookie 会话 + 导航预热; 返回 (html|None, sign|None)"""
-    s, p = transport._new_session('chrome131_win', proxy, 'sogou')
+    url = f'{ENDPOINT}?query={q}'
+    s, p = transport._new_session('chrome131_win', proxy, 'sogou', url=url)
     try:
         # 导航预热: 领/刷新 SUID/SNUID (state 预载, 像回头客)
         transport.warm_session(s, SOUGOU + '/', timeout=timeout, profile=p)
-        text, status = transport.session_get(f'{ENDPOINT}?query={q}', s,
+        text, status = transport.session_get(url, s,
                                              kind='nav', referer=SOUGOU + '/',
                                              timeout=timeout, profile=p)
         transport._persist_cookies(s, 'sogou')
@@ -126,13 +127,17 @@ def _mobile_search(q, max_results, proxy, timeout, _inner=False):
     # 导航头与 Android impersonate 会话同源 (sec-ch-ua 交给 impersonate,
     # 只补 sec-fetch/priority 等浏览器导航头)
     base = transport.headers_for('nav', M_HOME, profile=prof)
+    # 线路归一: 这里曾直接 `proxy=proxy or None`, 而 search 管线传的是 'auto'
+    # —— curl 于是去解析一个叫 "auto" 的主机名 (Could not resolve proxy: auto),
+    # 移动通道整条废掉 (PC 通道用的是 _new_session, 已经归一过)。
+    px = netx.resolve_proxy(proxy, M_ENDPOINT)
     html = None
     for attempt in range(2):
         try:
             # impersonate 与 UA 档案同源: Android UA 必须配 chrome131_android
             # TLS 指纹 (桌面 chrome131 TLS + Android UA 是自曝组合)
             s = transport._cr.Session(impersonate='chrome131_android',
-                                      proxy=proxy or None)
+                                      proxy=px or None)
             transport.warm_session(s, M_HOME, timeout=timeout, profile=prof)
             if attempt:
                 time.sleep(1.2)          # 被拦后换会话稍微喘口气
@@ -215,12 +220,14 @@ def _fill_snippets(html, out):
 def resolve_link(link_url, proxy=None, timeout=15):
     """把 /link?url=xxx 解析为真实 URL: 需带搜索会话 cookie (state 持久会话优先)"""
     try:
-        s, p = transport._new_session('chrome131_win', proxy, 'sogou')
+        target = link_url if link_url.startswith('http') else SOUGOU + link_url
+        s, p = transport._new_session('chrome131_win', proxy, 'sogou',
+                                      url=target)
         transport.session_get(SOUGOU + '/', s, kind='nav', timeout=timeout,
                               profile=p)
         text, _ = transport.session_get(
-            link_url if link_url.startswith('http') else SOUGOU + link_url,
-            s, kind='nav', referer=f'{SOUGOU}/web', timeout=timeout, profile=p)
+            target, s, kind='nav', referer=f'{SOUGOU}/web', timeout=timeout,
+            profile=p)
         transport._persist_cookies(s, 'sogou')
         m = (re.search(r'window\.location\.replace\("([^"]+)"\)', text)
              or re.search(r"URL='([^']+)'", text)

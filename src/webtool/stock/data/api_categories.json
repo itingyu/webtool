@@ -1,5 +1,5 @@
 {
-  "_note": "api_client 方法的功能维度分类。数据源维度(methods_by_source)回答'哪个站', 这里回答'要干什么'。primary 为首选方法(排前面的更通用/字段更全), fallback 为同功能备选(不同源, 反爬策略不同, 某源挂了就换)。",
+  "_note": "数据源层方法的功能维度分类。数据源维度(methods_by_source)回答'哪个站', 这里回答'要干什么'。primary 为首选方法(排前面的更通用/字段更全), fallback 为同功能备选(不同源, 反爬策略不同, 某源挂了就换)。",
   "categories": {
     "quote": {
       "label": "行情快照",

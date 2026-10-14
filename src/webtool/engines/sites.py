@@ -290,7 +290,9 @@ def _fetch(url, proxy, timeout, headers, profile=None, engine=None):
 
 
 # ---------------------------------------------------------------- 注册表
-# site_key -> {desc, fn, proxy_hint: 'direct'|'proxy'|None(auto)}
+# site_key -> {desc, module, params}  (清单在 data/plugins.json 的 "site" 段)
+# 不再有 proxy 字段: 站点不出网, 只暴露 (q, limit, proxy, timeout) 适配器,
+# 走哪条线由调用方 (routes → 路由表) 传进来
 
 
 def _ts2date(ts):
@@ -302,7 +304,7 @@ def _ts2date(ts):
 
 
 # ---------------------------------------------------------------- 注册表
-# site_key -> {desc, fn, proxy: 'direct'|'proxy'}; 清单在 data/plugins.json 的 "site" 段,
+# site_key -> {desc, module, params}; 清单在 data/plugins.json 的 "site" 段,
 # 加站点 = 写一个 (q, limit, proxy, timeout) -> [结果] 的适配器 + plugins.json 加一条
 from webtool.core.plugins import table as _plugin_table
 

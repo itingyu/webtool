@@ -59,8 +59,13 @@ def probe_official(domain, proxy=None, timeout=8):
     """探测某站是否有官方 feed, 返回 (url, items, 栏目分布) 或 (None, 0, {})
 
     www 与裸域都试 —— 只试一种必然漏一半。
+
+    `proxy=None` 按 'auto' 处理 (问路由表), 不是强制直连: 官网探测打的是
+    目标站本身, 该走哪条线由配置决定, 与同批的实例探测 (`instances.py`)
+    保持一致 —— 否则同一批 feed 里, 官网直连而公共实例走代理, 结果没法比。
     """
     from webtool.net import transport
+    proxy = proxy or 'auto'
     domain = domain.strip().strip('/')
     if not domain or '://' in domain:
         domain = domain.replace('https://', '').replace('http://', '').split('/')[0]
@@ -74,7 +79,7 @@ def probe_official(domain, proxy=None, timeout=8):
             try:
                 # transport.get 第三返回值是 via 不是 headers, 只嗅探 body
                 text, st, _ = transport.get(url, kind='plain', timeout=timeout,
-                                            proxy=proxy, allow_fallback=False)
+                                            proxy=proxy)
             except Exception:
                 continue
             if st != 200 or not _looks_like_feed(text):

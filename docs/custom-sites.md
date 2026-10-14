@@ -52,7 +52,7 @@
 | 项 | 说明 |
 |---|---|
 | `{query}` / `{limit}` | URL/body 模板变量，请求前替换（`query` 会做 URL 编码） |
-| `proxy` | `direct`=直连（国内站），`proxy`=走代理，`auto`=跟随全局（默认） |
+| `proxy` | `direct`=直连，`proxy`=走全局代理，`auto`=问路由表（默认）。**仅自定义站点有效**：内置站点一律 `auto`，线路只由 `proxy` 配置和规则表决定（内置清单里不再有 `proxy` 字段）。命令行 `--no-proxy` 与 `engine_proxy["site:<key>"]` 优先级更高 |
 | `headers` | 追加请求头 |
 | `results_path` | 响应 JSON 里结果数组的点分路径，如 `data.hits` |
 | `fields` | 输出字段映射；值支持 `源字段\|管道函数` 链式 |
@@ -109,5 +109,5 @@ webtool site v2ex python -n 2 -f json
 ```
 
 - `site list` 输出的是 **JSON 数组**（不是表格），字段：
-  `site` / `desc` / `proxy_hint` / `source`（`builtin`、`custom(~/.webtool/sites)`、`custom(BROKEN)`）
+  `site` / `desc` / `proxy` / `source`（`builtin`、`custom(~/.webtool/sites)`、`custom(BROKEN)`）
 - 配置错误时直接搜索会 stderr 报错并 `exit 2`，不会静默降级

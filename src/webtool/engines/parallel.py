@@ -14,8 +14,12 @@ Parallel 有两处与 Exa 不同的调用形状, 是本模块的全部复杂度�
 免费额度: 匿名免 key 可用 (走 fast 模式); 注册后每月有 $5 循环额度
 (搜索 $1/1000 请求, 约合 5000 次/月), 配 PARALLEL_API_KEY 自动生效。
 
-沿用 Exa 引擎的两项约定 (理由同): 端点声明 direct 故强制直连 (免 key
-配额按出口 IP 计), 以及对上游请求条数封顶。
+代理: **不写死**。曾与 Exa 一样硬编码 `proxy=None` (免 key 配额按出口 IP 计), 但
+那是服务方的计量策略, 不该由代码替用户决定 —— 需要直连时用
+`webtool config set engine_proxy.parallel direct`, 或在规则表里按域名分流。
+
+上游请求条数封顶同 Exa: 单次条数越多越慢且更易触发限流, 故对上游封顶, 返回值
+再截断到调用方要的数。
 """
 import json
 import re
@@ -112,11 +116,12 @@ def _parse(text, max_results):
 
 
 def search(query, max_results=10, proxy=None, timeout=15, market=None, **_):
-    """Parallel 语义搜索; 匿名免 key 可用, 强制不过代理 (见模块 docstring)"""
+    """Parallel 语义搜索; 匿名免 key 可用 (代理跟随配置)"""
     sqs, objective = _queries(query)
     r = _mc.call_verb('parallel', 'search',
                       {'objective': objective, 'search_queries': sqs},
-                      timeout=max(timeout or 0, _MIN_TIMEOUT), proxy=None)
+                      timeout=max(timeout or 0, _MIN_TIMEOUT),
+                      proxy=proxy if proxy is not None else 'auto')
     if 'error' in r:
         code = (r['error'] or {}).get('code')
         msg = r['error'].get('message') if isinstance(r['error'], dict) else str(r['error'])

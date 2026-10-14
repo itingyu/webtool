@@ -130,10 +130,9 @@ _NEEDS_SESSION = 'mcp-session-id'
 
 def _send(url, payload, headers, timeout, proxy):
     """POST 一次, 返回 (status, resp_headers, text); 异常统一成 (None, {}, msg)"""
-    opener = (urllib.request.build_opener(
-        urllib.request.ProxyHandler({'http': proxy, 'https': proxy}))
-        if proxy else urllib.request.build_opener(
-            urllib.request.ProxyHandler({})))
+    # 证书策略走 core.tls (与搜索/抓取/zen 通道同源), 不在这里自建 opener
+    from webtool.core import http as _http
+    opener = _http.build_opener(proxy, url=url)
     req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'),
                                  headers=headers, method='POST')
     try:
@@ -285,17 +284,17 @@ def call_verb(name, verb, arguments=None, timeout=None, proxy=None):
     - 协议/网络失败: {error}
     - 上游工具报错: {is_error: True, text}
 
-    代理策略与 `cli/mcp.py::_proxy_for` 同源: 端点声明 `proxy: direct` 的强制
-    直连 (免 key 配额按出口 IP 计, 走全局代理必 429)。此处没有 args.no_proxy
-    可看, 故只认端点声明; 要临时走代理由调用方显式传 proxy。
+    代理策略与 `cli/mcp.py::_proxy_for` 同源: 端点表不参与决策, 缺省 `'auto'` 走
+    路由表。端点曾声明 `proxy: direct` 强制直连 (免 key 配额按出口 IP 计), 已
+    移除 —— 那是服务方的计量策略, 该由用户配置决定。需要直连:
+    `webtool config set engine_proxy.<端点> direct`, 或在规则表里写域名规则。
+    此处没有 args.no_proxy 可看, 临时绕过由调用方显式传 proxy=None。
     """
     spec = endpoint(name)
     tool = (spec.get('verbs') or {}).get(verb)
     if not tool:
         have = ', '.join(sorted(spec.get('verbs') or {})) or '(该端点未声明 verbs)'
         raise RuntimeError(f'端点 {name!r} 未声明 {verb!r} 动词; 可用: {have}')
-    if proxy is None and str(spec.get('proxy', '')).lower() == 'direct':
-        proxy = None
     return call_tool(spec.get('url', ''), tool, arguments or {},
                      api_key=api_key_of(spec), timeout=timeout,
                      proxy=proxy)

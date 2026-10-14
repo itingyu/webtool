@@ -15,7 +15,9 @@ from pathlib import Path
 from webtool.core import jsonfmt
 
 DATA_DIR = Path(__file__).parent.parent / 'data'   # 打包数据统一在包根 webtool/data/
-USER_DIR = Path(os.path.expanduser('~/.webtool'))
+# 用户目录单一来源: config / proxy / secrets_store 都从这里取,
+# WEBTOOL_DIR 可把整份用户状态隔离到别处 (测试、多实例并行)
+USER_DIR = Path(os.environ.get('WEBTOOL_DIR', '~/.webtool')).expanduser()
 
 _CACHE = {}          # (section, filename, user_file) -> (stamp, value)
 

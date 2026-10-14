@@ -27,6 +27,19 @@ dependencies = [
     "typer>=0.12",
 ]
 
+# 可选依赖: 缺了不影响核心抓取, 但对应的功能会明确报错而不是假实现
+[project.optional-dependencies]
+# 代理密码加密存储 (webtool proxy setpass); 不装则拒绝存密码, 不做 base64 假加密
+secrets = ["cryptography>=41"]
+# GeoIP ASN 查询 (规则里的 {"asn": [...]})
+geoip = ["maxminddb>=2.4"]
+# 股票能力。requests 是 stock/http.py 的**顶层** import (雪球会话走它,
+# curl_cffi 过不了 hexin-v), 之前没声明 —— 装包后 `webtool stock` 直接
+# ImportError, 而 stock 是延迟导入所以其他命令照常, 很难第一时间联想到。
+stock = ["requests>=2.31", "pandas>=2.0", "openpyxl>=3.1"]
+# 全功能
+full = ["cryptography>=41", "maxminddb>=2.4", "requests>=2.31", "pandas>=2.0", "openpyxl>=3.1"]
+
 [project.scripts]
 webtool = "webtool.cli.app:main"
 
@@ -34,4 +47,20 @@ webtool = "webtool.cli.app:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-webtool = ["data/*.json", "data/**/*.json", "data/**/*.md"]
+# 键是包名, 值是**相对该包根目录**的路径。所以 `data/*.json` 只覆盖
+# webtool/data/, 覆盖不到 webtool/stock/data/ —— 实测 wheel 里 stock 的
+# 11 个数据文件 (460KB: 7 本逆向文档 + em 配方 + 接口分类) 一个都没打进去,
+# 装包后 `stock docs-*` / `em-*` 全废 (源码树里跑是好的, 所以本地测不出来)。
+webtool = [
+  "data/*.json",
+  "data/**/*.json",
+  "data/**/*.md",
+  "stock/data/*.json",
+  "stock/data/**/*.json",
+  "stock/data/**/*.md",
+  # stock-master 技能的文档资源。scripts/ 是真包 (靠 __init__.py), 由
+  # packages.find 自动收进 wheel, 不必手写进 package-data; 只有非代码的
+  # 资源 (SKILL.md 与 references 文档) 需要显式列。
+  "stock/skill/*.md",
+  "stock/skill/**/*.md",
+]

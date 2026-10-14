@@ -21,7 +21,13 @@ ROUTES_TTL = 7 * 86400
 
 
 def load_routes(proxy=None, refresh=False, timeout=60):
-    """载入官方 routes.json (缓存优先), 返回 {站点key: 站点dict}; 失败抛异常"""
+    """载入官方 routes.json (缓存优先), 返回 {站点key: 站点dict}; 失败抛异常
+
+    `proxy=None` 按 'auto' 处理 (问路由表), 不是强制直连 —— 与同目录
+    `instances.load_instances` 一致。
+    """
+    from webtool.net import transport
+    proxy = proxy or 'auto'
     if not refresh and ROUTES_FILE.exists():
         try:
             o = json.loads(ROUTES_FILE.read_text())
@@ -29,9 +35,8 @@ def load_routes(proxy=None, refresh=False, timeout=60):
                 return o['routes']
         except Exception:
             pass
-    from webtool.net import transport
     text, st, _ = transport.get(ROUTES_URL, kind='plain', timeout=timeout,
-                                proxy=proxy, allow_fallback=False)
+                                proxy=proxy)
     if st != 200:
         raise RuntimeError(f'routes.json HTTP {st}')
     routes = json.loads(text)

@@ -79,8 +79,10 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, **_):
     r = _mc.call_tool(spec.get('url', ''), tool, {'query': query, 'limit': want},
                       api_key=_mc.api_key_of(spec),
                       timeout=max(int(timeout or 0), _MIN_TIMEOUT),
-                      # 端点声明 proxy:direct, 免 key 层按出口 IP 计量
-                      proxy=None)
+                      # 代理跟随配置 (缺省 auto 走路由表); 曾写死 proxy=None
+                      # 强制直连, 理由是免 key 层按出口 IP 计量 —— 那是服务方
+                      # 的策略, 该用户配: config set engine_proxy.firecrawl direct
+                      proxy=proxy if proxy is not None else 'auto')
     if 'error' in r:
         err = r['error'] if isinstance(r['error'], dict) else {'message': str(r['error'])}
         raise RuntimeError(

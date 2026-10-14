@@ -159,7 +159,6 @@
       "desc": "Bing HTML 主通道+RSS兜底, chrome指纹, 国内 cn. 直连",
       "base": 0.9,
       "params": {
-        "proxy_hint": "direct",
         "ops": [
           "site",
           "intitle",
@@ -182,7 +181,6 @@
       "desc": "搜狗: PC优先(chrome指纹)→移动端(Android指纹,直出真实URL)",
       "base": 0.75,
       "params": {
-        "proxy_hint": "direct",
         "ops": [
           "site",
           "intitle",
@@ -251,7 +249,6 @@
       "desc": "百度网页, 多步预热(cookie+sugrec行为链), 反爬严(滑块)",
       "base": 0.8,
       "params": {
-        "proxy_hint": "direct",
         "ops": [
           "site",
           "intitle",
@@ -284,7 +281,6 @@
       "module": "webtool.engines.so360:search",
       "desc": "360 搜索, 国内直连, 中文长尾补充",
       "params": {
-        "proxy_hint": "direct",
         "ops": [],
         "enabled_by_default": true
       }
@@ -293,7 +289,6 @@
       "module": "webtool.engines.marginalia:search",
       "desc": "Marginalia 独立索引, 小站/老网页长尾, 免key直连, sst挑战自动解",
       "params": {
-        "proxy_hint": "direct",
         "ops": [],
         "enabled_by_default": true
       }
@@ -302,7 +297,6 @@
       "module": "webtool.engines.exa:search",
       "desc": "Exa 语义搜索(MCP), 免key直连, 英文/技术长尾强; 配额按出口IP计",
       "params": {
-        "proxy_hint": "direct",
         "ops": [],
         "enabled_by_default": false
       }
@@ -311,7 +305,6 @@
       "module": "webtool.engines.parallel:search",
       "desc": "Parallel 语义搜索(MCP), 匿名免key, 每月$5额度; 返回JSON含publish_date",
       "params": {
-        "proxy_hint": "direct",
         "ops": [],
         "enabled_by_default": false
       }
@@ -320,7 +313,6 @@
       "module": "webtool.engines.firecrawl:search",
       "desc": "Firecrawl 搜索(MCP), keyless可用, 免费层500次/月; scrape可过JS渲染",
       "params": {
-        "proxy_hint": "direct",
         "ops": [],
         "enabled_by_default": false
       }
@@ -329,23 +321,19 @@
   "site": {
     "github": {
       "module": "webtool.engines.sites:github",
-      "desc": "GitHub 仓库",
-      "proxy": "direct"
+      "desc": "GitHub 仓库"
     },
     "so": {
       "module": "webtool.engines.sites:stackoverflow",
-      "desc": "Stack Overflow",
-      "proxy": "direct"
+      "desc": "Stack Overflow"
     },
     "hn": {
       "module": "webtool.engines.sites:hackernews",
-      "desc": "Hacker News (Algolia API)",
-      "proxy": "direct"
+      "desc": "Hacker News (Algolia API)"
     },
     "wikipedia": {
       "module": "webtool.engines.sites:wikipedia",
       "desc": "维基百科 (lang 参数可换 en/zh)",
-      "proxy": "proxy",
       "params": {
         "args": [
           "lang"
@@ -354,78 +342,64 @@
     },
     "arxiv": {
       "module": "webtool.engines.sites:arxiv",
-      "desc": "arXiv 论文",
-      "proxy": "direct"
+      "desc": "arXiv 论文"
     },
     "csdn": {
       "module": "webtool.engines.sites:csdn",
-      "desc": "CSDN 博客",
-      "proxy": "direct"
+      "desc": "CSDN 博客"
     },
     "juejin": {
       "module": "webtool.engines.sites:juejin",
-      "desc": "掘金",
-      "proxy": "direct"
+      "desc": "掘金"
     },
     "bilibili": {
       "module": "webtool.engines.sites:bilibili",
-      "desc": "B站视频",
-      "proxy": "direct"
+      "desc": "B站视频"
     },
     "sspai": {
       "module": "webtool.engines.sites:sspai",
-      "desc": "少数派",
-      "proxy": "direct"
+      "desc": "少数派"
     },
     "npm": {
       "module": "webtool.engines.sites:npm",
-      "desc": "npm 包",
-      "proxy": "direct"
+      "desc": "npm 包"
     },
     "thepaper": {
       "module": "webtool.engines.moresites:thepaper",
-      "desc": "澎湃新闻搜索",
-      "proxy": "direct"
+      "desc": "澎湃新闻搜索"
     },
     "eastmoney": {
       "module": "webtool.engines.moresites:eastmoney",
-      "desc": "东方财富资讯搜索",
-      "proxy": "direct"
+      "desc": "东方财富资讯搜索"
     },
     "sov2ex": {
       "module": "webtool.engines.oversites:sov2ex",
-      "desc": "V2EX 全文搜索 (sov2ex)",
-      "proxy": "direct"
+      "desc": "V2EX 全文搜索 (sov2ex)"
     },
     "csdn_so": {
       "module": "webtool.engines.moresites2:csdn_so",
-      "desc": "CSDN 问答搜索",
-      "proxy": "direct"
+      "desc": "CSDN 问答搜索"
     },
     "juejin2": {
       "module": "webtool.engines.moresites2:juejin2",
-      "desc": "掘金文章搜索",
-      "proxy": "direct"
+      "desc": "掘金文章搜索"
     },
     "bili2": {
       "module": "webtool.engines.moresites2:bili2",
-      "desc": "B站视频综合搜索",
-      "proxy": "direct"
+      "desc": "B站视频综合搜索"
     },
     "douban": {
       "module": "webtool.engines.moresites2:douban",
-      "desc": "豆瓣内容搜索 (图书/影剧等)",
-      "proxy": "direct"
+      "desc": "豆瓣内容搜索 (图书/影剧等)"
     },
     "gh_search": {
       "module": "webtool.engines.moresites2:gh_search",
-      "desc": "GitHub 仓库搜索 (q 语法透传)",
-      "proxy": "direct"
+      "desc": "GitHub 仓库搜索 (q 语法透传)"
     }
   },
   "presets": {
     "zh": {
-      "desc": "中文优先, 国内直连四件套",
+      "desc": "中文优先, 境内四件套",
       "engines": [
         "bing",
         "sogou",
@@ -442,7 +416,7 @@
       ]
     },
     "direct": {
-      "desc": "全部免代理, 代理不可用时的兜底",
+      "desc": "全部免代理需求的引擎 (配了全局代理仍走代理, 要真直连加 --no-proxy)",
       "engines": [
         "bing",
         "sogou",

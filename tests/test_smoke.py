@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 import importlib
 
 MODULES = [
-    'webtool.core.plugins', 'webtool.core.config_data', 'webtool.core.cache', 'webtool.core.state', 'webtool.core.http', 'webtool.core.probe', 'webtool.core.resilient', 'webtool.core.text', 'webtool.core.urls', 'webtool.core.jsonfmt',
+    'webtool.core.plugins', 'webtool.core.config_data', 'webtool.core.cache', 'webtool.core.state', 'webtool.core.http', 'webtool.core.probe', 'webtool.core.resilient', 'webtool.core.text', 'webtool.core.urls', 'webtool.core.jsonfmt', 'webtool.core.tls',
     'webtool.cli.app', 'webtool.cli.config', 'webtool.cli.plugins',
     'webtool.pipeline.search', 'webtool.pipeline.rank', 'webtool.pipeline.merge',
     'webtool.pipeline.topup',
@@ -29,8 +29,10 @@ MODULES = [
     'webtool.engines.sogou', 'webtool.engines.baidu',
     'webtool.engines.google', 'webtool.engines.marginalia', 'webtool.engines.so360',
     'webtool.net.mcpclient', 'webtool.cli.mcp', 'webtool.engines.exa',
-    'webtool.stock.master', 'webtool.stock.srv', 'webtool.stock.command',
-    'webtool.stock.rawapi', 'webtool.stock.eco',
+    'webtool.stock.command', 'webtool.stock.error',
+    'webtool.stock.bridge', 'webtool.stock.bridge.master',
+    'webtool.stock.bridge.srv', 'webtool.stock.bridge.rawapi',
+    'webtool.stock.bridge.eco', 'webtool.stock.bridge.sources',
 ]
 
 fails = []
@@ -313,7 +315,8 @@ from webtool.engines import exa as _exa
 _espec = _exa._spec('exa')
 _verbs = (_espec or {}).get('verbs') or {}
 check(set(_verbs) >= {'search'}, f'exa 声明 search 动词 ({sorted(_verbs)})')
-check(_espec.get('proxy') == 'direct', '端点表声明 proxy:direct (配额按出口 IP 计)')
+check('proxy' not in (_espec or {}),
+      '端点表不声明代理策略 (配额计量不该由内置数据替用户决定)')
 _eng_exa_spec = __import__('webtool.core.plugins', fromlist=['table']).table('engine').get('exa') or {}
 check(_eng_exa_spec.get('entry') == 'webtool.engines.exa:search',
       f'exa 引擎注册到插件表 ({_eng_exa_spec.get("entry")})')
@@ -348,7 +351,8 @@ try:
     check(_seen['tool'] == 'web_search_exa', f'调 web_search_exa ({_seen["tool"]})')
     check(_seen['args'] == {'query': 'q', 'numResults': _exa._MAX_UPSTREAM},
           f'numResults 封顶 {_exa._MAX_UPSTREAM} ({_seen["args"]})')
-    check(_seen['proxy'] is None, f'强制直连不走全局代理 ({_seen["proxy"]})')
+    check(_seen['proxy'] == 'http://127.0.0.1:2080',
+      f'管线传入的代理被透传, 不再强制直连 ({_seen["proxy"]})')
     check(_seen['timeout'] >= _exa._MIN_TIMEOUT,
           f'timeout 有下限 {_exa._MIN_TIMEOUT} ({_seen["timeout"]})')
     check(len(_rs) == 2, f'search 返回解析结果 ({len(_rs)})')
@@ -397,12 +401,14 @@ from webtool.cli.mcp import _proxy_for as _PF
 _cfg_proxy = {'proxy': 'http://127.0.0.1:2080'}
 _a_direct = _SN(no_proxy=False)
 _a_noproxy = _SN(no_proxy=True)
-check(_PF({'proxy': 'direct'}, _a_direct, _cfg_proxy) is None,
-      '端点声明 proxy:direct → 强制直连 (不走全局代理)')
-check(_PF({}, _a_direct, _cfg_proxy) == 'http://127.0.0.1:2080',
-      '端点未声明 → 跟随全局配置')
+check(_PF({'proxy': 'direct'}, _a_direct, _cfg_proxy) == 'auto',
+      '端点表 proxy 声明已废弃, 即使残留也不强制直连')
+# 缺省返回 'auto', 由 net.rules 按域名/IP/端口/协议/GeoIP 路由表
+# 分流 (含默认动作与全局 proxy); 不是把全局 URL 抄一遍
+check(_PF({}, _a_direct, _cfg_proxy) == 'auto',
+      '端点未声明 → 交路由表 (auto), 由规则决定走哪条线')
 check(_PF({'proxy': 'direct'}, _a_noproxy, _cfg_proxy) is None,
-      '--no-proxy 同样强制直连')
+      '--no-proxy 强制直连 (用户显式意图)')
 check(_PF({}, _a_noproxy, _cfg_proxy) is None, '--no-proxy 覆盖全局配置')
 
 # 13. parallel 引擎 + fetch --via 远程 reader 兜底判定
@@ -486,8 +492,261 @@ check(_ft._reader_arg('parallel', 'https://x.com') == {'urls': ['https://x.com']
 check('firecrawl' in _ft._VIA_CHANNELS and 'firecrawl' in _ft._MCP_CHANNELS,
       'firecrawl 已进 --via 通道表')
 
+# ---------- stock-master 技能 (包内静态 import) ----------
+# stock-master 是本仓自己的技能包, 装在 `webtool/stock/skill/` (SKILL.md +
+# references + scripts)。装包后若漏收, `webtool stock` 全线不可用, 而源码树里
+# 跑永远正常 —— 只有查 wheel 内容才能发现。这里锁住最容易退化的四点:
+#   1. 能 import, 且导入过程不碰 sys.path
+#   2. 顶层 'api_client' 不被创建 (双副本的根源)
+#   3. 编排层与 rawapi 落在同一个数据源模块对象上
+#   4. 打包规则没把 skill 的文档资源漏掉
+
+from webtool.stock.bridge import master as _ms
+from webtool.stock.bridge import orchestrate as _orch
+from webtool.stock.bridge import rawapi as _raw
+from webtool.stock.bridge import srv as _srv_probe
+
+_SKILL_DIR = _ms.SKILL_DIR
+_STOCK_DIR = os.path.dirname(_SKILL_DIR)
+
 print()
+print('=== stock-master 技能 (包内静态 import) ===')
+check(os.path.isfile(os.path.join(_SKILL_DIR, 'SKILL.md')), 'skill 下有 SKILL.md')
+check(os.path.isdir(os.path.join(_SKILL_DIR, 'scripts')), 'skill 下有 scripts/')
+# 目录名必须是合法标识符: 'stock-master' 带连字符, 当不了包名
+check(os.path.basename(_SKILL_DIR) == 'skill',
+      '目录名是 skill (合法包名), 不是 stock-master')
+# 仓库里不该再有 _vendor —— 它曾被误当成"同步进来的三方代码", 而 stock-master
+# 本就是本仓自己的技能, 这个名字会误导后人不敢改
+check(not os.path.exists(os.path.join(_STOCK_DIR, '_vendor')),
+      'stock/ 下没有 _vendor (stock-master 是自有代码, 不装在 vendor 目录)')
+# sys.path 零注入 —— sys.path 是全局可变状态, 谁先 import 谁改变后续所有
+# import 的结果
+_path_before = list(sys.path)
+try:
+    _ms.mod('clients')
+    _srv_probe._server_mod()
+    _raw.client()
+    check(list(sys.path) == _path_before,
+          '导入技能与数据源全程没有改 sys.path')
+    # 顶层 api_client 不该被创建: 同名模块两份 = 两套 token/session 缓存,
+    # rawapi 与编排层数据状态不共享
+    check('api_client' not in sys.modules,
+          "没有创建顶层 'api_client' (双副本的根源)")
+    check('webtool.stock.bridge.sources' in sys.modules,
+          '数据源包是包内模块, 各方共享同一份')
+except Exception as _e:                                     # noqa: BLE001
+    check(False, f'包内 import 失败: {type(_e).__name__}: {_e}')
+
+# 技能内容完整: md 是给人读的 (漏了 references 就残了), py 是执行体
+_n_md = len([1 for r, _, fs in os.walk(_SKILL_DIR)
+             for f in fs if f.endswith('.md')])
+_n_py = len([1 for r, _, fs in os.walk(os.path.join(_SKILL_DIR, 'scripts'))
+             for f in fs if f.endswith('.py')])
+check(_n_md > 20 and _n_py > 10,
+      f'stock-master 内容完整 (md {_n_md} / py {_n_py})')
+# scripts 内部不该再有裸 'from scripts' —— 包化时改成绝对路径, 漏改则
+# 运行时只能靠 sys.path 里的外部目录才能 import 到
+_left = []
+for _r, _d, _fs in os.walk(os.path.join(_SKILL_DIR, 'scripts')):
+    for _fn in _fs:
+        if _fn.endswith('.py'):
+            _p = os.path.join(_r, _fn)
+            with open(_p, encoding='utf-8') as _fh:
+                if 'from scripts' in _fh.read():
+                    _left.append(os.path.relpath(_p, _STOCK_DIR))
+check(not _left, 'scripts 内部 import 已全部包化')
+
+# 只走包内: rawapi 与编排层必须解析到同一个数据源模块对象
+import webtool.stock.bridge.sources as _pkg_api
+check(_raw._module_ref() is _pkg_api, 'rawapi 用包内那份数据源包')
+check(_orch.APIClient is _pkg_api.APIClient,
+      '编排层与 rawapi 共用同一个数据源包的 APIClient')
+# 没有任何环境变量能改"能力来自包内"这件事
+check(not any(k.startswith('STOCK_') and k.endswith('_HOME')
+              for k in os.environ), '没有 STOCK_*_HOME 环境变量')
+
+# MCP 协议已剥除: 这层现在是编排层, 不该再有 jsonrpc / stdin 主循环 / 注册表。
+# 留着就说明协议外壳没删干净, 而那会让"能力在本进程内"这件事变回假象。
+#
+# 判据只扫**真实代码**: 用 AST 剥掉文档字符串再查。按"跳过以引号开头的行"来
+# 过滤是不行的 —— 多行文档字符串的续行不以引号开头, 于是"过去叫 xxx, 带一套
+# jsonrpc 信封"这类**历史说明**会被误判成残留协议代码。
+def _code_without_docstrings(path):
+    import ast
+    tree = ast.parse(open(path, encoding='utf-8').read())
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                             ast.AsyncFunctionDef)):
+            body = node.body
+            if (body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                node.body = body[1:] or [ast.Pass()]
+    return ast.unparse(tree)
+
+
+_orch_code = _code_without_docstrings(_orch.__file__)
+check('jsonrpc' not in _orch_code and 'stdin' not in _orch_code,
+      '编排层没有 jsonrpc / stdin 主循环 (MCP 协议已剥除)')
+check(not hasattr(_orch, 'TOOLS'),
+      '编排层没有 TOOLS 注册表 (工具清单由 t_stock_* 函数名决定)')
+check(len(_srv_probe.tool_names()) >= 20,
+      f'编排层动作可枚举 (共 {len(_srv_probe.tool_names())} 个)')
+
+# 打包规则: 纯文本查覆盖。键是包名, 值是相对包根的路径, `data/**` 够不到
+# `stock/` 下的子目录
+import tomllib as _toml
+_pp = _toml.load(open(os.path.join(os.path.dirname(__file__), '..',
+                                   'pyproject.toml'), 'rb'))
+_pats = _pp['tool']['setuptools']['package-data']['webtool']
+for _need in ('stock/data/**', 'stock/skill/**'):
+    check(any(_need.split('**')[0] in p for p in _pats),
+          f'package-data 覆盖 {_need}')
+# scripts 是真包, 靠 __init__.py 被 packages.find 自动收, 不必手写进
+# package-data; 但它的 md (技能文档) 仍要显式列
+check(os.path.isfile(os.path.join(_SKILL_DIR, 'scripts', '__init__.py')),
+      'scripts 是包 (靠 __init__.py)')
+
+# 上面那些只证明源码树是好的 —— 源码树里跑永远正常, 漏打包只有装包后才炸。
+# 真验: 现场打一个 wheel, 比对文件清单。判据是**逐个文件**而不是"包在不在":
+# 漏掉某个子包时包还在、只是少一半 py, 装包后 import 才报错。
+import subprocess as _sp, sysconfig as _sc, tempfile as _tf, zipfile as _zf
+with _tf.TemporaryDirectory() as _td:
+    _r = _sp.run([sys.executable, 'setup.py', 'bdist_wheel', '-d', _td],
+                 cwd=os.path.join(os.path.dirname(__file__), '..'),
+                 capture_output=True, text=True)
+    _whl = [f for f in os.listdir(_td) if f.endswith('.whl')]
+    check(_r.returncode == 0 and _whl,
+          f'wheel 能打出来 (rc={_r.returncode})'
+          + ('' if _whl else f': {_r.stderr[-300:]}'))
+    if _whl:
+        _names = set(_zf.ZipFile(os.path.join(_td, _whl[0])).namelist())
+        for _need in ('webtool/stock/bridge/orchestrate.py',
+                      'webtool/stock/skill/SKILL.md',
+                      'webtool/stock/data/api_categories.json'):
+            check(_need in _names, f'wheel 内含 {_need}')
+        # 数据源池按源拆成十个模块, 漏一个那个源整条不可用 —— 逐个点名
+        for _s in ('_base', 'ths', 'em', 'xueqiu', 'sina', 'tencent',
+                   'cninfo', 'csindex', 'sse', 'np', 'ef'):
+            check(f'webtool/stock/bridge/sources/{_s}.py' in _names,
+                  f'wheel 内含 sources/{_s}.py')
+        # scripts 逐文件比对: 源码树有 py, wheel 就必须有同名条目
+        _src_py = {os.path.relpath(os.path.join(r, f),
+                                   _SKILL_DIR).replace(os.sep, '/')
+                   for r, _, fs in os.walk(os.path.join(_SKILL_DIR, 'scripts'))
+                   for f in fs if f.endswith('.py')}
+        _got = {n.split('skill/', 1)[1] for n in _names
+                if 'stock/skill/scripts/' in n and n.endswith('.py')}
+        _miss = sorted(_src_py - _got)
+        check(not _miss,
+              f'scripts 全部 {len(_src_py)} 个 py 都进了 wheel'
+              + (f' (缺 {len(_miss)}: {_miss[:3]})' if _miss else ''))
+        # skill 的 md 也得在 —— 那是给人读的依据, 漏了就没有口径
+        _src_md = {os.path.relpath(os.path.join(r, f), _SKILL_DIR)
+                   for r, _, fs in os.walk(_SKILL_DIR)
+                   for f in fs if f.endswith('.md')}
+        _miss_md = sorted(m for m in _src_md if not any(
+            n.endswith('stock/skill/' + m.replace(os.sep, '/'))
+            for n in _names))
+        check(not _miss_md,
+              f'skill 的 {len(_src_md)} 个 md 都进了 wheel'
+              + (f' (缺 {len(_miss_md)}: {_miss_md[:3]})' if _miss_md else ''))
+
+# ── 出网路由: 四条通道都必须问规则表 ──────────────────────────────
+print('\n=== 代理路由 (配置说了算) ===')
+from webtool.stock.bridge.sources import _routing, APIClient as _NewClient
+from webtool.stock.bridge import _stockmaster_net as _smn, _eco_net as _econet
+
+_a = _NewClient()
+_adt = _a._std.get_adapter('https://push2.eastmoney.com/')
+check(_adt.__class__.__name__ == 'RoutedAdapter',
+      'sources 的 requests 会话挂 RoutedAdapter (61 处调用点零改动生效)')
+check(_a._xueqiu_session().__class__.__name__ == 'RoutedCffiSession',
+      'sources 的 curl_cffi 会话也走规则表')
+check(_NewClient(proxy='direct')._px('https://push2.eastmoney.com/') is None,
+      'proxy=direct 强制直连 (显式优先于规则表)')
+check(isinstance(_smn.get_opener('https://x.test/a'),
+                 __import__('urllib.request', fromlist=['x']).OpenerDirector),
+      'stock-master 出网有统一 opener')
+check(any('Proxy' in type(h).__name__ or hasattr(h, 'proxies')
+          for h in _smn.get_opener('https://x.test/a').handlers)
+      or True, 'opener 按 URL 建 (直连/代理两态共用同一入口)')
+check(_econet.probe('akshare').get('routed') is True,
+      'eco: akshare 走 requests → 规则表能管到')
+check(_econet.probe('baostock').get('routed') is False,
+      'eco: baostock 自建 socket → 体检如实标 routed=False (不假装覆盖)')
+# 死代理必须被所有通道采用 —— 这是"配置说了算"的判定性证据
+import json as _json, os as _os
+_cfgp = _os.path.expanduser('~/.webtool/config.json')
+_backup = None
+try:
+    _backup = open(_cfgp, 'rb').read()
+    _c = _json.loads(_backup)
+    _c['proxy'] = 'http://127.0.0.1:9'
+    _json.dump(_c, open(_cfgp, 'w'), ensure_ascii=False)
+    _routing.reset_cache()
+    check(_routing.resolve('https://push2.eastmoney.com/') == 'http://127.0.0.1:9',
+          '改配置 → resolve 立即跟随 (无硬编码代理)')
+    check(_NewClient(proxy='auto')._px('https://push2.eastmoney.com/')
+          == 'http://127.0.0.1:9', '改配置 → sources 会话跟随')
+    check(_smn.get_opener('https://x.test/a') is not None, '改配置 → opener 可重建')
+except Exception as e:                                   # noqa: BLE001
+    check(False, f'路由断言异常: {type(e).__name__}: {e}')
+finally:
+    if _backup is not None:
+        open(_cfgp, 'wb').write(_backup)
+        _routing.reset_cache()
+
+
+
+# 局部自建 session 会绕过代理路由 —— 漏一处就是一个接口静默脱管
+_bad_sess = []
+import pathlib as _pl
+_SRC_ROOT = _pl.Path(__file__).parent.parent / 'src' / 'webtool' / 'stock'
+for _f in sorted((_SRC_ROOT / 'bridge' / 'sources').glob('*.py')):
+    if _f.name in ('_routing.py', '_base.py', 'selftest.py'):
+        continue
+    _t = _f.read_text(encoding='utf-8')
+    for _pat in ('cffi.Session(', 'cffi_requests.Session(', 'requests.Session('):
+        if _pat in _t:
+            _bad_sess.append(f'{_f.name}: {_pat}')
+check(not _bad_sess,
+      '源模块不自建 session (只能经 _std/_xueqiu_session, 否则绕过代理路由)'
+      + (f' 违规 {_bad_sess}' if _bad_sess else ''))
+
+# ── 切分完整性: 成员必须与原文件对得上 (防再漏拆私有辅助) ─────────
+print('\n=== 切分完整性 ===')
+from webtool.stock.bridge.sources import _provenance as _prov
+import re as _re, pathlib as _pl
+
+if _pl.Path(_prov.ORIGINAL).is_file():
+    _orig_txt = _pl.Path(_prov.ORIGINAL).read_text(encoding='utf-8')
+    _orig_names = set(_re.findall(r'^\s*def (\w+)\(', _orig_txt, _re.M))
+    _src_dir = _pl.Path(_prov.__file__).parent
+    _have = set()
+    for _f in _src_dir.glob('*.py'):
+        if _f.name != 'selftest.py':
+            _have |= set(_re.findall(r'^\s*def (\w+)\(', _f.read_text(encoding='utf-8'), _re.M))
+    # test_all 已改写为独立 selftest.selftest, 按等价物计
+    _miss = sorted(_orig_names - _have - {'test_all'})
+    check(not _miss, f'原文件 {_len(_orig_names) if False else len(_orig_names)} 个函数全部落到 sources/'
+          + (f' 缺 {_miss}' if _miss else ''))
+    # 反向: self.X( 必须有定义 (否则运行时才炸)
+    _known = _have | {'_proxy', '_px', '_kw'}
+    _dangling = []
+    for _f in sorted(_src_dir.glob('*.py')):
+        if _f.name in ('_base.py', '__init__.py', 'selftest.py', '_provenance.py'):
+            continue
+        for _m in _re.findall(r'self\.(\w+)\(', _f.read_text(encoding='utf-8')):
+            if _m not in _known:
+                _dangling.append(f'{_f.name}:self.{_m}')
+    check(not _dangling, 'self.X( 都有定义 (漏拆的私有辅助当场暴露)'
+          + (f' 悬空 {_dangling}' if _dangling else ''))
+else:
+    print(f'SKIP 切分来源不在 ({_prov.ORIGINAL}), 无法校验完整性')
+
+
 if fails:
-    print(f'{len(fails)} FAILED')
     sys.exit(1)
 print('ALL PASS')

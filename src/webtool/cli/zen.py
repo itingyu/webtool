@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 
 from webtool.core import urls
+from webtool.core.secrets_store import redact
 from webtool.cli.zenproto import (StickySession, _endpoints, build_body,
                               build_headers, model_headers, parse_models,
                               parse_sse)
@@ -35,6 +36,9 @@ def fetch_models(cfg, refresh=False, timeout=15.0, proxy=None):
 
     刻意不内置名单: 免费模型上架/下架频繁, 硬编码名单很快过期。命名约定
     也只是启发式 —— 真正的判据是 `zen --list-models --check` 实发一次。
+
+    `proxy=None` 时按 cfg + 路由表自己定线路 (与对话请求同一条), 免得
+    "能聊天但拉不到模型清单" —— 两者打的是同一个端点。
     """
     from webtool.core import cache as _cache
     key = 'zen/models'
@@ -43,9 +47,11 @@ def fetch_models(cfg, refresh=False, timeout=15.0, proxy=None):
         hit = _cache.get(cfg, 'zen', key)
         if hit and isinstance(hit.get('ids'), list) and hit['ids']:
             return hit['ids']
+    if proxy is None:
+        proxy = _route(cfg, models_url)
     req = urllib.request.Request(models_url, headers=model_headers())
     try:
-        with _opener({'proxy': proxy} if proxy else {}).open(
+        with _opener({'proxy': proxy} if proxy else {}, url=models_url).open(
                 req, timeout=timeout) as r:
             d = json.loads(r.read())
         ids = parse_models(d)
@@ -61,17 +67,15 @@ def fetch_models(cfg, refresh=False, timeout=15.0, proxy=None):
 
 
 
-def _opener(cfg):
+def _opener(cfg, url=None, verify=None):
     """urlopen() 不吃 proxy 参数, 得自己建 opener。
 
     空/None 代理 → 走直连 (urllib 只在显式给空 dict 时才不读环境变量, 这里
     显式关掉, 免得继承了 http_proxy 环境变量导致"配置里没代理却走了代理")。
+    证书策略交给 core.tls, 与搜索/抓取通道同源。
     """
-    px = (cfg or {}).get('proxy')
-    if px:
-        return urllib.request.build_opener(
-            urllib.request.ProxyHandler({'http': px, 'https': px}))
-    return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    from webtool.core import http as _http
+    return _http.build_opener((cfg or {}).get('proxy'), url=url, verify=verify)
 
 
 _norm = urls.norm_key   # 请求去重键 (与 feed 共用同一把尺)
@@ -83,7 +87,8 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
     cfg = {'proxy': proxy} if proxy else {}
     body = build_body(model, prompt, system, tool_choice, full)
     headers = session.headers() if session else build_headers()
-    req = urllib.request.Request(_endpoints()[0], data=body, headers=headers,
+    chat_url = _endpoints()[0]
+    req = urllib.request.Request(chat_url, data=body, headers=headers,
                                  method='POST')
     t0 = time.time()
     stream_err = []
@@ -117,7 +122,7 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
                 stream_err.append(err)
 
     try:
-        with _opener(cfg).open(req, timeout=TIMEOUT) as r:
+        with _opener(cfg, url=chat_url).open(req, timeout=TIMEOUT) as r:
             remainder = b''
             saw_done = False
             # read1() 有数据就返回; read(n) 会阻塞到攒满 n 字节, 流式就没了
@@ -201,57 +206,43 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
     return dict(base, ok=True)
 
 
-def call_zen_direct_then_proxy(model, prompt, system=None, session=None,
-                               on_delta=None, tool_choice=None, full=False,
-                               cfg=None, verbose=False):
-    """直连优先, 直连接不上才换代理 —— 与 rank/feed 同一套策略。
+def _route(cfg, url, verbose=False):
+    """cfg + 路由表 → 本次请求的线路 (None = 直连), 全 zen 只有这一处决定
 
-    只在"代理确实可用"时才重试 (探活走 core.probe.proxy_ok, 结果带进程内
-    缓存), 否则直连失败就直接报错, 不做无谓的等待。
-    直连失败指的是传输层失败 (status==0: DNS/连接拒/超时), 或者连上了但
-    上游没给东西 —— 这两种换代理都有意义。HTTP 4xx 不换 (那是请求本身的问题,
-    换出口 IP 也一样)。
+    `do_zen` 已经在 --no-proxy 时把 cfg['proxy'] 置 None, 所以这里不用
+    再看命令行 —— 单一入口避免"某个调用点忘了看 no_proxy"导致别人以为
+    走了直连其实走了代理 (或反过来)。
     """
-    import sys
-    gproxy = (cfg or {}).get('proxy')
-    try:
-        r = call_zen(model, prompt, system, session, on_delta, tool_choice,
-                     full, proxy=None)
-        if r.get('ok'):
-            return r
-        if not _worth_proxy(r):
-            return r
-        err = (r.get('error_body') or '')[:100]
-    except Exception as e:
-        r, err = None, str(e)[:100]
+    from webtool.net import proxyhelper
+    route = proxyhelper.resolve((cfg or {}).get('proxy'), url)
+    if verbose and route:
+        import sys
+        print('[zen] 走代理 %s' % redact(route), file=sys.stderr)
+    return route
 
-    if not gproxy:
-        return r if r else {'ok': False, 'status': 0, 'elapsed': 0,
-                             'error_body': err + ' (direct)'}
-    from webtool.core.probe import proxy_ok
-    if not proxy_ok(gproxy):
-        return r if r else {'ok': False, 'status': 0, 'elapsed': 0,
-                            'error_body': err + ' (direct; proxy 未探活, 跳过)'}
-    if verbose:
-        print('[zen] 直连失败 (%s), 换代理 %s 重试' % (err[:60], gproxy),
-              file=sys.stderr)
-    r2 = call_zen(model, prompt, system, session, on_delta, tool_choice, full,
-                  proxy=gproxy)
-    if r2.get('ok') and verbose:
-        print('[zen] 代理通道成功', file=sys.stderr)
-    return r2
+
+def call_zen_on_route(model, prompt, cfg=None, verbose=False, **kw):
+    """按配置/路由表发一次 (推荐入口)。函数名曾叫 call_zen_direct_then_proxy,
+    那正是它早年的行为 —— 直连先打、失败换代理。现已不 failover: 线路由
+    `_route` 一次决定, 请求失败就是失败。保留旧名做别名以免改调用方漏掉。"""
+    return call_zen(model, prompt, proxy=_route(cfg, _endpoints()[0], verbose),
+                    **kw)
+
+
+# 旧名: 语义已变 (不再 failover), 仅保留兼容
+call_zen_direct_then_proxy = call_zen_on_route
 
 
 def _worth_proxy(res):
-    """这次失败值不值得换代理再试。
+    """这次失败值不值得**再试一次** (与线路无关, 只是重试的门槛)。
 
-    只有**传输层/可重试状态**才换:
+    只有**传输层/可重试状态**才重试:
       status==0  → DNS 失败 / 连接被拒 / 超时 / TLS 错误
       408 / 429 → 限流, 换个出口可能就通
       5xx       → 上游错误
-    不换的:
+    不重试的:
       200       → 流已经通了, 后面是语义问题 (截断 / 模型要调工具), 与出口无关,
-                   换代理只会再失败一次 (和重试层同一条规则)
+                   重试只会再失败一次 (和重试层同一条规则)
       其它 4xx  → 请求本身的问题, 换出口 IP 也不会变
     """
     if not res:
@@ -267,16 +258,21 @@ def _worth_proxy(res):
 def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
                    tool_choice=None, full=False, cfg=None, max_attempts=3,
                    verbose=False):
-    """只重试瞬时故障: 连接错误 / 408 / 429 / 5xx。
+    """只重试瞬时故障: 连接错误 / 408 / 429 / 5xx。**同一线路**重试。
 
     status==200 的一律不重试 —— 流已经通了, 那是语义问题 (截断 / 要调工具),
     重试除了把已流出去的正文再打一遍没有任何意义。
+
+    线路在循环外一次定死 (cfg + 路由表)。曾经这里是 `proxy=None` 直连先打,
+    失败后调用方再走一遍代理 —— 于是走哪条线取决于它先在哪失败, 且代理明明
+    配好了还要先撞一次墙。
     """
     import sys
     last = None
+    route = _route(cfg, _endpoints()[0], verbose)
     for attempt in range(1, max(1, max_attempts) + 1):
         last = call_zen(model, prompt, system, session, on_delta, tool_choice,
-                        full, proxy=None)
+                        full, proxy=route)
         if last.get('ok'):
             return last
         status = last.get('status', 0)
@@ -400,11 +396,8 @@ def _print_model_ids(ids, fmt):
                          args.tool_choice, args.full_tools, cfg,
                          max_attempts=args.retries,
                          verbose=args.stream)
-    # 传输层失败才换代理 (代理已探活); HTTP 错误不换
-    if not res.get('ok') and _worth_proxy(res):
-        res = call_zen_direct_then_proxy(
-            args.model, prompt, args.system, session, on_delta,
-            args.tool_choice, args.full_tools, cfg, verbose=args.stream)
+    # 曾经这里失败后再 `call_zen_direct_then_proxy` 走一遍代理 —— 线路已在
+    # call_zen_retry 内一次定死, 重试也只重试同一条线, 不再换线。
     for c in res.get('tool_calls_detail') or []:
         print('[zen] tool %s(%s)  ← 未执行'
               % (c.get('name'), json.dumps(c.get('args', {}), ensure_ascii=False)),

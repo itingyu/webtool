@@ -1,6 +1,6 @@
 """底层 HTTP 直调层
 
-`rawapi.py` 调的是 api_client 封装好的 151 个方法, `eco.py` 调的是 akshare/tushare
+`rawapi.py` 调的是数据源层封装好的 153 个方法, `eco.py` 调的是 akshare/tushare
 等库函数 —— 两者都只能调"已封装"的东西。本模块相反: **不封装, 直接发 HTTP**。
 
 逆向出的 900+ 接口里, 有大量 akshare 没封或封了不可用的 (公司类型探��、
@@ -13,7 +13,7 @@ quoteColumns 注入、dates 批量取表), 它们只能自己拼 URL 打过去�
 | 查 akshare 某函数返回什么字段 | `docs-report` (只读文档) |
 | akshare 某接口返回空/报错, 想自己打 | **本模块** |
 | 需要 companyType / quoteColumns / dates 等特殊参数 | **本模块** |
-| 常规行情/财务取数 | `rawapi` (走 api_client, 已处理反爬) |
+| 常规行情/财务取数 | `rawapi` (走数据源层, 已处理反爬) |
 
 ## 内置的处理
 
@@ -47,14 +47,16 @@ import re
 
 import requests
 
+from webtool.core import tls
+from webtool.net import netx
+from webtool.stock.error import HttpError
+
 try:
     from curl_cffi import requests as curl_requests
 except ImportError:                                     # pragma: no cover
     curl_requests = None
 
 
-class HttpError(RuntimeError):
-    """HTTP 调用失败"""
 
 
 # ── 各源的默认头 / 反爬配置 ────────────────────────────────────────
@@ -94,12 +96,40 @@ def _host(url):
     return m.group(1) if m else ''
 
 
+def _py_proxies(proxy_url):
+    """代理 URL → requests 的 proxies 字典。
+
+    socks 走 urllib 的 `socks5://` 语义 (远端解析 DNS); requests 必须写
+    `socks5h://` 才是远端解析 —— 写成 socks5:// 会**本地**解析域名, 于是
+    socks 代理服务器根本用不上, 看似配了代理实际仍在本地解析。
+    """
+    if not proxy_url:
+        return None
+    u = proxy_url
+    if u.startswith('socks5://'):
+        u = 'socks5h://' + u[len('socks5://'):]
+    return {'http': u, 'https': u}
+
+
 class Http:
     """裸 HTTP 调用器。不封装任何业务接口, 只负责把请求安全打出去。"""
 
-    def __init__(self, timeout=20, impersonate='chrome110'):
+    def __init__(self, timeout=20, impersonate='chrome110', verify=None,
+                 proxy=None):
+        """verify=None 走全局 TLS 策略 (ssl_verify / ca_bundle / verify_hosts)。
+
+        显式传 True/False 则只影响这个实例 —— 逆向文档里那批自签/过期证书的
+        交易所接口 (郑商所 / 国泰君安 / 99期货) 用 `Http(verify=False)` 定点开,
+        比全局关校验安全得多。
+
+        proxy 默认 'auto' = 问路由表, 与其它通道一致 —— 绕过路由表就会让
+        规则/命名代理/保险库密码对这一路统统失效。显式给 URL 强制走那条,
+        给 None/'direct' 强制直连。
+        """
         self.timeout = timeout
         self.impersonate = impersonate
+        self.verify = verify
+        self.proxy = 'auto' if proxy is None else proxy
         self._xq = None          # 雪球 curl_cffi 会话 (需 cookie warmup)
         self._last = None
 
@@ -130,20 +160,24 @@ class Http:
             if '/api/data/v1/get' in url:
                 p.setdefault('token', _EM_TOKEN_DC)
         if 'qt.gtimg.cn' in url or 'ifzq.gtimg.cn' in url:
-            h = headers.setdefault('Referer', 'https://gu.qq.com/')
+            # 直接改 headers 本身 —— 原来写成 h = headers.setdefault(...) 是
+            # 赋给了个没人用的局部变量, Referer 根本没设进去
+            headers.setdefault('Referer', 'https://gu.qq.com/')
         return p
 
-    def _xueqiu_session(self):
+    def _xueqiu_session(self, proxy=None):
         """雪球要 curl_cffi 指纹 + 多页 warmup 收集 cookie"""
         if self._xq is not None:
             return self._xq
         if curl_requests is None:
             raise HttpError('雪球需 curl_cffi: apk add py3-curl-cffi 或 pip install curl_cffi')
-        s = curl_requests.Session(impersonate=self.impersonate)
+        kw = {'proxy': proxy} if proxy else {}
+        s = curl_requests.Session(impersonate=self.impersonate, **kw)
         for u in ('https://xueqiu.com/', 'https://xueqiu.com/hq',
                   'https://xueqiu.com/S/SH600519'):
             try:
-                s.get(u, timeout=self.timeout)
+                s.get(u, timeout=self.timeout,
+                      verify=tls.policy(u, self.verify), **kw)
             except Exception:                             # noqa: BLE001
                 pass
         self._xq = s
@@ -152,22 +186,42 @@ class Http:
     # ── 请求 ──────────────────────────────────────────────────
     def request(self, method, url, params=None, data=None, json_body=None,
                 headers=None, referer=None, timeout=None, raw=False,
-                encoding=None):
-        """发一次请求。返回解码后的文本 (或 bytes 当 raw=True)。"""
+                encoding=None, verify=None, proxy=None):
+        """发一次请求。返回解码后的文本 (或 bytes 当 raw=True)。
+
+        verify=None 用实例级设置 (再往上是全局 TLS 策略); 传 True/False 覆盖。
+        解析出 False 时走 core.tls 的白名单判断, 所以 verify_hosts 名单里的
+        交易所站点不用每次调用都手填 verify=False。
+
+        proxy=None 用实例级 (默认 'auto' 问路由表); 传 URL/None 覆盖。
+        代理归一 (auto→路由表、user@host→补保险库密码) 交给 netx, 这里不再
+        各自判断 —— 这正是之前 stock 通道完全绕开代理的原因。
+        """
         m = (method or 'GET').upper()
         hdrs = self._headers_for(url, headers, referer)
         par = self._auto_params(url, params, hdrs)
         to = timeout or self.timeout
+        ver = tls.policy(url, verify if verify is not None else self.verify)
+        px = netx.resolve_proxy(self.proxy if proxy is None else proxy, url)
         try:
             if _host(url).endswith('xueqiu.com'):
-                s = self._xueqiu_session()
+                s = self._xueqiu_session(px)
                 fn = s.post if m == 'POST' else s.get
                 r = fn(url, params=par or None, data=data or None,
-                       headers=hdrs, timeout=to)
+                       headers=hdrs, timeout=to, verify=ver)
             else:
                 r = requests.request(m, url, params=par or None, data=data or None,
-                                     json=json_body, headers=hdrs, timeout=to)
+                                     json=json_body, headers=hdrs, timeout=to,
+                                     verify=ver, proxies=_py_proxies(px))
         except Exception as e:                              # noqa: BLE001
+            # 证书类错误单独拎出来 (requests.SSLError 与 curl_cffi 的异常都
+            # 不继承 ssl.SSLError, 靠 tls.is_tls_error 跨通道识别): 它不是
+            # "再试一次"能解决的, 得给一个能照着改的错
+            if tls.is_tls_error(e):
+                raise HttpError(
+                    f'{m} {url[:80]} 证书校验失败: {str(e)[:160]}\n'
+                    f'  自签/过期证书站 → webtool config set verify_hosts '
+                    f'{_host(url)}') from e
             raise HttpError(f'{m} {url[:80]} 失败: {type(e).__name__}: {e}') from e
         self._last = r
         if raw:

@@ -17,6 +17,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from webtool.core import cache
+from webtool.core.secrets_store import redact as _mask
 from webtool.engines.hotsites import HOT_SITES, default_hot_sources
 
 _proxy_alive = {}
@@ -45,25 +46,21 @@ def _pull_once(name, n, q, proxy, timeout):
 
 
 def _resolve(name, n, q, cfg, no_proxy):
-    """直连优先 → 失败且全局代理可用则代理重试。返回 (items, error)"""
+    """按配置/路由表取一次。返回 (items, error)
+
+    不 failover: 曾经是"直连优先, 失败再换代理重试", 那让这条命令走哪条线
+    取决于它先在哪失败 —— 直连能通就永远不碰代理, 代理挂了就静默降级。线路由
+    proxyhelper 一次定好, 失败直接报错。
+    """
     timeout = cfg.get('timeout', 15)
-    gproxy = cfg.get('proxy')
-    try:
-        items = _pull_once(name, n, q, None, timeout)
-        if items:
-            return items, None
-        err1 = 'empty'
-    except Exception as e:
-        err1 = str(e)[:200]
-    if no_proxy or not gproxy or not _proxy_ok(gproxy):
-        return None, f'{err1} (direct)'
+    gproxy = None if no_proxy else 'auto'      # 交给路由表按域名/IP/协议分流
     try:
         items = _pull_once(name, n, q, gproxy, timeout)
         if items:
             return items, None
-        return None, f'{err1}; proxy retry empty (via {gproxy})'
+        return None, 'empty'
     except Exception as e:
-        return None, f'{err1}; proxy retry: {str(e)[:120]} (via {gproxy})'
+        return None, _mask(str(e))[:200]
 
 
 def _fmt_filters(d):

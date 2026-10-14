@@ -34,8 +34,12 @@ search/...) 自动并入 params, 老配置不用改。
 
 代码注册用装饰器:
     from webtool.core.plugins import SITES
-    @SITES.register('mysite', desc='我的站点', proxy='direct')
+    @SITES.register('mysite', desc='我的站点')
     def mysite(q, limit, proxy, timeout): return [...]
+
+proxy 一律由管线传入 (缺省 'auto', 走路由表), 插件**不要**自己写死
+`proxy=None` 之类的强制直连 —— 直连/走哪条代理是用户的部署决定, 用
+`webtool config set engine_proxy.<插件名> direct` 或规则表配置。
 
 ## 生命周期
 

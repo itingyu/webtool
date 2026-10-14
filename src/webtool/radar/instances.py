@@ -25,7 +25,7 @@ def instances(proxy=None, refresh=False, need=None, timeout=10):
     公共实例可用性逐日变化, 默认实探而不是信文档。
 
     need=N 时凑够 N 个可用实例就返回 —— 全量探活要等每个挂掉的实例跑满
-    直连+代理两轮超时, 只想找一个能用的没必要等全场。
+    超时, 只想找一个能用的没必要等全场。
     """
     if not refresh and INSTANCES_FILE.exists():
         try:
@@ -46,20 +46,22 @@ def instances(proxy=None, refresh=False, need=None, timeout=10):
 
     def probe(base):
         t0 = time.time()
-        attempts = [None] + ([proxy] if proxy else [])
+        # 单线路: 曾经是 `for px in ([None] + [proxy])` 的两轮 failover —— 直连
+        # 先试、失败再换代理, 于是"这个实例能不能用"取决于它先在哪条线挂, 而
+        # 代理明明配好了还先去撞一次墙。现在线路由路由表一次决定 (未配代理时
+        # 'auto' 落到默认规则), 请求失败就是失败。
+        px = proxy or 'auto'
         last = 'no route'
-        for px in attempts:
-            try:
-                text, st, _ = transport.get(base + PROBE_ROUTE, kind='plain',
-                                            timeout=timeout, proxy=px,
-                                            allow_fallback=False)
-                n = len(re.findall(r'<(?:item|entry)[\s>]', text or ''))
-                if st == 200 and n:
-                    return {'instance': base, 'ok': True, 'items': n,
-                            'ms': int((time.time() - t0) * 1000), 'err': ''}
-                last = f'HTTP {st}' + (' 0 items' if st == 200 else '')
-            except Exception as e:
-                last = str(e)[:50]
+        try:
+            text, st, _ = transport.get(base + PROBE_ROUTE, kind='plain',
+                                        timeout=timeout, proxy=px)
+            n = len(re.findall(r'<(?:item|entry)[\s>]', text or ''))
+            if st == 200 and n:
+                return {'instance': base, 'ok': True, 'items': n,
+                        'ms': int((time.time() - t0) * 1000), 'err': ''}
+            last = f'HTTP {st}' + (' 0 items' if st == 200 else '')
+        except Exception as e:
+            last = str(e)[:50]
         return {'instance': base, 'ok': False, 'items': 0,
                 'ms': int((time.time() - t0) * 1000), 'err': last}
 

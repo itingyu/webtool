@@ -25,7 +25,9 @@ def do_fetch(args, cfg):
 
     single = len(urls) == 1
     results = []
-    proxy = cfg.get('fetch_proxy') if cfg.get('fetch_proxy') is not None else cfg.get('proxy')
+    # fetch_proxy 显式指定优先; 否则交给路由表按域名/IP/协议分流
+    fp = cfg.get('fetch_proxy')
+    proxy = fp if fp is not None else 'auto'
     timeout = cfg.get('timeout', 15)
     via = (getattr(args, 'via', None) or 'local').lower()
     if via not in _VIA_CHANNELS:
@@ -36,14 +38,15 @@ def do_fetch(args, cfg):
     def work(u):
         # 显式指定远程通道时直接走 reader, 不试本地链 (用户已表明意图)
         if via in _MCP_CHANNELS:
-            return _fetch_via_mcp(u, args, cfg, via, timeout)
+            return _fetch_via_mcp(u, args, cfg, via, timeout, proxy=proxy)
         local = _fetch_one(u, args, cfg, proxy, timeout)
         # auto: 仅在本地链明确搞不定时才花配额, 不做启发式猜测
         if via == 'auto' and _needs_reader(local):
             for ch in _MCP_CHANNELS:
                 if ch == 'auto':
                     continue
-                got = _fetch_via_mcp(u, args, cfg, ch, timeout, prior=local)
+                got = _fetch_via_mcp(u, args, cfg, ch, timeout, prior=local,
+                                     proxy=proxy)
                 if not got.get('error'):
                     got['via_local_error'] = local.get('error', '')
                     return got
@@ -130,18 +133,24 @@ def _reader_text(channel, raw):
     return '\n\n---\n\n'.join(parts)
 
 
-def _fetch_via_mcp(url, args, cfg, channel, timeout, prior=None):
+def _fetch_via_mcp(url, args, cfg, channel, timeout, prior=None, proxy=None):
     """走 MCP 端点的 web_fetch 拿 token-efficient markdown。
 
     与本地链的差别: 对方用浏览器集群取回页面, 能过 JS 渲染与大部分反爬;
     代价是每次调用消耗端点配额 (Parallel 匿名免 key 但有速率上限)。
+
+    proxy 传进来而不是自己定: 远程 reader 和本地链打的是同一次请求的
+    两个出口, 线路该一致 (都按配置 + 路由表)。曾经这里不传, call_verb 的
+    默认值 proxy=None 生效 —— `--via exa/parallel/firecrawl` 无论怎么配
+    代理都直连, 而本地链却走代理, 同一个 URL 两条出口两种 IP。
     """
     t0 = time.time()
     tool_arg = _reader_arg(channel, url)
     try:
         from webtool.net import mcpclient as mc
         r = mc.call_verb(channel, 'fetch', tool_arg,
-                         timeout=max(timeout or 0, 30))
+                         timeout=max(timeout or 0, 30),
+                         proxy=proxy if proxy is not None else 'auto')
     except Exception as e:
         return {'url': url, 'via': f'mcp:{channel}', 'took_ms': int((time.time() - t0) * 1000),
                 'error': f'mcp 调用失败: {str(e)[:200]}'}

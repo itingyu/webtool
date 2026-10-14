@@ -76,6 +76,11 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='text'):
             except ValueError as e:
                 # 渲染层的用法错误不该甩 traceback
                 raise _UsageError(str(e))
+            except ImportError as e:
+                # stock 是延迟导入 + requests 顶层 import, 少装依赖时表现是
+                # 一串 importlib 栈, 而其余命令完全正常, 很难联想到缺包。
+                raise _UsageError(
+                    f'缺少依赖 {e.name or e}; 股票能力装: pip install "webtool[stock]"')
         if rc not in (0, None):
             return rc
         return emit(buf.getvalue(), args.format, output)
@@ -89,7 +94,15 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='text'):
         out_fmt = args.format
     buf = io.StringIO()
     with redirect_stdout(buf):
-        rc = fn(args, cfg)
+        try:
+            rc = fn(args, cfg)
+        except ImportError as e:
+            # stock 是延迟导入 + requests 顶层 import, 少装依赖时表现是一串
+            # importlib 栈, 而 search/fetch 等其余命令完全正常, 很难联想到
+            # 是缺包。两条分支都要接住, 否则管理命令分支 (data_cmd 为空)
+            # 会绕过这里的转换。
+            raise _UsageError(
+                f'缺少依赖 {e.name or e}; 股票能力装: pip install "webtool[stock]"')
     if rc not in (0, None):
         return rc
     from webtool.cli.adminfmt import adapt
@@ -300,11 +313,13 @@ def feed_cmd(sources: list[str] = typer.Argument([], help='feed key 或任意 RS
 # ---------- 管理命令 ----------
 
 @app.command('proxy')
-def proxy_cmd(action: str = typer.Argument(..., help='get/set/unset/test'),
-              value: str = typer.Argument(None, help='代理地址, 如 http://127.0.0.1:2080 或 socks5://...')):
-    """代理配置"""
+def proxy_cmd(action: str = typer.Argument(..., help='get/set/unset/test/setpass/delpass/passwd/rules/rule/ruledel/geoip/asn/noproxy'),
+              value: str = typer.Argument(None, help='代理地址; 或 rule 的子命令; 或试算用的 URL'),
+              user: str = typer.Argument(None, help='setpass/delpass 的用户名; rule add 的 match JSON; ruledel 的序号'),
+              act: str = typer.Argument(None, help='rule add 的动作: direct/proxy/block/proxy:<名字>')):
+    """代理配置: 选线路 / 存凭据(密文) / 按域名-IP-端口-协议-GeoIP 分流"""
     a = _CTX['args']
-    a.action, a.value = action, value
+    a.action, a.value, a.user, a.act = action, value, user, act
     cfg = _proxy.load_config()
     if _CTX.get('proxy'):
         cfg['proxy'] = _CTX['proxy']

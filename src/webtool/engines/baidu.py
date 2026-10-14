@@ -51,7 +51,8 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, page=1):
 def _get_html(url, proxy, timeout):
     """多步预热 → 搜索 (验证码检测/降级梯/节奏全在 transport.get)"""
     try:
-        warm, wprof = transport._new_session('chrome131_win', proxy, 'baidu')
+        warm, wprof = transport._new_session('chrome131_win', proxy, 'baidu',
+                                           url=url)
         transport.warm_session(warm, BAIDU + '/', profile=wprof, timeout=timeout)
         transport.session_get(f'{BAIDU}/sugrec?prod=pc&wd={urllib.parse.quote("百")}',
                               warm, kind='xhr', referer=BAIDU + '/',

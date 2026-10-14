@@ -49,17 +49,21 @@ def _resolve(args, cfg):
 
 
 def _proxy_for(spec, args, cfg):
-    """代理策略: 命令行 > 端点声明 > 全局配置。
+    """代理策略: 命令行 --no-proxy > 路由表, 端点表不参与决策。
 
-    端点可声明 "proxy": "direct" 强制直连 (同 site 插件的 proxy_hint 约定)。
-    Exa 需要这么声明: 免 key 配额按出口 IP 计, 走全局代理等于蹭别人的配额池,
-    实测同一命令带代理必 429、直连稳定通过。其余端点缺省跟随全局配置。
+    端点表曾声明 `"proxy": "direct"` 让 exa/parallel 绕开全局代理 (理由: 免 key
+    配额按出口 IP 计, 走代理等于蹭别人的配额池)。那是**服务方的计量策略**, 不该
+    由内置数据替用户决定 —— 用户自己可能就有配额。已移除, 现在:
+
+    - 缺省 `'auto'` 交给路由表按域名/IP/协议分流
+    - 该端点需要直连: `webtool config set engine_proxy.<端点> direct`
+    - 或在规则表里写域名规则
+
+    `spec` 保留是为了接口不变 (自建端点表若留了 proxy 字段, 删掉即可, 不报错)。
     """
     if getattr(args, 'no_proxy', False):
         return None
-    if str(spec.get('proxy', '')).lower() == 'direct':
-        return None
-    return cfg.get('proxy')
+    return 'auto'      # 交给路由表按域名/IP/协议分流
 
 
 def _emit(out, args, ok=True):

@@ -26,7 +26,7 @@ def thepaper(q, limit=10, proxy=None, timeout=15):
                                     'Origin': 'https://www.thepaper.cn'})
     kw = (q or '').strip() or '热点'
     s, prof = transport._new_session(
-        transport._pick_profile('thepaper'), proxy or None, None)
+        transport._pick_profile('thepaper'), proxy or None, None, url=url)
     r = s.post(url, json={'word': kw, 'orderType': 3, 'pageNum': 1,
                           'pageSize': min(limit, 20)},
                headers=headers, timeout=timeout)

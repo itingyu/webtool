@@ -147,9 +147,9 @@ def _do_search(args, cfg, filter_ad=True):
                 # 代理未配置或探活失败 → 静默跳过, 不算 error
                 if not _proxy_alive(cfg):
                     continue
-                proxy = cfg.get('proxy')
+                proxy = 'auto'
             else:
-                proxy = cfg.get('proxy')
+                proxy = 'auto'
             try:
                 rs = fn(qmap[eng], max_results=_pull, proxy=proxy,
                         timeout=cfg.get('timeout', 15), market=market)
@@ -229,9 +229,9 @@ def _do_search(args, cfg, filter_ad=True):
             elif hint == 'required':
                 if not _proxy_alive(cfg):
                     continue
-                proxy = cfg.get('proxy')
+                proxy = 'auto'
             else:
-                proxy = cfg.get('proxy')
+                proxy = 'auto'
             extra, fetched = top_up(
                 eng, fn, qmap[eng], _want, min(_want, len(results)),
                 proxy, cfg.get('timeout', 15), market,
@@ -351,7 +351,7 @@ def _resolve_sogou_links(results, cfg):
         real = cache.get(cfg, 'resolve', r['url'])
         if not real:
             eproxy = (cfg.get('engine_proxy') or {}).get(kind)
-            proxy = eproxy if eproxy is not None else cfg.get('proxy')
+            proxy = eproxy if eproxy is not None else 'auto'
             real = resolvers[kind]['fn'](r['url'], proxy=proxy, timeout=timeout)
             # 只有"真的解出了另一个 URL"才写缓存: 解码失败时解码器会把原链原样
             # 返回, 若照单全收就会把跳转链当成解码结果缓存, 之后永久短路

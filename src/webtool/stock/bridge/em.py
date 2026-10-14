@@ -24,9 +24,10 @@ import json
 import os
 import re
 
-from webtool.stock.http import Http
+from webtool.stock.error import EmError
+from webtool.stock.bridge.http import Http
 
-_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                     'data', 'reverse')
 _RECIPE = os.path.join(_DIR, 'em_recipes.json')
 _MAPS = os.path.join(_DIR, 'em_maps.json')
@@ -36,8 +37,6 @@ BASE = 'https://datacenter-web.eastmoney.com/api/data/v1/get'
 _cache = {}
 
 
-class EmError(RuntimeError):
-    """东财调用失败"""
 
 
 def recipes():

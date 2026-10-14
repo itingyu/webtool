@@ -16,6 +16,7 @@ import webtool.feeds.feedhealth as feedhealth
 from webtool.feeds.sources import (FEEDS_FILE, FEED_STATE_FILE,
                                    load_seed_feeds, load_user_feeds,
                                    save_user_feeds)
+from webtool.net import proxyhelper
 from webtool.feeds.fetch import pull_one
 from webtool.feeds.cards import print_route_cards
 
@@ -71,18 +72,17 @@ def do_feed(args, cfg):
             print(f'登记表中无 "{args.retest}"; 现有: '
                   f'{", ".join(rows) or "(空)"}', file=sys.stderr)
             return 2
-        gproxy = cfg.get('proxy')
+        # 单线路: 曾经是"直连探一次, 抛异常再换代理探一次"。代理配好了还先去
+        # 撞一次直连墙, 慢一倍, 而且"源恢复没恢复"取决于先在哪条线挂。线路由
+        # 路由表一次决定。
+        gproxy = cfg.get('proxy') or 'auto'
 
         def _probe(k, v):
             try:
-                items = pull_one(k, v['url'], 3, None, 12)
+                items = pull_one(k, v['url'], 3, gproxy, 12)
                 return k, ('ok' if items else 'empty'), len(items), None
             except Exception as e1:
-                try:
-                    items = pull_one(k, v['url'], 3, gproxy, 12)
-                    return k, ('ok' if items else 'empty'), len(items), None
-                except Exception:
-                    return k, feedhealth.classify_error(str(e1)[:120]), 0, None
+                return k, feedhealth.classify_error(str(e1)[:120]), 0, None
 
         with ThreadPoolExecutor(max_workers=min(len(targets), 6)) as ex:
             futs = [ex.submit(_probe, k, v) for k, v in targets.items()]
@@ -248,21 +248,16 @@ def do_feed(args, cfg):
             c = cache.get(cfg, 'hot', ckey)
             if c is not None:
                 return name, c, None
-        gproxy = cfg.get('proxy')
+        # 单线路: 曾经"直连失败 → 换代理重试", 那让这条命令走哪条线取决于它先在
+        # 哪失败。改为由 proxyhelper/路由表一次决定, 失败直接报错。
+        px = proxyhelper.resolve(None if args.no_proxy else cfg.get('proxy'),
+                                 specs[name]['url'])
         try:
-            items = pull_one(name, specs[name]['url'], n, None, cfg.get('timeout', 15))
-        except Exception as e1:
-            if no_proxy_check(args, gproxy):
-                return name, None, f'{str(e1)[:160]} (direct)'
-            try:
-                items = pull_one(name, specs[name]['url'], n, gproxy, cfg.get('timeout', 15))
-            except Exception as e2:
-                return name, None, f'{str(e1)[:100]}; proxy retry: {str(e2)[:100]}'
+            items = pull_one(name, specs[name]['url'], n, px, cfg.get('timeout', 15))
+        except Exception as e:
+            return name, None, str(e)[:160]
         cache.put(cfg, 'hot', ckey, items)
         return name, items, None
-
-    def no_proxy_check(a, gproxy):
-        return a.no_proxy or not gproxy
 
     results, errors = {}, {}
     with ThreadPoolExecutor(max_workers=min(len(names), 6)) as ex:

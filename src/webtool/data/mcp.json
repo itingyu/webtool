@@ -4,7 +4,6 @@
       "desc": "Exa MCP: web_search_exa 搜索 / web_fetch_exa 抓正文",
       "url": "https://mcp.exa.ai/mcp",
       "api_key_env": "EXA_API_KEY",
-      "proxy": "direct",
       "verbs": {
         "search": "web_search_exa",
         "fetch": "web_fetch_exa"
@@ -14,7 +13,6 @@
       "desc": "Parallel Search MCP (免 key 免费, 匿名走 fast 模式)",
       "url": "https://search.parallel.ai/mcp",
       "api_key_env": "PARALLEL_API_KEY",
-      "proxy": "direct",
       "verbs": {
         "search": "web_search",
         "fetch": "web_fetch"
@@ -24,7 +22,6 @@
       "desc": "Firecrawl MCP (keyless 可用; 免费层 500 次/月 search 或 1000 页 scrape)",
       "url": "https://mcp.firecrawl.dev/mcp",
       "api_key_env": "FIRECRAWL_API_KEY",
-      "proxy": "direct",
       "verbs": {
         "search": "firecrawl_search",
         "fetch": "firecrawl_scrape"
