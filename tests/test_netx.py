@@ -548,6 +548,11 @@ check('reason_sink = sys.stdout if tty else sys.stderr' in _dz_src,
       'zen 展示层: 终端里思考走 stdout, 仅重定向时才让出 stdout')
 check('on_reason' in inspect.getsource(_zen.call_zen),
       'call_zen 有单独的 reason 回调 (不是把思考混进正文)')
+_zp_ua = inspect.getsource(__import__('webtool.cli.zenproto', fromlist=['x']))
+check(re.search(r"USER_AGENT = 'opencode/\d+\.\d+\.\d+ "
+                r"ai-sdk/provider-utils/\d+\.\d+\.\d+ "
+                r"runtime/bun/\d+\.\d+\.\d+'", _zp_ua) is not None,
+      'UA 三段形状完整 (改版本号时别写残)')
 _m_src2 = inspect.getsource(_zen._print_models)
 check('created' in _m_src2 and 'owned_by' in _m_src2 and
       '未' not in _m_src2.split('免费层')[0][-40:],

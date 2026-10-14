@@ -3,14 +3,23 @@
 只有一个协议, 所以都是普通函数而不是策略类 —— 真要接第二种协议时再抽基类。
 
 认证: 免费层用占位 `Bearer public`, 不需要真 key。
-指纹头: UA 与 x-opencode-client/project 是网关的校验项, 少一个就 403,
-它们不是装饰, 别当冗余删。
+指纹头: UA 与 x-opencode-client/project 照官方客户端形制带 (见 build_headers),
+不是装饰, 别当冗余删 —— 但"少了哪个一定 403"在本工具能测的范围内没验证过,
+别在注释里替网关下结论。
+
+2026-10 现状: 头补全/UA 版本/session id 形状/Authorization 有无 全试过, 一律
+403 FreeTierError —— 判据在服务端(代码不开源), 客户端这层已经到头。
 """
 import json
 import secrets
 import time
 
-USER_AGENT = 'opencode/1.18.15 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14'
+# 三段各有出处, 别随手改:
+#   opencode/<版本>            = 已发布 CLI 的版本 (npm opencode-ai 的 latest)
+#   ai-sdk/provider-utils/...  = 取自已发布 CLI 二进制里的常量 (1.19.0 里是 4.0.23)
+#   runtime/bun/...            = 同上, 二进制里嵌的运行时串 `bun/1.3.14`
+# 形状由 ai-sdk 拼: `<provider名>/<版本> ai-sdk/provider-utils/<版本> runtime/bun/<版本>`
+USER_AGENT = 'opencode/1.19.0 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14'
 
 CHAT_URL = 'https://opencode.ai/zen/v1/chat/completions'
 MODELS_URL = 'https://opencode.ai/zen/v1/models'
