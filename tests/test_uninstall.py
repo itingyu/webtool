@@ -91,31 +91,61 @@ try:
           '不认识的条目单列, 不擅自归类')
     check(inv['bytes'] >= 2048, '统计了总占用', inv['bytes'])
 
-    print('\n=== 3. 删数据必须显式 --yes ===')
-    check(_un.purge(yes=False)['removed'] is False and _TMP.exists(),
-          '不加 yes → 只列不删')
-    check(_un.purge(yes=True)['removed'] is True and not _TMP.exists(),
-          '加 yes → 真删')
+    print('\n=== 3. 默认 = 安全卸载 (卸包, 留数据) ===')
+    calls = []
 
-    print('\n=== 4. CLI ===')
-    _TMP2 = Path(tempfile.mkdtemp(prefix='wt-uninst2-'))
-    (_TMP2 / 'secret.key').write_text('k')
-    _cd.USER_DIR = _TMP2
-    rc, out = run('uninstall')
-    check(rc == 0 and 'pip uninstall webtool' in out and '删了就没了' in out,
-          'webtool uninstall 报命令 + 数据清单', out.splitlines()[:2])
-    check('--purge-data --yes' in out, '顺手告诉怎么连数据一起清')
+    def fake_spawn(cmd, timeout=300):
+        calls.append(cmd)
+        return 0, 'Successfully uninstalled webtool-1.8.0', ''
+    _real_spawn = _un._spawn
+    _un._spawn = fake_spawn
+    _TMP3 = Path(tempfile.mkdtemp(prefix='wt-uninst3-'))
+    (_TMP3 / 'secret.key').write_text('k')
+    _cd.USER_DIR = _TMP3
+    r = _un.perform()
+    check(r['ok'] and calls and calls[-1][-1] == 'webtool'
+          and '-y' in calls[-1] and 'uninstall' in calls[-1],
+          'perform 真的卸包 (pip uninstall -y webtool)', calls[-1])
+    check(_TMP3.exists() and (_TMP3 / 'secret.key').exists(),
+          '安全卸载不动数据目录 (凭据还在)')
+    _un._spawn = lambda cmd, timeout=300: (1, '', 'ERROR: 没有权限')
+    check(_un.perform()['ok'] is False, 'pip 报错时不谎报成功')
+    _un._spawn = fake_spawn
+
+    print('\n=== 4. 完全卸载必须带参数 ===')
+    calls.clear()
     rc, out = run('uninstall', '--purge-data')
-    check(rc == 2 and _TMP2.exists(),
-          '--purge-data 不带 --yes: rc=2 且一个字节都没动')
-    rc, out = run('uninstall', '-f', 'json')
-    d = json.loads(out)
-    check(rc == 0 and d['data']['dir'] == str(_TMP2)
-          and d['data']['items']['precious'],
-          '-f json 可解析, 路径与分类都在')
+    check(rc == 2 and not calls and _TMP3.exists(),
+          '--purge-data 缺 --yes: rc=2, 连包都不卸, 数据也不动')
+    calls.clear()
+    rc, out = run('uninstall', '--dry-run')
+    check(rc == 0 and not calls and 'pip uninstall' in out,
+          '--dry-run 只报要跑什么, 不动手')
+    calls.clear()
+    rc, out = run('uninstall')
+    check(rc == 0 and calls and _TMP3.exists() and '数据没动' in out,
+          '默认: 卸包 + 明确告诉你数据没动', out.splitlines()[:1])
+    calls.clear()
     rc, out = run('uninstall', '--purge-data', '--yes', '-f', 'json')
-    check(rc == 0 and json.loads(out)['purge']['removed'] and not _TMP2.exists(),
-          '--purge-data --yes 真删, 且结果可解析')
+    d = json.loads(out)
+    check(rc == 0 and calls and d['package_removed']
+          and d['purge']['removed'] and not _TMP3.exists(),
+          '--purge-data --yes: 卸包 + 删数据, 结果可解析')
+
+    print('\n=== 5. 装法不同, 命令不同 ===')
+    _p = _un.install_mode
+    _un.install_mode = lambda *a, **k: ('pipx', 'pipx uninstall webtool', '')
+    calls.clear()
+    _un.perform()
+    check(calls[-1] == ['pipx', 'uninstall', 'webtool'],
+          'pipx 装法走 pipx uninstall, 不硬套 python -m pip', calls[-1])
+    _un.install_mode = lambda *a, **k: ('system', 'x', 'y')
+    _un._spawn = lambda cmd, timeout=300: (1, '', 'ERROR: not installed')
+    r = _un.perform()
+    check('apk' in (r.get('hint') or '') and 'apt' in (r.get('hint') or ''),
+          '系统级装法被 pip 拒 → 指回发行版包管理器', r.get('hint'))
+    _un.install_mode, _un._spawn = _p, _real_spawn
+
 finally:
     _ver_mod.info = _real_info
     _cd.USER_DIR = _REAL_DIR

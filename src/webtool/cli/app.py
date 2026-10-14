@@ -471,35 +471,40 @@ def _upgrade_run(check_only, spec, fmt, output):
 
 
 @app.command('uninstall')
-def uninstall_cmd(purge_data: bool = typer.Option(False, '--purge-data', help='连 ~/.webtool 里的数据一起删'),
-                  yes: bool = typer.Option(False, '--yes', '-y', help='确认删除 (不加只列不删)'),
+def uninstall_cmd(purge_data: bool = typer.Option(False, '--purge-data', help='完全卸载: 连 ~/.webtool 里的配置/凭据/缓存一起删'),
+                  yes: bool = typer.Option(False, '--yes', '-y', help='确认删除数据 (--purge-data 必须带)'),
+                  dry_run: bool = typer.Option(False, '--dry-run', help='只看要跑什么, 不动手'),
                   fmt: str = Fmt, output: str = Output):
-    """卸载指引: 给出该用的卸载命令 + 数据目录清单
+    """卸载 webtool (默认只卸包留数据, 完全卸载要 --purge-data --yes)
 
-    包不自己删 (不同装法命令不同, 且正跑在被删的那份代码里); 数据要清得
-    `--purge-data --yes` 明说。
+    默认 = 安全卸载: 只卸包, 数据/配置/凭据原样留着 (装回来即原样)。
+    完全卸载要显式 `--purge-data --yes` —— 那会连保险库密钥、手写规则一起删。
     """
     a = _CTX['args']
-    a.purge_data, a.yes = purge_data, yes
+    a.purge_data, a.yes, a.dry_run = purge_data, yes, dry_run
 
     def fn(args, cfg):
         import json as _json
         from webtool.core import uninstall as _un
         want_json = (args.format or '') == 'json'
-        info = _un.plan()
-        result = None
-        if args.purge_data:
-            if not args.yes:
-                print('webtool uninstall: --purge-data 要真删得加 --yes, 否则什么都不动',
-                      file=sys.stderr)
-                print(_json.dumps(info, ensure_ascii=False, indent=2) if want_json
-                      else _un.describe(info))
-                return 2
-            result = _un.purge_data(yes=True)
-            info['purge'] = result
-        print(_json.dumps(info, ensure_ascii=False, indent=2) if want_json
-              else _un.describe(info, result))
-        return 0 if (result is None or result.get('ok')) else 1
+        # 先把两种"要动数据但没确认"的情况挡在门外: 一个字节都不动
+        if args.purge_data and not args.yes:
+            print('webtool uninstall: --purge-data 要真删得加 --yes (否则只是安全卸载)',
+                  file=sys.stderr)
+            return 2
+        res = _un.perform(dry=args.dry_run)
+        info = {'mode': res['mode'], 'cmd': ' '.join(res['cmd']),
+                'dry_run': res['dry_run'], 'package_removed': res['ok'],
+                'data': _un.data_inventory()}
+        purge = None
+        if args.purge_data and not args.dry_run:
+            purge = _un.purge_data(yes=True)
+            info['purge'] = purge
+        if want_json:
+            print(_json.dumps(info, ensure_ascii=False, indent=2))
+        else:
+            print(_un.describe_uninstall(res, info['data'], purge))
+        return 0 if res['ok'] or res['dry_run'] else 1
     return _run(None, fn, fmt, output, False, False)
 
 

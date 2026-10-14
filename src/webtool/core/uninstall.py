@@ -3,14 +3,18 @@
 
 分两件事，谁也不替谁干：
 
-1. **包**——不自己动手删。CLI 正跑在被删的那份代码里，删到一半文件占用/权限
-   都会让人以为"删干净了"；而且不同装法命令不同（venv / pipx / --user / 系统），
-   系统包管理器装的包还归 apk/apt 管。所以这里只**报出恰好的那条命令**。
-2. **数据**——pip 完全不知道 `~/.webtool` 的存在，这份归我们管：列清楚每条是什么、
-   哪些可再生、哪些删了就没了（保险库密钥、手写规则、自定义站点），要删得显式说。
+1. **包**——默认就卸，但**只卸包**（安全卸载）：数据、配置、凭据一概留着，装回来
+   就是原样。命令按装法给（pipx / venv / --user / 系统），系统包管理器装的包试 pip
+   失败时会指回 apk/apt。
+2. **数据**——`~/.webtool` 里的东西 pip 完全不知道，属于"完全卸载"那一档：必须显式
+   `--purge-data --yes` 才动，而且会先列清楚哪些删了就没了（保险库密钥、手写规则、
+   自定义站点）。
+
+不着手反悔的两种"只报不删"：`--dry-run` 和 `--purge-data` 缺 `--yes`。
 """
 import os
 import shutil
+import subprocess
 import sys
 import sysconfig
 from pathlib import Path
@@ -138,3 +142,67 @@ def describe(plan_info, purge_result=None):
 def purge_data(user_dir=None, yes=False):
     """CLI 用的删数据入口 (yes=False 只列不删, 由调用方给退出码)"""
     return purge(user_dir, yes=yes)
+
+
+def _spawn(cmd, timeout=300):
+    """跑外部命令 (单独一层, 便于测试; 不做 shell 解释)"""
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return r.returncode, r.stdout or '', r.stderr or ''
+    except subprocess.TimeoutExpired:
+        return 1, '', '超时 (%ss)' % timeout
+    except OSError as e:
+        return 1, '', str(e)
+
+
+def perform(dry=False):
+    """默认动作: 安全卸载 —— 卸包, 数据原样留着
+
+    自己删自己这件事得有个度: 跑在被删的那份代码里, 文件都删掉了进程也还活着,
+    所以不看"进程是否还在"来判断成败, 直接看命令退出码。
+    """
+    mode, cmd, note = install_mode()
+    argv = (['pipx', 'uninstall', 'webtool'] if mode == 'pipx'
+            else [sys.executable or 'python3', '-m', 'pip', 'uninstall', '-y',
+                  'webtool'])
+    if dry:
+        return {'ok': True, 'dry_run': True, 'mode': mode, 'cmd': argv,
+                'note': note}
+    rc, out, err = _spawn(argv)
+    res = {'ok': rc == 0, 'dry_run': False, 'mode': mode, 'cmd': argv,
+           'note': note, 'out': out.strip(), 'err': err.strip()}
+    if rc and mode == 'system':
+        # 系统级装法可能是发行版包管理器装的, pip 卸不动 (也不该由它卸)
+        res['hint'] = ('若这是发行版包管理器装的包, 用它卸载: '
+                       'apk del <包名> / apt remove <包名>')
+    return res
+
+
+def describe_uninstall(res, data, purge=None):
+    """卸载结果的人话版"""
+    lines = []
+    if res.get('dry_run'):
+        lines.append('--dry-run: 什么都没动。默认会跑:')
+        lines.append('   %s' % ' '.join(res['cmd']))
+    elif res.get('ok'):
+        lines.append('已安全卸载 (形态: %s): %s' % (res['mode'], ' '.join(res['cmd'])))
+    else:
+        lines.append('卸包失败 (形态: %s): %s' % (res['mode'], ' '.join(res['cmd'])))
+        last = (res.get('err') or res.get('out') or '').strip().splitlines()
+        if last:
+            lines.append('   %s' % last[-1])
+        if res.get('hint'):
+            lines.append('   %s' % res['hint'])
+    lines.append('数据没动: %s%s' % (
+        data['dir'],
+        ' (%d KB)' % (data['bytes'] // 1024) if data['exists'] else ' (不存在)'))
+    if data['exists'] and data.get('items', {}).get('precious'):
+        lines.append('   里面这些删了要重配: %s' % ', '.join(
+            i['name'] for i in data['items']['precious']))
+    if purge is None:
+        lines.append('   要连数据一起删 (完全卸载): webtool uninstall --purge-data --yes')
+    else:
+        lines.append('   数据已删: %s%s' % (
+            purge['path'], ' (%d KB)' % (purge['bytes'] // 1024)
+            if purge.get('bytes') else ''))
+    return '\n'.join(lines)
