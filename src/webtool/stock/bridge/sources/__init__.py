@@ -1,12 +1,5 @@
 """数据源聚合门面 —— 按源拆包, 对外仍是同一个 `APIClient`
 
-拆分的理由: 这些方法全挤在一个 3251 行的 `api_client.py` 里时, 找"东财的
-接口在哪"得全文搜。这里按**数据源**拆成十个模块 (另加传输/归一/自检基建), 但对外签名不变:
-
-    from webtool.stock.bridge.sources import APIClient
-    c = APIClient()
-    c.em_f10_balance('600519.SH')     # 方法名不变, 上层零改动
-
 `APIClient` 只是把各源 mixin 合到一个类上, 所以:
   - 方法清单按源分组见 `webtool stock data list api` (现 156 个)
   - session 只有一份 (`SourceBase.__init__`), token 与 cookie 缓存共享

@@ -1573,7 +1573,7 @@ def _text_flow(out):
             # 东财北向接口在未推送真实值时会把 dayNetAmtIn 填成额度上限,
             # 沪股通返回 0 而深股通返回额度上限, 自相矛盾。净流入等于额度上限
             # 一律按"未取得"标注 —— 印成 4,200,000 万 (=4200亿) 会让调用方
-            # 得出完全错误的结论, 这比报错更糟。
+            # 得出完全错误的结论。
             if isinstance(net, (int, float)) and quota and net == quota:
                 print(f'⚠ {ch}  日期{date}  净流入未取得 (接口回填额度上限 {quota:,.0f} 万, 非真实值)')
                 continue
