@@ -20,7 +20,8 @@ class EfSource(SourceBase):
 
     def _ef_check(self):
         if not HAS_EFINANCE:
-            return _err("efinance 未安装")
+            from webtool.core import deps
+            return _err('efinance 不可用: ' + deps.install_hint('efinance'))
         return None
 
     def ef_snapshot(self, code: str = "688825") -> dict:

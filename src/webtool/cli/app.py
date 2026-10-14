@@ -142,8 +142,8 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='text'):
             except ImportError as e:
                 # stock 是延迟导入 + requests 顶层 import, 少装依赖时表现是
                 # 一串 importlib 栈, 而其余命令完全正常, 很难联想到缺包。
-                raise _UsageError(
-                    f'缺少依赖 {e.name or e}; 股票能力装: pip install "webtool[stock]"')
+                from webtool.core import deps
+                raise _UsageError(deps.install_hint(e.name or ''))
         out = buf.getvalue()
         if tee is not None:
             # 内容已经实时打到终端了, 不再 emit 一遍 (否则屏幕上看两遍)
@@ -172,8 +172,8 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='text'):
             # importlib 栈, 而 search/fetch 等其余命令完全正常, 很难联想到
             # 是缺包。两条分支都要接住, 否则管理命令分支 (data_cmd 为空)
             # 会绕过这里的转换。
-            raise _UsageError(
-                f'缺少依赖 {e.name or e}; 股票能力装: pip install "webtool[stock]"')
+            from webtool.core import deps
+            raise _UsageError(deps.install_hint(e.name or ''))
     from webtool.cli.adminfmt import adapt
     if rc not in (0, None):
         # 与数据命令同理: 报告已经打出来了, 退出码只是"有没有可用结果"的判据

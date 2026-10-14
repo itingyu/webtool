@@ -9,3 +9,12 @@ pysocks
 curl_cffi>=0.16
 typer>=0.12
 certifi
+cryptography>=41
+maxminddb>=2.4
+requests>=2.31
+pandas>=2.0
+numpy>=1.24
+urllib3>=2.0
+efinance>=0.5
+openpyxl>=3.1
+akshare>=1.12,<2

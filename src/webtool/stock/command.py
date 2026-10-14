@@ -1120,8 +1120,9 @@ def do_stock(args, cfg):
         # requests 是 stock/http.py 的顶层 import, 而 stock 整体是延迟导入
         # —— 少装一个包的表现是 `webtool stock` 抛一串 importlib 栈, 而
         # search/fetch 等其他命令完全正常, 很难联想到是依赖缺失。
-        print(f'error: stock 依赖未装 ({e.name or e}); '
-              f'装: pip install "webtool[stock]"', file=sys.stderr)
+        from webtool.core import deps
+        print(f'error: stock 不可用 — {deps.install_hint(e.name or "")}',
+              file=sys.stderr)
         return 2
     except _engine.EngineMissing as e:
         print(f'error: {e}', file=sys.stderr)

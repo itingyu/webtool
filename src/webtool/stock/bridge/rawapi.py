@@ -48,9 +48,14 @@ def _module_ref():
     try:
         from webtool.stock.bridge import sources as mod
     except ImportError as e:
+        from webtool.core import deps
+        miss = getattr(e, 'name', None) or ''
+        if not miss.startswith('webtool'):
+            raise RawApiError(
+                f'数据源层不可用: {deps.install_hint(miss)}') from e
         raise RawApiError(
-            f'数据源包导入失败: {e}; 它应随包安装在 '
-            f'webtool/stock/bridge/sources/') from e
+            f'数据源包导入失败: {e}; 源码文件缺失, '
+            f'{deps.install_hint("webtool 本体")}') from e
     return mod
 
 

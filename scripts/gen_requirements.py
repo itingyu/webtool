@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""从 pyproject.toml 生成 requirements*.txt (别手改这两个文件)
+"""从 pyproject.toml 生成 requirements.txt (别手改这个文件)
 
-pyproject 是唯一权威: `pip install webtool` 会自动装 [project.dependencies],
-可选功能走 extras。requirements 文件只是给不看 pyproject 的人/脚本一个清单,
-所以必须由本脚本生成 —— `tests/test_smoke.py` 会校验两者一致, 手改会被测出来。
+pyproject 是唯一权威: `pip install webtool` 会自动装 [project.dependencies]。
+**全装是唯一形态** —— 没有 extras 分档, 所以只需要一个 requirements.txt。
+`tests/test_smoke.py` 会校验两者一致, 手改会被测出来。
 
 用法: python3 scripts/gen_requirements.py [--check]
   --check 只比不写 (给测试/CI 用), 不一致时退出码 1
@@ -19,27 +19,18 @@ HEAD = """# 自动生成, 不要手改 —— 改 pyproject.toml 后跑:
 # (tests/test_smoke.py 会校验本文件与 pyproject 一致)
 """
 
+# 曾经生成过的文件, 现在不该再存在 (全装化后并入 requirements.txt)
+STALE = ('requirements-full.txt',)
+
 
 def specs():
     with open(ROOT / 'pyproject.toml', 'rb') as f:
         proj = tomllib.load(f)['project']
     core = [s for s in proj.get('dependencies') or []]
-    extras = proj.get('optional-dependencies') or {}
-    full, seen = [], {s.split('>')[0].split('=')[0].strip().lower()
-                      for s in core}
-    for group in sorted(extras):
-        for s in extras[group]:
-            key = s.split('>')[0].split('=')[0].strip().lower()
-            if key not in seen:                  # 与核心重复的不重复列
-                seen.add(key)
-                full.append(s)
-    extra_names = ','.join(sorted(extras))
-    files = {
-        'requirements.txt': HEAD + '\n'.join(core) + '\n',
-        'requirements-full.txt': (HEAD + '# 等价 `pip install webtool[%s]`\n'
-                                  % extra_names) + '\n'.join(core + full) + '\n',
-    }
-    return files
+    if proj.get('optional-dependencies'):
+        raise SystemExit('pyproject 还有 optional-dependencies —— 本仓库只做全装, '
+                         '请把依赖并进 dependencies')
+    return {'requirements.txt': HEAD + '\n'.join(core) + '\n'}
 
 
 def main():
@@ -57,6 +48,16 @@ def main():
             continue
         path.write_text(want, encoding='utf-8')
         print('已写  %s (%d 行)' % (name, want.count('\n') - 3))
+    for name in STALE:
+        path = ROOT / name
+        if not path.exists():
+            continue
+        if check:
+            bad.append(name)
+            print('多余 %s (全装化后应删除)' % name)
+        else:
+            path.unlink()
+            print('已删  %s (全装化后不再生成)' % name)
     return 1 if bad else 0
 
 

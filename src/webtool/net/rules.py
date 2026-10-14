@@ -38,7 +38,7 @@
 
 ## GeoIP / ASN 库
 
-`geoip_db` / `asn_db` 指向 MaxMind `.mmdb` 文件 (读库用 maxminddb, 可选依赖)。
+`geoip_db` / `asn_db` 指向 MaxMind `.mmdb` 文件 (读库用 maxminddb, 随包安装)。
 没配或没装 → 带 `geoip`/`asn` 条件的规则**跳过并给出明确提示**, 而不是
 悄悄当成不匹配 (那会让用户以为规则生效了)。域名要先解析出 IP 才能查
 GeoIP, 所以 **DNS 结果带进程内缓存** (TTL 由 `--proxy-dns-ttl` 或配置控制,

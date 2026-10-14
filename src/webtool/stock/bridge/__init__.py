@@ -54,9 +54,10 @@ def load(name):
     try:
         return importlib.import_module(f'webtool.stock.bridge.{name}')
     except ImportError as e:
+        from webtool.core import deps
         raise BridgeMissing(
             f'{_CHANNELS.get(name, name)} 桥不可用: {e}\n'
-            f'  装: pip install "webtool[stock]"') from e
+            f'  {deps.install_hint(getattr(e, "name", None) or "")}') from e
 
 
 def health():

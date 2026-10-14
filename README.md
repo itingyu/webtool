@@ -6,10 +6,9 @@
 
 ```bash
 pip install 'git+https://github.com/itingyu/webtool'
-# 核心依赖 (trafilatura / curl_cffi / pysocks / typer / certifi …) 随安装自动装
-
-pip install 'webtool[full]'    # 全功能: secrets + geoip + stock
-pip install 'webtool[stock]'   # 只要股票能力 (requests/pandas/numpy/urllib3/efinance/openpyxl)
+# 依赖**全部**随安装自动装 (trafilatura / curl_cffi / pysocks / typer / certifi
+# / cryptography / maxminddb / requests / pandas / numpy / urllib3 / efinance
+# / openpyxl / akshare)。没有 extra 分档 —— 全装是唯一形态。
 ```
 
 系统 Python 被发行版保护时（Kali / Debian / Ubuntu 23.04+ / 新版 Alpine），上面那条会被拒：
@@ -46,8 +45,8 @@ git 装法的升级是**强制重装自己那份代码**：我们不按 commit �
 装完升级走同一条路：venv/pipx 环境里的 `webtool upgrade` 调的是**它自己**那个 pip；
 `webtool upgrade --check` 先干跑一遍问有没有新版（退出码 0 最新 / 1 有新版 / 2 判不出）。
 
-依赖声明在 `pyproject.toml`（**唯一权威**，`pip install` 会按它自动装；可选功能走 extras）。
-`requirements.txt` / `requirements-full.txt` 是从它生成的清单，改完 pyproject 跑
+依赖声明在 `pyproject.toml`（**唯一权威**，`pip install` 会按它自动装；全装是唯一形态，没有 extras）。
+`requirements.txt` 是从它生成的清单，改完 pyproject 跑
 `python3 scripts/gen_requirements.py` 重新生成（`tests/test_smoke.py` 会校验一致，手改会被测出来）。
 "import 了却忘了声明"由 `python3 scripts/audit_deps.py` 兜住 —— 已捞过 certifi / numpy / urllib3 / efinance 四个。
 
@@ -357,7 +356,7 @@ webtool proxy delpass <用户名>
 - 密文落 `~/.webtool/config.json` 的 `proxy_auth`，`enc:v1:` 前缀标记版本；主密钥在 `~/.webtool/secret.key`（0400），也可用 `WEBTOOL_SECRET_KEY` 环境变量覆盖（容器/CI 场景密钥不进文件）
 - **拿不到密钥 = 密文永久解不开**，不做 base64 之类的假加密；保险库里缺某个用户的密码时直接报错指出该跑哪条命令，不会拿空密码去撞一个毫无线索的 407
 - 日志与报错里的 `user:pass@` 出口处统一脱敏成 `user:***@`（`webtool proxy rules`、`proxy test` 的输出都不含明文）
-- `cryptography` 是软依赖（`pip install webtool[secrets]`）；没装时拒绝存密码而不是降级成明文
+- `cryptography` 随包安装（全装形态）；万一环境里被卸掉了，`proxy setpass` 会明确报错而不是降级成明文
 
 ## 扩展
 

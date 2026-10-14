@@ -99,7 +99,7 @@ webtool/
 
 依赖策略：
 - 零硬依赖：stdlib (urllib/re/gzip/http.cookiejar) 完成搜索+HTTP
-- 可选依赖：trafilatura(首选提取) → readability-lxml(兜底) → html2text(再兜底) → inscriptis(纯文本保底)
+- 提取链（都随包安装，按顺序尝试）：trafilatura(首选) → readability-lxml(兜底) → html2text(再兜底) → inscriptis(纯文本保底)
 - 无 trafilatura 时自动降级到 readability-lxml，再无则 html2text
 
 ### 2.4 省 token 设计（核心卖点）
@@ -143,7 +143,7 @@ webtool/
 - `webtool search --proxy http://...` / `--no-proxy`：单次临时覆盖
 - 境内站想直连、境外站走代理：用 `geosite` 规则分流，不再靠引擎级配置
 - 环境变量 `http_proxy`/`https_proxy` **不作为决策源**（在 opener 层已被堵死）
-- socks5 支持用 pysocks（可选依赖，无则提示）
+- socks5 支持用 pysocks（随包安装）
 
 ### 2.6 输出格式
 

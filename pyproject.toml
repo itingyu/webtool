@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "webtool"
-version = "1.11.1"
+version = "1.12.0"
 description = "Agent-friendly web search & content fetch CLI: clean markdown/text/json output"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -29,26 +29,24 @@ dependencies = [
     # 没它时 _probe_ca() 直接 ImportError (不是可选降级)。curl_cffi/requests 会
     # 顺带带进来, 但直接 import 的东西必须自己声明, 免得哪天上游不带了就炸。
     "certifi",
+    # ---- 以下原先是 extras, 现在一律随包安装: 全装是唯一形态 ----
+    # 代理密码加密存储 (webtool proxy setpass); 没有它就只能拒绝存密码
+    "cryptography>=41",
+    # GeoIP ASN 查询 (规则里的 {"asn": [...]})
+    "maxminddb>=2.4",
+    # 股票能力。requests 是 stock/http.py 的**顶层** import (雪球会话走它,
+    # curl_cffi 过不了 hexin-v)。numpy / urllib3 / efinance 同理 —— 审计扫出
+    # src 真实 import: numpy 在 engine/analysis/tech_indicators.py 顶层,
+    # urllib3 供 sources/_adapter.py 的 Retry, efinance 是东财源。
+    "requests>=2.31",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "urllib3>=2.0",
+    "efinance>=0.5",
+    "openpyxl>=3.1",
+    # `stock data` / `stock eco` 的默认库 (体积最大的一件, 但也在全装之内)
+    "akshare>=1.12,<2",
 ]
-
-# 可选依赖: 缺了不影响核心抓取, 但对应的功能会明确报错而不是假实现
-[project.optional-dependencies]
-# 代理密码加密存储 (webtool proxy setpass); 不装则拒绝存密码, 不做 base64 假加密
-secrets = ["cryptography>=41"]
-# GeoIP ASN 查询 (规则里的 {"asn": [...]})
-geoip = ["maxminddb>=2.4"]
-# 股票能力。requests 是 stock/http.py 的**顶层** import (雪球会话走它,
-# curl_cffi 过不了 hexin-v), 之前没声明 —— 装包后 `webtool stock` 直接
-# ImportError, 而 stock 是延迟导入所以其他命令照常, 很难第一时间联想到。
-# numpy / urllib3 / efinance 同理 (审计扫出 src 真实 import 但没声明):
-#   numpy   — stock/engine/analysis/tech_indicators.py 顶层 import
-#   urllib3 — stock/bridge/sources/_adapter.py 的 Retry, 函数内 import 但无兜底
-#   efinance— stock/bridge/sources/ef.py 的东财源, try/except 守卫 (装了才启用)
-stock = ["requests>=2.31", "pandas>=2.0", "numpy>=1.24", "urllib3>=2.0",
-         "efinance>=0.5", "openpyxl>=3.1"]
-# 全功能 (等价 `pip install webtool[secrets,geoip,stock]`)
-full = ["cryptography>=41", "maxminddb>=2.4", "requests>=2.31", "pandas>=2.0",
-        "numpy>=1.24", "urllib3>=2.0", "efinance>=0.5", "openpyxl>=3.1"]
 
 [project.scripts]
 webtool = "webtool.cli.app:main"

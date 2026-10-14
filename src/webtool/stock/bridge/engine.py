@@ -30,8 +30,17 @@ def mod(name):
     try:
         return importlib.import_module(f'webtool.stock.engine.{name}')
     except ImportError as e:
+        # 两种完全不同的病, 别混成一句话: engine 文件不在 = 装包不完整; engine
+        # 在但它的第三方依赖不在 = 没装 extra (numpy 之类)。后者以前被误报成
+        # "应随包安装在 webtool/stock/engine/", 指引的是错的方向。
+        from webtool.core import deps
+        miss = getattr(e, 'name', None) or ''
+        if not miss.startswith('webtool'):
+            raise EngineMissing(
+                f'stock engine 不可用: {deps.install_hint(miss)}') from e
         raise EngineMissing(
-            f'stock engine 不可用: {e}; 它应随包安装在 webtool/stock/engine/') from e
+            f'stock engine 不可用: {e}; engine 文件缺失, '
+            f'{deps.install_hint("webtool 本体")}') from e
 
 
 def clients():

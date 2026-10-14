@@ -168,9 +168,10 @@ def require(lib):
     """取一个库; 没装就抛带安装建议的错。tushare 额外要求 token"""
     m = _try_import(lib)
     if m is None:
+        from webtool.core import deps
         hint = {'tushare': '需 token (环境变量 TUSHARE_TOKEN)',
                 'baostock': '免费无需 token'}.get(lib, '')
-        raise EcoError(f'{lib} 未安装 {hint}')
+        raise EcoError(f'{deps.install_hint(lib)} {hint}')
     if lib == 'tushare':
         tok = os.environ.get('TUSHARE_TOKEN')
         if not tok:

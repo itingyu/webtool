@@ -822,13 +822,27 @@ _core = ' '.join(_proj['dependencies'])
 check(all(k in _core for k in ('trafilatura', 'curl_cffi', 'typer', 'pysocks',
                                'certifi')),
       '核心依赖: 装包即装 (抓取/通道/CLI/CA 四件套在内)')
-_opt = _proj['optional-dependencies']
-check({'secrets', 'geoip', 'stock', 'full'} <= set(_opt)
-      and 'certifi' in _core,
-      '可选依赖分组齐 (secrets/geoip/stock/full), certifi 归核心不归可选')
-check(all(any(x in s for s in _opt['stock'])
-          for x in ('requests', 'pandas', 'numpy', 'urllib3', 'efinance', 'openpyxl')),
-      'stock 组含审计补的 numpy/urllib3/efinance (以前只有 requests/pandas)')
+check(all(k in _core for k in ('cryptography', 'maxminddb', 'requests', 'pandas',
+                               'numpy', 'urllib3', 'efinance', 'openpyxl',
+                               'akshare')),
+      '全装是唯一形态: 原先的可选依赖 (secrets/geoip/stock/eco) 全部进了基座')
+check('optional-dependencies' not in _proj,
+      '不再有 optional-dependencies (只允许全装)')
+from webtool.core import deps as _deps                         # noqa: E402
+_h = _deps.install_hint('numpy')
+check('numpy' in _h and '重装' in _h and 'webtool[' not in _h,
+      '缺依赖的指引给"重装"命令, 不再指向已取消的 extras')
+import webtool.core.uninstall as _un                            # noqa: E402
+for _mode, _need in (('pipx', 'pipx'), ('venv', 'pip'),
+                     ('system', 'pipx'), ('editable', 'pip')):
+    _orig = _un.install_mode
+    _un.install_mode = lambda m=_mode: (m, '', '')
+    try:
+        _t = _deps.install_hint('numpy')
+    finally:
+        _un.install_mode = _orig
+    check(_need in _t and 'pip install "webtool[' not in _t,
+          '装法 %s 给对命令 (%s)' % (_mode, _t.split('重装: ')[-1]))
 
 if fails:
     sys.exit(1)

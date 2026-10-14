@@ -62,7 +62,7 @@ def _dep_versions():
         try:
             out[name] = version(name)
         except PackageNotFoundError:
-            out[name] = None                     # 可选依赖没装: 如实标 None
+            out[name] = None                     # 没装: 如实标 None (全装形态下=装包不完整)
         except Exception:
             out[name] = '?'
     return out
@@ -106,6 +106,7 @@ def describe():
     lines.append('依赖     ' + ', '.join('%s %s' % (k, deps[k])
                                         for k in deps if deps[k]))
     if miss:
+        from webtool.core import deps as _deps
         lines.append('未装     ' + ', '.join(miss)
-                     + '  (可选: pip install "webtool[stock]" 等)')
+                     + '  —— ' + _deps.install_hint(', '.join(miss)))
     return '\n'.join(lines)
