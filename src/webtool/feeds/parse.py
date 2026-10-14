@@ -49,7 +49,7 @@ def parse_feed(txt, source_name=''):
             root = ET.fromstring(txt2.encode('utf-8'))
         except ET.ParseError:
             raise RuntimeError('feed 解析失败: 非 RSS/Atom XML')
-    # ---- Atom ----
+    # Atom
     if root.tag.endswith('feed'):
         for e in root.findall('atom:entry', _NS):
             title = _text_of(e, 'atom:title', 'title')
@@ -64,7 +64,7 @@ def parse_feed(txt, source_name=''):
             date = _text_of(e, 'atom:published', 'atom:updated', 'published', 'updated')
             if title:
                 items.append({'title': title, 'url': link, 'snippet': snippet, 'date': date})
-    # ---- RSS 2.0 / 0.9x ----
+    # RSS 2.0 / 0.9x
     else:
         for ch in root.iter():
             if ch.tag.rsplit('}', 1)[-1] == 'item':

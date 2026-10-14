@@ -16,7 +16,7 @@ INSTANCES_FILE = Path.home() / '.webtool' / 'cache' / 'rsshub_instances.json'
 INSTANCES_TTL = 3600
 
 
-# ---------------------------------------------------------------- 实例探活
+# 实例探活
 
 
 def instances(proxy=None, refresh=False, need=None, timeout=10):

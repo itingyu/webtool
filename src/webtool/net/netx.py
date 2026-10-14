@@ -152,7 +152,7 @@ def _new_cffi_session():
     上一次是 `import transport as _t` 写在 `if engine:` 分支里, 不带 engine
     的调用全落 urllib。
 
-    每次新建而不复用: 复用会把 cookie 顺手带到后续请求上 (会话级 jar),
+    每次新建而不复用: 复用会把 cookie 带到后续请求上 (会话级 jar),
     与 transport 的做法也不一致。反复建会话要付握手成本, 但行为可预期。
     """
     from curl_cffi import requests as cr

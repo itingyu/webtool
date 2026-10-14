@@ -36,7 +36,7 @@ def print_route_cards(cards, kw, args, cfg):
     pick = getattr(args, 'pick', None)
     acting = bool(params) or use_example or top_idx is not None or adding or pick
 
-    # ---- 纯搜索: 只列卡片 ----
+    # 纯搜索: 只列卡片
     if not acting:
         base = _radar.best_instance(proxy=cfg.get('proxy'))
         _out(f'"{kw}" 命中 {len(cards)} 条路由  (按 heat 排序, --cat 可过滤分类)')
@@ -59,7 +59,7 @@ def print_route_cards(cards, kw, args, cfg):
               ' --example / --top N 可直接借现成路径')
         return
 
-    # ---- 填参: 选定一条 ----
+    # 填参: 选定一条
     idx, why = _pick_card(cards, pick)
     c = cards[idx]
     base = (getattr(args, 'instance', None)
@@ -96,7 +96,7 @@ def print_route_cards(cards, kw, args, cfg):
     url = base + '/' + filled.lstrip('/')   # topFeeds 的 url 不保证带前导 /
     _out(f'  实参  {url}   ({src})\n')
 
-    # ---- 交叉校验: 官网 feed 与 RSSHub 路由都拉一遍, 比能否给出该栏目 ----
+    # 交叉校验: 官网 feed 与 RSSHub 路由都拉一遍, 比能否给出该栏目
     fetch_url, fetch_note, xc = url, '', None
     off = _radar.official_feeds([c['domain']],
                                 proxy=cfg.get('proxy')).get(c['domain'])
@@ -143,7 +143,7 @@ def print_route_cards(cards, kw, args, cfg):
         save_user_feeds(user)
         _out(f'✓ 已落 ~/.webtool/feeds.json: {name}\n')
 
-    # ---- 直接把填好参的数据拉出来 (参数只用来取数, 不改模板) ----
+    # 直接把填好参的数据拉出来 (参数只用来取数, 不改模板)
     # 公共实例逐路由可用性不同, 所以依次换未试过的可用实例直到出数据;
     # 路由名常是一长串, 取首段清洗后当源名
     label = f"{c['site']}·{c['name']}".split(',')[0].split('、')[0].strip()

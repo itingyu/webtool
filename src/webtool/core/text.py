@@ -42,7 +42,7 @@ def truncate(s, n):
     s = s or ''
     return s if len(s) <= n else s[:n - 1] + '…'
 
-# --- markdown → 纯文本 -----------------------------------------------------
+# markdown → 纯文本
 # 刻意**不**做的两件事: 不删列表符号 (- / 1.), 不删缩进 —— 纯文本里它们照样是
 # 排版, 抹掉反而把并列关系糊成一段。要抹的是"离开 markdown 渲染器就变噪声"的
 # 那一类标记: 井号/星号/反引号/链接括号/表格竖线。
@@ -70,8 +70,8 @@ _RE_FM = re.compile(r'\A---\n[\s\S]*?\n---\n')           # YAML 元数据头
 def md_to_text(s, keep_meta=True):
     """markdown 正文 → 纯文本: 去标记, 内容一字不少
 
-    fetch 的 `-f txt` 走这里。以前只抹了 `[文字](url)`, 于是 `## 小标题`、
-    `**重点**`、`| 表格 |` 原样留在"纯文本"里 —— 说好的 txt, 拿到手还是 markdown。
+    fetch 的 `-f txt` 走这里。markdown 标记 (标题、强调、表格) 与链接都得抹干净,
+    只抹一半等于给了个假 txt。
 
     `keep_meta=False` 时连 YAML 元数据头一起去掉: 那一段是给机器看的
     (title/url/date/tags), 塞在"纯文本正文"前面就是噪声 —— 要元数据走 `-f json`。

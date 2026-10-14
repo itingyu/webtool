@@ -48,19 +48,19 @@ def code_ok(code, name=None, mode=None):
     return True, "沪市主板" if c.startswith("6") else "深市主板"
 
 
-# ---------------- quote ----------------
+# quote
 def quote(codes):
     return C.quote(codes)
 
 
-# ---------------- filter（纯代码板过滤，不打行情）----------------
+# filter（纯代码板过滤，不打行情）
 def filter(codes):
     """只按代码前缀做可买性过滤，不请求行情（快、可离线）"""
     return [{"code": c, "通过": code_ok(c)[0], "板块": code_ok(c)[1]}
             for c in codes]
 
 
-# ---------------- check（权限关 + 8 项闸门 + 三档结论）----------------
+# check（权限关 + 8 项闸门 + 三档结论）
 def check(codes):
     """可买入性预检：先过权限关（不可买板块/ST 一票否决），再过 8 项盘口闸门。"""
     rows = []
@@ -111,7 +111,7 @@ def check(codes):
     return rows
 
 
-# ---------------- pool（东财涨停池 + 连板梯队 + 可买统计）----------------
+# pool（东财涨停池 + 连板梯队 + 可买统计）
 def pool(date=None, mode="all"):
     """涨停池。date=None/last/prev = 上一交易日；mode='buy' 只留可买
 
@@ -153,7 +153,7 @@ def pool(date=None, mode="all"):
             "shown": len(rows), "rows": rows}
 
 
-# ---------------- calendar ----------------
+# calendar
 def _holidays(year):
     return C._holidays(year)
 
@@ -188,7 +188,7 @@ def calendar(date=None, n=3):
     }
 
 
-# ---------------- header ----------------
+# header
 CARDS = {
     "screener": """D1 涨停买不到,一字板必删。
 D2 止损 -7% 不调整,目标可上调不下移。
@@ -228,7 +228,7 @@ def header(mode="pre", kind="screener", date=None):
     ])
 
 
-# ---------------- main ----------------
+# main
 def main():
     ap = argparse.ArgumentParser(description="短线工具包")
     sub = ap.add_subparsers(dest="cmd", required=True)

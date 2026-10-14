@@ -27,7 +27,7 @@ from webtool.cli.zenproto import (StickySession, _endpoints, build_body,
 # socket 空闲超时。urlopen 的 timeout 只管"多久没收到字节", 不是墙钟预算;
 # 流式生成中间只要有 delta 就永不触发, 所以给够即可。
 TIMEOUT = 120.0
-# ---------------------------------------------------------------- 模型清单
+# 模型清单
 
 def is_free_model(model_id):
     """按命名约定判定是否免费层 —— 但这不是证明, 用 `zen --list-models --check`"""
@@ -121,7 +121,7 @@ def _unzipper(encoding):
     return lambda b: d.decompress(b) if b else b
 
 
-# ---------------------------------------------------------------- 思考标签
+# 思考标签
 
 # 模型把思考塞进正文时用的标签 (留作流式与非流式两条路共同识别)
 _THINK_TAGS = ('<think>', '<thinking>', '<reasoning>')
@@ -208,7 +208,7 @@ class _ThinkSplitter:
         return out
 
 
-# ---------------------------------------------------------------- 终端着色
+# 终端着色
 
 _C_RESET = '\033[0m'
 _C_THINK = '\033[90m'      # 灰: 思考
@@ -497,7 +497,7 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
     return last
 
 
-# ---------------------------------------------------------------- CLI
+# CLI
 
 def _fmt_payload(res, args):
     """-f text/markdown 只要答案; json 给完整结构 (usage / reasoning / tool_calls)"""
@@ -674,7 +674,7 @@ def _do_zen(args, cfg):
     if tip:
         print('zen: %s' % tip, file=sys.stderr)
 
-    # ---- dry-run: 打印请求, 不联网 ----
+    # dry-run: 打印请求, 不联网
     view = _show_view(args)
     if view:
         ses = StickySession() if args.sticky else None
@@ -706,7 +706,7 @@ def _do_zen(args, cfg):
             print(json.dumps(out, indent=2, ensure_ascii=False))
         return 0
 
-    # ---- 模型清单 ----
+    # 模型清单
     if args.list_models or args.list_free:
         rows = fetch_models_detail(cfg, refresh=args.refresh, proxy=None)
         if not rows:
@@ -733,7 +733,7 @@ def _do_zen(args, cfg):
                         'error': (res.get('error_body') or '').strip()})
         return _print_check(got, args.format)
 
-    # ---- 真正的调用 ----
+    # 真正的调用
     session = StickySession() if args.sticky else None
     # 实时刷屏只在"人在看终端"时做: stdout 被管道接走、或要 -f json 时, 缓冲
     # 一次输出, 否则终端上会先看到流式再看到完整结果, 重复一遍。

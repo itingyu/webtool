@@ -152,7 +152,7 @@ def do_rank(args, cfg):
             else:
                 errors[nm] = 'no data'
 
-    # ---------- 语义筛选/重排 ----------
+    # 语义筛选/重排
     filtered_out = 0
     if q:
         # 不支持站内搜索的源在本地做 BM25 阈值筛

@@ -13,7 +13,7 @@ from webtool.radar.instances_cfg import default_instances
 from webtool.radar.instances import instances
 
 
-# ---------------------------------------------------------------- 官方 feed 探测
+# 官方 feed 探测
 
 OFFICIAL_FILE = Path.home() / '.webtool' / 'cache' / 'official_feeds.json'
 OFFICIAL_TTL = 7 * 86400

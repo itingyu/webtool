@@ -103,7 +103,7 @@ def harvest(html, url):
     return '', None
 
 
-# ---------- state 收集 ----------
+# state 收集
 
 def _collect_states(html):
     out = []
@@ -157,7 +157,7 @@ def _loads_tail(tail):
     return None
 
 
-# ---------- 结构探测 ----------
+# 结构探测
 
 def _walk(root, max_depth=_MAX_DEPTH):
     """深度优先遍历, yield (路径, 值); 带节点数/深度护栏"""

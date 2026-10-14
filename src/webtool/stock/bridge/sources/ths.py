@@ -198,9 +198,7 @@ class ThsSource(SourceBase):
         except Exception as e:
             return _err(str(e))
 
-    # ------------------------------------------------------------------
     # 东财 (5 个)
-    # ------------------------------------------------------------------
 
     def ths_rank_cxfl(self) -> dict:
         """同花顺持续放量排行 (data.10jqka.com.cn/rank/cxfl/)
@@ -350,9 +348,7 @@ class ThsSource(SourceBase):
         """同花顺期货首页 (futures.10jqka.com.cn/) - size=125009"""
         return self._ths_data("/", host="futures.10jqka.com.cn")
 
-    # ------------------------------------------------------------------
     # 反爬抢救接口 (api_docs_rescued.md)
-    # ------------------------------------------------------------------
     # 2026-08-09 探活发现，同一数据源内可通过反爬补强 (新path / 反爬 / 参数) 救活的接口
     # 详见 api_docs_rescued.md
 

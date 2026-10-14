@@ -22,7 +22,7 @@ from webtool.feeds.cards import print_route_cards
 
 def do_feed(args, cfg):
     t0 = time.time()
-    # ---- feed --add NAME URL [desc] / --del NAME ----
+    # feed --add NAME URL [desc] / --del NAME
     if getattr(args, 'add', None) and len(args.add) >= 2:
         user = load_user_feeds()
         user[args.add[0]] = {'url': args.add[1],
@@ -46,7 +46,7 @@ def do_feed(args, cfg):
         save_user_feeds(user)
         print(f'feed 源已删除: {args.del_src} ({desc.get("url")})', file=sys.stderr)
         return 0
-    # ---- feed --mark KEY [URL] NOTE: 人工登记坏源 ----
+    # feed --mark KEY [URL] NOTE: 人工登记坏源
     if getattr(args, 'mark', None):
         mark = args.mark
         if len(mark) >= 2 and not mark[1].startswith('http'):
@@ -63,7 +63,7 @@ def do_feed(args, cfg):
         e = feedhealth.manual(key, url, note)
         print(f'已登记: {key} [{e.get("status")}] {note}', file=sys.stderr)
         return 0
-    # ---- feed --retest KEY|all: 复查登记的坏源, 恢复即移除 ----
+    # feed --retest KEY|all: 复查登记的坏源, 恢复即移除
     if getattr(args, 'retest', None):
         rows = dict(feedhealth.entries())
         targets = rows if args.retest == 'all' else {
@@ -98,11 +98,11 @@ def do_feed(args, cfg):
                     feedhealth.record(k, targets[k]['url'], st)
                     print(f'✗ {k}: 仍坏 [{st}] (保留登记)')
         return 0
-    # ---- feed health: 查看健康登记表 ----
+    # feed health: 查看健康登记表
     if len(args.sources) == 1 and args.sources[0] == 'health':
         print(feedhealth.render_text())
         return 0
-    # ---- feed instances: 公共实例探活 ----
+    # feed instances: 公共实例探活
     if len(args.sources) == 1 and args.sources[0] == 'instances':
         from webtool import radar as _radar
         print('公共实例探活 (探测路由 %s, 缓存 1h):\n'
@@ -115,7 +115,7 @@ def do_feed(args, cfg):
             print(f"  {mark} {it['instance']:34s} {detail}")
         print('\n--instance https://xxx 可指定; 默认自动挑响应最快的可用实例')
         return 0
-    # ---- feed radar [--from-url URL | <关键词>]: 查 RSSHub 路由库, 填参出订阅 URL ----
+    # feed radar [--from-url URL | <关键词>]: 查 RSSHub 路由库, 填参出订阅 URL
     if len(args.sources) >= 1 and args.sources[0] == 'radar':
         from webtool import radar as _radar
         kw = args.sources[1] if len(args.sources) > 1 else ''
@@ -167,7 +167,7 @@ def do_feed(args, cfg):
                       f'站名, 或 --cat <分类>', file=sys.stderr)
                 return 2
         return print_route_cards(cards, kw, args, cfg)
-    # ---- feed 无参/list: 清单+用法 (与 rank 同约定) ----
+    # feed 无参/list: 清单+用法 (与 rank 同约定)
     user = load_user_feeds()
     if (not args.sources) or \
             (len(args.sources) == 1 and args.sources[0] == 'list'):
@@ -208,7 +208,7 @@ def do_feed(args, cfg):
         print('  通用: -n 每源条数 -f json/text/markdown -o 文件 --no-cache --no-proxy')
         print('\n* = 默认源; feed 与 rank 的分工: rank 看热度榜, feed 看时序新内容')
         return 0
-    # ---- 解析源名 → url (支持直接喂 URL) ----
+    # 解析源名 → url (支持直接喂 URL)
     user = load_user_feeds()
     all_names = dict(user)
     if not args.sources:
@@ -276,7 +276,7 @@ def do_feed(args, cfg):
                 errors[nm] = 'no data'
                 feedhealth.record(nm, specs[nm]['url'], 'empty')
 
-    # ---- --new-only 增量: 对比 ~/.webtool/feed_state.json 上次已见 URL ----
+    # --new-only 增量: 对比 ~/.webtool/feed_state.json 上次已见 URL
     new_only = getattr(args, 'new_only', False)
     seen_state = jsonfmt.read(FEED_STATE_FILE) if new_only else {}
     if new_only:
@@ -293,7 +293,7 @@ def do_feed(args, cfg):
             seen_state[nm] = (urls + old)[:500]
         jsonfmt.write(FEED_STATE_FILE, seen_state)
 
-    # ---- -q 语义筛选 (BM25 + 重排; 无 -q 完全原序) ----
+    # -q 语义筛选 (BM25 + 重排; 无 -q 完全原序)
     filtered_out = 0
     flat = []
     if q and results:

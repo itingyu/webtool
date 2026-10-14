@@ -39,8 +39,8 @@ def _vcs_info(raw):
     if not info:
         return {}                     # dir_info (本地/editable) 不算 VCS 安装
     # PEP 610: 仓库地址在顶层 url; vcs_info.url 只在两者不一致时才给 (如装的时候
-    # 用的 ssh 地址、记录的是 https)。真实报文里 vcs_info 往往只有 commit_id ——
-    # 只看 vcs_info.url 会认不出 git 装法 (这个坑实测踩过)。
+    # 用的 ssh 地址、记录的是 https)。vcs_info 里往往只有 commit_id ——
+    # 只看 vcs_info.url 会漏认 git 装法。
     url = (info.get('url') or d.get('url') or '').strip()
     if not url:
         return {}
@@ -214,8 +214,8 @@ def upgrade(spec=None, env_extra=None):
 
     git 源要 `--force-reinstall --no-deps`: pip 对"直接 URL 需求"只比**版本号**,
     同名同版本就报 "Requirement already satisfied" 然后什么都不干 —— 我们按 commit
-    发代码、版本号不跟着动, 不强制重装的话 `upgrade` 是个装饰品 (实测: commit 原地
-    不动)。`--no-deps` 是关键的另一半: 只换自己这份代码, 不去动依赖。
+    发代码、版本号不跟着动, 不强制重装等于没升。`--no-deps` 是关键的另一半:
+    只换自己这份代码, 不去动依赖。
     """
     spec = spec or upgrade_target()[0]
     args = ['install', '--upgrade', spec]

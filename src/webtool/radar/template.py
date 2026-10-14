@@ -20,7 +20,7 @@ class MissingParams(Exception):
         super().__init__(', '.join('%s' % m[0] for m in missing))
 
 
-# ---------------------------------------------------------------- 模板解析
+# 模板解析
 
 
 def parse_params(template):

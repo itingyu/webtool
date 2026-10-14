@@ -29,11 +29,11 @@ DEFAULTS = {
     'ua': 'auto',
     'extract': 'auto',           # 正文提取器: auto=内容层择优 / 具名=只用那一个
     'cache_dir': str(USER_DIR / 'cache'),
-    # --- TLS (实际决策在 webtool.core.tls, 这里只负责存) ---
+    # TLS (实际决策在 webtool.core.tls, 这里只负责存)
     'ssl_verify': True,          # 证书校验总开关
     'ca_bundle': None,           # 自定义 CA 包路径 (替代系统 CA)
     'verify_hosts': [],          # 关校验的域名单 (自签/过期证书的交易所站)
-    # --- 代理 ---
+    # 代理
     'proxy_auth': {},            # 用户名 → 密码密文
     'proxy_rules': None,         # 内联规则表 (与 rules_file 二选一)
     'rules_file': None,          # 规则文件路径, 默认 ~/.webtool/rules.json
@@ -141,7 +141,7 @@ def handle(args, cfg):
     return fn(args, cfg)
 
 
-# ---------------------------------------------------------------- 各子命令
+# 各子命令
 
 def _get(args, cfg):
     p = cfg.get('proxy')
@@ -358,7 +358,7 @@ def _ruleadd(args, cfg):
               f'该规则会解析失败', file=sys.stderr)
 
     # 插入位置: 默认追加末尾; --first 插 [0]; --pos N 插第 N 位。
-    # 追加之所以危险, 是因为 first-match-wins 下前面的宽规则会把它整条吃掉,
+    # 追加位置在宽规则之后会被整条吃掉 (first-match-wins), 所以默认插到最前。
     # 所以下面还要跑一次覆盖试算, 被吃掉就直接说, 别等用户自己发现规则没用。
     rules = spec.setdefault('rules', [])
     first = bool(getattr(args, 'first', False))
@@ -445,7 +445,7 @@ def _load_rules_file(cfg=None):
 
 
 def _save_rules(cfg, spec):
-    """规则一律写 rules.json (单一事实来源), 顺手清掉可能并存的内联副本"""
+    """规则一律写 rules.json (单一事实来源), 并清掉可能并存的内联副本"""
     path = _rules_path(cfg)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:

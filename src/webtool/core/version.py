@@ -7,8 +7,7 @@
   - 装成 wheel 后: wheel 不带 pyproject, 回落到 importlib.metadata 的安装记录;
   - 都拿不到: 'unknown' (只影响显示, 不该让 import 失败)。
 
-以前 `webtool/__init__.py` 里写死一个 1.8.0, 与 pyproject 各说各话 —— 现在
-`__version__` 由这里派生, tests/test_smoke.py 会校验它俩一致。
+`__version__` 由这里派生, tests/test_smoke.py 会校验它与真源一致。
 """
 import platform
 import sys

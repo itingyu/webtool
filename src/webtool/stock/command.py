@@ -71,7 +71,7 @@ def _table_of(data):
     return None
 
 
-# ---------- 动作表 ----------
+# 动作表
 
 def _code(args, required=True):
     """单股动作取代码: 用位置参数 codes 的第一项。
@@ -427,7 +427,7 @@ def _act_eco_health(args, cfg):
 
 
 
-# ---------- data: 通用取数入口 (融合原 api/eco/http/em/docs) ----------
+# data: 通用取数入口 (融合原 api/eco/http/em/docs)
 
 def _data_search_all(kw, lib, limit):
     """在四类目录里同时搜, 按命中数排来源。任何一层坏了只记 err 不拖垮全局。"""
@@ -1151,7 +1151,7 @@ def do_stock(args, cfg):
     return 0
 
 
-# ---------- 渲染 ----------
+# 渲染
 
 def _render(out, fmt, action):
     fmt = _norm_fmt(fmt)
@@ -1180,7 +1180,7 @@ def _render(out, fmt, action):
         _text(out, action)
 
 
-# ---- 原样透传类动作 ----
+# 原样透传类动作
 # report / diagram / excel 产出的是"可直接给人看的东西" (成稿 markdown /
 # mermaid 源码 / 已落盘文件), 再包一层 JSON 或表格反而破坏可读性 —— 直接出。
 

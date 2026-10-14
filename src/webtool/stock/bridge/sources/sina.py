@@ -181,9 +181,7 @@ class SinaSource(SourceBase):
         except Exception as e:
             return _err(str(e))
 
-    # ------------------------------------------------------------------
     # 腾讯 (2 个)
-    # ------------------------------------------------------------------
 
     def sina_kline_min(self, symbol: str = "sh600519",
                        scale: int = 5, ma: str = "no",
@@ -382,9 +380,7 @@ class SinaSource(SourceBase):
         except Exception as e:
             return _err(str(e))
 
-    # ------------------------------------------------------------------
     # 扩展接口 (api_docs_extra.md)
-    # ------------------------------------------------------------------
 
     def gtimg_hq(self, symbols: str = "sh600519,sh688825,hk00700") -> dict:
         """腾讯财经行情 (qt.gtimg.cn)

@@ -37,22 +37,22 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None,
     q = urllib.parse.quote(query)
     sign = None
 
-    # ---- 1) PC 主力: curl_cffi chrome131 指纹, 两次会话机会 ----
+    # 1) PC 主力: curl_cffi chrome131 指纹, 两次会话机会
     html = None
     for attempt in range(2):
         html, sign = _pc_cffi(q, proxy, timeout)
         if html:
             break
         time.sleep(1.2 + attempt)
-    # ---- 2) PC 兜底: urllib 全指纹会话 ----
+    # 2) PC 兜底: urllib 全指纹会话
     if not html:
         html, sign = _pc_urllib(q, timeout)
-    # ---- 3) PC 命中 → 解析 (vr-title, 带摘要) ----
+    # 3) PC 命中 → 解析 (vr-title, 带摘要)
     if html:
         captcha.mark_ok('sogou')
         return _parse_pc(html, max_results)
 
-    # ---- 4) PC 全拦 → 移动端 (两轮会话, 中途 PC 冷却不影响移动通道) ----
+    # 4) PC 全拦 → 移动端 (两轮会话, 中途 PC 冷却不影响移动通道)
     for attempt in range(2):
         out = _mobile_search(q, max_results, proxy, timeout)
         if out:
@@ -64,7 +64,7 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None,
                        f'PC+移动双通道均被拦, 冷却{cd}s, 请换 -e bing,baidu')
 
 
-# ---------------- PC 主力 (curl_cffi) ----------------
+# PC 主力 (curl_cffi)
 
 def _pc_cffi(q, proxy, timeout):
     """持久 cookie 会话 + 导航预热; 返回 (html|None, sign|None)"""
@@ -118,7 +118,7 @@ def _pc_urllib(q, timeout):
     return None, sign
 
 
-# ---------------- 移动端 (Android 指纹) ----------------
+# 移动端 (Android 指纹)
 
 
 def _mobile_search(q, max_results, proxy, timeout, _inner=False):
@@ -181,7 +181,7 @@ def _mobile_search(q, max_results, proxy, timeout, _inner=False):
     return out
 
 
-# ---------------- PC 结果解析 ----------------
+# PC 结果解析
 
 def _parse_pc(html, max_results):
     items = re.findall(r'<h3 class="vr-title[^"]*"[^>]*>(.*?)</h3>', html, re.S)

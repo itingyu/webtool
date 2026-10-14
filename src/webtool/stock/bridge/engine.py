@@ -30,9 +30,9 @@ def mod(name):
     try:
         return importlib.import_module(f'webtool.stock.engine.{name}')
     except ImportError as e:
-        # 两种完全不同的病, 别混成一句话: engine 文件不在 = 装包不完整; engine
-        # 在但它的第三方依赖不在 = 没装 extra (numpy 之类)。后者以前被误报成
-        # "应随包安装在 webtool/stock/engine/", 指引的是错的方向。
+        # 两种完全不同的病, 别混成一句话: engine 文件不在 = 装包不完整;
+        # engine 在但它的第三方依赖不在 = 没装可选依赖 (numpy 之类)。报错要
+        # 指向缺的那个依赖, 而不是叫人去查包目录。
         from webtool.core import deps
         miss = getattr(e, 'name', None) or ''
         if not miss.startswith('webtool'):
@@ -53,7 +53,7 @@ def _log(msg, level='INFO'):
     print(f'[{level}] {msg}', file=sys.stderr)
 
 
-# ---------- 动作实现 (每个都只做参数整形 + 调用, 不加工业务口径) ----------
+# 动作实现 (每个都只做参数整形 + 调用, 不加工业务口径)
 
 def do_quote(codes):
     """实时行情。腾讯主源, 指数别名(上证指数/创业板指)可用。返回 list[dict]"""

@@ -191,7 +191,7 @@ def _do_search(args, cfg, filter_ad=True):
     # 混在一起会把 "黑名单过滤" 误报成 "重复合并"。
     dedup_removed = stats.get('dedup_removed', 0)
 
-    # ---- 自动补量: 过滤后不足 requested 且有翻页能力 → 翻页补拉重过滤 ----
+    # 自动补量: 过滤后不足 requested 且有翻页能力 → 翻页补拉重过滤
     # 触发条件: 总数 < args.max (去重与黑名单恒开, 无开关可关)
     # (补拉翻页对反爬引擎是额外风险, 上限 2 页/引擎 + 页间随机延迟)
     topup_fetched = 0

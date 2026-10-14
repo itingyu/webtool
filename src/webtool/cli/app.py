@@ -25,7 +25,7 @@ app = typer.Typer(add_completion=False, no_args_is_help=True,
                   help='Agent 友好的网页搜索与内容获取工具',
                   context_settings={'help_option_names': ['-h', '--help']})
 
-# ---------- 公共选项 ----------
+# 公共选项
 
 Fmt = typer.Option(None, '-f', '--format',
                    help='输出格式 json/text/markdown (大小写不敏感; md=markdown, txt=text)')
@@ -197,7 +197,7 @@ def _main(ctx: typer.Context,
     _CTX.update(proxy=proxy, no_cache=no_cache, args=SimpleNamespace())
 
 
-# ---------- search ----------
+# search
 
 @app.command('search')
 def search_cmd(query: str = typer.Argument(..., help='搜索词'),
@@ -227,7 +227,7 @@ def search_cmd(query: str = typer.Argument(..., help='搜索词'),
     return _run('data', fn, fmt, output, no_cache, no_proxy)
 
 
-# ---------- fetch ----------
+# fetch
 
 @app.command('fetch')
 def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
@@ -278,7 +278,7 @@ def _do(name):
     return fn
 
 
-# ---------- zen ----------
+# zen
 
 @app.command('zen')
 def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空则走 --list-models)'),
@@ -333,7 +333,7 @@ def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空
     a.tools = 'all' if all_tools else (tools or dfl['tools'])
     a.max_tokens = max_tokens or dfl['max_tokens']
     a.list_models, a.list_free = list_models, list_free
-    a.check = check or check_all          # --check-all 单独给也生效 (以前是静默空转)
+    a.check = check or check_all          # --check-all 单独给也生效
     a.check_all, a.refresh = check_all, refresh
     a.dry_run, a.show = dry_run, show
     a.stream = dfl['live'] if live is None else live
@@ -357,7 +357,7 @@ def _entry_fn(name):
     return fn
 
 
-# ---------- site ----------
+# site
 
 @app.command('site')
 def site_cmd(site: str = typer.Argument(None, help='站点 key, `webtool site list` 查看全部'),
@@ -372,7 +372,7 @@ def site_cmd(site: str = typer.Argument(None, help='站点 key, `webtool site li
     return _run('data', _entry_fn('site'), fmt, output, no_cache, no_proxy)
 
 
-# ---------- rank ----------
+# rank
 
 @app.command('rank')
 def rank_cmd(sources: list[str] = typer.Argument([], help='榜单源 key; 无参数 = 榜单清单+用法'),
@@ -389,7 +389,7 @@ def rank_cmd(sources: list[str] = typer.Argument([], help='榜单源 key; 无参
     return _run('data', _entry_fn('rank'), fmt, output, no_cache, no_proxy)
 
 
-# ---------- feed ----------
+# feed
 
 @app.command('feed')
 def feed_cmd(sources: list[str] = typer.Argument([], help='feed key 或任意 RSS/Atom URL; 无参数 = 清单+用法'),
@@ -432,7 +432,7 @@ def feed_cmd(sources: list[str] = typer.Argument([], help='feed key 或任意 RS
     return _run('data', _entry_fn('feed'), fmt, output, no_cache, no_proxy)
 
 
-# ---------- 管理命令 ----------
+# 管理命令
 
 @app.command('proxy')
 def proxy_cmd(action: str = typer.Argument(..., help='get/set/unset/test/setpass/delpass/passwd/rules/rule/ruledel/geoip/asn/noproxy'),
@@ -615,7 +615,7 @@ def upgrade_cmd(check_only: bool = typer.Option(False, '--check', help='只问 p
     return _upgrade_run(check_only, from_, fmt, output)
 
 
-@app.command('update', hidden=True)          # 顺手给个别名, 老习惯能撞上
+@app.command('update', hidden=True)          # 旧命令名别名
 def update_cmd(check_only: bool = typer.Option(False, '--check'),
                from_: str = typer.Option(None, '--from'),
                fmt: str = Fmt, output: str = Output):
@@ -654,7 +654,7 @@ def plugins_cmd(action: str = typer.Argument('list', help='list/check/reload/ena
     return _run(None, fn, fmt, output, False, False)
 
 
-# ---------- stock ----------
+# stock
 
 @app.command('stock')
 def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar/flow/news/'

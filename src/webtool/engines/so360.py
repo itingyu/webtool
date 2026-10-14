@@ -16,7 +16,7 @@ _BLOCK = re.compile(r'<li class="res-list".*?(?=<li class="res-list"|</ol>)', re
 _TITLE = re.compile(r'<h3[^>]*>(.*?)</h3>', re.S)
 _MDURL = re.compile(r'data-mdurl="([^"]+)"')
 _SNIPPET = re.compile(r'class="(?:res-desc|summary-text|content-right)[^"]*"[^>]*>(.*?)</(?:div|p|span)>', re.S)
-# 站外广告位 (实测: 首条常是"xxx-短视频大全-高清在线观看")
+# 站外广告位 (首条常是"xxx-短视频大全-高清在线观看")
 _NOISE = re.compile(r'\[转\]|-?短视频大全|高清在线观看|图片大全|在线影院')
 
 

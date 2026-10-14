@@ -17,7 +17,7 @@ ROUTES_FILE = Path.home() / '.webtool' / 'cache' / 'rsshub_routes.json'
 ROUTES_TTL = 7 * 86400
 
 
-# ---------------------------------------------------------------- 官方路由目录
+# 官方路由目录
 
 
 def load_routes(proxy=None, refresh=False, timeout=60):

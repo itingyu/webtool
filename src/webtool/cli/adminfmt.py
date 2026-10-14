@@ -1,6 +1,6 @@
 """管理命令 (engines/plugins/cache/blocklist/config) 的输出格式适配
 
-这些命令原本直接 print, `-f` 是摆设。现在统一: 捕获它们吐出的 JSON,
+这些命令的 `-f` 支持: 捕获它们吐出的 JSON,
 按请求格式重新渲染 —— 让 agent 用同一套 `-f json/text/markdown` 读所有子命令。
 
 命令内部格式不统一 (有 print(json) 有 print(文本)), 这里不猜:

@@ -36,9 +36,7 @@ class CninfoSource(SourceBase):
         except Exception as e:
             return _err(str(e))
 
-    # ------------------------------------------------------------------
     # 新浪 (4 个)
-    # ------------------------------------------------------------------
 
     def cninfo_announcement(self, stock: str = "688825",
                             org_id: str = "9920000008",

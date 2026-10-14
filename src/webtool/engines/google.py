@@ -73,7 +73,7 @@ def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1
     return _news(query, max_results, proxy, timeout, market, page)
 
 
-# ---------- Web HTML ----------
+# Web HTML
 
 def _web(query, max_results, proxy, timeout, market, page):
     if not proxy:
@@ -174,7 +174,7 @@ def _attach_snippets(html, out):
 _text = text.plain
 
 
-# ---------- news RSS 降级 ----------
+# news RSS 降级
 
 def _news(query, max_results, proxy, timeout, market, page):
     lang, gl, ceid = _market(market)

@@ -52,7 +52,7 @@ def _save_locked():
         pass
 
 
-# ---------------- captcha 冷却 ----------------
+# captcha 冷却
 
 def get_captcha(engine):
     st = load().get('captcha', {}).get(engine)
@@ -76,7 +76,7 @@ def reset_captcha(engine):
         _save_locked()
 
 
-# ---------------- 会话 cookie ----------------
+# 会话 cookie
 
 def save_cookies(engine, cookies):
     """cookies: [{name,value,domain,path,expires,secure}, ...] 过期项已滤除"""
@@ -102,7 +102,7 @@ def load_cookies(engine):
     return out
 
 
-# ---------------- 熔断 / 代理记忆 / 探活 ----------------
+# 熔断 / 代理记忆 / 探活
 
 def get_breaker(name):
     return load().get('breakers', {}).get(name, {})

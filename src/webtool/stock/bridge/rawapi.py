@@ -104,7 +104,7 @@ def methods_by_source():
     return {k: sorted(v) for k, v in sorted(out.items())}
 
 
-# ---------- 功能维度分类 ----------
+# 功能维度分类
 
 _CATS = None
 

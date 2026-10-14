@@ -320,9 +320,7 @@ class XueqiuSource(SourceBase):
         """股东变动 (老股)"""
         return self._xq_get("/v5/stock/f10/cn/skholderchg.json", {"symbol": symbol})
 
-    # ------------------------------------------------------------------
     # 同花顺 (4 个)
-    # ------------------------------------------------------------------
 
     def xueqiu_business_analysis(self, symbol: str = "SH688825") -> dict:
         """雪球业务分析 (f10/cn/business_analysis.json, 反爬绕过后真通)

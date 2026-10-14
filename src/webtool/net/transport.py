@@ -29,7 +29,7 @@ from webtool.net import captcha
 # URLError.reason 里, requests.SSLError 又不是 ssl.SSLError 的子类,
 # 任何类型元组都盖不全, 漏网的后果是证书失败被降级梯当成普通抖动重试 4 次
 
-# ---------------- 浏览器指纹档案 (UA 与 impersonate 版本严格对齐) ----------------
+# 浏览器指纹档案 (UA 与 impersonate 版本严格对齐)
 
 _UA131 = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
           '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
@@ -101,7 +101,7 @@ _ENGINE_URL = {
 }
 
 
-# ---------------- 节奏控制 (每引擎最小间隔 + 抖动) ----------------
+# 节奏控制 (每引擎最小间隔 + 抖动)
 
 _DEFAULT_RATE = 0.4
 _last_hit = {}
@@ -130,7 +130,7 @@ def _pace(engine):
         time.sleep(wait)
 
 
-# ---------------- header 构造 ----------------
+# header 构造
 
 def _sec_fetch_site(target_url, referer):
     if not referer:
@@ -205,7 +205,7 @@ def headers_for(kind, url, referer=None, lang=LANG_ZH, profile=None,
     return h
 
 
-# ---------------- 会话 (UA/cookie 固定, 持久化) ----------------
+# 会话 (UA/cookie 固定, 持久化)
 
 def _export_cookies(session):
     out = []
@@ -259,7 +259,7 @@ def _persist_cookies(session, engine):
         state.save_cookies(engine, _export_cookies(session))
 
 
-# ---------------- 异常 ----------------
+# 异常
 
 class BlockedError(RuntimeError):
     """验证码/风控页, 多通道尝试后仍被拦"""
@@ -274,7 +274,7 @@ __all__ = ['BlockedError', 'CooldownError', 'TlsError', 'get', 'headers_for',
            'PROFILES', 'LANG_ZH', 'LANG_EN', 'ACCEPT_XHR']
 
 
-# ---------------- 主入口 ----------------
+# 主入口
 
 def get(url, *, kind='nav', referer=None, proxy=None, timeout=15,
         engine=None, rate_engine=None, headers=None, lang=LANG_ZH, max_bytes=8 * 1024 * 1024, profile=None,
@@ -441,7 +441,7 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
         # 密码缺失要立刻说清楚, 不能拿空密码去撞 407 (那报错完全指不到原因)
         proxy_arg = secrets_store.resolve_auth(proxy_arg)
     last_cffi_err = 'skipped'
-    # --- 通道1: curl_cffi ---
+    # 通道1: curl_cffi
     try:
         if session is not None:
             s = session
@@ -523,7 +523,7 @@ def _pick_profile(engine):
         return _fp_map[key]
 
 
-# ---------------- 便捷入口 ----------------
+# 便捷入口
 
 def resolve_redirect(url, *, referer=None, proxy=None, timeout=10,
                      profile=None, verify=None):
@@ -585,4 +585,4 @@ def warm_session(session, home, *, kind='nav', referer=None, timeout=10,
     except Exception:
         return False
 
-# ---------------- 代理策略 (原 search.py, engines 层也要用) ----------------
+# 代理策略 (原 search.py, engines 层也要用)

@@ -212,7 +212,7 @@ def _http_msg(status):
     return f'HTTP Error {status}: {reasons.get(status, "Error")}'
 
 
-# ---------------------------------------------------------------- 对外动作
+# 对外动作
 
 def list_tools(base_url, **kw):
     """tools/list → {name, description, required:[...]} 精简表"""

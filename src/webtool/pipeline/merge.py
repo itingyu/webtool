@@ -102,7 +102,7 @@ def title_fingerprint(t):
     return s[:24]
 
 
-# ---------------- 权重重排 ----------------
+# 权重重排
 def rerank(results, query, use_semantic=True, apply_blocklist=True,
           blocklist=None, stats=None, max_n=None):
     """评分排序: merge() 的排序半程, 供多轮召回复用
@@ -262,7 +262,7 @@ def _dedupe(results):
             out.append(r)
     return out
 
-# ---------------- 语义相关性 (BM25, 零依赖) ----------------
+# 语义相关性 (BM25, 零依赖)
 
 
 def _tokenize(s):

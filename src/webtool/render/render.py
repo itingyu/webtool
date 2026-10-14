@@ -38,7 +38,7 @@ def render(out, fmt, kind):
         _render_search(out, fmt)
 
 
-# ---------- search / site ----------
+# search / site
 
 def _render_search(out, fmt):
     results = out.get('results') or []
@@ -83,7 +83,7 @@ def _render_search(out, fmt):
             print('errors: ' + json.dumps(out['errors'], ensure_ascii=False), file=sys.stderr)
 
 
-# ---------- fetch ----------
+# fetch
 
 def _render_fetch(out, fmt):
     items = out['results'] if isinstance(out.get('results'), list) else [out]

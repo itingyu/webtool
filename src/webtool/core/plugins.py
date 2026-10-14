@@ -193,7 +193,7 @@ class Registry:
         self._code = {}          # name -> {'fn': 函数或 'mod:attr', 'meta': {...}}
         self._state = {}         # name -> {'state': ..., 'error': ..., 'instance': ...}
 
-    # ---- 注册 ----
+    # 注册
 
     def register(self, name, fn=None, **meta):
         """注册插件。fn 可为函数或 'module.path:attr' 字符串 (懒加载)"""
@@ -208,7 +208,7 @@ class Registry:
         self._code[name] = {'fn': target, 'meta': dict(meta, name=name, kind=self.kind)}
         self._state.pop(name, None)
 
-    # ---- 查表 ----
+    # 查表
 
     def items(self):
         """三层来源合并后的 name -> PluginSpec (entry 已解析为 fn, 已排序)"""
@@ -282,7 +282,7 @@ class Registry:
                 out.add(mod.partition(':')[0])
         return sorted(out)
 
-    # ---- 生命周期 ----
+    # 生命周期
 
     def setup(self, name):
         """解析 entry 并跑 setup 钩子; 返回实例 (无 setup 则 None)"""

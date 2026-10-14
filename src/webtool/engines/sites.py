@@ -71,7 +71,7 @@ def _mk(title, url, snippet='', score=None, extra=None):
     return r
 
 
-# ---------------------------------------------------------------- adapters
+# adapters
 
 def github(q, limit=10, proxy=None, timeout=15):
     """GitHub 仓库搜索 (api.github.com, 匿名 10 req/min)"""
@@ -289,7 +289,7 @@ def _fetch(url, proxy, timeout, headers, profile=None, engine=None):
     return text, status, _via
 
 
-# ---------------------------------------------------------------- 注册表
+# 注册表
 # site_key -> {desc, module, params}  (清单在 data/plugins.json 的 "site" 段)
 # 不再有 proxy 字段: 站点不出网, 只暴露 (q, limit, proxy, timeout) 适配器,
 # 走哪条线由调用方 (routes → 路由表) 传进来
@@ -303,7 +303,7 @@ def _ts2date(ts):
         return None
 
 
-# ---------------------------------------------------------------- 注册表
+# 注册表
 # site_key -> {desc, module, params}; 清单在 data/plugins.json 的 "site" 段,
 # 加站点 = 写一个 (q, limit, proxy, timeout) -> [结果] 的适配器 + plugins.json 加一条
 from webtool.core.plugins import table as _plugin_table

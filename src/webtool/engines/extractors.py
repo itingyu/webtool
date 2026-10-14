@@ -184,9 +184,9 @@ def run_chain(html, url, meta, mode='auto'):
     - 具体名字: 只用那一个。要可预期、要快、或要复现某次结果时用它; 指定后没产出
       会自动退回 auto, 不交白卷。
 
-    改这里之前先想清楚默认值该给谁 —— 实测 14 个真实页面上没有哪个单一提取器能
-    通吃: readability 中位碎片率 1% 但在长文合集页会丢掉六成正文, trafilatura
-    反过来 (中位碎片 6%, 在门户页带一堆推广块), 所以默认留给择优。
+    改这里之前先想清楚默认值该给谁 —— 没有哪个单一提取器能通吃: readability
+    中位碎片率低, 但在长文合集页会丢掉大半正文; trafilatura 反过来 (门户页
+    带一堆推广块)。所以默认留给择优。
     """
     from webtool.core.plugins import table
     mode = resolve_mode(mode)

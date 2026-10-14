@@ -65,7 +65,7 @@ class RuleError(RuntimeError):
     """规则配置非法"""
 
 
-# ---------------------------------------------------------------- 动作解析
+# 动作解析
 
 def resolve_action(action):
     """'proxy:tokyo' → ('proxy', 'tokyo'); 'direct' → ('direct', None)"""
@@ -80,7 +80,7 @@ def resolve_action(action):
     return a, None
 
 
-# ---------------------------------------------------------------- 匹配器
+# 匹配器
 
 def _domain_match(host, pattern):
     """支持两种写法: *.cn (含子域) / 裸后缀 (也含子域)"""
@@ -165,9 +165,9 @@ def _asn_match(asn, spec):
     return False
 
 
-# ---------------------------------------------------------------- DNS / GeoIP
+# DNS / GeoIP
 
-# ------------------------------------------------------- 新规则覆盖试算
+# 新规则覆盖试算
 
 def _beats(a, b, priority):
     """动作 a 的规则压得住动作 b 的规则吗（用于"新规则会不会被吃掉"试算）"""
@@ -221,7 +221,7 @@ def shadow_check(router, match, action, index):
     return None
 
 
-# ---------------------------------------------------------------- URL 解析
+# URL 解析
 
 _DEFAULT_PORTS = {'http': 80, 'https': 443, 'ws': 80, 'wss': 443}
 
@@ -339,7 +339,7 @@ def geoip_asn(ip, db_path):
     return None
 
 
-# ---------------------------------------------------------------- 规则引擎
+# 规则引擎
 
 class Router:
     """按规则表决定某个 URL 该走哪条线路"""
@@ -585,7 +585,7 @@ def migrate_plaintext_proxies(spec, cfg_path=None):
 
     命名代理的 URL 写在 rules.json 里, 而 rules.json 是要人工编辑的文件 ——
     密码写在里面就是明文落盘, 与 proxy_auth 保险库那套机制割裂了。这里在
-    加载时顺手迁移: 密码存进 config.json 的 proxy_auth (密文), rules.json
+    加载时迁移: 密码存进 config.json 的 proxy_auth (密文), rules.json
     只留 `user@host`, 出网时由 resolve_auth 补回 (上层两条通道都调它)。
 
     幂等: 迁完再读不会重复处理。没装 cryptography 时原样返回 —— 不能因为
