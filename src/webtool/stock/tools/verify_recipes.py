@@ -19,7 +19,8 @@ warnings.filterwarnings('ignore')
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
 
-from webtool.stock.em import EmError, maps, recipes, run      # noqa: E402
+from webtool.stock.bridge.em import maps, recipes, run       # noqa: E402
+from webtool.stock.error import EmError                       # noqa: E402
 
 MAPS = maps()
 DATE_ARG = re.compile(r'date|time|period|month|year', re.I)
