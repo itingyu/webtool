@@ -45,16 +45,9 @@ h.rows()          # DataFrame 化, 带列序映射
 import json
 import re
 
-import requests
-
 from webtool.core import tls
-from webtool.net import netx
+from webtool.net import netx, transport
 from webtool.stock.error import HttpError
-
-try:
-    from curl_cffi import requests as curl_requests
-except ImportError:                                     # pragma: no cover
-    curl_requests = None
 
 
 
@@ -130,6 +123,10 @@ class Http:
         self.impersonate = impersonate
         self.verify = verify
         self.proxy = 'auto' if proxy is None else proxy
+        # 真正出网的是 net.transport: 线路逐请求按目标 URL 现算, 证书走
+        # tls.policy, 头走指纹档案, 连接按 (线路, 主机) 复用。这里只留一个
+        # requests 壳 —— 调用点 (61 处 .get/.post) 不必改。
+        self._s = transport.requests_session(proxy=self.proxy)
         self._xq = None          # 雪球 curl_cffi 会话 (需 cookie warmup)
         self._last = None
 
@@ -166,18 +163,20 @@ class Http:
         return p
 
     def _xueqiu_session(self, proxy=None):
-        """雪球要 curl_cffi 指纹 + 多页 warmup 收集 cookie"""
+        """雪球要 curl_cffi 指纹 + 多页 warmup 收集 cookie
+
+        会话由 net.transport 建造 (指纹档案/trust_env/线路判定都归那一层),
+        这里只做 warmup。
+        """
         if self._xq is not None:
             return self._xq
-        if curl_requests is None:
-            raise HttpError('雪球需 curl_cffi: apk add py3-curl-cffi 或 pip install curl_cffi')
-        kw = {'proxy': proxy} if proxy else {}
-        s = curl_requests.Session(impersonate=self.impersonate, **kw)
+        prof = transport.profile_for_impersonate(self.impersonate)
+        s, _p = transport.new_session(prof, proxy if proxy else 'auto')
         for u in ('https://xueqiu.com/', 'https://xueqiu.com/hq',
                   'https://xueqiu.com/S/SH600519'):
             try:
                 s.get(u, timeout=self.timeout,
-                      verify=tls.policy(u, self.verify), **kw)
+                      verify=tls.policy(u, self.verify))
             except Exception:                             # noqa: BLE001
                 pass
         self._xq = s
@@ -210,9 +209,10 @@ class Http:
                 r = fn(url, params=par or None, data=data or None,
                        headers=hdrs, timeout=to, verify=ver)
             else:
-                r = requests.request(m, url, params=par or None, data=data or None,
-                                     json=json_body, headers=hdrs, timeout=to,
-                                     verify=ver, proxies=_py_proxies(px))
+                r = self._s.request(m, url, params=par or None,
+                                    data=data or None, json=json_body,
+                                    headers=hdrs, timeout=to, verify=ver,
+                                    proxies=_py_proxies(px))
         except Exception as e:                              # noqa: BLE001
             # 证书类错误单独拎出来 (requests.SSLError 与 curl_cffi 的异常都
             # 不继承 ssl.SSLError, 靠 tls.is_tls_error 跨通道识别): 它不是

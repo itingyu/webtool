@@ -10,7 +10,6 @@ import json
 import re
 
 
-from curl_cffi import requests as cffi
 
 class EmSource(SourceBase):
     """东方财富 (eastmoney) 方法集 —— 由 sources/__init__.py 的 APIClient 混入"""

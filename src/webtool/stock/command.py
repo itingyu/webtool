@@ -781,7 +781,7 @@ def _act_data_health(args, cfg):
         'api': {'ok': _raw.available(), 'methods': len(_raw.methods())},
         'eco': _eco.health(),
         'em_recipes': {'ok': bool(_docs.stats().get('books')), 'books': _docs.stats()},
-        'route': {'sources': 'per-request (RoutedAdapter + RoutedCffiSession)',
+        'route': {'sources': 'per-request (net.transport + RoutedCffiSession)',
                   'eco': {lib: _eco_net.probe(lib)
                           for lib in ('akshare', 'tushare', 'baostock', 'efinance')}},
     }
@@ -980,7 +980,7 @@ def _act_health(args, cfg):
     out['eco'] = _eco.health()
     # 出网路由: 各通道都要过规则表, 体检要能一眼看出某条脱管了
     out['route'] = {
-        'sources': 'per-request (RoutedAdapter + RoutedCffiSession)',
+        'sources': 'per-request (net.transport + RoutedCffiSession)',
         'engine': 'same as sources (engine 不出网, 取数一律经 sources)',
         'eco': {lib: _eco_net.probe(lib)
                 for lib in ('akshare', 'tushare', 'baostock', 'efinance')},

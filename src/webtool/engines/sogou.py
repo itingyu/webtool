@@ -12,23 +12,18 @@
 数分钟后逐步解封 —— 是 IP 信誉问题, 住宅 IP / 低频使用下 PC 通道是主力。
 被拦处置: 拦截器 (net.intercept) 记冷却 + 换新会话/新指纹重试。
 """
+import http.cookiejar
 import re
 import time
 import urllib.parse
-import urllib.request
 
 from webtool.net import intercept, netx, transport
-from webtool.core.http import build_opener
 
 ENDPOINT = 'https://www.sogou.com/web'
 SOUGOU = 'https://www.sogou.com'
 M_ENDPOINT = 'https://m.sogou.com/web/searchList.jsp'
 M_HOME = 'https://m.sogou.com/'
 
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *a, **k):
-        return None
 
 
 def search(query, max_results=10, proxy=None, timeout=15, market=None,
@@ -88,25 +83,24 @@ def _pc_cffi(q, proxy, timeout):
 
 
 def _pc_urllib(q, timeout):
-    """urllib 全套显式指纹会话兜底, 换新会话重试一次"""
+    """urllib 全套显式指纹会话兜底, 换新会话重试一次
+
+    换的是"底层栈" (urllib 而非 cffi), 不是"策略" —— 线路、证书、头、cookie
+    都交给 net.transport, 所以这里不会再出现"兜底路径自己判代理"的分裂。
+    """
     sign = None
-    for attempt in range(2):
-        import http.cookiejar
+    url = f'{ENDPOINT}?query={q}'
+    for _attempt in range(2):
         cj = http.cookiejar.CookieJar()
-        opener = build_opener(None, cj)
-        opener.add_handler(_NoRedirect())
         try:
-            pre = urllib.request.Request(SOUGOU + '/',
-                                         headers=transport.headers_for(
-                                             'nav', SOUGOU + '/', full=True))
-            opener.open(pre, timeout=timeout)
-            req = urllib.request.Request(
-                f'{ENDPOINT}?query={q}',
-                headers=transport.headers_for('nav', f'{ENDPOINT}?query={q}',
-                                              referer=SOUGOU + '/', full=True))
-            with opener.open(req, timeout=timeout) as r:
-                html = r.read().decode('utf-8', 'ignore')
-        except Exception as e:
+            transport.request('GET', SOUGOU + '/', kind='nav', timeout=timeout,
+                              via='urllib', cookiejar=cj,
+                              allow_redirects=False)
+            r = transport.request('GET', url, kind='nav', referer=SOUGOU + '/',
+                                  timeout=timeout, via='urllib', cookiejar=cj,
+                                  allow_redirects=False)
+            html = r.text
+        except Exception as e:                 # noqa: BLE001 网络错误换会话再试
             sign = f'{type(e).__name__}'
             time.sleep(1.5)
             continue
@@ -114,7 +108,6 @@ def _pc_urllib(q, timeout):
         if hit is None:
             return html, None
         sign = hit.sign
-        html = None
         time.sleep(1.5)
     return None, sign
 
@@ -237,25 +230,18 @@ def resolve_link(link_url, proxy=None, timeout=15):
             return m.group(1)
     except Exception:
         pass
-    # urllib 兜底
-    import http.cookiejar
+    # urllib 兜底 (换底层栈, 策略仍归 transport: 线路/证书/头/cookie)
     cj = http.cookiejar.CookieJar()
-    opener = build_opener(None, cj)
-    opener.add_handler(_NoRedirect())
+    tgt = (link_url if link_url.startswith('http')
+           else 'https://www.sogou.com' + link_url)
     try:
-        opener.open(urllib.request.Request(
-            SOUGOU + '/', headers=transport.headers_for('nav', SOUGOU + '/',
-                                                        full=True)),
-            timeout=timeout)
-    except Exception:
+        transport.request('GET', SOUGOU + '/', kind='nav', timeout=timeout,
+                          via='urllib', cookiejar=cj, allow_redirects=False)
+    except Exception:                          # noqa: BLE001 预热失败不致命
         pass
-    req = urllib.request.Request(
-        link_url if link_url.startswith('http') else 'https://www.sogou.com' + link_url,
-        headers=transport.headers_for(
-            'nav', link_url if link_url.startswith('http')
-            else 'https://www.sogou.com' + link_url,
-            referer=f'{SOUGOU}/web', full=True))
-    body = opener.open(req, timeout=timeout).read().decode('utf-8', 'ignore')
+    body = transport.request('GET', tgt, kind='nav', referer=f'{SOUGOU}/web',
+                             timeout=timeout, via='urllib', cookiejar=cj,
+                             allow_redirects=False).text
     m = (re.search(r'window\.location\.replace\("([^"]+)"\)', body)
          or re.search(r"URL='([^']+)'", body)
          or re.search(r'href="(https?://[^"]+)"', body))

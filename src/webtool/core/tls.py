@@ -313,11 +313,17 @@ def policy(url=None, verify=None):
     信任根; 显式给路径则完全由本模块说了算。
 
     verify=None 表示"按配置来"; 传 True/False 则无视配置直接决定
-    (调用方显式意图优先, 例如某个已知自签接口的定点豁免)。
+    (调用方显式意图优先, 例如某个已知自签接口的定点豁免)。**传 CA 文件路径**
+    等价于 requests 的 `verify=<ca>`: 用它当信任根、开启校验。
 
     环境无任何 CA 包时自动降级为 False (理由见 _probe_ca) —— 这种情况下
     严格校验等于全线不可用, 且报错完全指不到根因。
     """
+    # 调用方直接给 CA 路径 (requests 的 verify=<ca.pem> 语义): 拿它当信任根
+    if isinstance(verify, str) and verify.strip():
+        _s = verify.strip()
+        if _s not in _TRUTHY and _s not in _FALSY:
+            return _s
     on, ca, hosts = _load()
     if verify is not None:
         on = _as_bool(verify)

@@ -101,16 +101,20 @@ def _urllib_html(query, max_results, proxy, timeout, market, page):
 
 
 def _resilient(url, proxy=None, timeout=15, headers=None):
-    """单线路取数 (fetch 等非引擎通道复用)
+    """单线路取数 (HTML / RSS 两级降级都用它)
 
     单线路: 代理挂了不悄悄直连 —— 走代理的目标会变成直连超时, 而直连能通的
-    目标又会被"降级"成功, 状态永远说不清走的是哪条线。线路由路由表一次决定, 这里只保留函数名给外部复用。
+    目标又会被"降级"成功, 状态永远说不清走的是哪条线。线路由路由表一次决定。
+
+    出网走 net.transport 的 urllib 底层 (via='urllib'): 这条兜底的存在意义就是
+    换一套 HTTP/TLS 栈, 但代理、证书、密码补全仍归那一层 —— 否则 bing 的兜底
+    会自成一套线路判断。headers 已由调用方按 full=True 拼好, 这里 raw 透传。
     """
-    from webtool.core.http import http_get
+    from webtool.net import transport
     try:
-        text, status = http_get(url, proxy=proxy, timeout=timeout,
-                                 headers=headers)
-        return text, status, 'direct' if not proxy else 'proxy'
+        r = transport.request('GET', url, proxy=proxy, timeout=timeout,
+                              headers=headers, raw_headers=True, via='urllib')
+        return r.text, r.status_code, 'direct' if not proxy else 'proxy'
     except Exception as e:
         raise RuntimeError(f'{url} failed: {e}') from e
 

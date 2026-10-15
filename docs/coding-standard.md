@@ -146,8 +146,8 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 - **端点表 `data/mcp.json` 不声明线路**，所有端点统一交给路由表
   （`auto` → 规则表 → proxies.default/直连）。免 key 配额按出口 IP 计，走代理等于蹭别人
   的配额池，要固定某端点直连就加一条针对它域名的规则：
-- **默认头（UA/指纹）只有一个注入点**：统一出网层按站点现算（requests 通道在
-  `RoutedAdapter.send`，其余在 `transport`）。调用点想覆盖就自己给同名头，但**不要**在任何
+- **默认头（UA/指纹）只有一个注入点**：统一出网层按站点现算（`transport` 的
+  requests 适配器 / `headers_for`）。调用点想覆盖就自己给同名头，但**不要**在任何
   局部函数里再补一套默认头——股票源 61 个调用点里只有 15 个走得到 `_kwargs`，
   曾经那条"按站点给 UA"的注释就这么成了空头支票，直到同花顺 data 子域回 403
   才暴露（其余站点不校验，所以静默坏了很久）
@@ -353,19 +353,28 @@ config.json，而遗留键迁移顺手把该值写进了 `rules.json` 的 `proxi
   `intercept.cooldown_of(engine)`（取"冷却 N s"），不许再 `captcha.detect/mark_*`。
   否则新加的拦截器插件对这条路径莫名不生效，而报错文案又会反过来认识 captcha。
 
-## 只有 transport 上有拦截判定，别的通道没有
+## 出网统一走 transport，拦截判定只在网页通道上生效
 
-出网实现不止一条（`net/transport.py` 主通道、`core/http.py` urllib 通道、
-`stock/bridge/http.py` 股票自有通道、`cli/zenproto.py` LLM 流式、pip/git 子进程），
-统一的是**决策**（`netx` 的线路 + `tls.policy` 的证书 + `transport.headers_for`
-的指纹），不是实现。清单钉在 `tests/test_netx.py`「出网原语必须登记」一节，
-新增出口会被拦下来签字。
+**本仓自己的代码只有一条出网通道：`net/transport.py`。** 搜索引擎、抓取、
+feeds、股票源（`stock/bridge/**`）、MCP（`net/mcpclient`）、LLM（`cli/zen`）、
+探活（`core/probe`）都经它出网 —— 线路（`netx`）、证书（`tls.policy`）、
+指纹（`headers_for`）、cookie、流式读法全在那一层，别处不再各建一套。
+`core/http.py` 的 urllib 通道是 transport 的备胎本体（cffi 崩了才走），不是
+第二条策略。清单钉在 `tests/test_netx.py`「出网原语必须登记」一节：新开一个
+`requests.` / `_cr.Session` / `urlopen` 出口会被测试拦下，逼你来这里签字。
 
-由此产生一条必须知道的边界：**反爬判定/冷却/降级梯只在 transport 上**（引擎自己
-试通道的路径另有 `intercept.gate`）。走 urllib 通道的 mcpclient、zen、gnews、
-探活，以及整个 stock 包，被挡时不会记冷却、也没有验证页识别 —— 它们只会如实
-报错。给这些通道加拦截判定前先问：这个上游真的会出现人机验证页吗？会，才接；
-不会（LLM API、行情接口、MCP 服务）就是白搭一层，还多一次读正文的开销。
+只留下三个明确例外（都登记在册）：
+
+- `cli/zenproto.py`：LLM 流式要拿裸 `http.client` 连接。
+- `stock/bridge/_eco_net.py`：akshare/tushare 等**外部库**自建 session，改不动，
+  作用域内给 `requests.Session.request` 包一层默认代理。
+- pip/git 子进程：只能靠环境变量给代理。
+
+由此产生一条边界：**反爬判定/冷却/降级梯只在网页搜索与抓取通道上**（引擎自己
+读正文的路径另有 `intercept.gate`）。MCP 服务、LLM API、行情接口虽然也经
+transport，但走的是 `transport.request`（不带判定），被挡时只如实报错 —— 这些
+上游不会有人机验证页，套上判定是白搭一层。给这类通道加拦截判定前先问：上游
+真的会出现人机验证页吗？会，才接。
 
 ## 7. 注释与文档纪律
 

@@ -872,20 +872,13 @@ print('\n=== 13. 出网原语必须登记 (新出口不许悄悄开) ===')
 # 又开了一个不受设计与测试照看的口子 —— 必须来这里签字 (顺手想清楚它要不要
 # 反爬判定、走不走路由表)。
 _NET_CHANNELS = {
-    'cli/zen.py': 'LLM 调用 (经 core.http 的 opener, 非网页通道)',
     'cli/zenproto.py': 'LLM 流式直连 (http.client, 要拿裸流)',
-    'core/http.py': 'urllib 通道本体 (transport 备胎/探活/mcpclient/zen)',
-    'core/probe.py': '探活 (cffi 单发, 只为拿状态码)',
+    'core/http.py': 'urllib 通道本体 (transport 备胎/探活)',
     'engines/sogou.py': 'PC cffi / urllib / 移动端 三通道',
     'net/netx.py': '决策层 + 参考通道 netx.get (当前无生产调用者)',
     'net/transport.py': '主通道: 指纹会话 + 降级梯 + 拦截判定',
-    'stock/bridge/http.py': '股票接口自有通道 (请求层)',
-    'stock/bridge/_eco_net.py': '东财接口 (股票通道)',
-    'stock/bridge/sources/_adapter.py': '股票源适配 (股票通道)',
-    'stock/bridge/sources/_base.py': '股票源基类 (股票通道)',
-    'stock/bridge/sources/_routing.py': '股票源路由 (股票通道)',
-    'stock/bridge/sources/em.py': '东财专有 (股票通道)',
-    'stock/bridge/sources/ths.py': '同花顺专有 (股票通道)',
+    'stock/bridge/_eco_net.py': '生态库 (akshare/tushare) 的 requests 打补丁, 改不动',
+    'stock/bridge/sources/_routing.py': '股票源路由: cffi 会话 (少见参数路径) + 逐请求线路',
     'stock/tools/extract_recipes.py': '离线工具 (抓一次配方, 不在运行链路)',
 }
 _PRIMS = [r'^\s*import\s+requests\b', r'^\s*from\s+requests\b',

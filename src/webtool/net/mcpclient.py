@@ -18,7 +18,6 @@ API key, 就能 list_tools / call_tool。
 import json
 import time
 import urllib.error
-import urllib.request
 
 
 JSONRPC_VERSION = '2.0'
@@ -127,28 +126,17 @@ _NEEDS_SESSION = 'mcp-session-id'
 
 
 def _send(url, payload, headers, timeout, proxy):
-    """POST 一次, 返回 (status, resp_headers, text); 异常统一成 (None, {}, msg)"""
-    # 证书策略走 core.tls (与搜索/抓取/zen 通道同源), 不在这里自建 opener
-    from webtool.core import http as _http
-    opener = _http.build_opener(proxy, url=url)
-    req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'),
-                                 headers=headers, method='POST')
+    """POST 一次, 返回 (status, resp_headers, text); 异常统一成 (None, {}, msg)
+
+    出网走 net.transport.request (线路/证书/兜底都在那一层), 这里不自建 opener
+    —— 否则 MCP 这条通道会自成一套代理与证书判断。
+    """
+    from webtool.net import transport
     try:
-        with opener.open(req, timeout=timeout) as resp:
-            raw = resp.read()
-            try:
-                charset = resp.headers.get_content_charset()
-            except Exception:
-                charset = None                 # 响应头异常不该影响解析
-            return (resp.status, dict(resp.headers),
-                    raw.decode(charset or 'utf-8', errors='replace'))
-    except urllib.error.HTTPError as e:
-        try:
-            body = e.read().decode('utf-8', errors='replace')
-        except Exception:
-            body = ''
-        return (getattr(e, 'code', -1), dict(getattr(e, 'headers', {}) or {}), body)
-    except Exception as e:
+        r = transport.request('POST', url, json_body=payload, headers=headers,
+                              timeout=timeout, proxy=proxy, raw_headers=True)
+        return (r.status_code, dict(r.headers), r.text)
+    except Exception as e:                     # noqa: BLE001 网络层错误照旧外抛
         return (None, {}, str(e))
 
 

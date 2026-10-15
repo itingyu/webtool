@@ -3,43 +3,22 @@
 article 页 c-wiz 节点带 data-n-a-id/ts/sg, POST batchexecute (f.req 携带
 Fbv4je+"garturlreq") 返回真实 URL; id 去重缓存 7 天。
 """
-import gzip
-import io
 import json
 import logging
 import re
 import time
 import urllib.parse
-import urllib.request
+from http import cookiejar
 
 from webtool.core import state
-import webtool.net.transport as _t
-from webtool.core.http import build_opener
+from webtool.net import transport
 
 log = logging.getLogger(__name__)
 
 _TTL = 7 * 86400
 
 
-def _read_body(r, max_bytes=2 * 1024 * 1024):
-    """读响应体并按 Content-Encoding 解压。
-
-    本模块走 urllib 通道, urllib 不会自动解 gzip, 裸 r.read() 得到的压缩
-    字节会让 data-n-a-* 三参数全部匹配不上。
-    """
-    raw = r.read(max_bytes)
-    if r.headers.get('Content-Encoding') == 'gzip':
-        try:
-            raw = gzip.GzipFile(fileobj=io.BytesIO(raw)).read()
-        except Exception:
-            pass
-    elif r.headers.get('Content-Encoding') == 'deflate':
-        try:
-            import zlib
-            raw = zlib.decompress(raw, -zlib.MAX_WBITS)
-        except Exception:
-            pass
-    return raw.decode('utf-8', 'ignore')
+# gzip/deflate 解压已收进 transport.Resp (urllib 底层不自动解压), 这里不再自己读体
 
 _BATCH_URL = 'https://news.google.com/_/DotsSplashUi/data/batchexecute'
 
@@ -78,13 +57,14 @@ def decode(link, proxy=None, timeout=15):
     if time.time() < float(br.get('skip_until', 0)):
         return None
 
-    op = build_opener(proxy)
-    _prof = _t.PROFILES[_t._pick_profile('gnews')]
+    # 走 urllib 底层 (via='urllib') 而非 cffi: 这条通道的立身之本就是"换一套
+    # HTTP/TLS 栈再试一次", 但线路/证书/头仍归 transport 那一层管。
+    # cookiejar 两次请求共用, 与原实现同一个 opener 的行为一致。
+    cj = cookiejar.CookieJar()
     try:
-        req = urllib.request.Request(link, headers=_t.headers_for(
-            'nav', link, full=True, profile=_prof))
-        with op.open(req, timeout=timeout) as r:
-            page = _read_body(r)
+        page = transport.request('GET', link, kind='nav', proxy=proxy,
+                                 timeout=timeout, via='urllib',
+                                 cookiejar=cj).text
         gid_p = re.search(r'data-n-a-id="([^"]*)"', page)
         ts_p = re.search(r'data-n-a-ts="([^"]*)"', page)
         sg_p = re.search(r'data-n-a-sg="([^"]*)"', page)
@@ -94,7 +74,7 @@ def decode(link, proxy=None, timeout=15):
             _fail()
             return None
         real = _batchexecute(gid_p.group(1), int(ts_p.group(1)),
-                             sg_p.group(1), op, _prof, timeout)
+                             sg_p.group(1), cj, proxy, timeout)
         if real:
             state.set_breaker('gnews', fails=0)
             _cache_put(gid, real)
@@ -108,22 +88,19 @@ def decode(link, proxy=None, timeout=15):
         return None
 
 
-def _batchexecute(gid, ts, sg, op, prof, timeout):
+def _batchexecute(gid, ts, sg, cookiejar, proxy, timeout):
     payload = json.dumps(["garturlreq",
         [["X", "X", ["X", "X"], None, None, 1, 1, "US:en", None, 1,
           None, None, None, None, 0, 1],
          "X", "X", 1, [1, 1, 1], 1, 1, None, 0, 0, None, 0],
         gid, ts, sg])
     freq = json.dumps([[["Fbv4je", payload, "wrt.org"]]])
-    req = urllib.request.Request(
-        _BATCH_URL,
-        data=f'f.req={urllib.parse.quote(freq)}'.encode(),
-        headers={'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-                 'User-Agent': prof['ua'],
-                 'Accept-Language': _t.LANG_EN,
-                 'Referer': 'https://news.google.com/'})
-    with op.open(req, timeout=timeout) as r:
-        body = _read_body(r)
+    body = transport.request(
+        'POST', _BATCH_URL, kind='xhr', referer='https://news.google.com/',
+        lang=transport.LANG_EN, proxy=proxy, timeout=timeout, via='urllib',
+        cookiejar=cookiejar,
+        headers={'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
+        data=f'f.req={urllib.parse.quote(freq)}'.encode()).text
     m = re.search(r'https?://[^\s"\\]+', body)
     if m and 'news.google.com' not in m.group(0):
         return m.group(0)

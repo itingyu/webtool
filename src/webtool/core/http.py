@@ -8,21 +8,19 @@ http_get 未显式给 UA 时自动套 transport 指纹档案的浏览器 UA,
 """
 import gzip
 import io
-import urllib.request
-import urllib.error
-
-from webtool.core import tls
-from webtool.core.secrets_store import resolve_auth
-
-
-import gzip
-import io
 import threading
 import urllib.request
 import urllib.error
 
 from webtool.core import tls
 from webtool.core.secrets_store import resolve_auth
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """不跟 3xx: 反爬重定向的目标页本身就是要判的正文 (sogou 等)"""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 class _NoBypassProxyHandler(urllib.request.ProxyHandler):
@@ -174,14 +172,22 @@ def http_get(url, proxy=None, timeout=15, headers=None, opener=None,
     return text, r.status
 
 
-def http_open(url, proxy=None, timeout=15, headers=None, opener=None, verify=None):
+def http_open(url, proxy=None, timeout=15, headers=None, opener=None, verify=None,
+              method=None, data=None, cookiejar=None, allow_redirects=True):
     """发起请求但不读 body, 返回原始响应对象 (给流式下载用)
 
     与 http_get 共用同一条代理/证书通道 (build_opener), 不然"网页能取、下载取不了"
     这种分裂迟早出现 —— 代理认证与 CA bundle 只有一处实现。
+
+    method / data / cookiejar / allow_redirects: transport 的通用请求 (POST JSON,
+    带 cookie 与不跟重定向的兜底路径) 借这条出网时用; 不给就是原来的无状态 GET。
     """
-    op = opener or build_opener(proxy, url=url, verify=verify)
-    req = urllib.request.Request(url, headers=headers or {})
+    op = opener or build_opener(proxy, cookiejar, url=url, verify=verify)
+    if not allow_redirects:
+        op.add_handler(_NoRedirect())
+    req = urllib.request.Request(url, headers=headers or {}, data=data,
+                                 method=(method or 'GET').upper() if (method or data)
+                                 else None)
     return op.open(req, timeout=timeout)
 
 

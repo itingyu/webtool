@@ -1,6 +1,6 @@
 """出网统一决策层 + 一个现成的参考通道
 
-**这一层统一的是「怎么打出去」的决策, 不是出网实现**: 各通道保留自己的实现
+**这一层统一的是「怎么打出去」的决策, 不是出网实现**: 各通道保留自己的调用方式
 (session 预热、指纹降级梯、LLM 流式、股票接口的 requests/cffi), 但下面四件事
 只许从这里拿, 谁都不许自己判断:
 
@@ -10,13 +10,12 @@
    urllib 放行」的分裂
 4. 默认 UA 走浏览器指纹档案 (`default_headers`), 禁止裸 Python-urllib 指纹出网
 
-现役通道 (各自实现, 决策都调这里):
+出网实现本身也收口到了 `net/transport.py` —— 本仓自己的代码都经它 (搜索引擎、
+抓取、feeds、股票源、MCP、LLM、探活)。仅存的例外:
 
-- `net/transport.py` — 主通道: 指纹会话 + 降级梯 + **拦截判定/冷却** (net.intercept)
-- `core/http.py` — urllib 通道: transport 的备胎, 也是探活 / mcpclient / zen /
-  gnews / sogou·bing 兜底用的那条 (**不含**拦截判定)
-- `stock/bridge/http.py` — 股票接口自有通道 (requests + cffi impersonate)
+- `core/http.py` — urllib 通道本体: transport 的备胎 (cffi 崩了才走)
 - `cli/zenproto.py` — LLM 流式直连 (http.client, 要拿裸流)
+- `stock/bridge/_eco_net.py` — 生态库 (akshare/tushare) 自建 session, 改不动
 - `pip` / `git` 子进程 (pkg / upgrade) — 环境变量代理, 判定在 upgrade 那边
 
 清单钉在 `tests/test_netx.py` 的 "出网原语必须登记" 一节: 新增 `requests.` /

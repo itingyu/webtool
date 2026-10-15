@@ -94,7 +94,8 @@ def reset_cache() -> None:
 class RoutedCffiSession:
     """curl_cffi 会话 —— 每个请求按目标 URL 现算代理
 
-    与 `RoutedAdapter` 同一思路, 只是挂在 curl_cffi 上: 雪球/腾讯 K 线要
+    与 net.transport 的 requests 适配器同一思路, 只是挂在 curl_cffi 上:
+    雪球/腾讯 K 线要
     `impersonate` 的 TLS 指纹, 走不了 requests, 但 `proxies=` 同样是请求级
     参数, 所以规则表照样管得到。
 
@@ -103,9 +104,20 @@ class RoutedCffiSession:
     """
 
     def __init__(self, *a, override=None, **kw):
-        from curl_cffi import requests as cr
-        kw.setdefault('trust_env', False)   # 环境变量不参与选线
-        self._s = cr.Session(*a, **kw)
+        # 会话由 net.transport 建造 (指纹档案/trust_env/线路判定都归那一层),
+        # 这里只保留"逐请求注入线路"这一件事 —— 会话本身不带代理, 否则
+        # 直连目标会被代理兜一圈。
+        from webtool.net import transport
+        imp = kw.pop('impersonate', None)
+        kw.pop('trust_env', None)
+        if a or kw:
+            from curl_cffi import requests as cr
+            kw.setdefault('trust_env', False)
+            self._s = cr.Session(*a, **kw)     # 带自定义参数的少见路径: 原样
+        else:
+            self._s, _p = transport.new_session(
+                transport.profile_for_impersonate(imp) if imp else None,
+                proxy='direct')
         self._override = override
 
     def get(self, url, **kw):

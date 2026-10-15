@@ -660,8 +660,8 @@ from webtool.stock.bridge import _eco_net as _econet
 
 _a = _NewClient()
 _adt = _a._std.get_adapter('https://push2.eastmoney.com/')
-check(_adt.__class__.__name__ == 'RoutedAdapter',
-      'sources 的 requests 会话挂 RoutedAdapter (61 处调用点零改动生效)')
+check(_adt.__class__.__name__ == 'TransportAdapter',
+      'sources 的 requests 会话挂在 net.transport 上 (61 处调用点零改动生效)')
 check(_a._xueqiu_session().__class__.__name__ == 'RoutedCffiSession',
       'sources 的 curl_cffi 会话也走规则表')
 check(_NewClient(proxy='direct')._px('https://push2.eastmoney.com/') is None,

@@ -13,10 +13,10 @@
 
 | 通道 | 网络栈 | 怎么接到规则表 | 调用点是否要改 |
 |---|---|---|---|
-| `bridge/sources/` (154 方法) | requests + curl_cffi | `RoutedAdapter` / `RoutedCffiSession` 包装, **每请求现算** | 不改 (61 处裸 `.get()` 自动生效) |
+| `bridge/sources/` (154 方法) | requests + curl_cffi (经 `net.transport`) | 会话由 `net.transport.requests_session` / `RoutedCffiSession` 建造, **每请求现算** | 不改 (61 处裸 `.get()` 自动生效) |
+| `bridge/http.py` (裸 HTTP) | requests (经 `net.transport`) | 会话由 `net.transport.requests_session` 建造, **每请求现算** | 不改 |
 | `stock/engine/` | 无 (不出网, 取数一律经 sources) | — | 不需要 |
-| `bridge/eco.py` (akshare 等) | 库内部自建 session | 调用期间给 `requests.Session.request` 包一层 | 不改 (理由见下) |
-| `bridge/http.py` (裸 HTTP) | requests | 原本就调 `netx.resolve_proxy` | 不改 |
+| `bridge/eco.py` (akshare 等) | 库内部自建 session | 调用期间给 `requests.Session.request` 包一层默认代理 | 不改 (理由见下) |
 
 **出网只有 requests 与 curl_cffi 两条库内通道, 全仓没有 shell 出网出口。**
 多一个 shell 出口就多一处能绕过规则表的地方, 而症状是裸连超时、整条链路全挂,
@@ -27,9 +27,10 @@
 
 `sources/` 里有 **61 处** `self._std.get(...)`。逐个加 `proxies=` 漏一处,
 那个源就静默绕过规则表 —— 而症状是"某个接口偶发被封", 极难定位。所以把决策
-下沉到传输层: `RoutedAdapter.send()` 从 `request.url` 取目标域名现算代理,
-调用方一行不动。curl_cffi 那边同理, 但它是函数式调用, 用
-`RoutedCffiSession` 包一层即可 (只有 14 处, 但同样保持零改动)。
+下沉到传输层: `net.transport` 的 requests 适配器从 `request.url` 取目标域名
+现算线路, 调用方一行不动; 真正发请求的也是这一层 (指纹档案、证书策略、
+拦截判定都归它)。curl_cffi 那边同理, 用 `RoutedCffiSession` 包一层即可
+(只有 14 处, 但同样保持零改动)。
 
 为什么 eco 要限定作用域
 ------------------------

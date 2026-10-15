@@ -5,7 +5,6 @@
 
 """
 from webtool.stock.bridge.sources._base import _err, _ok, SourceBase
-from curl_cffi import requests as cffi
 from webtool.stock.bridge.sources._base import _ths_v_token
 from webtool.stock.bridge.sources import _routing
 
@@ -41,12 +40,13 @@ def _ths_session(factory):
     return s
 import json
 import re
+from typing import Any
 
 
 class ThsSource(SourceBase):
     """同花顺 (10jqka) 方法集 —— 由 sources/__init__.py 的 APIClient 混入"""
 
-    def ths_session(self) -> "requests.Session":  # noqa: F821 (仅类型注解)
+    def ths_session(self) -> Any:
         if self._ths is None:
             self._ths = _ths_session(_ths_factory)
         return self._ths

@@ -12,6 +12,7 @@ import random
 import socket
 import threading
 import time
+import urllib.error
 import urllib.parse
 
 from curl_cffi import requests as _cr
@@ -270,7 +271,8 @@ class CooldownError(RuntimeError):
     """引擎处于反爬冷却期, 应换引擎"""
 
 
-__all__ = ['BlockedError', 'CooldownError', 'TlsError', 'get', 'headers_for',
+__all__ = ['BlockedError', 'CooldownError', 'TlsError', 'Resp', 'get',
+           'headers_for', 'new_session', 'open_stream', 'request',
            'resolve_redirect', 'session_get', 'warm_session',
            'PROFILES', 'LANG_ZH', 'LANG_EN', 'ACCEPT_XHR']
 
@@ -444,6 +446,389 @@ def open_stream(url, *, kind='nav', referer=None, proxy=None, timeout=15,
     h = headers_for(kind, url, referer=referer, lang=lang, full=True, extra=headers)
     r = http_open(url, proxy=proxy_arg, timeout=timeout, headers=h, verify=verify)
     return _UrllibStream(r), r.status, 'urllib', _lower_keys(r.headers)
+
+
+class Resp:
+    """统一响应外壳: cffi 与 urllib 两条底层给出同一种读法
+
+    调用方 (MCP / LLM / 行情) 只认这几个成员, 不必知道这次走的是哪条底层 ——
+    也就不会出现"某条路线上少判一次代理/证书"的分裂。
+    """
+
+    def __init__(self, r, via='cffi'):
+        self._r = r
+        self.via = via
+        self._content = None
+        self.status_code = int(getattr(r, 'status_code', None)
+                               or getattr(r, 'status', None)
+                               or getattr(r, 'code', 0) or 0)
+        self.headers = _lower_keys(getattr(r, 'headers', {}) or {})
+        self.url = str(getattr(r, 'url', '') or '')
+
+    @property
+    def content(self):
+        if self._content is None:
+            c = getattr(self._r, 'content', None)
+            if c is None:
+                c = self._r.read()
+                if self.headers.get('content-encoding') == 'gzip':
+                    try:                       # urllib 不自动解 gzip
+                        import gzip as _gz
+                        import io as _io
+                        c = _gz.GzipFile(fileobj=_io.BytesIO(c)).read()
+                    except Exception:          # noqa: BLE001 解不开就用原字节
+                        pass
+            self._content = c or b''
+        return self._content
+
+    @property
+    def text(self):
+        t = getattr(self._r, 'text', None)
+        if isinstance(t, str):
+            return t                           # cffi 自己按头/内容猜的编码
+        data = self.content
+        cs = ''
+        ct = str(self.headers.get('content-type', ''))
+        if 'charset=' in ct:
+            cs = ct.split('charset=')[-1].split(';')[0].strip()
+        if not cs:
+            from webtool.core.http import _sniff_charset
+            cs = _sniff_charset(data) or 'utf-8'
+        try:
+            return data.decode(cs, errors='replace')
+        except LookupError:
+            return data.decode('utf-8', errors='replace')
+
+    def json(self):
+        import json as _json
+        return _json.loads(self.text)
+
+    def iter_content(self, chunk_size=65536):
+        def _chunks():
+            data = self.content
+            for i in range(0, len(data), chunk_size):
+                yield data[i:i + chunk_size]
+
+        it = getattr(self._r, 'iter_content', None)
+        # cffi 的 iter_content 只对 stream=True 的响应有效, 其余会当场断言;
+        # 用它之前先看队列在不在, 免得"能不能流读"变成调用方的负担
+        if it is not None and getattr(self._r, 'queue', None):
+            def _gen():
+                try:
+                    for c in it(chunk_size):
+                        yield c
+                except AssertionError:          # noqa: BLE001 退化成整块切
+                    for c in _chunks():
+                        yield c
+            return _gen()
+        return _chunks()
+
+    @property
+    def raw(self):
+        """底层响应对象 —— 流式读 (read1/lines) 这类特殊读法要拿它
+
+        只给"确实需要字节级控制"的调用方 (LLM 的 SSE: read1 有多少读多少,
+        read(n) 会阻塞到攒满 n 字节, 流式就没了)。
+        """
+        return self._r
+
+    def close(self):
+        try:
+            self._r.close()
+        except Exception:                      # noqa: BLE001 关不掉就算了
+            pass
+
+
+def new_session(profile=None, proxy=None, engine=None, url=None):
+    """建一个外部会话 (要预热/攒 cookie 时用): 指纹与线路都按本层规矩
+
+    返回 (session, 档案 dict)。线路归一到 netx 并补保险库密码 —— 自己拼一个
+    Session 再塞个 'auto' 进去, 只会在解析主机名时炸, 报错还指不到配置。
+    """
+    proxy = _resolve_proxy_auth(proxy, url)
+    prof = profile or _pick_profile(engine)
+    return _new_session(prof, proxy, engine, url)
+
+
+def _resolve_proxy_auth(proxy, url):
+    """线路归一 (netx) + 补保险库密码 —— 唯一该做的两件事, 别处不许各判一份"""
+    from webtool.net import netx as _netx
+    p = _netx.resolve_proxy(proxy, url)
+    if p and p != 'direct':
+        p = secrets_store.resolve_auth(p)
+    return p
+
+
+def request(method, url, *, kind='api', referer=None, proxy=None, timeout=15,
+            engine=None, rate_engine=None, headers=None, lang=LANG_ZH,
+            profile=None, session=None, cookiejar=None, via='auto', verify=None,
+            params=None, data=None, json_body=None, allow_redirects=True,
+            stream=False, raw_headers=False):
+    """通用请求 (GET/POST/...): 代理、证书、指纹、会话全按本层决策 → Resp
+
+    与 get() 的分工: get() 是**抓页面**的通道, 带反爬判定与降级梯; 这条不带
+    (engine 在这里只用来挑指纹档案与限速桶)。给"不该有验证码语义"的通道用:
+    MCP 服务、LLM API、行情接口 —— 这些上游不会弹人机验证页, 套上判定只是
+    多读一遍正文的开销。
+
+    via 选底层: 'auto' (cffi 指纹优先, 失败退 urllib) / 'urllib' (强制) /
+    'cffi' (强制)。**它是兜底路径的立身之本**: sogou 的 urllib 兜底、gnews 的
+    article 通道之所以能当兜底, 靠的就是换一套 HTTP/TLS 栈, 全塞回 cffi 就等于
+    没有兜底。cookie 连续性三种给法: `session` (cffi Session) / `cookiejar`
+    (stdlib CookieJar, 走 urllib)。
+
+    raw_headers=True 表示请求头由调用方全权给定 (LLM 这类对上家协议敏感的通道):
+    这条走**不带 impersonate** 的底层, 所以连 sec-fetch-*/客户端提示都不会被
+    悄悄塞进去 —— 本层只负责线路与证书。(给了 session= 则 session 优先: 那时
+    调用方要的是 cookie 连续性。)
+    """
+    proxy = _resolve_proxy_auth(proxy, url)
+    proxy_arg = None if proxy == 'direct' else proxy
+    if engine:
+        _pace(rate_engine or engine)
+    use_urllib = via == 'urllib' or cookiejar is not None \
+        or (raw_headers and session is None)
+    if session is not None:
+        s, p = session, (profile if isinstance(profile, dict) else
+                         (PROFILES.get(profile) if profile
+                          else PROFILES['chrome131_win']))
+    else:
+        s, p = _new_session(profile or _pick_profile(engine), proxy_arg,
+                            engine, url)
+    if raw_headers:
+        h = dict(headers or {})
+        h_urllib = dict(headers or {})
+    else:
+        # cffi 只补 impersonate 不会发的头 (UA/sec-ch-* 由指纹自己带, 手动传
+        # 反而可能与 TLS 版本错位); urllib 没有 impersonate, 得补全套
+        h = headers_for(kind, url, referer=referer, lang=lang, profile=p,
+                        extra=headers)
+        h_urllib = headers_for(kind, url, referer=referer, lang=lang,
+                               profile=p, extra=headers, full=True)
+    if not use_urllib:
+        try:
+            r = s.request((method or 'GET').upper(), url, headers=h,
+                          params=params, data=data, json=json_body,
+                          timeout=timeout, verify=tls.policy(url, verify),
+                          allow_redirects=allow_redirects, stream=stream)
+            return Resp(r, 'cffi')
+        except CertificateVerifyError as e:
+            raise TlsError(_tls_msg(url, verify, e)) from e
+        except Exception:                      # noqa: BLE001 换 urllib 兜底
+            pass
+    body = data
+    if json_body is not None:
+        import json as _json
+        body = _json.dumps(json_body).encode('utf-8')
+        h_urllib.setdefault('Content-Type', 'application/json')
+    if params:
+        sep = '&' if '?' in url else '?'
+        url = url + sep + urllib.parse.urlencode(params)
+    from webtool.core.http import http_open
+    try:
+        r = http_open(url, proxy=proxy_arg, timeout=timeout, headers=h_urllib,
+                      verify=verify, method=method, data=body,
+                      cookiejar=cookiejar, allow_redirects=allow_redirects)
+    except urllib.error.HTTPError as e:
+        r = e                                  # HTTPError 本身就是可读的响应
+    return Resp(r, 'urllib')
+
+
+# 适配器里的方法参数就叫 request (requests 的签名), 会遮住本模块的 request()
+# —— 别名一个名字给它, 免得"看起来在调自己"
+_send_via_transport = request
+
+
+def profile_for_impersonate(name, ua=None):
+    """按 curl_cffi 的 impersonate 名取一个指纹档案
+
+    同名档案直接复用 (UA/客户端提示一套); 没有就借默认档案, 只换 impersonate
+    —— UA 与 TLS 版本本来就是 impersonate 自己保证的, 这里只是给 headers_for
+    一个"该报哪个 UA"的依据 (stock 各源给的就是这个名, 别再各建一张 UA 表)。
+    """
+    if name in PROFILES:                   # 档案名 (chrome131_win 等) 优先
+        return PROFILES[name]
+    for p in PROFILES.values():
+        if p.get('impersonate') == name:   # 只有 impersonate 名 (chrome131)
+            return p
+    d = dict(PROFILES['chrome131_win'])
+    d['name'] = f'imp-{name}'
+    d['impersonate'] = name
+    if ua:
+        d['ua'] = ua
+    return d
+
+
+def _proxy_choice(proxies, override):
+    """requests 传进来的请求级 `proxies=` → 本层的 proxy 取值
+
+    - 调用点显式给了 proxies (stock 用 `netx.proxies_for` 逐 URL 算出来的,
+      直连时给 None) → 以它为准: 给 None 就是"这条强制直连", 不能当成没给
+    - 没给 → 用建成时定的 override ('auto' 即问路由表)
+    """
+    if proxies:
+        v = proxies.get('https') or proxies.get('http')
+        return v or 'direct'
+    if proxies is not None:
+        return 'direct'
+    return override
+
+
+_ADAPTER = {}
+
+
+def requests_session(*, proxy='auto', kind='api', profile=None, timeout=None,
+                     retries=2):
+    """stock/data 源用的 requests.Session: 每个请求都回到本层出网
+
+    调用点不必改 (仍是 `s.get` / `s.post` / …), 但请求由 transport 发出:
+
+    - 线路按目标 URL 现算 (逐域名问规则表, 不绑在 session 上)
+    - 证书走 `tls.policy`, 头走指纹档案 (裸 python-requests 指纹会被反爬站 403)
+    - 连接按 (线路, 主机) 复用 —— 一次调用打十余个域名也不会每请求重开 TLS
+    - 幂等请求带收敛重试 (RemoteDisconnected/5xx 换连接重试)
+
+    也就是说 stock 与搜索引擎共用同一条通道, 不再是"抓网页走代理、取行情直连"。
+    """
+    import requests
+    ad = _transport_adapter()(proxy=proxy, kind=kind, profile=profile,
+                              timeout=timeout, retries=retries)
+    s = requests.Session()
+    s.trust_env = False                    # 空 proxies 不够: 环境变量还会漏进来
+    s.proxies = {}
+    s.mount('http://', ad)
+    s.mount('https://', ad)
+    return s
+
+
+def _transport_adapter():
+    """懒建适配器类: requests 只有真用这条通道时才需要 (懒导入依赖)"""
+    if 'cls' in _ADAPTER:
+        return _ADAPTER['cls']
+    import requests
+
+    class TransportAdapter(requests.adapters.BaseAdapter):
+        """requests → transport 的桥
+
+        stock 有 61 处 `self._std.get(url, …)`, 逐个改成 transport.request 既
+        费事又会漏。真正出网的是本层, 调用点写什么都不影响线路与证书的判断。
+        """
+
+        def __init__(self, *, proxy='auto', kind='api', profile=None,
+                     timeout=None, retries=2):
+            self.proxy = proxy
+            self.kind = kind
+            self.profile = profile
+            self.timeout = timeout
+            self.retries = int(retries or 0)
+            self._pool = {}
+            self._lock = threading.Lock()
+
+        # ── 会话复用: 连接池按 (线路, 主机) 分家, 主机不同不复用连接 ──
+        def _sess(self, url, proxy):
+            host = urllib.parse.urlsplit(url).netloc
+            with self._lock:
+                key = (proxy, host)
+                s = self._pool.get(key)
+                if s is None:
+                    s, _p = new_session(self.profile, proxy, None, url)
+                    self._pool[key] = s
+                return s
+
+        def send(self, request, stream=False, timeout=None, verify=True,
+                 cert=None, proxies=None):
+            px = _proxy_choice(proxies, self.proxy)
+            h = dict(request.headers)
+            # 长度/编码交给底层按实际体算 (我们可能改过 body)
+            for k in ('Content-Length', 'Content-Encoding', 'Transfer-Encoding'):
+                h.pop(k, None)
+            if request.body is not None and not h.get('Content-Type'):
+                h['Content-Type'] = 'application/x-www-form-urlencoded'
+            # 默认头在这里补: 调用点大多只给 Referer, 裸 python-requests 指纹会被
+            # 反爬站直接 403 (同花顺 data 子域就是)。调用点自己设了 UA 就不动。
+            _kind = 'plain' if self.kind == 'api' else self.kind
+            for k, v in (headers_for(_kind, request.url, full=True) or {}).items():
+                if k == 'User-Agent':
+                    ua = h.get('User-Agent') or ''
+                    if not ua or ua.startswith(('python-requests',
+                                                'python-urllib')):
+                        h[k] = v
+                elif not h.get(k):
+                    h[k] = v
+            to = timeout if timeout is not None else (self.timeout or 15)
+            last = None
+            for attempt in range(max(1, self.retries + 1)):
+                try:
+                    r = _send_via_transport(
+                        request.method, request.url, kind=self.kind,
+                        headers=h, data=request.body, timeout=to,
+                        verify=verify, proxy=px, stream=stream,
+                        session=self._sess(request.url, px),
+                        allow_redirects=False)
+                except Exception as e:              # noqa: BLE001
+                    last = e
+                    if attempt < self.retries:
+                        time.sleep(0.3 * (attempt + 1))   # 换连接/换指纹再试
+                        continue
+                    _raise_as_requests(e, request.url)
+                # 5xx 收敛重试 (与旧 urllib3 Retry 的 status_forcelist 对齐)
+                if (r.status_code in (500, 502, 503, 504) and attempt < self.retries
+                        and request.method.upper() in ('GET', 'HEAD')):
+                    last = None
+                    _safe_close(r)
+                    time.sleep(0.3 * (attempt + 1))
+                    continue
+                return _as_requests_response(r, request)
+            raise requests.exceptions.ConnectionError(str(last))
+
+        def close(self):
+            with self._lock:
+                for s in self._pool.values():
+                    try:
+                        s.close()
+                    except Exception:               # noqa: BLE001
+                        pass
+                self._pool.clear()
+
+    _ADAPTER['cls'] = TransportAdapter
+    return TransportAdapter
+
+
+def _safe_close(r):
+    try:
+        r.close()
+    except Exception:                          # noqa: BLE001
+        pass
+
+
+def _raise_as_requests(e, url):
+    """把本层的错误翻成 requests 的异常类型
+
+    stock 里有 `except requests.exceptions.*` 与 tls 的判定, 拿错类型会让
+    "证书问题"被当成"网络问题"重试到底。
+    """
+    import requests
+    if isinstance(e, TlsError):
+        raise requests.exceptions.SSLError(str(e)) from e
+    if isinstance(e, requests.exceptions.RequestException):
+        raise
+    raise requests.exceptions.ConnectionError(f'{url}: {e}') from e
+
+
+def _as_requests_response(r, request):
+    """Resp → requests.Response (stock 的调用点要的就是 requests 那个壳)"""
+    import requests
+    resp = requests.models.Response()
+    resp.status_code = r.status_code
+    resp.url = r.url or request.url
+    resp.request = request
+    resp.reason = ''
+    resp.headers.update({k: v for k, v in (r.headers or {}).items()})
+    resp._content = r.content
+    ct = str((r.headers or {}).get('content-type', ''))
+    if 'charset=' in ct:
+        resp.encoding = ct.split('charset=')[-1].split(';')[0].strip()
+    return resp
 
 
 def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,

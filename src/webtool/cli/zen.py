@@ -14,8 +14,6 @@ import zlib
 import random
 import sys
 import time
-import urllib.error
-import urllib.request
 
 from webtool.core import urls
 from webtool.core.secrets_store import redact
@@ -56,11 +54,10 @@ def fetch_models_detail(cfg, refresh=False, timeout=15.0, proxy=None):
                     for i in hit['ids']]                # 旧缓存结构
     if proxy is None:
         proxy = _route(cfg, models_url, verbose=True)
-    req = urllib.request.Request(models_url, headers=model_headers())
     try:
-        with _opener({'proxy': proxy} if proxy else {}, url=models_url).open(
-                req, timeout=timeout) as r:
-            d = json.loads(r.read())
+        d = json.loads(_request('GET', models_url, cfg={'proxy': proxy},
+                                headers=model_headers(),
+                                timeout=timeout).content)
         rows = parse_models_full(d)
     except Exception as e:                       # 超时/DNS/TLS 都要兜住
         print('[zen] %s 拉取失败: %s' % (models_url, str(e)[:120]),
@@ -79,15 +76,18 @@ def fetch_models(cfg, refresh=False, timeout=15.0, proxy=None):
     return [r['id'] for r in fetch_models_detail(cfg, refresh, timeout, proxy)]
 
 
-def _opener(cfg, url=None, verify=None):
-    """urlopen() 不吃 proxy 参数, 得自己建 opener。
+def _request(method, url, *, cfg=None, headers=None, data=None, stream=False,
+             timeout=TIMEOUT):
+    """LLM 通道的出网口: 头/体由调用方全权给定 (raw_headers), 线路与证书归
+    net.transport —— 免得 zen 这边的代理与证书判断自成一套。
 
-    空/None 代理 → 走直连 (urllib 只在显式给空 dict 时才不读环境变量, 这里
-    显式关掉, 免得继承了 http_proxy 环境变量导致"配置里没代理却走了代理")。
-    证书策略交给 core.tls, 与搜索/抓取通道同源。
+    这条走 urllib 底层 (不带 impersonate): 对上家来说我们要的只是"一个说
+    OpenAI 协议的普通客户端", 塞浏览器指纹没有意义, 还可能踩到对方的协议校验。
     """
-    from webtool.core import http as _http
-    return _http.build_opener((cfg or {}).get('proxy'), url=url, verify=verify)
+    from webtool.net import transport
+    return transport.request(method, url, raw_headers=True, via='urllib',
+                             stream=stream, headers=headers, data=data,
+                             proxy=(cfg or {}).get('proxy'), timeout=timeout)
 
 
 _norm = urls.norm_key   # 请求去重键 (与 feed 共用同一把尺)
@@ -236,8 +236,6 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
                       reasoning_effort, max_tokens)
     headers = session.headers() if session else build_headers()
     chat_url = _endpoints()[0]
-    req = urllib.request.Request(chat_url, data=body, headers=headers,
-                                 method='POST')
     t0 = time.time()
     stream_err = []
     text_parts, reason_parts, tool_acc = [], [], {}
@@ -275,7 +273,15 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
                 stream_err.append(err)
 
     try:
-        with _opener(cfg, url=chat_url).open(req, timeout=TIMEOUT) as r:
+        _resp = _request('POST', chat_url, cfg=cfg, headers=headers, data=body,
+                         stream=True)
+        if _resp.status_code >= 400:
+            # transport 把 4xx/5xx 也交回来 (它不替调用方决定"这算不算失败"),
+            # 这里就是明确的失败: 交回状态码与响应体给重试层判断
+            return {'ok': False, 'status': _resp.status_code,
+                    'elapsed': time.time() - t0, 'error_body': _resp.text,
+                    'retry_after': _resp.headers.get('retry-after')}
+        with _resp.raw as r:
             remainder = b''
             saw_done = False
             # read1() 有数据就返回; read(n) 会阻塞到攒满 n 字节, 流式就没了
@@ -304,11 +310,6 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
                 drain([remainder.decode('utf-8', errors='replace')])
             if not saw_done and not stream_err:
                 stream_err.append('stream closed without [DONE] and without content')
-    except urllib.error.HTTPError as e:
-        with e:
-            body_txt = e.read().decode('utf-8', errors='replace')
-        return {'ok': False, 'status': e.code, 'elapsed': time.time() - t0,
-                'error_body': body_txt, 'retry_after': e.headers.get('Retry-After')}
     except Exception as e:
         # DNS 失败 / 连接被拒 / TLS 失败 / socket 超时。重试层只按状态码判断,
         # 这些必须自己兜住, 否则整个调用冒泡成 traceback。

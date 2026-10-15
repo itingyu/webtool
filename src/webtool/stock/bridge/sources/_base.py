@@ -4,7 +4,7 @@
 `sources/em.py` 装东财的, 依此类推。但传输层是跨源共享的, 所以抽到这里:
 
 - `_ok` / `_err`   统一返回信封 (各源各定义一份会漂)
-- `SourceBase`     持三个 session: `_std` (requests+Retry) / `_xs`
+- `SourceBase`     持三个 session: `_std` (经 net.transport 出网) / `_xs`
                    (curl_cffi chrome110, 雪球/腾讯 K 线共用指纹) / `_ths`
                    (同花顺 v cookie, 懒加载)
 - 同花顺 v token   qjs 子进程跑 akshare 的 ths.js, 进程内缓存
@@ -26,9 +26,6 @@ import subprocess
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
-
-import requests
-from curl_cffi import requests as cffi_requests
 
 from webtool.stock.bridge.sources import _routing, _symbol
 
@@ -82,15 +79,12 @@ class SourceBase:
         # 域名, 绑在 session 上就只剩一个出口, 路由表逐域名决策的能力会失效。
         # 改成每请求现算 (见 self._px)。
         self._proxy = proxy
-        self._std = requests.Session()
-        self._std.proxies = {}            # 显式清空: 不继承环境变量
-        self._std.trust_env = False       # 光清 proxies 不够: trust_env 还会
-                                          # 把 http_proxy 合进来
-        # 带路由的适配器: 每个请求按目标 URL 现算代理 (规则表说了算),
-        # 内含 retry (解决间歇性 RemoteDisconnected)。61 个调用点零改动生效 ——
-        # 逐个加 proxies= 漏一处就是一个源绕过规则表。
-        from webtool.stock.bridge.sources._adapter import mount as _mount
-        _mount(self._std, override=self._proxy)
+        # 逐请求按目标 URL 现算线路 (规则表说了算), 连接按 (线路, 主机) 复用,
+        # 附带 retry (解决间歇性 RemoteDisconnected)。61 个调用点零改动 ——
+        # 真正出网的是 net.transport, 与搜索引擎同一条通道。
+        from webtool.net import transport as _tx
+        self._std = _tx.requests_session(
+            proxy='auto' if proxy is None else proxy)
         self._std.headers.update({'Accept-Language': 'zh-CN,zh;q=0.9'})
         # UA 不在这里写死: 由 _routing.headers_for() 按站点给浏览器指纹档案,
         # 与搜索引擎/抓取通道同一套, 免得每个源各留一份必然过期的硬编码。
@@ -103,12 +97,12 @@ class SourceBase:
         return _routing.resolve(url, self._proxy)
 
     def _kwargs(self, url, **over):
-        """给 requests.get/post 的请求级参数: 代理 + 证书。
+        """给 HTTP 请求的请求级参数: 代理 + 证书。
 
         `over` 里的 headers/params 等原样带出; `verify=False` 这类显式豁免
         优先级高于规则表。
         默认头**不在这里补** —— 只被 15/61 个调用点用到, 补这儿等于漏掉
-        大半 (历史就是这么漏的)。统一在 RoutedAdapter.send 里按站点补。
+        大半 (历史就是这么漏的)。统一在 net.transport 的适配器里按站点补。
         """
         kw = dict(over)
         px = _routing.proxies_for(url, self._proxy)
