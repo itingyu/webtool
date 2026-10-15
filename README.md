@@ -268,6 +268,7 @@ webtool proxy rule add '{"port":[8080]}' proxy:tokyo       # 走命名代理
 webtool proxy rule add '{"domain":["ads.tracker.io"]}' block
 webtool proxy rule del 2                                    # 0 起
 webtool proxy rules [URL]                                   # 列规则 / 试算
+webtool proxy tidy [--apply]                                # 合并同动作规则 / 去冗余 (干跑默认, 落盘先备份)
 webtool proxy geosite /path/geosite.dat                     # 配域名库 (MaxMind .mmdb 或 v2ray/sing-box .dat)
 webtool proxy geoip /path/GeoLite2-Country.mmdb
 ```
@@ -276,7 +277,10 @@ webtool proxy geoip /path/GeoLite2-Country.mmdb
 - 动作 `direct` / `block` / `proxy:<名字>`（裸 `proxy` 等价 `proxy:default`）；`--first` 插到最前、`--pos N` 插到第 N 位（默认追加到末尾）
 - **顺序即优先级**，第一个命中的生效；`match` 内多条件 AND、同条件内多值 OR；判不出来 = 不匹配（缺库则该条跳过并提示）
 - 分流优先用 `geosite` 而不是 `geoip`：按域名查库不解析 IP，不受 CDN 就近解析影响
-- 首次运行自动生成默认 `~/.webtool/rules.json`（国内常见站 + `opencode.ai` / `exa.ai` 直连），已存在则永不覆盖
+- 首次运行自动生成默认 `~/.webtool/rules.json`（**一条**合并规则：`*.cn` + 国内常见站 + `opencode.ai`/`exa.ai` 直连），已存在则永不覆盖
+- `proxy tidy` 做三件事，都只动语义等价或纯死重的部分：同动作规则合成一条、同一规则内被宽条目覆盖的去重、被前面规则完全覆盖或与默认动作同结果的规则删掉；**默认干跑**，`--apply` 落盘并先备份（规则表是分流总闸，不偷偷改）
+- 规则写散了不必手抠：同动作的多条规则迟早互相遮蔽，`webtool proxy rules` 检测到冗余会直接提示跑 tidy
+- 没配代理时默认动作是 `direct`（此时直连规则是冗余的，tidy 会建议删）；`proxy set` 把默认动作切成代理的那一刻，若规则表为空会自动补一条国内直连规则
 
 ### pkg —— 让 npm/git 等走规则表
 

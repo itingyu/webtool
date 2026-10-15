@@ -443,16 +443,17 @@ def feed_cmd(sources: list[str] = typer.Argument(None, help='feed key 或任意 
 # 管理命令
 
 @app.command('proxy')
-def proxy_cmd(action: str = typer.Argument(..., help='get/set/unset/test/setpass/delpass/passwd/rules/rule/ruledel/geoip/asn/noproxy'),
+def proxy_cmd(action: str = typer.Argument(..., help='get/set/unset/test/setpass/delpass/passwd/rules/tidy/rule/ruledel/geoip/asn/noproxy'),
               value: str = typer.Argument(None, help='代理地址; 或 rule 的子命令; 或试算用的 URL'),
               user: str = typer.Argument(None, help='setpass/delpass 的用户名; rule add 的 match JSON; ruledel 的序号'),
               act: str = typer.Argument(None, help='rule add 的动作: direct/proxy/block/proxy:<名字>'),
               first: bool = typer.Option(False, '--first', help='rule add: 插到规则表最前面 (默认追加到末尾, 会被前面的规则吃掉)'),
-              pos: int = typer.Option(None, '--pos', help='rule add: 插到第 N 位 (0 = 最前)')):
+              pos: int = typer.Option(None, '--pos', help='rule add: 插到第 N 位 (0 = 最前)'),
+              apply: bool = typer.Option(False, '--apply', help='tidy: 落盘 (默认干跑, 落盘前自动备份)')):
     """代理配置: 选线路 / 存凭据(密文) / 按域名-IP-端口-协议-GeoIP 分流"""
     a = _CTX['args']
     a.action, a.value, a.user, a.act = action, value, user, act
-    a.first, a.pos = first, pos
+    a.first, a.pos, a.apply = first, pos, apply
     cfg = _proxy.load_config()
     if _CTX.get('proxy'):
         cfg['proxy'] = _CTX['proxy']

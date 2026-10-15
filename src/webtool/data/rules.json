@@ -1,59 +1,27 @@
 {
-  "priority": "direct",
+  "default": "direct",
+  "proxies": {},
   "rules": [
     {
       "match": {
         "domain": [
-          "opencode.ai"
-        ]
-      },
-      "action": "direct"
-    },
-    {
-      "match": {
-        "domain": [
-          "exa.ai"
-        ]
-      },
-      "action": "direct"
-    },
-    {
-      "match": {
-        "domain": [
-          "baidu.com",
-          "sogou.com",
-          "so.com",
-          "bing.com",
-          "toutiao.com",
-          "zhihu.com",
-          "weibo.com",
-          "sohu.com",
-          "163.com",
-          "qq.com",
-          "ifeng.com",
-          "sina.com.cn",
-          "sina.cn"
-        ]
-      },
-      "action": "direct"
-    },
-    {
-      "match": {
-        "domain": [
-          "eastmoney.com",
-          "10jqka.com.cn",
-          "xueqiu.com",
-          "cninfo.com.cn",
-          "cs.com.cn",
-          "hexun.com"
-        ]
-      },
-      "action": "direct"
-    },
-    {
-      "match": {
-        "domain": [
-          "cn"
+          "*.cn",
+          "*.eastmoney.com",
+          "*.xueqiu.com",
+          "*.qq.com",
+          "*.163.com",
+          "*.weibo.com",
+          "*.hexun.com",
+          "*.ifeng.com",
+          "*.baidu.com",
+          "*.zhihu.com",
+          "*.toutiao.com",
+          "*.sohu.com",
+          "*.sogou.com",
+          "*.so.com",
+          "*.bing.com",
+          "opencode.ai",
+          "*.exa.ai"
         ]
       },
       "action": "direct"

@@ -312,6 +312,10 @@ def _set(args, cfg):
     if not spec.get('default'):
         spec['default'] = 'proxy:default'
         print("default 动作已设为 proxy:default (原来没写)")
+    from webtool.net import rules as _R
+    if _R.seed_rules(spec):
+        print('已补一份默认分流规则 (一条国内直连, 其余走默认代理); '
+              '看/改: webtool proxy rules, webtool proxy tidy')
     _save_rules(cfg, spec)
     print(f'默认代理已存: {redact(clean)} -> {_rules_path(cfg)}')
     return 0
@@ -462,6 +466,58 @@ def _rules(args, cfg):
         via = f' → {name}' if name else ''
         print(f'  [{i}] {json.dumps(rule.get("match"), ensure_ascii=False)}'
               f'  ⇒ {act}{via}')
+    # 有冗余就当场说, 别等用户自己发现规则表越长越难维护
+    try:
+        _, report = R.tidy_spec(spec)
+    except Exception:
+        report = []
+    if report:
+        # "与默认同结果"这类不算结构问题 (写出来当文档很常见), 不计入唠叨
+        n = sum(1 for x in report if x.startswith('〔')
+                and not x.startswith(('〔同默认〕', '〔提示〕')))
+        if n:
+            print(f'\n⚠ {n} 处可合并/冗余 —— 跑 webtool proxy tidy 预览, '
+                  f'加 --apply 落盘 (会先备份)')
+    return 0
+
+
+def _tidy(args, cfg):
+    """规则表合并: 同动作合并 + 冗余条目去除 + 与默认动作重复的规则去掉
+
+    默认干跑 (只打印报告和结果), `--apply` 才落盘 —— 规则表是分流的总闸,
+    偷偷改掉会让人查半天"为什么昨天还走代理今天直连了"。
+    """
+    from webtool.net import rules as R
+    spec = _load_rules_file(cfg)
+    try:
+        new, report = R.tidy_spec(spec)
+    except Exception as e:
+        print(f'合并失败: {e}', file=sys.stderr)
+        return 2
+    if not report:
+        print('规则表已经是合并后的形态, 无需改动')
+        return 0
+    print('\n'.join(report))
+    before = len(spec.get('rules') or [])
+    after = len(new.get('rules') or [])
+    print(f'\n条数 {before} → {after}')
+    if not getattr(args, 'apply', False):
+        print('\n(干跑, 未改动。--apply 落盘, 会先备份原文件)\n')
+        print(json.dumps(new, ensure_ascii=False, indent=1))
+        return 0
+    path = _rules_path(cfg)
+    bak = None
+    if os.path.isfile(path):
+        bak = f'{path}.bak-{time.strftime("%Y%m%d-%H%M%S")}'
+        try:
+            import shutil
+            shutil.copy2(path, bak)
+        except OSError as e:
+            print(f'备份失败, 未改动: {e}', file=sys.stderr)
+            return 2
+    _save_rules(cfg, new)
+    print(f'\n已写入 {path}' + (f' (备份 {bak})' if bak else ''))
+    print('校验: webtool proxy rules / webtool proxy rules https://google.com')
     return 0
 
 
@@ -797,6 +853,7 @@ _ACTIONS = {
     'named': _named,
     'passwd': _passwd,
     'rules': _rules,
+    'tidy': _tidy,
     'rule': _ruleadd,       # rule add (deld 走 app 层分发)
     'ruledel': _ruledel,
     'geoip': _geoip,
