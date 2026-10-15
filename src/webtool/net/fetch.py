@@ -247,8 +247,12 @@ def do_fetch(args, cfg):
     if args.url_file:
         with open(args.url_file, encoding='utf-8') as f:
             urls = [x.strip() for x in f if x.strip() and not x.startswith('#')]
-    elif args.url:
-        urls = [args.url]
+    else:
+        # stdin 兜底: `cat urls.txt | webtool fetch -`(或无参且被管道喂着)。
+        # read_input 统一口径: 显式参数 > '-' 管道 > 无参管道; parse_lines
+        # 跳空行与 # 注释, 与 --url-file 同款。
+        from webtool.core import stdin as _stdin
+        urls = _stdin.parse_lines(_stdin.read_input(args.url))
     if not urls:
         print('need url or --url-file', file=sys.stderr)
         return 2

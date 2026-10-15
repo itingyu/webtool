@@ -1,7 +1,216 @@
 """fetch 主获取通道: transport 浏览器指纹, cffi 全挂时内部落到 urllib。
 
 opener 参数保留兼容旧调用, 实际不再使用。
+
+本模块同时是**弹性层** (docs/coding-standard.md §2.9): 并发 / 重试 / 熔断 /
+断点恢复的统一出口, 业务模块不自己写线程池与重试循环。策略默认值住在
+这里的常量; 按域名特殊化走 rules.json 的 kind 条目 (`retry` / `breaker`,
+见 net.rules.Router.params_for)。
 """
+import os
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from webtool.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+# ── 通用默认值 (特殊走规则, 否则走这里) ─────────────────────────────
+DEFAULT_RETRIES = 2
+DEFAULT_BACKOFF = 'exp'          # exp=指数退避+jitter; flat=固定间隔
+RETRY_BASE = 0.5                 # 首次重试等待秒数
+RETRY_CAP = 8.0                  # 退避上限秒数
+DEFAULT_FAIL_THRESHOLD = 5       # 连续失败 N 次 → 熔断打开
+DEFAULT_COOL_SECONDS = 300       # 熔断冷却半开期
+
+
+def retry_policy(url):
+    """URL → (retries, backoff): kind:retry 规则 > 通用默认"""
+    try:
+        from webtool.net import rules as _rules
+        p = _rules.router().params_for('retry', url or '')
+        return int(p.get('retries') or DEFAULT_RETRIES), \
+            str(p.get('backoff') or DEFAULT_BACKOFF)
+    except Exception as e:                 # 规则读不到不能连累重试
+        logger.debug('retry 规则查询失败, 用默认: %s', e)
+        return DEFAULT_RETRIES, DEFAULT_BACKOFF
+
+
+def breaker_policy(url):
+    """URL → (fail_threshold, cool_seconds): kind:breaker 规则 > 通用默认"""
+    try:
+        from webtool.net import rules as _rules
+        p = _rules.router().params_for('breaker', url or '')
+        return int(p.get('fail_threshold') or DEFAULT_FAIL_THRESHOLD), \
+            int(p.get('cool_seconds') or DEFAULT_COOL_SECONDS)
+    except Exception as e:
+        logger.debug('breaker 规则查询失败, 用默认: %s', e)
+        return DEFAULT_FAIL_THRESHOLD, DEFAULT_COOL_SECONDS
+
+
+def retry_call(fn, *, url=None, retries=None, backoff=None,
+               exceptions=(Exception,), on_retry=None, sleep=time.sleep):
+    """带退避的重试包装: 只重试幂等请求, 结果按原样返回 / 异常原样抛
+
+    retries/backoff 不给时按 retry 规则 (kind:retry) 或通用默认。
+    on_retry(attempt, err) 是观察钩子 (打日志/计数), 不控制流程。
+    """
+    r, b = retry_policy(url) if retries is None or backoff is None \
+        else (retries, backoff)
+    attempt = 0
+    while True:
+        try:
+            return fn()
+        except exceptions as e:
+            attempt += 1
+            if attempt > r:
+                raise
+            if b == 'exp':
+                import random
+                d = RETRY_BASE * (2 ** (attempt - 1))
+                d *= 0.5 + random.random()        # jitter, 防同时打
+                d = min(RETRY_CAP, d)             # 上限在加完 jitter 之后
+            else:
+                d = min(RETRY_CAP, RETRY_BASE)
+            if on_retry:
+                on_retry(attempt, e)
+            logger.debug('重试 %s/%s (%s: %s), 等 %.1fs',
+                         attempt, r, type(e).__name__, str(e)[:80], d)
+            sleep(d)
+
+
+# ── 熔断: 按域名连续失败计数, 状态经 core.state 跨进程生效 ──────────
+class Breaker:
+    """域级熔断器: 连续失败 fail_threshold 次 → 打开 cool_seconds
+
+    状态名 `resilient:<host>`, 与 gnews 等各自命名的 breaker 互不干扰。
+    打开期调用方应直接短路 (不发请求); 冷却过半开: 计数清零放行试探,
+    试探再失败会在 record 里立即重开。
+    """
+
+    def __init__(self, url):
+        from urllib.parse import urlsplit
+        self.host = urlsplit(url or '').hostname or ''
+        self.name = 'resilient:' + self.host
+
+    def _load(self):
+        from webtool.core import state
+        return state.get_breaker(self.name)
+
+    def check(self):
+        """熔断打开返回剩余冷却秒数 (调用方直接短路), 否则 None"""
+        br = self._load()
+        until = br.get('open_until', 0)
+        left = until - time.time()
+        if left > 0:
+            logger.debug('熔断打开 %s (剩 %.0fs)', self.host, left)
+            return left
+        if until and br.get('fails'):
+            self._record(fails=0)          # 半开放行试探
+        return None
+
+    def record(self, ok):
+        """记账: 失败累计到阈值则打开; 成功清零"""
+        br = self._load()
+        if ok:
+            if br.get('fails'):
+                self._record(fails=0)
+            return
+        threshold, cool = breaker_policy('https://' + self.host if self.host
+                                         else '')
+        fails = int(br.get('fails', 0)) + 1
+        if fails >= threshold:
+            logger.debug('熔断打开 %s (%d 连败, 冷却 %ss)',
+                         self.host, fails, cool)
+            self._record(fails=fails, open_until=time.time() + cool)
+        else:
+            self._record(fails=fails)
+
+    def _record(self, **kv):
+        from webtool.core import state
+        state.set_breaker(self.name, **kv)
+
+
+# ── 并发: 统一线程池入口 (共享状态只在主线程写, 见规范"多源抓取"节) ──
+def parallel_map(items, fn, *, max_workers=6, desc=''):
+    """items 并发跑 fn, **按声明顺序**返回 (结果, 异常或 None) 列表
+
+    - 顺序恒定: 下游排序对并列项才稳定, 回填顺序不能随线程完成顺序漂
+    - 单个任务异常被捕获放回自己的槽位, 不炸整批
+    - max_workers 上限 6: 出口是同一条代理/同一条网, 开太满只是把自己打满
+    """
+    items = list(items)
+    if not items:
+        return []
+    workers = max(1, min(int(max_workers or 1), 6, len(items)))
+    out = [None] * len(items)
+    if workers == 1:
+        for i, it in enumerate(items):
+            try:
+                out[i] = (fn(it), None)
+            except Exception as e:
+                out[i] = (None, e)
+        return out
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(fn, it): i for i, it in enumerate(items)}
+        for f in as_completed(futs):
+            i = futs[f]
+            try:
+                out[i] = (f.result(), None)
+            except Exception as e:
+                out[i] = (None, e)
+    logger.debug('parallel_map %s: %d 项 / %d 线程 / %.1fs',
+                 desc or '', len(items), workers, time.time() - t0)
+    return out
+
+
+# ── 断点恢复: 批任务跳过已完成条目 ─────────────────────────────────
+class Checkpoint:
+    """批任务断点: 已完成条目记进 ~/.webtool/cache/checkpoint-<名>.json
+
+    用法: cp = Checkpoint('feed-20261015'); 剩余 = cp.pending(items, key)
+    逐条完成调 cp.done(k); 全部完成 cp.clear()。文件损坏按没有算 (重跑)。
+    """
+
+    def __init__(self, name):
+        self.path = os.path.join(
+            os.path.expanduser('~/.webtool/cache'),
+            'checkpoint-' + name.replace('/', '_') + '.json')
+        self._done = set()
+        try:
+            import json
+            with open(self.path, encoding='utf-8') as f:
+                self._done = set(json.load(f))
+        except (OSError, ValueError):
+            pass
+
+    def pending(self, items, key=str):
+        return [it for it in items if key(it) not in self._done]
+
+    def done(self, k):
+        self._done.add(k)
+        self._save()
+
+    def clear(self):
+        self._done.clear()
+        try:
+            os.unlink(self.path)
+        except OSError:
+            pass
+
+    def _save(self):
+        import json
+        try:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            tmp = self.path + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(sorted(self._done), f)
+            os.replace(tmp, self.path)
+        except OSError:
+            pass                       # 断点写不进只影响续跑, 不影响任务
+
+
 from webtool.net import transport
 from webtool.net import proxyhelper
 

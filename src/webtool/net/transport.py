@@ -583,7 +583,42 @@ def _resolve_proxy_auth(proxy, url):
     return p
 
 
-def request(method, url, *, kind='api', referer=None, proxy=None, timeout=15,
+class BreakerOpenError(RuntimeError):
+    """域级熔断打开中: 请求被短路, 剩余冷却秒数在消息里"""
+
+
+def request(method, url, **kw):
+    """弹性入口: 熔断检查 + 幂等方法按 retry 规则重试; 本体 _request_once
+
+    熔断按域名计 (core.resilient.Breaker, 阈值/冷却走 kind:breaker 规则);
+    重试只对幂等方法 (GET/HEAD), 次数/退避走 kind:retry 规则。非幂等
+    (POST/PUT) 不重试也不套重试循环 —— 重复提交不是弹性是事故。
+    """
+    from webtool.core.resilient import Breaker, retry_call
+    br = Breaker(url)
+    left = br.check()
+    if left is not None:
+        raise BreakerOpenError(f'熔断打开中 {url} (剩 {left:.0f}s), '
+                               f'先修原因或等冷却')
+    m = (method or 'GET').upper()
+    if m in ('GET', 'HEAD'):
+        return _guarded(br, lambda: retry_call(
+            lambda: _request_once(method, url, **kw), url=url))
+    return _guarded(br, lambda: _request_once(method, url, **kw))
+
+
+def _guarded(br, fn):
+    """成败都记账: 成功清零连败, 失败累计 (到阈值由 Breaker 打开)"""
+    try:
+        r = fn()
+    except Exception:
+        br.record(False)
+        raise
+    br.record(True)
+    return r
+
+
+def _request_once(method, url, *, kind='api', referer=None, proxy=None, timeout=15,
             engine=None, rate_engine=None, headers=None, lang=LANG_ZH,
             profile=None, session=None, cookiejar=None, via='auto', verify=None,
             params=None, data=None, json_body=None, allow_redirects=True,

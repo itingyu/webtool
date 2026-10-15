@@ -207,7 +207,7 @@ def _main(ctx: typer.Context,
 # search
 
 @app.command('search')
-def search_cmd(query: str = typer.Argument(..., help='搜索词'),
+def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 stdin 读一行, 如 echo 词 | webtool search -)'),
                engine: str = typer.Option(None, '-e', '--engine',
                                           help='逗号分隔: bing,sogou,baidu,so360,google,marginalia'),
                preset: str = typer.Option(None, '--preset',
@@ -226,6 +226,8 @@ def search_cmd(query: str = typer.Argument(..., help='搜索词'),
     """多引擎网页搜索"""
     a = _CTX['args']
     a.update = None
+    from webtool.core import stdin as _stdin
+    query = _stdin.read_input(query, required=True, what='搜索词')
     a.query, a.engine, a.preset, a.max = query, engine, preset, max
     a.operators, a.blocklist = operators, blocklist
     a.jobs = jobs
