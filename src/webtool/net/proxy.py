@@ -263,11 +263,15 @@ def _get(args, cfg):
 
 
 def _set(args, cfg):
-    """`proxy set <url>` = 设命名代理 default + 补 default 动作"""
+    """`proxy set <url>` = 设命名代理 default + 补 default 动作
+
+    URL 里**不许带密码**: 命令行参数会进 shell history 和 ps 输出, 等于明文
+    外泄。密码要么已在保险库 (直接通过), 要么现场交互输入, 要么先 setpass。
+    """
     val = args.value
     if not val:
-        print('usage: webtool proxy set http://host:port  '
-              '(支持 http/https/socks5://; 带密码会自动存进保险库)',
+        print('usage: webtool proxy set http://[user@]host:port  '
+              '(支持 http/https/socks5://; 带用户名时密码交互输入)',
               file=sys.stderr)
         return 2
     url = _rule_syntax(val)
@@ -280,16 +284,27 @@ def _set(args, cfg):
         print('代理地址缺少主机名', file=sys.stderr)
         return 2
     if password:
-        if not user:
-            print('URL 里有密码但没用户名, 无法存保险库', file=sys.stderr)
-            return 2
+        print('拒绝执行: URL 里带明文密码会进 shell history 和 ps 输出\n'
+              f'处理: 先 webtool proxy setpass {user}@{host}'
+              f'{":" + port if port else ""} "<密码>" (省略密码则交互输入),\n'
+              f'      再 webtool proxy set {scheme}://{user}@{host}'
+              f'{":" + port if port else ""}',
+              file=sys.stderr)
+        return 2
+    hostport = f'{host}:{port}' if port else host
+    if user and not _vault_has(f'{user}@{hostport}') and not _vault_has(user):
+        # 库里没有这个凭据, 当场补录 (真终端不回显; 无 TTY 走 stdin)
+        pwd = _ask_password(f'{user}@{hostport}')
+        if pwd is None:
+            return 130 if sys.stdin.isatty() else 2
         try:
-            entry = _store_proxy_password(user, password, host, port)
+            _store_proxy_password(user, pwd, host, port)
         except Exception as e:
             print(f'密码存储失败: {redact(str(e))}', file=sys.stderr)
             return 2
-        print(f'密码已加密存进保险库 (条目 {entry}); 出网时才解密')
-    hostport = f'{host}:{port}' if port else host
+        print(f'密码已加密存进保险库 (条目 {user}@{hostport}); 出网时才解密')
+    elif user:
+        print(f'使用保险库已有条目 {user}@{hostport}')
     clean = (f'{scheme}://{quote(user, safe="")}@{hostport}' if user
              else f'{scheme}://{hostport}')
     spec = _load_rules_file(cfg)
@@ -347,14 +362,40 @@ def _test(args, cfg):
         return 1
 
 
+def _ask_password(ref):
+    """终端交互读密码 (getpass, 不回显); 无 TTY 时读 stdin 一行 (管道场景)。
+
+    返回 None = 用户中断/给了空行。必须先判 isatty 再决定走哪条: getpass
+    在无 TTY 时会静默降级成读 stdin 并往 stderr 打警告, 两条路不能混。"""
+    if sys.stdin.isatty():
+        import getpass
+        try:
+            return getpass.getpass(f'输入 {ref} 的代理密码 (不回显): ')
+        except (EOFError, KeyboardInterrupt):
+            print(file=sys.stderr)
+            return None
+        except Exception as e:
+            # 没有 /dev/tty (某些容器/重定向环境): 退回读 stdin, 别直接崩
+            print(f'无法交互输入 ({e}); 请改用管道: '
+                  f'echo "<密码>" | webtool proxy setpass {ref}',
+                  file=sys.stderr)
+            return None
+    return sys.stdin.readline().rstrip('\n') or None
+
+
+def _vault_has(ref):
+    from webtool.core.secrets_store import _load_store
+    return ref in _load_store()
+
+
 def _setpass(args, cfg):
     """把账号密码加密存进保险库, 配置里只留用户名
 
     密码来源按优先级:
-      1. 位置参数 `<密码>` —— 方便脚本, 但**会留在 shell history 和 ps 输出里**,
-         交互使用应该省略它 (走第 2 条)
-      2. 终端交互 (getpass, **不回显**) —— 真终端下的默认路径
-      3. stdin 管道 —— 供 Agent / 脚本 `echo pw | webtool proxy setpass <用户>`
+      1. 终端交互 (getpass, **不回显**) —— 真终端下的默认路径 (省略密码参数)
+      2. stdin 管道 —— 供 Agent / 脚本 `echo pw | webtool proxy setpass <用户>`
+      3. 位置参数 `<密码>` —— **会留在 shell history 和 ps 输出里**, 只在
+         明知无泄漏环境 (CI 临时容器) 时用
     """
     user = args.user
     if not user:
@@ -364,24 +405,9 @@ def _setpass(args, cfg):
         return 2
     pwd = args.value
     if pwd is None:
-        if sys.stdin.isatty():
-            # 真终端: 交互输入且不回显。必须先判 isatty —— getpass 在无 TTY
-            # 时会静默降级成读 stdin 并往 stderr 打警告, 那正是下面第 3 条
-            # 该走的路, 不能两条路混在一起
-            import getpass
-            try:
-                pwd = getpass.getpass(f'输入 {user} 的代理密码 (不回显): ')
-            except (EOFError, KeyboardInterrupt):
-                print(file=sys.stderr)
-                return 130
-            except Exception as e:
-                # 没有 /dev/tty (某些容器/重定向环境): 退回读 stdin, 别直接崩
-                print(f'无法交互输入 ({e}); 请改用管道: '
-                      f'echo "<密码>" | webtool proxy setpass {user}',
-                      file=sys.stderr)
-                return 2
-        else:
-            pwd = sys.stdin.readline().rstrip('\n')
+        pwd = _ask_password(user)
+        if pwd is None:
+            return 130 if sys.stdin.isatty() else 2
     if not pwd:
         print('密码为空', file=sys.stderr)
         return 2
@@ -559,15 +585,13 @@ def _load_rules_file(cfg=None):
 
 
 def _save_rules(cfg, spec):
-    """规则一律写 rules.json (单一事实来源), 并清掉可能并存的内联副本"""
+    """规则一律写 rules.json (单一事实来源)。**不碰 config.json**:
+    调用链上常刚把密码密文写进保险库 (store_password 直接落 config.json),
+    这里再 save_config(cfg) 会拿旧快照把密文覆盖掉 (看着成功, 重启就没密码)"""
     path = _rules_path(cfg)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(spec, f, ensure_ascii=False, indent=2)
-    cfg['rules_file'] = path
-    if cfg.get('proxy_rules'):
-        cfg['proxy_rules'] = None
-    save_config(cfg)
     print(f'规则已写 {path}')
 
 
@@ -738,22 +762,28 @@ def _named(args, cfg):
         return 2
     clean = f'{scheme}://{host}' + (f':{port}' if port else '')
     if password:
-        if not user:
-            print('URL 里有密码但没用户名, 无法存保险库', file=sys.stderr)
-            return 2
-        try:
-            _store_proxy_password(user, password, host, port)
-        except Exception as e:
-            print(f'密码存储失败: {redact(str(e))}', file=sys.stderr)
-            return 2
-        cfg['proxy_auth'] = load_config().get('proxy_auth') or {}
-        clean = (f'{scheme}://{quote(user, safe="")}@{host}'
-                 + (f':{port}' if port else ''))
+        # 同 proxy set: 命令行明文密码 = 进 history 和 ps, 拒绝
+        print('拒绝执行: URL 里带明文密码会进 shell history 和 ps 输出\n'
+              f'处理: webtool proxy setpass {user}@{host}'
+              f'{":" + port if port else ""} 后重试, 或 URL 只写 user@host '
+              '(密码库里有就直接用, 没有会交互补录)', file=sys.stderr)
+        return 2
+    if user:
+        hostport = f'{host}:{port}' if port else host
+        if not _vault_has(f'{user}@{hostport}') and not _vault_has(user):
+            pwd = _ask_password(f'{user}@{hostport}')
+            if pwd is None:
+                return 130 if sys.stdin.isatty() else 2
+            try:
+                _store_proxy_password(user, pwd, host, port)
+            except Exception as e:
+                print(f'密码存储失败: {redact(str(e))}', file=sys.stderr)
+                return 2
+            print(f'密码已加密存进保险库 (条目 {user}@{hostport}); 出网时才解密')
+        clean = (f'{scheme}://{quote(user, safe="")}@{hostport}')
     proxies[name] = {'url': clean}
     _save_rules(cfg, spec)
     print(f'命名代理 {name} = {redact(clean)} -> {_rules_path(cfg)}')
-    if password:
-        print(f'  密码已加密存进保险库 (用户 {user}), 出网时才解密')
     return 0
 
 

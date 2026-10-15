@@ -252,8 +252,8 @@ webtool config list                                     # 看实际生效策略�
 ### 代理与分流
 
 ```bash
-webtool proxy set http://user:pass@host:port       # 密码加密入库, rules.json 只留 user@host
-webtool proxy setpass <用户名|用户名@主机>           # 终端交互输入 (不回显)
+webtool proxy set http://user@host:port            # 密码在库里有就直接用, 没有则交互输入 (不回显)
+webtool proxy setpass <用户名|用户名@主机>           # 单独存密码; URL 里带 :pass@ 会被拒绝 (防 history/ps 泄漏)
 webtool proxy passwd | delpass <引用名>
 webtool proxy named tokyo socks5://user@127.0.0.1:1081     # 命名代理
 webtool proxy unset                                        # 清默认代理
