@@ -210,8 +210,12 @@ class Registry:
 
     # 查表
 
-    def items(self):
-        """三层来源合并后的 name -> PluginSpec (entry 已解析为 fn, 已排序)"""
+    def items(self, enabled_only=True):
+        """三层来源合并后的 name -> PluginSpec (entry 已解析为 fn, 已排序)
+
+        enabled_only=False 时连 `enabled: false` 的条目一并给出 —— 给"要知道
+        哪些被显式停用"的调用方用 (默认过滤会让停用信息消失)。
+        """
         out = {}
         for name, rec in self._code.items():
             raw = dict(rec['meta'])
@@ -229,8 +233,9 @@ class Registry:
         for spec in out.values():
             if not callable(spec.get('fn')) and spec.get('entry'):
                 spec['fn'] = _resolve(str(spec['entry']))
-        live = {n: s for n, s in out.items() if s.get('enabled', True)}
-        return dict(sorted(live.items(),
+        if enabled_only:
+            out = {n: s for n, s in out.items() if s.get('enabled', True)}
+        return dict(sorted(out.items(),
                            key=lambda kv: (kv[1].get('priority', 100),)))
 
     def _config(self):
@@ -485,9 +490,10 @@ EXTRACTORS = Registry('extractor')       # 正文提取器
 RESOLVERS = Registry('resolver')         # 跳转链解码器 (按 URL 特征匹配)
 FILTERS = Registry('filter')             # 结果过滤器
 TRANSFORMERS = Registry('transformer')   # 结果改写
+INTERCEPTORS = Registry('interceptor')   # 拦截检测/绕过 (见 net.intercept)
 
 _REGISTRIES = (ENGINES, SITES, HOT_SITES, EXTRACTORS,
-               RESOLVERS, FILTERS, TRANSFORMERS)
+               RESOLVERS, FILTERS, TRANSFORMERS, INTERCEPTORS)
 
 
 def by_kind(kind):
@@ -526,6 +532,9 @@ def reload_plugins():
     return done
 
 
-def table(kind):
-    """转成普通 dict (fn 已解析), 供既有代码直接用"""
-    return dict(by_kind(kind).items())
+def table(kind, enabled_only=True):
+    """转成普通 dict (fn 已解析), 供既有代码直接用
+
+    enabled_only=False 时保留 `enabled: false` 的条目 (见 Registry.items)。
+    """
+    return dict(by_kind(kind).items(enabled_only=enabled_only))

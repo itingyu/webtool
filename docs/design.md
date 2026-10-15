@@ -13,7 +13,7 @@ src/webtool/
 ├── pipeline/            # search 调度 / rank 榜单 / merge 排序去重 / topup 补量 / qhint 质量诊断 / query_ops
 ├── render/              # render 正文渲染 / hotrender 榜单分节 / output 落盘
 ├── filters/             # blocklist 站点黑名单 / adfilter 广告识别 (纯规则, 不出网)
-├── net/                 # transport 指纹传输 / proxy 线路决策 / captcha 冷却 / spa 数据提取 / fetch 抓取
+├── net/                 # transport 指纹传输 / proxy 线路决策 / intercept 拦截绕过 / captcha 人机验证 / spa 数据提取 / fetch 抓取
 ├── engines/             # 各站适配器 (由 plugins.json 的 module 指向) + extractors / customsites
 ├── core/                # L0 底座
 │   ├── plugins.py       # Registry: 七类插件统一注册表 (懒解析 + 三层来源)

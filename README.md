@@ -324,13 +324,14 @@ webtool plugins list|check|reload|enable|disable
 webtool cache / webtool blocklist
 ```
 
-七类插件：`engine`（搜索引擎）、`hot`（榜单源）、`site`（站内站点）、`extractor`（正文提取器）、`resolver`（跳转链解码）、`filter`（结果过滤）、`transformer`（结果改写）。清单在 `src/webtool/data/plugins.json`，用户在 `~/.webtool/plugins.json` 覆盖或追加：
+八类插件：`engine`（搜索引擎）、`hot`（榜单源）、`site`（站内站点）、`extractor`（正文提取器）、`resolver`（跳转链解码）、`filter`（结果过滤）、`transformer`（结果改写）、`interceptor`（拦截检测与绕过）。清单在 `src/webtool/data/plugins.json`，用户在 `~/.webtool/plugins.json` 覆盖或追加：
 
 ```jsonc
 // ~/.webtool/plugins.json
 {
   "engine":  {"bing": {"base": 0.6}, "my_eng": {"module": "mypkg.search:run", "desc": "自建引擎"}},
-  "extractor": {"my_ext": {"module": "mypkg.extract:run", "desc": "自定义提取器"}}
+  "extractor": {"my_ext": {"module": "mypkg.extract:run", "desc": "自定义提取器"}},
+  "interceptor": {"captcha": {"enabled": false}}   // 停用内置的人机验证识别
 }
 ```
 
@@ -342,6 +343,7 @@ webtool cache / webtool blocklist
 | `extractor` | `(html, url, meta) -> (正文, meta)` |
 | `resolver` | `(url, proxy, timeout) -> 新 url`（`match` 指认跳转链特征） |
 | `filter` / `transformer` | `(results, ctx) -> [结果]` |
+| `interceptor` | `Interceptor` 子类（见下） |
 
 - `module` 格式 `包路径:函数名`；三层来源后者覆盖前者：包内 JSON → 用户 JSON → `WEBTOOL_PLUGIN_DIR` 外部 `.py`
 - `hot`/`extractor`/`filter`/`transformer` 按插入顺序执行，提取器首个返回非空正文的生效
@@ -349,6 +351,36 @@ webtool cache / webtool blocklist
 - 引擎行为参数在 `engine.<name>.params`：`rate`（请求间隔秒）、`captcha_signs`（验证页指纹）、`cooldown`（触发后静默秒）
 - 热更新：`plugins.json` / `filters.json` 按 mtime 自动生效；外部插件 `.py` 改动需 `plugins reload`
 - 跳转链解码是 `resolver` 插件，按 URL 特征认链；`match` 里普通串按子串匹配，`~` 开头按正则
+
+### 拦截与绕过（`interceptor`）
+
+被挡住的响应（人机验证、WAF 页、限流、登录墙）不写死在传输层：`net/transport.py` 只问
+`net/intercept.py` 两句 —— 这次是不是被挡了、有没有绕法。判定与记账都是插件，`captcha`
+（人机验证 + 冷却）是第一个实现，`module` 指向 **`Interceptor` 子类**：
+
+```python
+from webtool.net.intercept import Interceptor, Hit, Bypass
+
+class MyWall(Interceptor):
+    name, priority = 'mywall', 30          # priority 小的先判；配置里可覆盖
+
+    def inspect(self, ctx):                # 必实现: 挡没挡
+        if ctx.status == 403 and '请稍候' in ctx.text:
+            return Hit(kind='waf', why='WAF 拦截', sign='403+请稍候')
+        return None
+
+    def bypass(self, ctx, hit):            # 可选: 下一次重试怎么改
+        return Bypass(how='换新闻通道', url=ctx.url.replace('/s?', '/n?'))
+
+    def preflight(self, ctx): ...          # 可选: 发之前能不能发 (冷却门)
+    def note_ok(self, ctx): ...            # 可选: 没被挡, 复位计数
+    def note_hit(self, ctx, hit): ...      # 可选: 记冷却, 把剩余秒数写回 hit.left
+```
+
+- `ctx`（`Ctx`）给到 `engine/url/status/text/headers/profile/attempt/via`，只读
+- `bypass` 返回的 `Bypass` 支持 `url` / `headers` / `profile` / `delay` / `retry`，由传输层执行
+- 只判不绕也合法（`captcha` 现在就是）：传输层按冷却 + 降级梯处理
+- 插件抛错只让它自己掉队，不拖垮整条请求链路；`webtool plugins check interceptor` 看谁坏了
 
 ## 开发
 

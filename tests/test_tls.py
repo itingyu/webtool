@@ -197,22 +197,29 @@ check(tls.policy('https://a.com') != False,   # noqa: E712
 
 
 def _no_ca_env():
-    """把所有 CA 来源都指向不存在的文件, 模拟没装 ca-certificates"""
+    """把所有 CA 来源都指向不存在的文件, 模拟没装 ca-certificates
+
+    仓库自带的那份 CA 包 (`data/certs/ca-bundle.pem`) 也要一起拿掉 —— 它就是
+    最后的保底, 不屏蔽的话"无 CA"这个场景根本造不出来。
+    """
     import certifi
     saved = {k: os.environ.get(k) for k in
              ('SSL_CERT_FILE', 'CURL_CA_BUNDLE', 'REQUESTS_CA_BUNDLE')}
     for k in saved:
         os.environ[k] = '/nonexistent/ca.pem'
     orig_paths, orig_where = ssl.get_default_verify_paths, certifi.where
+    orig_bundled = tls.bundled_ca
     ssl.get_default_verify_paths = lambda: ssl.DefaultVerifyPaths(
         cafile='/nonexistent/a.pem', capath='/nonexistent/dir',
         openssl_cafile='/nonexistent/a.pem', openssl_capath='/nonexistent/dir',
         openssl_cafile_env='SSL_CERT_FILE', openssl_capath_env='SSL_CERT_DIR')
     certifi.where = lambda: '/nonexistent/certifi.pem'
+    tls.bundled_ca = lambda: None
     tls._CA_CACHE = tls._CACHE = (None, None)
 
     def _restore():
         ssl.get_default_verify_paths, certifi.where = orig_paths, orig_where
+        tls.bundled_ca = orig_bundled
         for k, v in saved.items():
             if v is None:
                 os.environ.pop(k, None)

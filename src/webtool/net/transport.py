@@ -24,6 +24,7 @@ from webtool.core import tls
 from webtool.core import urls
 from webtool.core.tls import TlsError
 from webtool.net import captcha
+from webtool.net import intercept
 
 # 证书类异常的判定统一交给 core.tls.is_tls_error —— urllib 把 SSLError 裹在
 # URLError.reason 里, requests.SSLError 又不是 ssl.SSLError 的子类,
@@ -287,11 +288,14 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=15,
     - session: 外部管理的会话 (引擎自带预热流程时传入), 此时指纹档案取 profile
     - verify: 证书校验覆盖 (None=按 core.tls 全局策略; True/False 定点决定)
     """
-    if engine and _depth == 0 and captcha.suspended(engine):
+    if engine and _depth == 0:
         # 冷却门只在顶层检查: 降级梯内部重试不受影响 (否则会撞上自己刚记的冷却)
-        raise CooldownError(
-            f'{engine} 冷却中({captcha.cooldown_left(engine)}s, 此前触发人机验证), '
-            f'请换引擎或 webtool engines 查看')
+        # 具体封多久、为什么封, 是拦截器自己的事 —— transport 只认结论。
+        _hit = intercept.preflight(intercept.Ctx(engine=engine, url=url))
+        if _hit is not None:
+            raise CooldownError(
+                f'{engine} 冷却中({_hit.left}s, 此前触发{_hit.why}), '
+                f'请换引擎或 webtool engines 查看')
     _pace(rate_engine or engine)
 
     # 代理归一交给 netx (唯一该碰代理的地方): 'auto' → 问路由表, 'user@host' →
@@ -312,28 +316,43 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=15,
                                   headers=headers, lang=lang,
                                   max_bytes=max_bytes, profile=profile,
                                   session=session, verify=verify)
-    # 验证码检测 + 降级梯 (只对挂了引擎名的通道做, fetch/resolve 不折腾)
+    # 拦截检测 + 降级梯 (只对挂了引擎名的通道做, fetch/resolve 不折腾)
+    # transport 不认识"验证码": 谁挡的、凭什么、要不要冷却、有没有绕法, 全问
+    # net.intercept 的拦截器插件 (captcha 只是其中一个实现)。
     if not (engine and text):
         return text, status, via
 
-    blocked, sign = captcha.detect(engine, text)
-    if not blocked:
-        captcha.mark_ok(engine)
+    ctx = intercept.Ctx(engine=engine, url=url, status=status, text=text,
+                        profile=profile or '', attempt=_depth, via=via)
+    hit = intercept.inspect(ctx)
+    if hit is None:
+        intercept.note_ok(ctx)
         if session is not None:
             _persist_cookies(session, engine)
         return text, status, via
 
-    # 被拦: 记冷却 → 退避 → 降级梯 (最多 3 步; mark_blocked 记的冷却不影响
-    # 梯内重试, 冷却门只在 _depth==0 检查)
-    captcha.mark_blocked(engine)
+    # 被拦: 记账 → 退避 → 降级梯 (最多 3 步; note_hit 记的冷却不影响梯内重试,
+    # 冷却门只在 _depth==0 检查)
+    intercept.note_hit(ctx, hit)
     if _depth >= 3:
         raise BlockedError(
-            f'{engine} 验证页拦截({sign}), 已重试{_depth}次仍被拦; '
-            f'冷却{captcha.cooldown_left(engine)}s, 请换引擎')
-    time.sleep(min(2 ** _depth, 4) + random.uniform(0, 0.8))
-    # 梯子只换**指纹会话**(丢弃 cookie 重新握手), 线路不变 —— 被拦就偷偷退直连,
-    # 会让"这条规则为什么对某些请求不生效"无法排查, 对必须走代理的目标也只是
-    # 换一种错法。
+            f'{engine} {hit.why}({hit.sign}), 已重试{_depth}次仍被拦; '
+            f'冷却{hit.left}s, 请换引擎')
+    delay = min(2 ** _depth, 4) + random.uniform(0, 0.8)
+    bp = intercept.bypass(ctx, hit)
+    if bp is not None:
+        # 插件给的绕法: 只改这一次重试的形状 (换地址/加头/换指纹/先等一会儿)。
+        # 注意梯子本身只换**指纹会话**、线路不变 —— 被拦就偷偷退直连会让
+        # "这条规则为什么对某些请求不生效"无法排查。
+        if bp.delay:
+            delay = bp.delay
+        if bp.url:
+            url = bp.url
+        if bp.headers:
+            headers = {**(headers or {}), **bp.headers}
+        if bp.profile:
+            profile = bp.profile
+    time.sleep(delay)
     try:
         return get(url, kind=kind, referer=referer, proxy=proxy,
                    timeout=timeout, engine=engine, rate_engine=rate_engine,
@@ -346,8 +365,9 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=15,
         # 梯内递归已把最终 BlockedError 组装好, 直接上抛 (google 等上层按此降级 news)
         raise
     except Exception as e:
-        raise BlockedError(f'{engine} 验证页拦截({sign}), 降级梯失败: {str(e)[:150]}; '
-                           f'冷却{captcha.cooldown_left(engine)}s, 请换引擎')
+        raise BlockedError(f'{engine} {hit.why}({hit.sign}), 降级梯失败: '
+                           f'{str(e)[:150]}; '
+                           f'冷却{hit.left}s, 请换引擎')
 
 
 def _lower_keys(headers):

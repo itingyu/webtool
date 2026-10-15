@@ -351,19 +351,25 @@ print('\n=== 12. 不得再有 failover (先直连不通再代理) ===')
 # "代理失败退直连"恰恰会毁掉只允许代理出网的目标。
 FO = [r'fallback_direct', r'swap_proxy', r'allow_fallback',
       r'proxy retry', r'直连优先', r'先直连', r'失败再试代理', r'换代理重试']
+NEUTRAL_FO = ('曾经', '不再', '取消', '去掉', '已改', '不 failover',
+              '不该', '避免', '会让')
 found = []
 for f in glob.glob(os.path.join(ROOT, 'src/webtool/**/*.py'), recursive=True):
     if os.path.basename(f) in ('netx.py', 'proxyhelper.py', 'resilient.py'):
         continue                      # 这三个讲的正是"为什么取消"
-    for i, line in enumerate(
-            open(f, encoding='utf-8').read().splitlines(), 1):
+    lines = open(f, encoding='utf-8').read().splitlines()
+    for i, line in enumerate(lines, 1):
         # 解释"曾经这么做、现在取消"的注释是**该留**的 (不解释的话后人会
         # 以为是漏改), 只抓仍在生效的代码
-        if any(k in line for k in ('曾经', '不再', '取消', '去掉', '已改')):
+        if any(k in line for k in NEUTRAL_FO):
             continue
-        for pat in FO:
-            if re.search(pat, line):
-                found.append(f'{os.path.basename(f)}:{i}:{pat}')
+        if not any(re.search(pat, line) for pat in FO):
+            continue
+        # 说明常与关键词分行写: 命中行的前几行里若有"并不这么做"的话就别报
+        window = ' '.join(lines[max(0, i - 4):i])
+        if any(k in window for k in NEUTRAL_FO):
+            continue
+        found.append(f'{os.path.basename(f)}:{i}:{line.strip()[:40]}')
 check(not found, '代码里不再有 failover (线路只由配置决定)', str(found[:6]))
 
 import inspect                                  # noqa: E402

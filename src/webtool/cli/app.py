@@ -695,7 +695,7 @@ def config_cmd(action: str = typer.Argument(..., help='list/get/set/unset'),
 
 @app.command('plugins')
 def plugins_cmd(action: str = typer.Argument('list', help='list/check/reload/enable/disable'),
-                kind: str = typer.Argument(None, help='engine/hot/site/extractor/resolver/filter/transformer'),
+                kind: str = typer.Argument(None, help='engine/hot/site/extractor/resolver/filter/transformer/interceptor'),
                 plugin: str = typer.Argument(None, help='enable/disable 的插件名'),
                 all: bool = typer.Option(False, '--all', '-a', help='list 含 disabled 项'),
                 fmt: str = Fmt, output: str = Output):

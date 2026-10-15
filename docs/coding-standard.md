@@ -18,7 +18,7 @@ webtool/
   pipeline/     L2 合并输出   search / rank / merge / topup / qhint / query_ops
   render/       L2 合并输出   render / hotrender / output
   filters/      L2 结果过滤   blocklist / adfilter        —— 纯规则, 不出网
-  net/          L1 采集实现   transport / proxy / captcha / spa / fetch / mcpclient`
+  net/          L1 采集实现   transport / proxy / intercept / captcha / spa / fetch / mcpclient`
   engines/      L1 采集实现   baidu / bing / google / sites / hotsites
                                exa / parallel / firecrawl (MCP 语义引擎)
                                extractors / customsites ...
@@ -99,7 +99,7 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 ## 3. 插件与配置边界
 
 - **逻辑进代码，数据进 JSON，调参进 config**：
-  - 抓取/解析逻辑 → 模块函数，经 `plugins.json` 声明成插件（engine/site/hot/extractor/resolver/filter/transformer 七类，签名见 `plugins.SIGNATURES`）
+  - 抓取/解析逻辑 → 模块函数，经 `plugins.json` 声明成插件（engine/site/hot/extractor/resolver/filter/transformer/interceptor 八类，函数类签名见 `plugins.SIGNATURES`，`interceptor` 是类见下）
   - **引擎预设**（`plugins.json` 的 `presets` 段）走 `config_data.load`，**不走插件注册表** —— preset
   是纯数据没有 module/params 可执行字段，注册表那套 fn 解析用不上；同文件意味着用户覆盖
   `plugins.json` 时引擎与预设一起生效。优先级 `--engine` > `--preset` > `config.default_engines` >
@@ -329,6 +329,24 @@ config.json，而遗留键迁移顺手把该值写进了 `rules.json` 的 `proxi
 证书失败的**类别**必须分清再给修法（`tls.cert_advice`）：域名不符（塞证书没用）、
 自签（进 extra/）、过期（只能 verify_hosts）、缺中间证书（补 ca_bundle）、
 需旧版 TLS 重协商（根本不是证书问题）。一律叫用户改 `ca_bundle` 是误导。
+
+## 被挡的响应走 intercept，传输层不认识具体拦截类型
+
+`net/transport.py` 里不许出现"验证码""WAF""限流"这类词 —— 它只调
+`net/intercept.py`：`preflight`（发之前能不能发）/`inspect`（回来的是不是被挡）/
+`bypass`（有没有绕法）/`note_ok`/`note_hit`（记账）。加一种拦截（WAF 页、429、
+登录墙）只该是写一个 `Interceptor` 子类，不改传输层。
+
+三条硬约束：
+
+- **报错信息不许反向依赖具体插件**：冷却剩多久由 `note_hit` 写回 `hit.left`，
+  transport 只读 `hit.why`/`hit.sign`/`hit.left`。否则加插件就得改报错文案。
+- **优先级以清单为准**（`plugins.json` 的 `interceptor.<name>.priority`），类属性只是
+  代码注册时的默认值。`Registry.items()` 默认过滤 `enabled: false`，要知道"谁被显式
+  停用"必须用 `items(enabled_only=False)` —— 过滤掉之后停用信息就没了，内置实现会
+  像从没被停过一样照跑。
+- **插件出错只让它自己掉队**：加载/实例化/调用三处都要 try，错误记进 `_ERR` 让
+  `describe()` / `plugins check` 看得见，绝不能把整条请求链路带崩。
 
 ## 7. 注释与文档纪律
 

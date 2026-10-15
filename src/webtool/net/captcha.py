@@ -76,3 +76,52 @@ def cooldown_left(engine):
 
 def status():
     return state.info()['captcha']
+
+
+# ── 拦截绕过接口的实现 ────────────────────────────────────────────────────
+# 验证页是"被挡住"的一种, 但 transport 不该知道"验证码"这三个字: 它只问
+# intercept 两句 —— 这次被挡了吗、有没有绕法。所以这里把上面几个函数包成
+# 一个 Interceptor: 判定与冷却记账都归它, 将来换/加策略只动插件。
+
+from webtool.net.intercept import Hit, Interceptor, register   # noqa: E402
+
+
+class CaptchaInterceptor(Interceptor):
+    """人机验证页: 只判不绕
+
+    现在没有通用解法 (点选/滑块得靠外部服务), 所以 bypass 返回 None —— 由
+    transport 按冷却 + 降级梯处理。将来接上打码服务, 只要在这里实现 bypass
+    返回一个 Bypass 就行, transport 不用改。
+    """
+
+    name = 'captcha'
+    priority = 10                   # 最基础的拦截类型, 先判
+    cooldown = _DEFAULT_COOLDOWN
+
+    def preflight(self, ctx):
+        """冷却期内就别发了 —— 这个通道现在发也是白挨一下"""
+        if not ctx.engine or not suspended(ctx.engine):
+            return None
+        return Hit(kind='captcha', by=self.name, sign='冷却中',
+                   why='人机验证', left=cooldown_left(ctx.engine))
+
+    def inspect(self, ctx):
+        if not ctx.engine or not ctx.text:
+            return None
+        blocked, sign = detect(ctx.engine, ctx.text)
+        if not blocked:
+            return None
+        return Hit(kind='captcha', by=self.name, sign=sign or '',
+                   why='验证页拦截', left=cooldown_left(ctx.engine))
+
+    def note_ok(self, ctx):
+        if ctx.engine:
+            mark_ok(ctx.engine)
+
+    def note_hit(self, ctx, hit):
+        if ctx.engine:
+            mark_blocked(ctx.engine)
+            hit.left = cooldown_left(ctx.engine)   # 报错信息要用 (见接口契约)
+
+
+register(CaptchaInterceptor)

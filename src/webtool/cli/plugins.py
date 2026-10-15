@@ -62,6 +62,20 @@ def _list(args):
     return 0
 
 
+def _bad_interceptor(fn):
+    """拦截器类体检: 不过关返回人话原因, 过关返回 ''"""
+    from webtool.net.intercept import Interceptor
+    if not (isinstance(fn, type) and issubclass(fn, Interceptor)):
+        return '不是 net.intercept.Interceptor 的子类'
+    if not getattr(fn, 'name', ''):
+        return '缺 name (配置里要靠它启用/停用)'
+    for attr in ('inspect',):
+        m = getattr(fn, attr, None)
+        if m is None or getattr(m, '__isabstractmethod__', False):
+            return f'没实现 {attr}()'
+    return ''
+
+
 def _check():
     """体检: 逐个解析插件的 module 路径 + 签名对照, 报出加载失败/签名不符的"""
     bad, ok = [], 0
@@ -79,6 +93,15 @@ def _check():
                             'module': str(spec.get('module', '')),
                             'error': 'fn 不可调用'})
                 continue
+            if name == 'interceptor':
+                # 拦截器是类不是函数: 签名那套对不上, 单独验"是不是 Interceptor
+                # 子类 + 有没有实现 inspect"
+                msg = _bad_interceptor(fn)
+                if msg:
+                    bad.append({'kind': name, 'plugin': pname,
+                                'module': str(spec.get('module', '')),
+                                'error': msg})
+                    continue
             sig_ok, sig_msg = plugins.check_signature(name, fn)
             if not sig_ok:
                 bad.append({'kind': name, 'plugin': pname,
@@ -96,7 +119,15 @@ def _check():
                     break
             else:
                 ok += 1
-    print(json.dumps({'ok': ok, 'failed': len(bad), 'errors': bad},
+    # 拦截器还会在**运行期**记错 (插件抛错只让它掉队, 不中断请求), 一并报出来
+    runtime = {}
+    try:
+        from webtool.net import intercept as _ic
+        runtime = _ic.problems()
+    except Exception:                       # noqa: BLE001 拉不起来不影响体检结论
+        pass
+    print(json.dumps({'ok': ok, 'failed': len(bad), 'errors': bad,
+                      'runtime_errors': runtime},
                      ensure_ascii=False, indent=2))
     return 1 if bad else 0
 
