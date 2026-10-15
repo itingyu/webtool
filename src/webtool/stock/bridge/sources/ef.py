@@ -13,7 +13,6 @@ except ImportError:
     HAS_EFINANCE = False
 
 
-import json
 
 class EfSource(SourceBase):
     """efinance 方法集 —— 由 sources/__init__.py 的 APIClient 混入"""

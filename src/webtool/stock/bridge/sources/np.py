@@ -14,10 +14,8 @@
 - `yunhq.sse.com.cn` (sse.py) → 313 字节 JSON
 """
 from webtool.stock.bridge.sources._base import _err, _ok, SourceBase
-from webtool.stock.bridge.sources import _routing, _symbol
 import json
 
-import re
 
 _REFERER = {'Referer': 'https://data.eastmoney.com/'}
 

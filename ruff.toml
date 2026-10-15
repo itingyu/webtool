@@ -6,8 +6,8 @@ target-version = "py312"
 
 [lint]
 select = ["E9", "F"]
-# F401 未使用导入暂不挡 (存量 60+ 处, 清理另开批次); 其余 F 全挡
-ignore = ["F401"]
+# F401 未使用导入已清零, 纳入门禁; 其余 F 全挡
+ignore = []
 
 [lint.per-file-ignores]
 # 测试脚本是手写序列, 容许一些灵活性

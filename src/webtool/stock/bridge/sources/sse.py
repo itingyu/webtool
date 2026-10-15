@@ -7,7 +7,7 @@
 
 """
 from webtool.stock.bridge.sources._base import _err, _ok, SourceBase
-from webtool.stock.bridge.sources import _routing, _symbol
+from webtool.stock.bridge.sources import _symbol
 import json
 
 class SseSource(SourceBase):

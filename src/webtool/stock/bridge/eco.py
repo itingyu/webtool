@@ -34,7 +34,6 @@
 import importlib
 import inspect
 import os
-import sys
 import time
 from webtool.stock.error import EcoError
 from webtool.stock.bridge import _eco_net

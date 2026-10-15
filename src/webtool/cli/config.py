@@ -11,9 +11,7 @@
 """
 import json
 import os
-import re
 import sys
-import urllib.parse
 
 from webtool.core.config_data import USER_DIR
 from webtool.core.secrets_store import redact as _redact
@@ -37,7 +35,6 @@ CONFIG_KEYS = {
                                        'trafilatura / readability / boilerplate / inscriptis',
                          ('auto', 'trafilatura', 'readability', 'boilerplate',
                           'inscriptis')),
-    'rules_file':       ('路由规则文件路径', '默认 ~/.webtool/rules.json', None),
     'geoip_db':        ('GeoIP 国家库', 'GeoLite2-Country.mmdb 路径; '
                          '不配则 geoip 规则不生效', None),
     'asn_db':          ('GeoIP ASN 库', 'GeoLite2-ASN.mmdb 路径', None),

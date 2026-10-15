@@ -9,7 +9,6 @@ JS 请求 / api 公开 REST), sec-fetch-site 按可注册域判定; cookie 经 s
 降级梯 —— 换指纹换代理对证书问题一点用没有, 只是把 1 次失败放大成 4 次。
 """
 import random
-import socket
 import threading
 import time
 import urllib.error
@@ -24,7 +23,6 @@ from webtool.core import secrets_store
 from webtool.core import tls
 from webtool.core import urls
 from webtool.core.tls import TlsError
-from webtool.net import captcha
 from webtool.net import intercept
 
 # 证书类异常的判定统一交给 core.tls.is_tls_error —— urllib 把 SSLError 裹在

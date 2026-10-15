@@ -5,7 +5,6 @@
 
 """
 from webtool.stock.bridge.sources._base import _err, _ok, SourceBase
-import json
 
 
 class CninfoSource(SourceBase):

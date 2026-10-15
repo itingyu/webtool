@@ -7,8 +7,6 @@
 from webtool.stock.bridge.sources._base import _err, _ok, SourceBase
 from webtool.stock.bridge.sources import _symbol
 import time
-import json
-import re
 
 
 class XueqiuSource(SourceBase):
@@ -70,7 +68,6 @@ class XueqiuSource(SourceBase):
 
         返回字段名保持既有契约 (current/percent/...), 调用方零改动。
         """
-        import re as _re
         if isinstance(codes, str):
             codes = [codes]
         out = {}

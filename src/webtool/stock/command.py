@@ -285,7 +285,6 @@ def _act_http_post(args, cfg):
 
 def _act_http_rows(args, cfg):
     """裸调用 + 转表格 (--pick 取嵌套路径, 如 data.0.quote)"""
-    import json as _json
     url = (list(args.codes or []) or [''])[0] if args.codes else args.url
     if not url:
         raise ValueError('http-rows 需要 URL 位置参数')

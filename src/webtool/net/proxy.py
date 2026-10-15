@@ -18,7 +18,7 @@ import os
 import re
 import sys
 import time
-from urllib.parse import quote, unquote, urlsplit, urlunsplit
+from urllib.parse import quote, unquote
 
 from webtool.core.config_data import USER_DIR
 from webtool.core.secrets_store import (drop_password, redact, resolve_auth,
@@ -453,7 +453,7 @@ def _test(args, cfg):
         line += '  (与所测一致)' if same else '  ⚠ 与所测代理不是一条线, 该目标的真实线路不受本次结果影响'
         print(line)
     if not _proxy_is_used(cfg, val):
-        print(f'  ⚠ 这条代理没有被任何规则或 default 引用 —— 测通了也没有流量走它 '
+        print('  ⚠ 这条代理没有被任何规则或 default 引用 —— 测通了也没有流量走它 '
               '(要让它生效: webtool proxy set 把它设成默认, 或 rule add ... proxy:<名字>)',
               file=sys.stderr)
     return 0

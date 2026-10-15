@@ -35,6 +35,33 @@ webtool/
 `radar` 切成 routes(官方目录)/rules(规则库)/instances(实例探活)/official(官网兜底)/
 template(模板语法)/race(并发) 六块，每块对应一个独立的数据源或算法。
 
+### net/ 内部分层（按实际业务归位，OSI 仅作依赖方向参照）
+
+**分层是指导思想，不是目录模板**：OSI 用来回答"这一层该不该依赖那一层"（依赖只许向下），
+不按 L1~L7 建目录。现有 `proxy / rules / transport / intercept / tls / netx` 切分
+已符合业务逻辑，保持并按需微调：
+
+```
+net/
+├── dns 相关       DNS 解析/DoH/缓存（散在 proxy/geodata 的归拢过来，有多少拆多少）
+├── proxy          代理池、proxyhelper、按域名的 proxy 规则（不动）
+├── tls            证书校验、CA、TLS/JA3 指纹（不动）
+├── transport.py   会话编排（DNS+代理+TLS+HTTP 组装，工厂产出）
+├── fetch/download L7 通道：HTTP、流式（SSE/WebSocket 按需再加）
+├── intercept.py   拦截与绕过（captcha/spa 并入，不动）
+├── rules.py       规则引擎入口（proxy/dns/http/timeout/retry/breaker 统一加载）
+└── netx.py        唯一门面
+```
+
+归位原则：**一块职责一个文件，文件承载两种职责才拆**（如 transport 混了 DNS 就拆出去）；
+现有层间无环的不动。判定规则：子包之间不互相 import（组装只发生在 transport.py）；
+ip/ping 等连通性探测归 `core.probe`，不单开网络层，ICMP 受限环境自动降级 tcp 探测。
+
+### 数据流向分层
+
+数据源接口(sources/) → DAO(bridge/ filters/ data) → 控制(engines/ stock/engine/ pipeline/ feeds/command) → 视图(render/) → 模块(cli/)。
+依赖只许向下：`cli → 控制 → DAO → sources`；sources 不知道给谁用（只有 DataPacket 契约），render 是纯函数。
+
 `core/` 内部分两类，别混：
 
 - **底座模块**（plugins/config_data/cache/state/http/probe/resilient）：运行期状态与 I/O 机制
@@ -95,6 +122,61 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   （检查：`rg "from \.|from \.\." src/` 应无输出）
 - import 顺序：标准库 → 三方 → webtool，组间空行
 - 循环依赖靠"函数内延迟 import"打破只允许出现在真实循环场景，且写一行注释说明原因；能靠分层消除的不用这招
+
+## 2.5 规则引擎：特殊走规则，否则走通用
+
+任何环节的特殊行为都必须以规则表达，**禁止在通用代码里写 `if domain == 'xxx'`**。
+规则模型全仓统一（`net/rules.py` / RuleSet），按环节分 kind，格式一致：
+
+```jsonc
+// rules.json 各 kind 统一 {match, 动作字段, priority}
+{"kind": "http",  "match": {"domain": "xueqiu.com"}, "fingerprint": "chrome131", "timeout": 15}
+{"kind": "retry", "match": {"domain": "sina.com.cn"}, "retries": 5, "backoff": "exp"}
+{"kind": "breaker", "match": {"domain": "*"}, "fail_threshold": 5, "cool_seconds": 300}
+```
+
+- 粒度随对象：proxy/dns/HTTP 指纹/熔断按**域名**；timeout/retry 按域名+路径；渲染按输出格式
+- 匹配：具体 > 通配，priority 显式可调；**无命中走通用默认值**，通用默认值集中在该层模块顶部常量，不散落调用点
+- 新环节要特殊化时先问：默认路径能不能覆盖？能就不加 kind；加 kind 必须同时给通用默认 + 文档一条
+
+## 2.6 日志与 --debug
+
+- 每模块 `logger = logging.getLogger(__name__)`；打印给人看的用 print，定位问题用的**必须**走 logger
+- `--debug/-d` 是 app.py 全局回调注入的通用参数，全命令零改动生效；级别 DEBUG(灰)/INFO(绿)/WARN(黄)/ERROR(红)，非 tty / NO_COLOR 自动去色
+- 必埋点：请求 URL、规则命中结果、重试次数、熔断状态、缓存命中、耗时
+- 捕宽异常处必须 `logger.debug(..., exc_info=True)`——`except Exception: pass` 是排障黑洞，禁止
+- `--debug` 时被吞的异常打印完整 traceback
+
+## 2.7 stdin / 管道
+
+- 输入一律经 `core/stdin.py:read_input(arg)`：arg 有值用 arg；arg 为 `-` 或无参且 stdin 非 tty 时读 stdin
+- 文本命令（search/fetch/stock/rank/feed）支持 `x | webtool <cmd> -` 范式，写进 SKILL.md
+- stdin 只承诺文本；输出侧 `-o -` 已有，保持
+
+## 2.8 设计模式使用门槛
+
+- **适配器**：数据源实现 `SourceBase` 契约（请求→解析→校验→DataPacket），模板方法上提公共流程
+- **工厂**：Source/Engine/Transport 实例化一律走注册表工厂，禁止调用点 if-else 链
+- **策略**：解析/渲染/传输可替换行为用策略对象；只有一个实现时**不抽**（普通函数就够），出现第二个实现再抽
+- 门面：上层只 import `netx`；观察者(轻)：日志/进度用 logger 事件，不加回调参数
+
+## 2.9 弹性层：并发 / 重试 / 熔断 / 恢复
+
+统一走 `core/resilient.py`，业务模块不自己写线程池：
+
+- 并发：`parallel_map(tasks, policy)`，policy 来自规则（max_workers）；共享状态只在主线程写（见"多源抓取"节）
+- 重试：指数退避 + jitter，次数按 retry 规则；只重试幂等请求
+- 熔断：按域名滑动窗口失败计数，打开时直接短路并打 debug 日志；状态持久化到 state
+- 恢复：批任务（rank/feed/screen）写 checkpoint，重跑跳过已完成条目
+
+## 2.10 交付自检（每个 PR 过一遍）
+
+- [ ] 新文件 ≤ 500 行，目录名即分层名
+- [ ] 分层 import 方向未破坏（`rg "from webtool.pipeline" src/engines src/core src/net` 应无输出）
+- [ ] 复制超过 3 处的逻辑下沉 core/
+- [ ] 特殊行为都走规则，无硬编码域名分支
+- [ ] `--debug` 下新路径有埋点；宽异常有 exc_info
+- [ ] `python3 tests/test_smoke.py` 全 PASS
 
 ## 3. 插件与配置边界
 
