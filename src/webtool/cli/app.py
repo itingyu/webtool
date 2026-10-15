@@ -564,8 +564,8 @@ def _pip_route_note(spec, env):
     """
     from webtool.core import upgrade as _up
     _url, transport = _up.spec_url(spec)
-    if transport in ('https', 'index'):
-        return None
+    if transport in ('https', 'index', 'local'):
+        return None                      # local 压根不出网, 谈不上代理白判
     if not (env or {}).get('HTTPS_PROXY'):
         return None                      # 本来就是直连, 没骗人
     return ('源 (%s) 的传输方式不认 HTTP(S)_PROXY —— 代理是给 http(s) 用的, '

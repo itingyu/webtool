@@ -77,6 +77,8 @@ check('ssh 源 + 代理 → 明说代理无效并给出替代命令',
       note and '不认' in note and 'git+https' in note, str(note))
 note = app_mod._pip_route_note('git://github.com/a/b.git', PROXY_ENV)
 check('git:// 源 + 代理 → 同样明说', note and '不认' in note, str(note))
+check('本地源 + 代理 → 不唠叨 (压根不出网)',
+      app_mod._pip_route_note('file:///srv/webtool', PROXY_ENV) is None)
 check('ssh 源但本来就是直连 → 不唠叨',
       app_mod._pip_route_note('git+ssh://git@github.com/a/b', DIRECT_ENV) is None)
 
