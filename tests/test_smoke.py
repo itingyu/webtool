@@ -796,7 +796,9 @@ if _pl.Path(_prov.ORIGINAL).is_file():
     _orig_names = set(_re.findall(r'^\s*def (\w+)\(', _orig_txt, _re.M))
     _src_dir = _pl.Path(_prov.__file__).parent
     _have = set()
-    for _f in _src_dir.glob('*.py'):
+    # rglob: 源已开始按族拆包 (sources/em/*.py), 只扫 *.py 会把子包当不存在,
+    # 于是"函数失踪"和"self.X 悬空"两条都会误报
+    for _f in _src_dir.rglob('*.py'):
         if _f.name != 'selftest.py':
             _have |= set(_re.findall(r'^\s*def (\w+)\(', _f.read_text(encoding='utf-8'), _re.M))
     # test_all 已改写为独立 selftest.selftest, 按等价物计
@@ -806,7 +808,7 @@ if _pl.Path(_prov.ORIGINAL).is_file():
     # 反向: self.X( 必须有定义 (否则运行时才炸)
     _known = _have | {'_proxy', '_px', '_kw'}
     _dangling = []
-    for _f in sorted(_src_dir.glob('*.py')):
+    for _f in sorted(_src_dir.rglob('*.py')):
         if _f.name in ('_base.py', '__init__.py', 'selftest.py', '_provenance.py'):
             continue
         for _m in _re.findall(r'self\.(\w+)\(', _f.read_text(encoding='utf-8')):
