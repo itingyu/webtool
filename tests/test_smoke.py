@@ -721,14 +721,36 @@ check(_econet.probe('akshare').get('routed') is True,
 check(_econet.probe('baostock').get('routed') is False,
       'eco: baostock 自建 socket → 体检如实标 routed=False (不假装覆盖)')
 # 死代理必须被所有通道采用 —— 这是"配置说了算"的判定性证据
-import json as _json, os as _os
-_cfgp = _os.path.expanduser('~/.webtool/config.json')
-_backup = None
+#
+# 这段**必须**在临时目录里跑: 早前它直接改真实 ~/.webtool/config.json, 写进去的
+# `proxy: http://127.0.0.1:9` 会被 `_migrate_legacy_config` 顺手搬进 rules.json
+# 的 proxies.default —— 而 finally 只还原了 config.json, 于是每跑一次测试就把
+# 用户现网的默认代理改成死端口 (实测: 2080 → :9), 用户看到的却是"我没改, 它自己
+# 变的"。规则文件和配置文件都指向临时目录, 一个字节都不许落到 HOME。
+import json as _json, os as _os, tempfile as _tf, shutil as _sh
+from pathlib import Path as _Path
+from webtool.core import config_data as _cd
+_tmpdir = _Path(_tf.mkdtemp(prefix='webtool-smoke-'))
+import hashlib as _hl
+
+def _real_rules_md5():
+    '''真实 rules.json 的指纹, 用来证明这段测试一个字节都没往外写'''
+    p = _old_user_dir / 'rules.json'
+    return _hl.md5(p.read_bytes()).hexdigest() if p.exists() else 'absent'
+
+_old_user_dir = _cd.USER_DIR
+_real_before = _real_rules_md5()
+# 光改 config_data.USER_DIR 不够: 路由/配置读取走的是 net.proxy 模块自己的全局
+# (CONFIG_PATH / USER_DIR), 只改前者会让这段测试其实在读写真实配置 (踩过)。
+from webtool.net import proxy as _px
+_px_old_cfg, _px_old_dir = _px.CONFIG_PATH, _px.USER_DIR
+_px.CONFIG_PATH, _px.USER_DIR = str(_tmpdir / 'config.json'), _tmpdir
 try:
-    _backup = open(_cfgp, 'rb').read()
-    _c = _json.loads(_backup)
-    _c['proxy'] = 'http://127.0.0.1:9'
-    _json.dump(_c, open(_cfgp, 'w'), ensure_ascii=False)
+    _cd.USER_DIR = _tmpdir
+    _json.dump({'proxy': 'http://127.0.0.1:9',
+                'rules_file': str(_tmpdir / 'rules.json'),
+                'proxies': {'default': 'http://127.0.0.1:2080'}},
+               open(_tmpdir / 'config.json', 'w'), ensure_ascii=False)
     _routing.reset_cache()
     # push2/push2delay 的直连现在只由规则表决定, 没有硬编码名单抢在它前面;
     # 注意 hq.sinajs.cn 会被 '*.cn' → direct 命中, 所以用一个不被任何规则
@@ -741,9 +763,11 @@ try:
 except Exception as e:                                   # noqa: BLE001
     check(False, f'路由断言异常: {type(e).__name__}: {e}')
 finally:
-    if _backup is not None:
-        open(_cfgp, 'wb').write(_backup)
-        _routing.reset_cache()
+    _cd.USER_DIR = _old_user_dir
+    _px.CONFIG_PATH, _px.USER_DIR = _px_old_cfg, _px_old_dir
+    _sh.rmtree(_tmpdir, ignore_errors=True)
+    _routing.reset_cache()
+check(_real_rules_md5() == _real_before, '真实 rules.json 未被测试改动')
 
 
 

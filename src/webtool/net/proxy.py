@@ -92,26 +92,41 @@ def _migrate_legacy_config():
         rules_path = os.path.expanduser(raw.get('rules_file')
                                         or str(USER_DIR / 'rules.json'))
         spec = _read_json(rules_path)
-        moved, kept = [], []
+        moved, kept, kept_keys = [], [], set()
 
         if raw.get('proxy'):
-            spec.setdefault('proxies', {})['default'] = raw['proxy']
-            if not spec.get('default'):
-                spec['default'] = 'proxy:default'
-            moved.append(f"proxy {redact(raw['proxy'])} → proxies.default")
+            # 规则文件是唯一事实来源: 遗留键不许覆盖已经明确写下的 proxies.default
+            # —— 否则任何"暂时把 config.json 改成死地址"的外部动作 (测试、脚本、
+            # 手误留下的快照) 都会顺手改掉现网分流, 而用户看到的却是"我没改, 它
+            # 自己变的"(真实事故: 跑一次 tests/test_smoke.py, 2080 变 :9)。
+            cur = (spec.get('proxies') or {}).get('default')
+            if cur and _norm_proxy_url(cur) != _norm_proxy_url(raw['proxy']):
+                kept.append(f'proxy {redact(raw["proxy"])} 未迁: 规则文件里 '
+                            f'proxies.default 已是 {redact(cur)} (规则文件优先); '
+                            f'确实要换默认代理请用 webtool proxy set')
+            else:
+                spec.setdefault('proxies', {})['default'] = raw['proxy']
+                if not spec.get('default'):
+                    spec['default'] = 'proxy:default'
+                moved.append(f"proxy {redact(raw['proxy'])} → proxies.default")
         if raw.get('fetch_proxy'):
             spec.setdefault('proxies', {})['fetch'] = raw['fetch_proxy']
             moved.append(f"fetch_proxy {redact(raw['fetch_proxy'])} → "
                          '命名代理 "fetch" (整线覆盖已废弃, 按需写 '
                          "proxy:fetch 规则)")
-        if isinstance(raw.get('proxy_rules'), dict) and raw['proxy_rules']:
-            if not (spec.get('rules') or spec.get('proxies')):
+        if raw.get('proxy_rules'):
+            if (isinstance(raw['proxy_rules'], dict) and raw['proxy_rules']
+                    and not (spec.get('rules') or spec.get('proxies'))):
                 for k in ('default', 'rules', 'proxies'):
                     if k in raw['proxy_rules']:
                         spec[k] = raw['proxy_rules'][k]
                 moved.append('proxy_rules (内联) → 规则文件')
             else:
-                kept.append('proxy_rules 未迁: 规则文件已有内容, 请手工合并')
+                # 规则文件已有内容、或形状我们读不懂 (不是 dict) —— 一律原样留着
+                # 让人自己合。悄悄删掉一个读不懂的键才是真的数据丢失。
+                kept.append('proxy_rules 未迁 (规则文件已有内容或形状不认识), '
+                            '原样保留, 请手工合并')
+                kept_keys.add('proxy_rules')
 
         if 'priority' in spec:
             del spec['priority']
@@ -119,8 +134,10 @@ def _migrate_legacy_config():
 
         if moved:
             _write_json(rules_path, spec)
+        # 只有真正迁走的键才从 config.json 删掉: 用 kept(消息列表) 判会恒为真,
+        # 于是"没迁成"的 proxy_rules 也被删 —— 那才叫数据丢失。
         new_raw = {k: v for k, v in raw.items()
-                   if not (k in _LEGACY_KEYS and k not in kept)}
+                   if not (k in _LEGACY_KEYS and k not in kept_keys)}
         _write_json(CONFIG_PATH, new_raw)
         _MIGRATION_NOTES.extend(moved + kept)
     except Exception as e:                     # noqa: BLE001
