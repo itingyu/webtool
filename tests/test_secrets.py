@@ -241,38 +241,59 @@ check(proxy_url_parts('127.0.0.1:2080') == ('', '', '', '', ''), '无 scheme 安
 out = io.StringIO()
 sys.stdout = out
 try:
-    PX.handle(types.SimpleNamespace(action='set', value='http://u9:p/w@h:9',
-                                    user=None, act=None), PX.load_config())
+    # 代理 URL 里不许带明文密码, 先存凭据 (setpass), 再设默认代理
+    rc_pw = PX.handle(types.SimpleNamespace(action='setpass', value='u9',
+                                            user='p/w', act=None), {})
+    rc = PX.handle(types.SimpleNamespace(action='set', value='http://u9@h:9',
+                                         user=None, act=None), PX.load_config())
 finally:
     sys.stdout = _stdout
-saved = read_cfg()
-check(saved['proxy'] == 'http://u9@h:9', 'proxy set 存的是脱敏 URL')
-check(S.decrypt(saved['proxy_auth']['u9']) == 'p/w', '含 / 的密码完整入库')
-check('p/w' not in open(cfg_path(), encoding='utf-8').read(), '含 / 的密码不落盘')
+check(rc_pw == 0 and rc == 0, f'setpass + proxy set 都成功 (rc={rc_pw}/{rc})')
+rules_path = PX._rules_path(PX.load_config())
+spec = json.load(open(rules_path, encoding='utf-8'))
+check(spec['proxies']['default'] == 'http://u9@h:9',
+      'proxy set 存的是脱敏 URL (默认代理进 rules.json)')
+vault = read_cfg().get('proxy_auth') or {}
+check(S.decrypt(vault['u9']) == 'p/w', '含 / 的密码完整入库 (键=setpass 给的用户名)')
+check('p/w' not in open(rules_path, encoding='utf-8').read(), '含 / 的密码不落盘')
 
-print('\n=== 16. config set proxy 不覆盖刚存的密文 ===')
-# store_password 写的是文件, 而 handle 里的 cfg 是旧快照; 不合并回去的话
-# save_config 会用空的 proxy_auth 把刚写的密文盖掉 —— 命令成功但密码没了
+print('\n=== 16. config set proxy 已退役, 设代理不再丢密文 ===')
+# 代理 URL 收敛到 rules.json (webtool proxy set)。config.json 里的 proxy 键退役:
+# 直接 config set proxy 必须被拒 + 指向新命令, 而不是静默写一个没人读的键。
 from webtool.cli import config as CFG      # noqa: E402
-with open(cfg_path(), 'w', encoding='utf-8') as f:
-    json.dump({'proxy': None}, f)
 out = io.StringIO()
 sys.stdout = out
 try:
-    ok, v = CFG._validate('proxy', 'http://u8:p/w@h:8')
+    ok, msg = CFG._validate('proxy', 'http://u8:p/w@h:8')
 finally:
     sys.stdout = _stdout
-check(ok and v == 'http://u8@h:8', f'_validate 返回脱敏 URL (实际 {v})')
-check(S.decrypt(read_cfg()['proxy_auth']['u8']) == 'p/w', 'validate 已写密文')
-stale = load_cfg_snapshot = json.load(open(cfg_path(), encoding='utf-8'))
-stale['proxy'] = v                       # 模拟"旧快照 + 新值"
-stale['proxy_auth'] = {}                 # 旧快照里的空 proxy_auth
-from webtool.net import proxy as PX2      # noqa: E402
+check(not ok and 'proxy' in str(msg), f'config set proxy 已退役 (实际 {msg!r})')
+
+# 设置默认代理只该改 rules.json: 保险库里已有的密文一个都不能被覆盖/清掉
+# (早先 save_config 会拿旧快照把刚存进去的 proxy_auth 盖成空)
+before = dict(read_cfg().get('proxy_auth') or {})
+out = io.StringIO()
+sys.stdout = out
 try:
-    merged = PX2.load_config().get('proxy_auth') or {}
+    rc = PX.handle(types.SimpleNamespace(action='set', value='http://h7:7',
+                                         user=None, act=None), PX.load_config())
 finally:
-    pass
-check('u8' in merged, '重新 load_config 能读回密文 (save_config 前需合并)')
+    sys.stdout = _stdout
+after = read_cfg().get('proxy_auth') or {}
+check(rc == 0 and all(after.get(k) == v for k, v in before.items()),
+      '设默认代理不动保险库里的既有密文')
+check(S.decrypt(after['u9']) == 'p/w', '密文仍然解得开 (没被空表覆盖)')
+
+# 库里没有这个用户的凭据时: 当场问密码 (无 TTY 走 stdin, 拿不到就报错退出),
+# 绝不能拿空密码去撞 407 —— 那会表现为"代理认证失败", 排查方向全跑偏
+out = io.StringIO()
+sys.stderr = out
+try:
+    rc = PX.handle(types.SimpleNamespace(action='set', value='http://ghost@h:8',
+                                         user=None, act=None), PX.load_config())
+finally:
+    sys.stderr = _stderr
+check(rc == 2, f'凭据缺失时不静默设成空密码代理 (rc={rc})')
 
 print('\n=== 17. setpass 的三条密码来源 ===')
 # 交互输入(TTY) 是安全默认路径, 管道是 Agent/脚本路径, 位置参数最方便但会
