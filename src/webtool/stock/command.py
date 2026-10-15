@@ -1561,6 +1561,7 @@ def _text_flow(out):
     # 北向: data.data.{hk2sh,sh2hk,hk2sz,sz2hk} 四条通道, 每条带 status/date/净额
     inner = data.get('data')
     if isinstance(inner, dict) and any(k in inner for k in ('hk2sh', 'sh2hk', 'sz2hk', 'hk2sz')):
+        got_real = False
         for ch, v in inner.items():
             if not isinstance(v, dict):
                 continue
@@ -1570,15 +1571,20 @@ def _text_flow(out):
                 continue
             date = v.get('date2') or '—'
             net, quota = v.get('dayNetAmtIn'), v.get('dayAmtThreshold')
-            # 东财北向接口在未推送真实值时会把 dayNetAmtIn 填成额度上限,
-            # 沪股通返回 0 而深股通返回额度上限, 自相矛盾。净流入等于额度上限
-            # 一律按"未取得"标注 —— 印成 4,200,000 万 (=4200亿) 会让调用方
-            # 得出完全错误的结论。
-            if isinstance(net, (int, float)) and quota and net == quota:
-                print(f'⚠ {ch}  日期{date}  净流入未取得 (接口回填额度上限 {quota:,.0f} 万, 非真实值)')
+            # 2024-08-19 起交易所不再披露北向净买入, 东财接口只剩额度: 该字段
+            # 要么等于额度上限, 要么是 0, 两者都不是成交数据。一律按"未取得"
+            # 标注 —— 印成 0 会被读成"今日北向零流入", 印成 4,200,000 万更离谱。
+            if isinstance(net, (int, float)) and (net == 0
+                                                  or (quota and net == quota)):
+                print(f'⚠ {ch}  日期{date}  净流入未取得 (接口给的 {net:,.0f} 是占位/额度值)')
                 continue
+            got_real = True
             net_txt = f'{net:,.0f} 万' if isinstance(net, (int, float)) else '未取得'
             print(f'{ch}  日期{date}  净流入 {net_txt}')
+        if not got_real:
+            print('北向净买入自 2024-08-19 起停止披露, 全渠道已无真值 (不是"零流入")。\n'
+                  '可替代: webtool stock data em_kamt (看额度字段) / '
+                  'webtool stock flow --scope industry (行业资金)')
         return
     for k, v in data.items():
         if k == 'html':
