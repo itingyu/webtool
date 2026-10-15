@@ -1,7 +1,7 @@
 """数据源聚合门面 —— 按源拆包, 对外仍是同一个 `APIClient`
 
 `APIClient` 只是把各源 mixin 合到一个类上, 所以:
-  - 方法清单按源分组见 `webtool stock data list api` (现 156 个)
+  - 方法清单按源分组见 `webtool stock data list api` (现 157 个)
   - session 只有一份 (`SourceBase.__init__`), token 与 cookie 缓存共享
   - 新增一个源 = 加一个 `sources/<源>.py`, 这里加一行 mixin, 别处不动
 

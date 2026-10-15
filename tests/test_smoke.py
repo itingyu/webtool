@@ -18,7 +18,7 @@ MODULES = [
     'webtool.pipeline.search', 'webtool.pipeline.rank', 'webtool.pipeline.merge',
     'webtool.pipeline.topup',
     'webtool.net.transport', 'webtool.net.proxy', 'webtool.net.captcha', 'webtool.net.spa',
-    'webtool.render.render', 'webtool.render.hotrender', 'webtool.render.output',
+    'webtool.render.render', 'webtool.render.hotrender', 'webtool.render.output', 'webtool.render.kline_svg',
     'webtool.feeds.command', 'webtool.feeds.sources', 'webtool.feeds.parse', 'webtool.feeds.fetch', 'webtool.feeds.cards', 'webtool.radar', 'webtool.radar.race', 'webtool.radar.template',
     'webtool.radar.routes', 'webtool.radar.instances',
     'webtool.radar.official', 'webtool.radar.instances_cfg', 'webtool.cli.zen',

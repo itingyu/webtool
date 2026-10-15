@@ -170,13 +170,41 @@ class EmSource(SourceBase):
                  beg: str = "0", end: str = "20500101", fqt: int = 1,
                  lmt: int = 60) -> dict:
         """K 线 (101日 / 102周 / 103月)"""
+        return self._em_kline_secid(self._em_secid(code), klt, beg, end, fqt, lmt)
+
+    def em_us_kline(self, code: str = "AAPL", klt: int = 101, fqt: int = 1,
+                    lmt: int = 60) -> dict:
+        """美股 K 线 (东财 push2his; secid 交易所前缀逐个试)
+
+        腾讯 `usfqkline` 现在只回 2 根 (上游退化, 不是参数问题: 加不加
+        count/qfq 都一样), 东财这条是活的 —— 105.AAPL 实测 1 万+ 根。
+        纳斯达克 105 / 纽交所 106 / 美交所 107, 猜错会回 200 + 空 klines,
+        所以按序试到有数据为止。
+        """
+        code = str(code or '').strip().upper()
+        if code.startswith('US'):
+            code = code[2:]
+        last = None
+        for pre in ('105', '106', '107'):
+            last = self._em_kline_secid(f'{pre}.{code}', klt, '0', '20500101', fqt, lmt)
+            if last.get('ok') and (last.get('data') or {}).get('rows'):
+                return last
+        return last or _err('empty code')
+
+    def _em_kline_secid(self, secid: str, klt: int, beg: str, end: str,
+                        fqt: int, lmt: int) -> dict:
+        # fields1/fields2 必须显式给: 不带这两项时接口回 200 但 klines 为空
+        # (信封 ok=True, rows=0), 看起来像"这只票没有 K 线"。
         r = self._em_get(
             "https://push2his.eastmoney.com/api/qt/stock/kline/get",
-            {"secid": self._em_secid(code), "klt": klt, "beg": beg,
-             "end": end, "fqt": fqt, "lmt": lmt},
+            {"secid": secid, "klt": klt, "beg": beg,
+             "end": end, "fqt": fqt, "lmt": lmt,
+             "fields1": "f1,f2,f3,f4,f5,f6",
+             "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"},
         )
         if r["ok"]:
-            klines = r["data"].get("klines", []) if isinstance(r["data"], dict) else []
+            raw = r["data"] if isinstance(r["data"], dict) else {}
+            klines = raw.get("klines", [])
             rows = []
             for line in klines:
                 parts = line.split(",")
@@ -189,7 +217,9 @@ class EmSource(SourceBase):
                         "amplitude": float(parts[7]), "pct_change": float(parts[8]),
                         "chg": float(parts[9]), "turnover": float(parts[10]),
                     })
-            r["data"] = {"rows": rows, "raw_count": len(klines)}
+            r["data"] = {"rows": rows, "raw_count": len(klines),
+                         "name": raw.get("name"), "code": raw.get("code"),
+                         "market": raw.get("market")}
         return r
 
     def em_datacenter(self, report_name: str = "RPT_MUTUAL_STOCK_HOLDRANKS",

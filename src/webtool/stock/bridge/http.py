@@ -1,6 +1,6 @@
 """底层 HTTP 直调层
 
-`rawapi.py` 调的是数据源层封装好的 156 个方法, `eco.py` 调的是 akshare/tushare
+`rawapi.py` 调的是数据源层封装好的 157 个方法, `eco.py` 调的是 akshare/tushare
 等库函数 —— 两者都只能调"已封装"的东西。本模块相反: **不封装, 直接发 HTTP**。
 
 逆向出的 900+ 接口里, 有大量 akshare 没封或封了不可用的 (公司类型探��、

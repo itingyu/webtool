@@ -199,6 +199,8 @@ webtool stock report 600519                   # 成稿研报 (--pool short 出�
 webtool stock excel --excel picks.xlsx        # 选股池导出 xlsx (需 openpyxl)
 webtool stock sentiment 600519                # 消息面打分 (-100~+100; 也可 --text "...")
 webtool stock diagram --kind tree             # mermaid: tree/logic/chain
+webtool stock kline 600519 --bars 120          # K 线 (A股/港股/美股)
+webtool stock kline 600519 --chart             # 出图: SVG (红涨绿跌 + MA + 量能)
 webtool stock holder 600519                   # 股东研究摘要
 webtool stock forecast 600519                 # 盈利预测
 webtool stock mcp --tool stock_kline --arg symbol=600519 --arg period=day
@@ -211,7 +213,7 @@ webtool stock data list [域]                    # 域总览 / 域内明细
 webtool stock data find <关键词>                # 跨域搜 (eco/api/em配方/docs)
 webtool stock data call <接口名> --arg k=v      # 按名调
 webtool stock data url "<URL>"                 # 裸 HTTP 直调 (反爬内置)
-webtool stock data list api                    # 数据源层 156 个方法 (按源分组)
+webtool stock data list api                    # 数据源层 157 个方法 (按源分组)
 
 # 生态库 (akshare/tushare/baostock/efinance, 约 1300 接口, 返回 DataFrame)
 webtool stock eco-health

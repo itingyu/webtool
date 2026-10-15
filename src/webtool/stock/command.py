@@ -815,6 +815,69 @@ def _act_diagram(args, cfg):
 
 
 
+def _act_kline(args, cfg):
+    """K 线: 取数 (编排层 stock_kline 的多源回退) + 可选出图
+
+    `--chart` 落一份自包含 SVG —— 零依赖, 不用装 matplotlib, 也不用联网取
+    字体; 生成的文件在 app 里可直接预览。
+    """
+    code = (list(args.codes or ['']) or [''])[0]
+    bars = int(getattr(args, 'bars', 0) or 120)
+    out = _srv.do_call('stock_kline', {'symbol': code,
+                                       'period': args.period or 'day',
+                                       'count': bars}, timeout=args.timeout)
+    # 源普遍多给一根 (腾讯按 count 返回 count+1), 裁到用户要的根数 ——
+    # 否则标题写"60 根"、实际画 61 根, 图与命令不符。
+    d = out.get('data') if isinstance(out, dict) else None
+    if isinstance(d, dict):
+        # 各源对'周期'的叫法不一 (腾讯有 period, 东财没有) —— 我们要的就是
+        # args.period, 统一回填, 免得渲染层把周线标成日线。
+        d.setdefault('period', args.period or 'day')
+        for key in ('klines', 'rows'):
+            ks = d.get(key)
+            if isinstance(ks, list) and len(ks) > bars:
+                d[key] = ks[-bars:]
+    if getattr(args, 'chart', False) and isinstance(out, dict):
+        out['chart_path'] = _write_kline_chart(out, args, code, bars)
+    return out
+
+
+def _kline_rows(out):
+    """从各源 K 线载荷里取 rows (统一成 render.kline_svg 认的形状)"""
+    from webtool.render.kline_svg import normalize_rows
+    d = (out or {}).get('data') or {}
+    if not isinstance(d, dict):
+        return []
+    return normalize_rows(d.get('klines') or d.get('rows') or [])
+
+
+def _kline_title(out, code):
+    """源里带的证券名优先 (用户可能只给了代码)"""
+    d = (out or {}).get('data') or {}
+    qt = d.get('qt') if isinstance(d, dict) else None
+    if isinstance(qt, dict):
+        for v in qt.values():
+            if isinstance(v, (list, tuple)) and len(v) > 2:
+                return f'{v[1]} {v[2]}' if v[1] else str(v[2])
+    for k in ('name', 'symbol'):
+        if isinstance(d, dict) and d.get(k):
+            return str(d[k])
+    return code or '—'
+
+
+def _write_kline_chart(out, args, code, bars):
+    from webtool.render.kline_svg import write_kline_svg
+    rows = _kline_rows(out)
+    period = args.period or 'day'
+    cn = {'day': '日线', 'week': '周线', 'month': '月线'}.get(period, period)
+    path = getattr(args, 'chart_out', None) or f'{code or "kline"}-{period}.svg'
+    write_kline_svg(path, rows, title=_kline_title(out, code),
+                    subtitle=f'{cn} · {len(rows)} 根 · 源 {out.get("source") or "—"}',
+                    ma=[m for m in (getattr(args, 'ma', None) or '5,10,20').split(',') if m.strip()],
+                    bars=bars)
+    return path
+
+
 def _act_std(action_name):
     """编排动作的通用子命令包装
 
@@ -947,7 +1010,7 @@ ACTIONS = {
     'holder': _act_holder, 'forecast': _act_forecast,
 
     # 编排层动作升格 (原来只能 mcp --tool 透传)
-    'kline': _act_std('stock_kline'),
+    'kline': _act_kline,
     'index': _act_std('stock_index'),
     'income': _act_std('stock_income_statement'),
     'balance': _act_std('stock_balance_sheet'),
@@ -1026,6 +1089,9 @@ USAGE = """用法: webtool stock <动作> [参数]
   diagram --kind logic|tree|chain [...] mermaid 图
              tree  无参; logic 需 代码 --name [--thesis];
              chain 需 --name --driver(上游) --mid(中游) --catalyst(下游)
+  kline <代码> [--bars 120] [--period day|week|month] [--chart]
+              [--chart-out 路径] [--ma 5,10,20]
+             K 线 (A股/港股/美股); --chart 出一张自包含 SVG (红涨绿跌+均线+量能)
 
 透传动作 (按名调用 24 个动作)
   mcp <动作名> [--arg k=v]     透传调用, 例: webtool stock mcp stock_indicators --arg symbol=600519
@@ -1208,6 +1274,28 @@ def _table(head, rows):
 def _md(out, action):
     if action in ('report', 'diagram'):
         _passthrough(out, 'md' if action == 'diagram' else 'report')
+        return
+    if action == 'kline' and isinstance(out, dict):
+        rows = _kline_rows(out)
+        d = out.get('data') or {}
+        period = {'day': '日线', 'week': '周线', 'month': '月线'}.get(
+            (d.get('period') if isinstance(d, dict) else '') or 'day', '日线')
+        if not rows:
+            print(f'**{_kline_title(out, "")}** {period}: 无数据 (源 {out.get("source")})')
+            return
+        last, prev = rows[-1], (rows[-2] if len(rows) > 1 else rows[-1])
+        chg = (last['close'] - prev['close']) / prev['close'] * 100 if prev['close'] else 0.0
+        print(f"## {_kline_title(out, '')} — {period} ({len(rows)} 根, 源 {out.get('source')})\n")
+        print(f"最新 **{last['close']:.2f}** ({chg:+.2f}%) 于 {last['date']}; "
+              f"区间 {min(r['low'] for r in rows):.2f} ~ {max(r['high'] for r in rows):.2f}\n")
+        print('| 日期 | 开 | 高 | 低 | 收 | 涨跌 | 量 |')
+        print('|---|---|---|---|---|---|---|')
+        for r in rows[-10:]:
+            c = (r['close'] - r['open']) / r['open'] * 100 if r['open'] else 0.0
+            print(f"| {r['date']} | {r['open']:.2f} | {r['high']:.2f} | {r['low']:.2f} "
+                  f"| {r['close']:.2f} | {c:+.2f}% | {_fmt_vol(r['volume'])} |")
+        if out.get('chart_path'):
+            print(f"\n图: `{out['chart_path']}`")
         return
     if action == 'screen' and isinstance(out, dict):
         p_cnt, f_cnt, passed, failed = _screen_counts(out)
@@ -1656,6 +1744,43 @@ def _text_raw(out, action=''):
             print(f'  {k}: {str(v)[:80]}')
 
 
+def _text_kline(out):
+    """K 线: 头一行关键信息 + 尾部若干根蜡烛 (输入本身是给程序看的,
+    人要的是"最近怎么走的" —— 全 120 根铺终端没人读)"""
+    if not isinstance(out, dict) or not out.get('ok'):
+        print(f"K 线失败: {(out or {}).get('error') or (out or {}).get('err') or out}")
+        return
+    rows = _kline_rows(out)
+    d = out.get('data') or {}
+    period = {'day': '日线', 'week': '周线', 'month': '月线'}.get(
+        (d.get('period') if isinstance(d, dict) else '') or 'day', '日线')
+    if not rows:
+        print(f'{_kline_title(out, "")} {period}: 无数据 (源 {out.get("source")})')
+        return
+    last, prev = rows[-1], (rows[-2] if len(rows) > 1 else rows[-1])
+    chg = (last['close'] - prev['close']) / prev['close'] * 100 if prev['close'] else 0.0
+    print(f"{_kline_title(out, '')}  {period}  {len(rows)} 根  "
+          f"[{out.get('source')}]")
+    print(f"最新 {last['date']}  收 {last['close']:.2f}  {chg:+.2f}%  "
+          f"量 {_fmt_vol(last['volume'])}")
+    lo, hi = min(r['low'] for r in rows), max(r['high'] for r in rows)
+    print(f"区间 低 {lo:.2f} / 高 {hi:.2f}")
+    for r in rows[-8:]:
+        c = (r['close'] - r['open']) / r['open'] * 100 if r['open'] else 0.0
+        print(f"  {r['date']}  开{r['open']:>9.2f} 高{r['high']:>9.2f} "
+              f"低{r['low']:>9.2f} 收{r['close']:>9.2f}  {c:+6.2f}%  "
+              f"{_fmt_vol(r['volume'])}")
+    if out.get('chart_path'):
+        print(f'图: {out["chart_path"]}')
+
+
+def _fmt_vol(v):
+    for unit, div in (('亿', 1e8), ('万', 1e4)):
+        if abs(v) >= div:
+            return f'{v / div:.2f}{unit}'
+    return f'{v:.0f}'
+
+
 def _text_holder(out):
     """股东研究: 摘要 + 前十大股东表 + 股东户数趋势 (这是最该先看的两块)"""
     if not isinstance(out, dict) or not out.get('ok'):
@@ -1820,6 +1945,9 @@ def _text(out, action):
         return
     if action == 'flow':
         _text_flow(out)
+        return
+    if action == 'kline':
+        _text_kline(out)
         return
     if action in ('report', 'diagram'):
         _passthrough(out, 'md' if action == 'diagram' else 'report')

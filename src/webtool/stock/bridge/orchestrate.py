@@ -332,7 +332,12 @@ def t_stock_kline(args: dict) -> dict:
         ]
     elif sym["market"] == "us":
         ops = [
-            ("tencent_us_kline", lambda: client.tencent_us_kline(sym["code"], period, count)),
+            # 东财在前: 腾讯 usfqkline 上游退化只回 2 根, 且它"成功但残缺",
+            # 放前面会把 2 根 K 线当成结果返回 (质量检查拦不住"少"不拦"空")。
+            ("em_us_kline",      lambda: client.em_us_kline(sym["code"],
+                                                            klt={"day": 101, "week": 102, "month": 103}.get(period, 101),
+                                                            lmt=count)),
+            ("tencent_us_kline", lambda: client.tencent_us_kline(sym["tencent_us"], period, count)),
             ("tencent_global",   lambda: client.tencent_global(sym["code"])),  # 美股无 K 线则退化
             ("efinance",         lambda: _tail_ef_history(client.ef_history(sym["ef"]), count)),
         ]

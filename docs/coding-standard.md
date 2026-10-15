@@ -193,7 +193,7 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
   渲染层一律走 `command.py::_j` 兜底序列化 —— 直接 `json.dumps` 会 TypeError
   **崩在渲染层**，而那时数据其实已经取到了，白跑一次网络请求
 - **第三侧 `rawapi.py`** 桥 `bridge/sources/`（随仓内置）的
-    **156 个低阶方法**（`webtool stock data list api` 出清单），按数据源分包：
+    **157 个低阶方法**（`webtool stock data list api` 出清单），按数据源分包：
     ths/sina/xueqiu/em/gtimg/tencent/cninfo/sse/csindex/ef/np。编排层把其中一部分
     聚合成 24 个动作，其余（股东研究/盈利预测/研报日历/早盘晚报/板块多维排行/分钟线/
     产业链分类 等）从 `webtool stock api <方法>` 直接调

@@ -16,7 +16,7 @@
 
 | 模块 | 通道 | 回答 |
 |---|---|---|
-| `sources/` | 按数据源拆的 API 池 | 156 个低阶方法 (同花顺/东财/雪球/新浪/腾讯/巨潮/中证/上交所/efinance) |
+| `sources/` | 按数据源拆的 API 池 | 157 个低阶方法 (同花顺/东财/雪球/新浪/腾讯/巨潮/中证/上交所/efinance) |
 | `srv.py` | stock 数据桥 (进程内直调 handler) | 24 个高阶聚合工具, 带 fallback 链 |
 | `engine.py` | engine 脚本层 | 行情/涨停池/选股/评分/研报 |
 | `eco.py` | akshare/tushare/baostock/efinance | 长尾 + 宏观 + 全球 |

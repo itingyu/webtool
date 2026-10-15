@@ -687,7 +687,7 @@ def plugins_cmd(action: str = typer.Argument('list', help='list/check/reload/ena
 @app.command('stock')
 def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar/flow/news/'
                                                         'announcement/financials/analyze/'
-                                                        'screen/risk/mcp/tools/health'),
+                                                        'kline/screen/risk/mcp/tools/health'),
               codes: list[str] = typer.Argument(None, help='股票代码 (位置参数: quote/check/risk 可多个, 其余单股动作取首个)'),
               date: str = typer.Option(None, '--date', help='数据日 (pool/calendar; last=上一交易日)'),
               only_buy: bool = typer.Option(False, '--only-buy', help='pool 只留可买板块'),
@@ -718,6 +718,12 @@ def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar
               risk: list[str] = typer.Option(None, '--risk', help='diagram 风险 (logic), 可多次'),
               catalyst: list[str] = typer.Option(None, '--catalyst', help='diagram 催化剂 (logic) / 下游 (chain), 可多次'),
               mid: list[str] = typer.Option(None, '--mid', help='diagram 产业链中游 (chain), 可多次'),
+              bars: int = typer.Option(120, '--bars', help='kline 取几根 K 线'),
+              period: str = typer.Option('day', '--period', help='kline 周期: day/week/month'),
+              chart: bool = typer.Option(False, '--chart', help='kline 出一张 SVG 图 (红涨绿跌 + 均线 + 量能)'),
+              chart_out: str = typer.Option(None, '--chart-out',
+                                            help='kline 图输出路径 (默认 <代码>-<周期>.svg)'),
+              ma: str = typer.Option('5,10,20', '--ma', help='kline 均线, 逗号分隔'),
               timeout: float = typer.Option(60.0, '--timeout', help='mcp 动作子进程超时秒'),
               url: str = typer.Option('', '--url', help='http-* 动作的 URL (也可用位置参数)'),
               referer: str = typer.Option('', '--referer', help='覆盖默认 Referer'),
@@ -753,6 +759,7 @@ def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar
     a.risks = list(risk or [])
     a.catalysts = list(catalyst or [])
     a.mid = list(mid or [])
+    a.bars, a.period, a.chart, a.chart_out, a.ma = bars, period, chart, chart_out, ma
     # stock 不走 net 层, 无代理/缓存概念; 仍走 _run 统一 -f/-o 与退出码
     return _run(None, _entry_fn('stock'), fmt, output, False, False)
 
