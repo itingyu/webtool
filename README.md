@@ -32,6 +32,11 @@ webtool uninstall                  # 只卸包, ~/.webtool 数据留着
 webtool uninstall --purge-data --yes   # 连配置/凭据/缓存一起删 (缺 --yes 则不动手)
 ```
 
+升级这条路是 pip 在干活（`pip install --force-reinstall --no-deps <源>`），代理只能靠环境变量
+给：`webtool` 先按 rules.json 判一次源地址该走哪条线，再把 `HTTP(S)_PROXY` 交给 pip 和它拉起的 git。
+注意 **ssh 源（`git+ssh://` / `git@host:path`）不认这套** —— ssh 是拿自己的连接出网，判了代理也是直连；
+遇到这种源会直接提示，要真走代理就换 https 源：`webtool upgrade --from git+https://…`。
+
 `webtool -v -f json` 打印版本与运行环境（Python/平台/代码路径/依赖），报障带上它。
 
 ## 命令

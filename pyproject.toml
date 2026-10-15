@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "webtool"
-version = "1.12.19"
+version = "1.12.20"
 description = "Agent-friendly web search & content fetch CLI: clean markdown/text/json output"
 readme = "README.md"
 requires-python = ">=3.9"

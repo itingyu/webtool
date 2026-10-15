@@ -16,12 +16,15 @@ git、不判祖先关系, 那些都是开发者自己的事, 用户装的是包�
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
 from importlib import metadata
 
 DIST_NAME = 'webtool'
+# scp 式地址 (git@github.com:owner/repo.git) —— 冒号后不跟 // 才算
+_SCP_LIKE = re.compile(r'^(?:([^@/]+)@)?([^:/@]+):(?!//)(.+)$')
 # 本项目从 git 装 (不是 PyPI), 读不到安装来源时按官方仓库升
 DEFAULT_REPO = 'https://github.com/itingyu/webtool'
 PIP_TIMEOUT = 600
@@ -90,6 +93,33 @@ def installed_version():
     except metadata.PackageNotFoundError:
         return None
 
+def spec_url(spec=None):
+    """pip spec → (判线路用的 URL, 传输方式)
+
+    传输方式: 'https'(含 http) / 'ssh' / 'git' / 'index'(PyPI) / 'local'。
+    只有 https 与 index 会认 HTTP(S)_PROXY 环境变量 —— 这是给调用方判断
+    "把代理塞进环境变量到底有没有用"用的, 别拿 ssh 源去套 http 代理。
+    """
+    raw = (spec or upgrade_target()[0]).strip()
+    if ' @ ' in raw:                        # '名字 @ 源'
+        raw = raw.split(' @ ', 1)[1].strip()
+    if raw.startswith('git+'):
+        raw = raw[4:]
+    if raw.startswith('ssh://'):
+        return raw, 'ssh'
+    m = _SCP_LIKE.match(raw)
+    if m:                                   # git@github.com:owner/repo.git
+        user = m.group(1)
+        return 'ssh://%s%s/%s' % (user + '@' if user else '', m.group(2),
+                                  m.group(3)), 'ssh'
+    if raw.startswith(('http://', 'https://')):
+        return raw, 'https'
+    if raw.startswith('git://'):
+        return raw, 'git'                   # 裸 git 协议同样不认 http 代理
+    if raw.startswith(('file://', '/', '.', '~')):
+        return raw, 'local'
+    return 'https://pypi.org/simple/', 'index'
+
 
 def _hint(text):
     """把两个高频报错翻译成下一步动作 (用户不该去读 PEP 号)"""
@@ -138,8 +168,11 @@ def _report_versions(path):
     return out
 
 
-def check(spec=None, env_extra=None):
-    """问 pip 有没有新版 (dry-run + report, 判定交给 pip)"""
+def check(spec=None, env_extra=None, note=None):
+    """问 pip 有没有新版 (dry-run + report, 判定交给 pip)
+
+    note: 调用方给的"这条线路对本源其实不生效"之类的人话备注, 原样带进输出。
+    """
     spec = spec or upgrade_target()[0]
     fd, path = tempfile.mkstemp(prefix='webtool-report-', suffix='.json')
     os.close(fd)
@@ -157,6 +190,8 @@ def check(spec=None, env_extra=None):
     info = {'current': cur, 'latest': new or cur, 'spec': spec,
             'target_url': upgrade_target()[1], 'route': _route_label(env_extra),
             'ok': rc == 0}
+    if note:
+        info['route_note'] = note
     if rc != 0:
         info['state'] = 'unknown'
         info['error'] = (err or out).strip().splitlines()[-1:] and \
@@ -183,6 +218,8 @@ def describe(info):
              '线路      %s' % (info.get('route') or '直连'),
              '最新      %s' % (info['latest'] or '?'),
              '状态      %s' % zh.get(info['state'], info['state'])]
+    if info.get('route_note'):
+        lines.insert(2, '注意      %s' % info['route_note'])
     vcs = info.get('vcs') or {}
     if vcs.get('remote') or vcs.get('installed'):
         lines.append('提交      远端 %s / 已装 %s%s' % (
@@ -209,13 +246,15 @@ def _route_label(env_extra):
     return '直连'
 
 
-def upgrade(spec=None, env_extra=None):
+def upgrade(spec=None, env_extra=None, note=None):
     """真的升级; 返回 {ok, action, log}
 
     git 源要 `--force-reinstall --no-deps`: pip 对"直接 URL 需求"只比**版本号**,
     同名同版本就报 "Requirement already satisfied" 然后什么都不干 —— 我们按 commit
     发代码、版本号不跟着动, 不强制重装等于没升。`--no-deps` 是关键的另一半:
     只换自己这份代码, 不去动依赖。
+
+    note 同 check: 线路对本源失效时要说出来, 不能让"线路: 走代理"骗人。
     """
     spec = spec or upgrade_target()[0]
     args = ['install', '--upgrade', spec]
@@ -227,10 +266,14 @@ def upgrade(spec=None, env_extra=None):
     if hint:
         tail = tail[-2:] + ['怎么办: %s' % hint]
     after = installed_version()
-    return {'ok': rc == 0, 'action': 'pip-upgrade' if rc == 0 else 'none',
-            'version': after, 'route': _route_label(env_extra),
-            'log': ['pip: %s (%s)' % (spec, _route_label(env_extra))] + tail
-            + ([err.strip().splitlines()[-1]] if rc and err.strip() else [])}
+    res = {'ok': rc == 0, 'action': 'pip-upgrade' if rc == 0 else 'none',
+           'version': after, 'route': _route_label(env_extra),
+           'log': ['pip: %s (%s)' % (spec, _route_label(env_extra))] + tail
+           + ([err.strip().splitlines()[-1]] if rc and err.strip() else [])}
+    if note:
+        res['route_note'] = note
+        res['log'].insert(1, '注意: %s' % note)
+    return res
 
 
 def vcs_status(env_extra=None):

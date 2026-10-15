@@ -556,6 +556,22 @@ def blocklist_cmd(action: str = typer.Argument(..., help='show/add/remove/reset'
     return _run(None, fn, fmt, output, False, False)
 
 
+def _pip_route_note(spec, env):
+    """线路环境变量对**这个源**到底有没有用 —— 没用就得说出来
+
+    ssh / git:// 源是子进程 ssh、git-daemon 出网, 它们眼里没有 HTTP(S)_PROXY,
+    规则表判了代理也是白判。不说清楚就会变成"线路: 走代理"却实际直连。
+    """
+    from webtool.core import upgrade as _up
+    _url, transport = _up.spec_url(spec)
+    if transport in ('https', 'index'):
+        return None
+    if not (env or {}).get('HTTPS_PROXY'):
+        return None                      # 本来就是直连, 没骗人
+    return ('源 (%s) 的传输方式不认 HTTP(S)_PROXY —— 代理是给 http(s) 用的, '
+            '这条实际直连。要真走代理, 换 https 源: '
+            '`webtool upgrade --from git+https://…`' % transport)
+
 def _pip_proxy_env():
     """pip/git 是子进程, 代理只能靠环境变量给 —— 但如果拿我们自研的 httpx
     专家库那套再包一层就等于给自己加坑, 所以直接问 netx, 它负责看 rules.json。"""
@@ -580,13 +596,14 @@ def _upgrade_run(check_only, spec, fmt, output):
         want_json = (args.format or '') == 'json'
         env = _pip_proxy_env()
         spec = args.spec or None
+        note = _pip_route_note(spec, env)
         if args.check_only:
-            info = _up.check(spec, env_extra=env)
+            info = _up.check(spec, env_extra=env, note=note)
             print(_json.dumps(info, ensure_ascii=False, indent=2) if want_json
                   else _up.describe(info))
             # 退出码给脚本用: 0 已最新 / 1 有新版本 / 2 判不出来
             return {'up_to_date': 0, 'behind': 1}.get(info['state'], 2)
-        res = _up.upgrade(spec, env_extra=env)
+        res = _up.upgrade(spec, env_extra=env, note=note)
         if want_json:
             print(_json.dumps(res, ensure_ascii=False, indent=2))
         else:
