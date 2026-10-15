@@ -46,6 +46,17 @@ class RoutedAdapter(HTTPAdapter):
         # 调用点若已显式给了 proxies, 以调用点为准 (逃生口: 单点定死一条)
         if not proxies:
             proxies = _routing.proxies_for(request.url, self._override)
+        # 默认头也在这里补: 61 个调用点大多只给 Referer, 裸 python-requests
+        # 指纹会被反爬站直接 403 (同花顺 data 子域就是)。调用点自己设了 UA
+        # 就不动 —— 只有缺 UA 或还是 python-* 默认指纹时才替换。
+        ua = request.headers.get('User-Agent') or ''
+        if not ua or ua.startswith(('python-requests', 'python-urllib')):
+            try:
+                for k, v in (_routing.headers_for(request.url) or {}).items():
+                    if k == 'User-Agent' or not request.headers.get(k):
+                        request.headers[k] = v
+            except Exception:          # noqa: BLE001
+                pass                   # 取指纹失败不能让请求本身挂掉
         return super().send(request, stream=stream, timeout=timeout,
                             verify=verify, cert=cert, proxies=proxies)
 

@@ -103,10 +103,12 @@ class SourceBase:
         return _routing.resolve(url, self._proxy)
 
     def _kwargs(self, url, **over):
-        """给 requests.get/post 的请求级参数: 代理 + 证书 + 默认头。
+        """给 requests.get/post 的请求级参数: 代理 + 证书。
 
         `over` 里的 headers/params 等原样带出; `verify=False` 这类显式豁免
         优先级高于规则表。
+        默认头**不在这里补** —— 只被 15/61 个调用点用到, 补这儿等于漏掉
+        大半 (历史就是这么漏的)。统一在 RoutedAdapter.send 里按站点补。
         """
         kw = dict(over)
         px = _routing.proxies_for(url, self._proxy)

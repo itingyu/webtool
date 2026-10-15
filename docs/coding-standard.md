@@ -146,6 +146,11 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 - **端点表 `data/mcp.json` 不声明线路**，所有端点统一交给路由表
   （`auto` → 规则表 → proxies.default/直连）。免 key 配额按出口 IP 计，走代理等于蹭别人
   的配额池，要固定某端点直连就加一条针对它域名的规则：
+- **默认头（UA/指纹）只有一个注入点**：统一出网层按站点现算（requests 通道在
+  `RoutedAdapter.send`，其余在 `transport`）。调用点想覆盖就自己给同名头，但**不要**在任何
+  局部函数里再补一套默认头——股票源 61 个调用点里只有 15 个走得到 `_kwargs`，
+  曾经那条"按站点给 UA"的注释就这么成了空头支票，直到同花顺 data 子域回 403
+  才暴露（其余站点不校验，所以静默坏了很久）
   `webtool proxy rule add '{"domain":["exa.ai"]}' direct`
 - **`plugins.json` 里没有任何线路字段**：`site.*.proxy`、`engine.*.params.proxy_hint` 都已删除。
   引擎和内置站点一律把线路交给规则表。自定义站点 `~/.webtool/sites/*.json` 的 `proxy` 是
