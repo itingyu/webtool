@@ -72,6 +72,24 @@ def parse_blocklist(spec):
     return False, tuple(blk), tuple(alw)
 
 
+def _jobs(args, cfg, n):
+    """并发度: --jobs > config 的 jobs > 自动 (引擎数, 上限 6)
+
+    默认不是"全开": 一次 search 打的是不同站点, 但出口是同一条代理/同一条网,
+    6 条并发已经能把首轮墙钟压到接近最慢那个引擎; 再往上收益是零头, 风险是
+    把自己这条线路打满导致超时。显式给 --jobs 则照给 (硬钳在 1..16)。
+    """
+    raw = getattr(args, 'jobs', None)
+    if raw in (None, ''):
+        raw = cfg.get('jobs')
+    try:
+        j = int(raw)
+    except (TypeError, ValueError):
+        j = 0
+    if j <= 0:
+        j = min(n, 6)
+    return max(1, min(j, 16, max(n, 1)))
+
 def do_search(args, cfg):
     """默认入口: 广告恒过滤 (无 --keep-ad 开关)"""
     return _do_search(args, cfg, filter_ad=True)
@@ -97,8 +115,8 @@ def _do_search(args, cfg, filter_ad=True):
     if cfg.get('cache') == 'off':
         args.no_cache = True
     errors = []
+    err_of = {}                      # 引擎名 → 错误 (回填时按原序输出)
     results = []
-    errors = []
     per_engine = {}
     ad_filtered = 0
     # 首轮多拉进池再选 top n; 引擎端各有单页上限, 超出无害
@@ -126,34 +144,69 @@ def _do_search(args, cfg, filter_ad=True):
     # 不在这里被静默跳过。三级 (首轮抓取/补量/跳转链解码) 共用同一条。
     proxy = 'direct' if args.no_proxy else 'auto'
 
+    # 多引擎并发抓取。串行时一次搜索的墙钟 = 各引擎耗时之和 (google 一个就能
+    # 拖十几秒), 而引擎之间是不同站点、彼此不排队 —— 并发是纯赚。
+    #
+    # 两条纪律:
+    # 1. **结果按 --engine 原序回填**: merge 的排序对并列项是稳定的, 回填顺序
+    #    变了排名就会飘, 同一 query 两次跑出不同顺序没法交代;
+    # 2. **错误也按原序报**: 否则"哪个引擎挂了"会随线程完成顺序变化。
+    live = [e for e in engines if (_engines().get(e) or {}).get('fn')]
     for eng in engines:
-        spec = _engines().get(eng)
-        fn = spec['fn'] if spec else None
-        if not fn:
-            errors.append({'engine': eng, 'error': f'unknown engine, available: {",".join(_engines())}'})
-            continue
+        if eng not in live:
+            err_of[eng] = ('unknown engine, available: '
+                           + ','.join(_engines()))
+
+    def fetch(eng):
+        """单引擎抓取: 缓存 → 抓取 → 广告过滤
+
+        返回 (结果列表, 缓存状态, 打掉的广告数)。只碰自己那一份数据,
+        不写共享状态 —— 共享的累加与回填全在主线程做。
+        """
         ckey = f'{eng}|{qmap[eng]}|{_pull}|{market}'
-        cached = None if args.no_cache else cache.get(cfg, 'search', ckey)
-        if cached is not None:
-            rs = cached
-            per_engine[eng] = 'cache'
+        if not args.no_cache:
+            cached = cache.get(cfg, 'search', ckey)
+            if cached is not None:
+                return cached, 'cache', 0
+        rs = _engines()[eng]['fn'](qmap[eng], max_results=_pull, proxy=proxy,
+                                   timeout=cfg.get('timeout', 15), market=market)
+        n_ad = sum(1 for r in rs if r.get('is_ad'))
+        if filter_ad:
+            rs = [r for r in rs if not r.get('is_ad')]
         else:
+            from webtool.filters.adfilter import mark_ads
+            mark_ads(rs)
+        cache.put(cfg, 'search', ckey, rs)      # 每引擎一个 key, 互不打架
+        return rs, 'fresh', n_ad
+
+    got = {}
+    jobs = _jobs(args, cfg, len(live))
+    if jobs > 1 and len(live) > 1:
+        with concurrent.futures.ThreadPoolExecutor(jobs) as ex:
+            futs = {ex.submit(fetch, e): e for e in live}
+            for fu in concurrent.futures.as_completed(futs):
+                eng = futs[fu]
+                try:
+                    got[eng] = fu.result()
+                except Exception as e:
+                    err_of[eng] = str(e)[:200]
+    else:                                       # 单引擎 / --jobs 1: 不绕线程
+        for eng in live:
             try:
-                rs = fn(qmap[eng], max_results=_pull, proxy=proxy,
-                        timeout=cfg.get('timeout', 15), market=market)
-                n_ad = sum(1 for r in rs if r.get('is_ad'))
-                if filter_ad:
-                    rs = [r for r in rs if not r.get('is_ad')]
-                    ad_filtered += n_ad
-                else:
-                    from webtool.filters.adfilter import mark_ads
-                    mark_ads(rs)
-                cache.put(cfg, 'search', ckey, rs)
-                per_engine[eng] = 'fresh'
+                got[eng] = fetch(eng)
             except Exception as e:
-                errors.append({'engine': eng, 'error': str(e)[:200]})
-                continue
+                err_of[eng] = str(e)[:200]
+
+    for eng in engines:
+        if eng not in got:
+            continue
+        rs, status, n_ad = got[eng]
+        per_engine[eng] = status
+        ad_filtered += n_ad
         results.extend([dict(r, engine=eng) for r in rs])
+    for eng in engines:
+        if eng in err_of:
+            errors.append({'engine': eng, 'error': err_of[eng]})
 
     # 跳转链解码: 无条件执行 — 搜狗 link / baidu link / gnews articles 一律
     # 还原为原始 URL (带并发+缓存+熔断)。解码必须在黑名单/补量之前完成:

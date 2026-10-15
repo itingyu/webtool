@@ -74,6 +74,7 @@ webtool search "query" -e exa,parallel           # 语义引擎
 - 默认引擎集 `bing,sogou,baidu`；`--preset zh|en|direct` 用预设组合（`webtool engines presets` 列），优先级 `-e` > `--preset` > `config.default_engines` > 内置默认
 - 语义引擎按需加：`exa` 召回条数常最多 / `parallel` 最快且返回带日期 / `firecrawl` 能过 JS（search 免费 500 次/月），与关键词引擎重叠少
 - `--operators passthrough|strip|strict` 控制高级操作符（支持 `site:` `intitle:` `inurl:` `-词`）；`--blocklist a.com,b.com` 覆盖黑名单（前缀 `!` 表例外，`off` 关闭）
+- **多引擎并发抓取**：一次搜索同时打所有引擎（不同站点、互不排队），墙钟≈最慢那个引擎而不是各家之和。默认并发=引擎数（上限 6），`-j/--jobs N` 调（`1` = 串行，`config set jobs N` 持久化）。结果与报错一律按 `-e` 声明顺序回填，同一 query 的输出稳定可复现
 - 跳转链默认自动解码成真实 URL（`--no-resolve` 关）；结果综合加权排序，`-f json` 看 `weight` 与 `engines`（交叉验证数）
 - `webtool engines list|test|presets`：清单与冷却状态 / 实发体检 / 预设组合
 

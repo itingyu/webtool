@@ -28,6 +28,7 @@ CONFIG_KEYS = {
     'blocklist':        ('黑名单覆盖', '逗号分隔域名, ! 前缀表白名单例外, off 关闭', None),
     'market':           ('搜索市场', 'zh-CN / en-US 等 bing mkt 值 (仅 bing 消费)', None),
     'default_engines':  ('默认引擎组合', '逗号分隔: bing,sogou,baidu,google', None),
+    'jobs':             ('搜索并发引擎数', '1 ~ 16 整数; 1=串行, 0/不设=按引擎数(上限 6)', int),
     'default_format':   ('默认输出格式', 'json / text / markdown', ('json', 'text', 'markdown')),
     'timeout':          ('请求超时秒数', '5 ~ 60 整数', int),
     'cache':            ('缓存开关', 'on / off', ('on', 'off')),
@@ -112,6 +113,14 @@ def _validate(key, value):
             except ValueError as e:
                 return False, f'规则文件不是合法 JSON: {path}: {e}'
         return True, path
+    if key == 'jobs':
+        try:
+            v = int(value)
+        except ValueError:
+            return False, '并发数要是整数 (1 ~ 16; 1=串行)'
+        if not (1 <= v <= 16):
+            return False, '取值范围 1 ~ 16 (1=串行)'
+        return True, v
     if typ in (float, int):
         try:
             v = typ(value)
