@@ -327,6 +327,28 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=None,
     from webtool.net import netx as _netx
     proxy = _netx.resolve_proxy(proxy, url)
 
+    # 域级熔断: 同一个站在反复失败就别再打了 (阈值/冷却走 kind:breaker 规则)。
+    # 这里只做短路, 不套 retry_call —— get 自己已有"换指纹→urllib"降级梯,
+    # 再叠一层重试会把 1 次失败放大成 4 次, 正是当初引熔断要治的病。
+    br = _breaker_guard(url)
+    try:
+        result = _get_ladder(url, kind=kind, referer=referer, proxy=proxy,
+                             timeout=timeout, engine=engine,
+                             rate_engine=rate_engine, headers=headers,
+                             lang=lang, max_bytes=max_bytes, profile=profile,
+                             session=session, verify=verify, raw=raw,
+                             _depth=_depth)
+    except Exception as e:
+        _count_failure(br, e)
+        raise
+    br.record(True)
+    return result
+
+
+def _get_ladder(url, *, kind, referer, proxy, timeout, engine, rate_engine=None,
+                headers=None, lang=None, max_bytes=0, profile=None, session=None,
+                verify=None, raw=False, _depth=0):
+    """取页本体: raw 直取 / 普通走拦截检测与降级梯 (熔断记账在 get 里)"""
     if raw:
         # raw 只要响应头 + 原始字节 (fetch 判目标类型/落盘用), 不进验证码降级梯:
         # 梯子是给"要正文"的通道用的, 二进制目标没有"被拦换指纹"这回事
@@ -587,6 +609,27 @@ class BreakerOpenError(RuntimeError):
     """域级熔断打开中: 请求被短路, 剩余冷却秒数在消息里"""
 
 
+def _breaker_guard(url):
+    """域级熔断检查: 打开期直接短路 (不发请求)。返回 (breakers, None) 或抛
+
+    get/request 两条通道共用。**只短路不发请求** —— 熔断的意义就是别再打。
+    """
+    from webtool.core.resilient import Breaker
+    br = Breaker(url)
+    left = br.check()
+    if left is not None:
+        raise BreakerOpenError(
+            f'熔断打开中 {url} (剩 {left:.0f}s), 先修原因或等冷却')
+    return br
+
+
+def _count_failure(br, e):
+    """记账: 只有"这台站点不给数据"算失败; 证书错是配置问题, 不该连坐熔断"""
+    if isinstance(e, TlsError):
+        return
+    br.record(False)
+
+
 def request(method, url, **kw):
     """弹性入口: 熔断检查 + 幂等方法按 retry 规则重试; 本体 _request_once
 
@@ -594,12 +637,8 @@ def request(method, url, **kw):
     重试只对幂等方法 (GET/HEAD), 次数/退避走 kind:retry 规则。非幂等
     (POST/PUT) 不重试也不套重试循环 —— 重复提交不是弹性是事故。
     """
-    from webtool.core.resilient import Breaker, retry_call
-    br = Breaker(url)
-    left = br.check()
-    if left is not None:
-        raise BreakerOpenError(f'熔断打开中 {url} (剩 {left:.0f}s), '
-                               f'先修原因或等冷却')
+    from webtool.core.resilient import retry_call
+    br = _breaker_guard(url)
     m = (method or 'GET').upper()
     if m in ('GET', 'HEAD'):
         return _guarded(br, lambda: retry_call(
@@ -611,8 +650,8 @@ def _guarded(br, fn):
     """成败都记账: 成功清零连败, 失败累计 (到阈值由 Breaker 打开)"""
     try:
         r = fn()
-    except Exception:
-        br.record(False)
+    except Exception as e:
+        _count_failure(br, e)
         raise
     br.record(True)
     return r
