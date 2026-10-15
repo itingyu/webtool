@@ -601,7 +601,8 @@ def migrate_plaintext_proxies(spec, cfg_path=None):
         if not password:
             continue                    # 已是 user@host, 无需迁移
         try:
-            _S.store_password(user, password)
+            _S.store_password(f'{user}@{host}' + (f':{port}' if port else ''),
+                              password)
         except Exception:
             continue                    # 存不进去就保持原样, 不丢配置
         clean = (f'{scheme}://{user}@{host}' + (f':{port}' if port else ''))

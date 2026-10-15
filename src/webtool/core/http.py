@@ -79,8 +79,10 @@ def build_opener(proxy=None, cookie_jar=None, url=None, verify=None,
 def _parse_auth(auth):
     if not auth or ':' not in auth:
         return {}
+    # resolve_auth 拼回 URL 时做了 percent-encode, 这里得解回来
+    from urllib.parse import unquote
     user, pwd = auth.split(':', 1)
-    return {'username': user, 'passwd': pwd}
+    return {'username': unquote(user), 'passwd': unquote(pwd)}
 
 
 def http_get(url, proxy=None, timeout=15, headers=None, opener=None,

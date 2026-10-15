@@ -39,6 +39,7 @@ cryptography 为软依赖: 没装时本模块**只保留脱敏与引用解析**,
 import os
 import stat
 from pathlib import Path
+from urllib.parse import quote
 
 USER_DIR = Path(os.environ.get('WEBTOOL_DIR', '~/.webtool')).expanduser()
 KEY_PATH = USER_DIR / 'secret.key'
@@ -182,55 +183,79 @@ def redact(text, keep_tail=0):
 def resolve_auth(url):
     """把 URL 里的用户名与保险库中的密码配对, 返回可直接出网的完整 URL。
 
+    引用键: 保险库条目按 `用户名@主机[:端口]` 存 —— 同一个用户名在两台代理
+    上用不同密码是常态, 只按用户名存会互相覆盖。没带主机的老条目 (只存
+    `用户名`) 仍然认, 作为回落。
+
     三种情形:
       user:pass@host   → 明文密码, 原样返回 (调用方的老用法)
-      user@host + 库里有 → 查库补上密码
+      user@host + 库里有 → 查库补上密码 (user 与密码都 percent-encode 后拼回,
+                           密码里的 @ : / # ? 才不会把 URL 切碎)
       user@host + 库里没有 → 报错 (凭据缺失要立刻说, 不能静默用空密码去连,
                               那会让代理返回 407 而错误信息完全指不到原因)
     """
     if not url or '@' not in url or '://' not in url:
         return url
     scheme, rest = url.split('://', 1)
-    userinfo, _, hostpart = rest.rpartition('@')
-    if not userinfo:
+    userinfo, sep, hostpart = rest.rpartition('@')
+    if not sep or not userinfo:
         return url
     if ':' in userinfo:
         return url                                # 已带密码: 明文用法, 不动
-    store = _load_store()
-    if userinfo in store:
-        return f'{scheme}://{userinfo}:{store[userinfo]}@{hostpart}'
-    raise SecretError(
-        f'代理 {userinfo}@{hostpart.split("/")[0].split(":")[0]} 需要密码, '
-        f'但保险库里没有 "{userinfo}"\n'
-        f'处理: webtool proxy setpass {userinfo} "<密码>" '
-        f'(或把密码直接写进 URL, 但那样会明文落盘)')
+    host = hostpart.split('/', 1)[0]              # 容错: 引用键不带路径
+    store, broken = _load_store_with_broken()
+    pwd = None
+    for key in (f'{userinfo}@{host}', userinfo):  # 先精确 (user@host), 再回落 (user)
+        if key in store:
+            pwd = store[key]
+            break
+    if pwd is None:
+        hint = ''
+        if broken:
+            hint = ('\n另有条目解密失败 (密钥不匹配?): 密钥看 '
+                    f'{ENV_KEY} 环境变量或 {KEY_PATH}')
+        raise SecretError(
+            f'代理 {userinfo}@{host.split(":")[0]} 需要密码, '
+            f'但保险库里没有 "{userinfo}" 与 "{userinfo}@{host}"\n'
+            f'处理: webtool proxy setpass {userinfo}@{host} "<密码>" '
+            f'(或把密码直接写进 URL, 但那样会明文落盘)' + hint)
+    return (f'{scheme}://{quote(userinfo, safe="")}:{quote(pwd, safe="")}'
+            f'@{hostpart}')
 
 
 def _load_store():
-    """读 config.json 里的 proxy_auth 密文表并解密"""
+    """读 config.json 里的 proxy_auth 密文表并解密 (解不开的条目丢弃)"""
+    return _load_store_with_broken()[0]
+
+def _load_store_with_broken():
+    """同上, 另返回解不开的条目名 —— resolve_auth 报"缺密码"时得能区分
+    "真没存过"与"存了但密文解不开", 后者换密钥后重新 setpass 才是解法"""
     import json
     cfg_path = USER_DIR / 'config.json'
     if not cfg_path.exists():
-        return {}
+        return {}, []
     try:
         cfg = json.loads(cfg_path.read_text(encoding='utf-8'))
     except (ValueError, OSError):
-        return {}
+        return {}, []
     raw = cfg.get('proxy_auth') or {}
     if not isinstance(raw, dict):
-        return {}
-    out = {}
+        return {}, []
+    out, broken = {}, []
     for user, blob in raw.items():
         try:
             out[user] = decrypt(blob)
         except Exception:
             # 解不开 (密钥换了/密文损坏) 不能静默用空密码, 让 resolve_auth 报缺失
-            continue
-    return out
+            broken.append(user)
+    return out, broken
 
 
 def store_password(user, password):
-    """把密码写进 config.json 的 proxy_auth (密文)。返回是否新建。"""
+    """把密码写进 config.json 的 proxy_auth (密文)。返回是否新建。
+
+    键即引用名: 推荐带主机的 `user@host[:port]` (两台代理同一个用户名、
+    不同密码互不干扰); 裸 `user` 也认, 是老格式的回落。"""
     import json
     blob = encrypt(password)
     cfg_path = USER_DIR / 'config.json'

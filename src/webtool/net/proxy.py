@@ -115,6 +115,14 @@ def hostport_of(url):
     return f'{host}:{port}' if port else host
 
 
+def _store_proxy_password(user, password, host, port):
+    """代理密码进保险库, 键带主机 (user@host:port) —— 两台代理同一个用户名、
+    不同密码互不覆盖。返回条目名, 给提示文案用。"""
+    hostport = f'{host}:{port}' if port else host
+    store_password(f'{user}@{hostport}', password)
+    return f'{user}@{hostport}'
+
+
 def handle(args, cfg):
     """webtool proxy <子命令>"""
     action = args.action
@@ -178,7 +186,7 @@ def _set(args, cfg):
             print('URL 里有密码但没用户名, 无法存保险库', file=sys.stderr)
             return 2
         try:
-            store_password(user, password)
+            entry = _store_proxy_password(user, password, host, port)
         except Exception as e:
             print(f'密码存储失败: {redact(str(e))}', file=sys.stderr)
             return 2
@@ -189,7 +197,7 @@ def _set(args, cfg):
         cfg['proxy_auth'] = load_config().get('proxy_auth') or {}
         url = (f'{scheme}://{quote(user, safe="")}@{host}'
                + (f':{port}' if port else ''))
-        print(f'密码已加密存进保险库 (用户 {user}); '
+        print(f'密码已加密存进保险库 (条目 {entry}); '
               f'配置文件只留用户名, 出网时才解密')
     cfg['proxy'] = url
     save_config(cfg)
@@ -243,7 +251,7 @@ def _setpass(args, cfg):
     """
     user = args.user
     if not user:
-        print('usage: webtool proxy setpass <用户名> [<密码>]', file=sys.stderr)
+        print('usage: webtool proxy setpass <用户名|用户名@主机> [<密码>]', file=sys.stderr)
         print('  省略密码则终端交互输入 (不回显); 也可从 stdin 管道读',
               file=sys.stderr)
         return 2
@@ -628,7 +636,7 @@ def _named(args, cfg):
             print('URL 里有密码但没用户名, 无法存保险库', file=sys.stderr)
             return 2
         try:
-            store_password(user, password)
+            _store_proxy_password(user, password, host, port)
         except Exception as e:
             print(f'密码存储失败: {redact(str(e))}', file=sys.stderr)
             return 2
