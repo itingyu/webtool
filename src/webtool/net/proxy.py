@@ -338,12 +338,73 @@ def _unset(args, cfg):
     return 0
 
 
+def _norm_proxy_url(u):
+    """比线路用: 只看 scheme://host:port, 忽略路径/尾斜杠/大小写"""
+    s = str(u or '').strip().rstrip('/')
+    if '://' not in s:
+        s = 'http://' + s
+    return s.lower()
+
+
+def _proxy_is_used(cfg, val):
+    """这条代理是否被规则或 default 引用 —— 测通了但没人用它, 等于白测"""
+    spec = _load_rules_file(cfg)
+    want = _norm_proxy_url(val)
+    names = [n for n, p in (spec.get('proxies') or {}).items()
+             if _norm_proxy_url(p.get('url') if isinstance(p, dict) else p) == want]
+    if not names:
+        return False
+    d_act = (spec.get('default') or 'direct')
+    if d_act.startswith('proxy') and (d_act.split(':', 1)[1].strip() or 'default') in names:
+        return True
+    for r in (spec.get('rules') or []):
+        a = str((r or {}).get('action') or '')
+        if a.startswith('proxy') and (a.split(':', 1)[1].strip() or 'default') in names:
+            return True
+    return False
+
+
 def _test(args, cfg):
-    val = _rule_syntax(args.value) if args.value else _default_proxy_url(cfg)
+    """探活一条代理; 目标 URL 可换 (`--url`)
+
+    只回"OK/FAIL"是不够的, 这里必须把两件事说清楚, 否则结论会误导人:
+      - 通的这条线, 与目标 URL 按规则表实际会走的线, 是不是同一条
+      - 这条代理有没有被任何规则/default 引用 (没被引用 = 测通也没流量走它)
+
+    探活本身走 `core.http.build_opener`, 与真实取数同一条通道 —— 早前这里是
+    裸 `urllib` 装 `ProxyHandler`, 环境里 `no_proxy='*'`/`.host` 会让它静默直连
+    并把死代理报成 OK; 现在显式指定的代理不再被环境绕过, 假 OK 不复现。
+    """
+    from webtool.net import rules as _R
+    target = (getattr(args, 'url', None) or
+              'https://www.google.com/generate_204')
+    val = None
+    if args.value:
+        # `proxy test 名字` 该测那条命名代理 —— 之前会被当成主机名解析成
+        # `http://名字:` 去撞 DNS, 报个 "Name does not resolve" 让人莫名其妙
+        nm = str(args.value).strip()
+        named = (_load_rules_file(cfg).get('proxies') or {}).get(nm)
+        if named:
+            print(f'{nm} = {redact(str(named))}')
+            val = str(named)
+        else:
+            val = _rule_syntax(nm)
+            if '://' not in str(args.value) and '.' not in nm:
+                print(f'⚠ 没有名为 {nm} 的命名代理, 按主机名解析成 {val}; '
+                      f'看现有名字: webtool proxy rules', file=sys.stderr)
+    else:
+        val = _default_proxy_url(cfg)
     if not val:
         print('no proxy to test. use: webtool proxy test http://127.0.0.1:2080',
               file=sys.stderr)
         return 2
+    verdict = None
+    try:
+        verdict = _R.load_router(cfg).explain(target)
+    except Exception as e:
+        print(f'⚠ 规则表读不出来 ({redact(str(e))[:80]}), 只测这条代理本身',
+              file=sys.stderr)
+
     import urllib.request
     from webtool.core import http as _http
     try:
@@ -355,15 +416,30 @@ def _test(args, cfg):
         t0 = time.time()
         from webtool.net.transport import headers_for as _hf
         r = opener.open(urllib.request.Request(
-            'https://www.bing.com/robots.txt',
-            headers=_hf('nav', 'https://www.bing.com/robots.txt',
-                        full=True)), timeout=10)
+            target, headers=_hf('nav', target, full=True)), timeout=10)
         body = r.read(64)
         print(f'OK {r.status} {len(body)}B in {time.time()-t0:.1f}s '
               f'via {redact(val)}')
     except Exception as e:
         print(f'FAIL via {redact(val)}: {redact(str(e))}', file=sys.stderr)
         return 1
+
+    if target.endswith('/generate_204') and r.status != 204:
+        print(f'  ⚠ 期望 204, 实得 {r.status} —— 代理可能返回了自家页面 '
+              '(门户劫持/需要认证), 不能只看"有响应"', file=sys.stderr)
+    if verdict:
+        rp = verdict.get('resolved_proxy')
+        same = rp and _norm_proxy_url(rp) == _norm_proxy_url(val)
+        line = f'  目标 {target} 规则判定: {verdict.get("action")}'
+        if rp:
+            line += f' → {redact(rp)}'
+        line += '  (与所测一致)' if same else '  ⚠ 与所测代理不是一条线, 该目标的真实线路不受本次结果影响'
+        print(line)
+    if not _proxy_is_used(cfg, val):
+        print(f'  ⚠ 这条代理没有被任何规则或 default 引用 —— 测通了也没有流量走它 '
+              '(要让它生效: webtool proxy set 把它设成默认, 或 rule add ... proxy:<名字>)',
+              file=sys.stderr)
+    return 0
 
 
 def _ask_password(ref):

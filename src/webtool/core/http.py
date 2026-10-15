@@ -15,6 +15,42 @@ from webtool.core import tls
 from webtool.core.secrets_store import resolve_auth
 
 
+import gzip
+import io
+import threading
+import urllib.request
+import urllib.error
+
+from webtool.core import tls
+from webtool.core.secrets_store import resolve_auth
+
+
+class _NoBypassProxyHandler(urllib.request.ProxyHandler):
+    """显式指定的代理不被 `no_proxy` / `NO_PROXY` 绕过
+
+    urllib 的 `ProxyHandler.proxy_open` 在装代理前会先问 `proxy_bypass(req.host)`,
+    而它读环境变量 `no_proxy`。于是环境里有 `no_proxy=*`(或 `.google.com` 这种
+    后缀形式) 时, "规则表判定走代理"的请求会**静默直连** —— 配置说了不算, 而且
+    报错会变成"直连超时", 完全指不到真实原因 (实测: 死代理 + `no_proxy=*`,
+    取数报 timeout 而不是 connection refused)。
+
+    环境代理变量本该只在"没人指定线路"时起作用; 规则表/命令行已经明确指定了,
+    就不该再被环境插嘴。所以这一类 handler 在调用期间把 `proxy_bypass` 换成恒假。
+    替换是有效的: bypass 判定发生在 `proxy_open` 内部, 每次都从模块命名空间取;
+    用完立刻换回 (加锁避免多线程互相看到对方的替换)。
+    """
+    _lock = threading.Lock()
+
+    def proxy_open(self, req, proxy, type):
+        with self._lock:
+            orig = urllib.request.proxy_bypass
+            urllib.request.proxy_bypass = lambda host: False
+            try:
+                return super().proxy_open(req, proxy, type)
+            finally:
+                urllib.request.proxy_bypass = orig
+
+
 def build_opener(proxy=None, cookie_jar=None, url=None, verify=None,
                  ssl_context=None):
     """建 opener。证书策略默认取 tls.ssl_context(), url/verify 只影响该 opener。
@@ -58,8 +94,7 @@ def build_opener(proxy=None, cookie_jar=None, url=None, verify=None,
                                  **_parse_auth(auth))
             socket.socket = _s.socksocket
         else:
-            handlers.append(urllib.request.ProxyHandler(
-                {'http': proxy, 'https': proxy}))
+            handlers.append(_NoBypassProxyHandler({'http': proxy, 'https': proxy}))
     else:
         # 直连也要传一个**空** ProxyHandler。build_opener 见到同类的处理器就
         # 不加默认的那个, 而默认 ProxyHandler 会读 http_proxy/https_proxy ——

@@ -271,6 +271,15 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 - 打包数据在包根 `src/webtool/data/`（不在 `core/` 下），`core.config_data.DATA_DIR`
   指向它；`pyproject` 的 `package-data` 按此配
 
+## 显式线路不被环境改写
+
+规则表/命令行已经指定了线路（proxy / direct），环境变量不该再插嘴：
+`no_proxy` / `NO_PROXY` 只在"没人指定线路"时才说话。反面教材是 urllib 的
+`ProxyHandler` —— 它装代理前先问 `proxy_bypass(host)`，于是 `no_proxy='*'`
+能让走代理的请求**静默直连**，还把死代理报成 OK，把错误退化成"直连超时"
+（查半天也想不到是环境变量）。所以装显式代理一律走
+`core.http._NoBypassProxyHandler`；`direct` 用空 ProxyHandler 反遮环境代理。
+
 ## 7. 注释与文档纪律
 
 - 注释只写两类：**为什么这么做**（约束、坑、不直观的取舍）与**外部协议事实**（上游字段形状、必须带的头、限速）。代码本身在做什么，不写

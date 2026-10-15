@@ -449,11 +449,12 @@ def proxy_cmd(action: str = typer.Argument(..., help='get/set/unset/test/setpass
               act: str = typer.Argument(None, help='rule add 的动作: direct/proxy/block/proxy:<名字>'),
               first: bool = typer.Option(False, '--first', help='rule add: 插到规则表最前面 (默认追加到末尾, 会被前面的规则吃掉)'),
               pos: int = typer.Option(None, '--pos', help='rule add: 插到第 N 位 (0 = 最前)'),
-              apply: bool = typer.Option(False, '--apply', help='tidy: 落盘 (默认干跑, 落盘前自动备份)')):
+              apply: bool = typer.Option(False, '--apply', help='tidy: 落盘 (默认干跑, 落盘前自动备份)'),
+              url: str = typer.Option(None, '--url', help='test: 探活目标 (默认 google generate_204)')):
     """代理配置: 选线路 / 存凭据(密文) / 按域名-IP-端口-协议-GeoIP 分流"""
     a = _CTX['args']
     a.action, a.value, a.user, a.act = action, value, user, act
-    a.first, a.pos, a.apply = first, pos, apply
+    a.first, a.pos, a.apply, a.url = first, pos, apply, url
     cfg = _proxy.load_config()
     if _CTX.get('proxy'):
         cfg['proxy'] = _CTX['proxy']

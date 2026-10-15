@@ -255,6 +255,7 @@ webtool config list                                     # 看实际生效策略�
 ### 代理与分流
 
 ```bash
+webtool proxy test [代理URL|名字] [--url 目标]        # 探活 + 线路自检 (规则判定/是否被引用/是否真走代理)
 webtool proxy set http://user@host:port            # 密码在库里有就直接用, 没有则交互输入 (不回显)
 webtool proxy setpass <用户名|用户名@主机>           # 单独存密码; URL 里带 :pass@ 会被拒绝 (防 history/ps 泄漏)
 webtool proxy passwd | delpass <引用名>
@@ -279,6 +280,8 @@ webtool proxy geoip /path/GeoLite2-Country.mmdb
 - 分流优先用 `geosite` 而不是 `geoip`：按域名查库不解析 IP，不受 CDN 就近解析影响
 - 首次运行自动生成默认 `~/.webtool/rules.json`（**一条**合并规则：`*.cn` + 国内常见站 + `opencode.ai`/`exa.ai` 直连），已存在则永不覆盖
 - `proxy tidy` 做三件事，都只动语义等价或纯死重的部分：同动作规则合成一条、同一规则内被宽条目覆盖的去重、被前面规则完全覆盖或与默认动作同结果的规则删掉；**默认干跑**，`--apply` 落盘并先备份（规则表是分流总闸，不偷偷改）
+- `proxy test` 不只回 OK/FAIL，它还说清三件事：这条线通不通、**目标 URL 按规则表实际会走哪条线**（不一致时提示"本次结果不影响该目标的真实线路"）、这条代理**有没有被任何规则/default 引用**（没被引用 = 测通也没流量走它）。默认目标是 `https://www.google.com/generate_204`（实得非 204 会提示可能被门户劫持/需认证），参数也可写命名代理：`webtool proxy test default`
+- **显式指定的线路不被环境变量改写**：`no_proxy='*'`（或 `.host` 后缀形式）曾能让"规则表判了走代理"的请求静默直连，并把死代理报成 OK、报错退化成"直连超时"指不到真因；现在规则表/命令行指定的代理不再被 `no_proxy` 绕过
 - 规则写散了不必手抠：同动作的多条规则迟早互相遮蔽，`webtool proxy rules` 检测到冗余会直接提示跑 tidy
 - 没配代理时默认动作是 `direct`（此时直连规则是冗余的，tidy 会建议删）；`proxy set` 把默认动作切成代理的那一刻，若规则表为空会自动补一条国内直连规则
 
