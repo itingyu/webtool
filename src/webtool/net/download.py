@@ -167,12 +167,29 @@ def download(url, path, opener, *, progress=None, t0=None, chunk=CHUNK,
 
     jobs>1 或"上次就是分片下到一半" → 多连接分片; 否则单连接。分片现场记在同一个
     .part.meta 里, 所以续传时不必再指定 --jobs, 会接着上次的段数继续。
+
+    熔断: 入口查一次 (打开就短路, 连试探都省), 结果记账 —— 下载是重通道, 站点
+    挂了还一遍遍拉几百 MB 最浪费; 证书错不计入 (配置问题, 见 resilient.count_failure)。
     """
-    if jobs > 1 or _seg_meta(path, url) is not None:
-        return download_parallel(url, path, opener, jobs=jobs, progress=progress,
-                                 t0=t0, chunk=chunk)
-    return _download_single(url, path, opener, progress=progress, t0=t0, chunk=chunk,
-                            opened=opened)
+    from webtool.core.resilient import count_failure, guard
+    from webtool.core.tls import TlsError
+    br = guard(url)
+    try:
+        if jobs > 1 or _seg_meta(path, url) is not None:
+            r = download_parallel(url, path, opener, jobs=jobs, progress=progress,
+                                  t0=t0, chunk=chunk)
+        else:
+            r = _download_single(url, path, opener, progress=progress, t0=t0,
+                                 chunk=chunk, opened=opened)
+    except Exception as e:
+        count_failure(br, e, exempt=(TlsError,))
+        raise
+    if r.get('error'):
+        # 失败以 dict 形式返回 (不抛): 这类"站点不给数据"同样要算进熔断
+        br.record(False)
+    else:
+        br.record(True)
+    return r
 
 
 def _download_single(url, path, opener, *, progress=None, t0=None, chunk=CHUNK,
@@ -278,7 +295,9 @@ def _download_single(url, path, opener, *, progress=None, t0=None, chunk=CHUNK,
 # 而磁盘偏移写入本来就支持并发写不相交区间: 直接把 .part 预分配成总大小,
 # 每段 seek 到自己的偏移写。失败时各段进度记在 meta 里, 续传只补没下完的部分。
 
-JOBS_MAX = 4                   # 连接数封顶: 再多收益被站点限速吃掉, 且并发越高越像扫描
+# 连接数封顶 = 全仓并发上限 (core.resilient.MAX_WORKERS): 再多收益被站点限速
+# 吃掉, 且并发越高越像扫描; 数字只在一个地方定义
+from webtool.core.resilient import MAX_WORKERS as JOBS_MAX
 MIN_SPLIT = 1024 * 1024        # 小于 1MB 不值得切, 切了也是连接开销占大头
 
 

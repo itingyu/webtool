@@ -179,8 +179,9 @@ def _rss(query, max_results, proxy, timeout, market, page):
     return out
 
 
-def _strip_tags(s):
-    return re.sub(r'<[^>]+>', '', s or '')
+# 去标签只有 core.text 一份实现 (含 <em> 也吃掉、折叠空白); bing 随后还会
+# _unescape, 与原来"手工 re.sub 再转义"的先后一致
+_strip_tags = text.clean_markup
 
 
 _unescape = text.unescape

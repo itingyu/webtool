@@ -5,6 +5,8 @@
 "360百科"、"其他人还搜了" 等导航块, 一律跳过 —— 它们没有 data-mdurl 或
 指向站内, 按此过滤比按文案黑名单稳。
 """
+
+from webtool.core import text
 import re
 import urllib.parse
 
@@ -19,7 +21,6 @@ _SNIPPET = re.compile(r'class="(?:res-desc|summary-text|content-right)[^"]*"[^>]
 # 站外广告位 (首条常是"xxx-短视频大全-高清在线观看")
 _NOISE = re.compile(r'\[转\]|-?短视频大全|高清在线观看|图片大全|在线影院')
 
-
 def search(query, max_results=10, proxy=None, timeout=15, market=None, **_):
     """360 搜索; 免 key 直连, 无需代理"""
     q = urllib.parse.quote(query)
@@ -29,7 +30,6 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, **_):
     if not text:
         raise RuntimeError(f'so360 空响应 (status={status})')
     return _parse(text, max_results)
-
 
 def _parse(html, max_results):
     out, seen = [], set()
@@ -60,7 +60,6 @@ def _parse(html, max_results):
                     'snippet': snippet})
     return out
 
-
 def _href(blk):
     """无 data-mdurl 时取块内第一个外链"""
     for h in re.findall(r'href="(https?://[^"]+)"', blk):
@@ -69,7 +68,5 @@ def _href(blk):
             return u
     return None
 
-
-def _unescape(s):
-    from html import unescape
-    return unescape(s).strip()
+# 与 baidu/google 同款: 转义与去标签只有 core.text 一份实现, 这里只起个短名字
+_unescape = text.unescape

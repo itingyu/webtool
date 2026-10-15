@@ -83,6 +83,8 @@ def retry_call(fn, *, url=None, retries=None, backoff=None,
 
 
 # ── 熔断: 按域名连续失败计数, 状态经 core.state 跨进程生效 ──────────
+class BreakerOpenError(RuntimeError):
+    """域级熔断打开中: 请求被短路, 剩余冷却秒数在消息里"""
 class Breaker:
     """域级熔断器: 连续失败 fail_threshold 次 → 打开 cool_seconds
 
@@ -132,6 +134,27 @@ class Breaker:
     def _record(self, **kv):
         from webtool.core import state
         state.set_breaker(self.name, **kv)
+
+
+def guard(url):
+    """域级熔断检查: 打开期直接抛 BreakerOpenError (不发请求)
+
+    三条出网通道 (get / request / download) 共用; 熔断的意义就是别再打,
+    所以这里只短路。返回的 Breaker 由调用方在成败处 record。
+    """
+    br = Breaker(url)
+    left = br.check()
+    if left is not None:
+        raise BreakerOpenError(
+            '熔断打开中 %s (剩 %.0fs), 先修原因或等冷却' % (url, left))
+    return br
+
+
+def count_failure(br, e, *, exempt=()):
+    """记账: 命中 exempt 的异常不算站点失败 (如证书错 = 配置问题)"""
+    if isinstance(e, exempt):
+        return
+    br.record(False)
 
 
 # ── 并发: 统一线程池入口 (共享状态只在主线程写, 见规范"多源抓取"节) ──

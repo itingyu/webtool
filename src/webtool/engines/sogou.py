@@ -12,6 +12,8 @@
 数分钟后逐步解封 —— 是 IP 信誉问题, 住宅 IP / 低频使用下 PC 通道是主力。
 被拦处置: 拦截器 (net.intercept) 记冷却 + 换新会话/新指纹重试。
 """
+
+from webtool.core import text
 import http.cookiejar
 import re
 import time
@@ -23,8 +25,6 @@ ENDPOINT = 'https://www.sogou.com/web'
 SOUGOU = 'https://www.sogou.com'
 M_ENDPOINT = 'https://m.sogou.com/web/searchList.jsp'
 M_HOME = 'https://m.sogou.com/'
-
-
 
 def search(query, max_results=10, proxy=None, timeout=15, market=None,
            _session=None):
@@ -59,7 +59,6 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None,
                        f'PC+移动双通道均被拦, '
                        f'冷却{_cool.left if _cool else 0}s, 请换 -e bing,baidu')
 
-
 # PC 主力 (curl_cffi)
 
 def _pc_cffi(q, proxy, timeout):
@@ -80,7 +79,6 @@ def _pc_cffi(q, proxy, timeout):
         return None, hit.sign
     except Exception as e:
         return None, f'{type(e).__name__}'
-
 
 def _pc_urllib(q, timeout):
     """urllib 全套显式指纹会话兜底, 换新会话重试一次
@@ -111,9 +109,7 @@ def _pc_urllib(q, timeout):
         time.sleep(1.5)
     return None, sign
 
-
 # 移动端 (Android 指纹)
-
 
 def _mobile_search(q, max_results, proxy, timeout, _inner=False):
     """m.sogou Android 指纹: 首页预热 → searchList.jsp, url= 参数直出真实地址"""
@@ -174,7 +170,6 @@ def _mobile_search(q, max_results, proxy, timeout, _inner=False):
             break
     return out
 
-
 # PC 结果解析
 
 def _parse_pc(html, max_results):
@@ -200,7 +195,6 @@ def _parse_pc(html, max_results):
     _fill_snippets(html, out)
     return out
 
-
 def _fill_snippets(html, out):
     """尽力提取每个结果下方的摘要文本"""
     blocks = re.split(r'<h3 class="vr-title[^"]*"[^>]*>', html)
@@ -209,7 +203,6 @@ def _fill_snippets(html, out):
         if m:
             txt = _unescape(re.sub(r'<[^>]+>', '', m.group(1))).strip()
             out[i]['snippet'] = txt[:300]
-
 
 def resolve_link(link_url, proxy=None, timeout=15):
     """把 /link?url=xxx 解析为真实 URL: 需带搜索会话 cookie (state 持久会话优先)"""
@@ -247,7 +240,5 @@ def resolve_link(link_url, proxy=None, timeout=15):
          or re.search(r'href="(https?://[^"]+)"', body))
     return m.group(1) if m else None
 
-
-def _unescape(s):
-    from html import unescape
-    return unescape(s).strip()
+# 与 baidu/google 同款: 转义与去标签只有 core.text 一份实现, 这里只起个短名字
+_unescape = text.unescape

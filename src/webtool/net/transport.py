@@ -605,29 +605,21 @@ def _resolve_proxy_auth(proxy, url):
     return p
 
 
-class BreakerOpenError(RuntimeError):
-    """域级熔断打开中: 请求被短路, 剩余冷却秒数在消息里"""
+# 熔断原语已收口到 core.resilient (get/request/download 三通道共用);
+# 这里保留同名转发, 老调用点与测试按老路径取用不受影响
+from webtool.core.resilient import BreakerOpenError as BreakerOpenError
 
 
 def _breaker_guard(url):
-    """域级熔断检查: 打开期直接短路 (不发请求)。返回 (breakers, None) 或抛
-
-    get/request 两条通道共用。**只短路不发请求** —— 熔断的意义就是别再打。
-    """
-    from webtool.core.resilient import Breaker
-    br = Breaker(url)
-    left = br.check()
-    if left is not None:
-        raise BreakerOpenError(
-            f'熔断打开中 {url} (剩 {left:.0f}s), 先修原因或等冷却')
-    return br
+    """域级熔断检查: 打开期直接短路 (不发请求)"""
+    from webtool.core.resilient import guard
+    return guard(url)
 
 
 def _count_failure(br, e):
     """记账: 只有"这台站点不给数据"算失败; 证书错是配置问题, 不该连坐熔断"""
-    if isinstance(e, TlsError):
-        return
-    br.record(False)
+    from webtool.core.resilient import count_failure
+    count_failure(br, e, exempt=(TlsError,))
 
 
 def request(method, url, **kw):
