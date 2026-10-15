@@ -226,6 +226,22 @@ def _text_result(url, data, status, via, headers, kind, mime, args, t0):
     return out
 
 
+def _resolve_cli_proxy(val, cfg):
+    """--proxy 取值归一: auto / direct / 命名代理名 / 完整 URL"""
+    from webtool.net import rules as _R
+    if val in ('auto', 'direct'):
+        return val
+    r = _R.router(cfg)
+    if val in (r.proxies or {}):
+        spec = r.proxies[val]
+        return spec.get('url') if isinstance(spec, dict) else spec
+    if '://' in val:
+        return val
+    known = ', '.join(sorted(r.proxies or {})) or '(无)'
+    raise SystemExit(f"error: --proxy 未知代理名 {val!r}; 现有: {known}\n"
+                     "也可给完整 URL (http://... / socks5://...) 或 direct/auto")
+
+
 def do_fetch(args, cfg):
     urls = []
     if args.url_file:
@@ -239,9 +255,11 @@ def do_fetch(args, cfg):
 
     single = len(urls) == 1
     results = []
-    # fetch_proxy 显式指定优先; 否则交给路由表按域名/IP/协议分流
-    fp = cfg.get('fetch_proxy')
-    proxy = fp if fp is not None else 'auto'
+    # 'auto' = 路由表按域名/IP/协议分流; --proxy 可临时点名或强制直连
+    proxy = 'auto'
+    cli_proxy = getattr(args, 'proxy', None)
+    if cli_proxy:
+        proxy = _resolve_cli_proxy(cli_proxy, cfg)
     timeout = cfg.get('timeout', 15)
     via = (getattr(args, 'via', None) or 'local').lower()
     if via not in _VIA_CHANNELS:

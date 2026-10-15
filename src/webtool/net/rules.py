@@ -3,35 +3,37 @@
 分流粒度是**请求目标** (域名/IP/端口/协议/GeoIP), 不是引擎名 —— 同一个引擎里
 境内站直连、境外站走代理是常态, 只有拿到 URL 才判得出来。线路只有这一个决策点。
 
-## 规则格式 (`~/.webtool/rules.json`, 或 config.json 的 proxy_rules 段)
+## 规则格式 (`~/.webtool/rules.json`, 或 config.json 的 rules_file 指向的文件)
 
 ```jsonc
 {
-  "default": "direct",              // 未命中时的动作
+  "default": "proxy:default",       // 未命中时的动作 (direct / block / proxy:<名>)
   "rules": [
     {"match": {"domain": ["*.cn", "baidu.com"]}, "action": "direct"},
     {"match": {"domain_suffix": ".googlesource.com"}, "action": "proxy:tokyo"},
     {"match": {"cidr": ["10.0.0.0/8", "192.168.1.1"]}, "action": "direct"},
-    {"match": {"port": [443, 8443]}, "action": "proxy"},
+    {"match": {"port": [443, 8443]}, "action": "proxy:default"},
     {"match": {"scheme": ["http"]}, "action": "direct"},
     {"match": {"geoip": ["CN", "HK"]}, "action": "direct"},
-    {"match": {"asn": [15169]}, "action": "proxy"},
-    {"match": {"domain": ["api.anthropic.com"]},
-     "action": "proxy", "name": "外网必走"}
+    {"match": {"asn": [15169]}, "action": "proxy:tokyo"}
   ],
   "proxies": {
-    "tokyo": {"url": "socks5://127.0.0.1:1081"},
-    "direct": null
-  }
+    "default": "socks5://127.0.0.1:1081",   // "默认代理", proxy:<名> 可引用
+    "tokyo": {"url": "socks5://127.0.0.1:1081"}
+  },
+  "geoip_db": "/path/GeoLite2-Country.mmdb", // 库路径写在这, 规则与依赖同文件
+  "geosite_db": null,
+  "asn_db": null
 }
 ```
 
-- **自上而下, 第一个命中的规则生效** (顺序即优先级)
-- `action`: `direct`(直连) / `block`(拒绝, 不发请求) / `proxy`(用全局代理)
-  / `proxy:<名>`(用命名代理)
+- **自上而下, 第一个命中的规则生效** (顺序即优先级; block 例外, 见下)
+- `action`: `direct`(直连) / `block`(拒绝, 不发请求) / `proxy:<名>`(用命名代理);
+  裸 `proxy` 等价 `proxy:default`
 - `match` 内多个条件是 **AND**; 同一条件内多个值是 **OR**
 - `*.cn` 匹配 `a.cn` 与 `a.b.cn`; 无 `*` 的按**后缀**匹配 (裸 `cn` 不生效,
   免得误伤 `example.com.cn` 之外的一切)
+- 旧版 `priority` 键已废弃: 一律按文件顺序生效, direct 规则想优先就写在前面
 
 ## GeoIP / ASN 库
 
@@ -64,15 +66,20 @@ class RuleError(RuntimeError):
 # 动作解析
 
 def resolve_action(action):
-    """'proxy:tokyo' → ('proxy', 'tokyo'); 'direct' → ('direct', None)"""
+    """'proxy:tokyo' → ('proxy', 'tokyo'); 'direct' → ('direct', None)
+
+    裸 'proxy' 归一成 ('proxy', 'default') —— "默认代理"是命名代理里的
+    default 条目, 语义只有一种写法。"""
     if action in (None, ''):
         return 'direct', None
     a = str(action)
     if a.startswith('proxy:'):
-        return 'proxy', a.split(':', 1)[1].strip()
+        return 'proxy', a.split(':', 1)[1].strip() or 'default'
+    if a == 'proxy':
+        return 'proxy', 'default'
     if a not in VALID_ACTIONS:
         raise RuleError(
-            f'未知动作: {a}\n合法值: direct / proxy / block / proxy:<名字>')
+            f'未知动作: {a}\n合法值: direct / block / proxy:<名字>')
     return a, None
 
 
@@ -165,21 +172,11 @@ def _asn_match(asn, spec):
 
 # 新规则覆盖试算
 
-def _beats(a, b, priority):
-    """动作 a 的规则压得住动作 b 的规则吗（用于"新规则会不会被吃掉"试算）"""
-    if a == 'block':
-        return True                       # 显式拒绝最高优先, 直连也压得住
-    if b == 'block':
-        return False
-    if priority == 'order':
-        return True                       # 顺序机制下, 排在前面就赢
-    return a == 'direct' and b != 'direct'
-
-
 def shadow_check(router, match, action, index):
     """新规则插到 `index` 后, 会不会被前面的规则**完全**吃掉
 
-    返回 (序号, 动作) 或 None。这是**试算不是证明**: 只对纯域名规则
+    顺序机制下, 前面任意一条能命中探针域名的规则都会把它吃掉。返回
+    (序号, 动作) 或 None。这是**试算不是证明**: 只对纯域名规则
     (domain / domain_suffix) 生效, 拿每个后缀本身和一个二级探针域名去撞
     前面的规则, 全部撞中才算覆盖。带 port/scheme/cidr 的规则一律不猜,
     宁可不报也不误报。
@@ -199,7 +196,7 @@ def shadow_check(router, match, action, index):
             return None
         probes += [base, 'zz-probe.' + base]      # 后缀本体 + 一个子域
     try:
-        verb, _ = resolve_action(action)
+        resolve_action(action)
     except RuleError:
         return None
     for i, r in enumerate(router.rules[:index]):
@@ -208,8 +205,6 @@ def shadow_check(router, match, action, index):
         try:
             act_i, _ = resolve_action(r.get('action'))
         except RuleError:
-            continue
-        if not _beats(act_i, verb, router.priority):
             continue
         m = r.get('match') or {}
         if all(router._match(m, h, None, 'https', _IPRef(h)) for h in probes):
@@ -340,8 +335,7 @@ def geoip_asn(ip, db_path):
 class Router:
     """按规则表决定某个 URL 该走哪条线路"""
 
-    def __init__(self, spec, geoip_db=None, asn_db=None, default_proxy=None,
-                 geosite_db=None):
+    def __init__(self, spec, geoip_db=None, asn_db=None, geosite_db=None):
         """spec: {'default': ..., 'rules': [...], 'proxies': {...}}"""
         spec = spec or {}
         self.rules = spec.get('rules') or []
@@ -351,27 +345,28 @@ class Router:
         # geosite 是**按域名分类**的库。判 geoip 规则时优先用它: "这域名算不算
         # CN" 不用解析 IP, 也就不会被 CDN 就近解析把 IP 判到别国去
         self.geosite_db = geosite_db
-        # spec 没显式写 default 时: 有全局 proxy 就沿用它, 否则直连。
-        # 绝不能无条件当 'direct' —— 用户只配了 proxy 没配规则时, 那台代理
-        # 会被静默忽略, google/docs.rsshub.app 这类必须代理的目标直接连不通,
-        # 而且现象是"没走代理"而不是任何报错。
+        self.warnings = []      # 配置问题累积 (比如 geoip 库没配)
+        # default 缺失时的推断只有一步, 且一定告警: 命名代理里有 "default"
+        # 就拿它兜底, 否则直连。绝不静默猜一个方向 —— 用户以为的全局代理
+        # 被忽略时, 现象是"没走代理"而不是任何报错, 排查毫无线索。
         if 'default' in spec:
             self.default_action, _ = resolve_action(spec['default'])
+        elif 'default' in self.proxies:
+            self.default_action, _ = resolve_action('proxy:default')
+            self.warnings.append('rules.json 未写 default, '
+                                 '按 proxies.default 兜底; 建议显式写')
         else:
-            self.default_action = 'proxy' if default_proxy else 'direct'
-        self.default_proxy = default_proxy
-        self.warnings = []      # 配置问题累积 (比如 geoip 库没配)
-        # 命中策略:
-        #   direct —— **direct 规则优先**: 任一条匹配规则是 direct 就用它, 不受前面
-        #             更宽的 proxy 规则阻挡; block 例外(deny > allow)
-        #   order  —— 老口径: 纯 first-match-wins, 文件里谁在前谁生效
-        # 写错的取值一律退回 direct 并告警, 不静默当 order —— 那等于用户
-        # 以为自己开了 direct 规则优先, 实际还是顺序优先, 排查毫无线索。
-        prio = str(spec.get('priority') or 'direct').lower()
-        if prio not in ('direct', 'order'):
-            self.warnings.append(f"priority 取值 '{prio}' 无效, 按 'direct' 处理")
-            prio = 'direct'
-        self.priority = prio
+            self.default_action, _ = 'direct', None
+            self.warnings.append('rules.json 未写 default, 未命中规则一律直连; '
+                                 '要走代理: webtool proxy set <url>')
+        if 'priority' in spec:
+            self.warnings.append("rules.json 的 'priority' 已废弃: "
+                                 '规则一律按文件顺序生效, 请删掉该键')
+        # 命中策略只有一种: 文件顺序, first-match-wins (block 例外: 显式拒绝
+        # 最高优先, 命中即断)。旧版 priority=direct 的例外已删 —— 它让
+        # "后面的 direct 压过前面的 proxy"成为隐藏规则, 一堆补丁机制
+        # (shadow_check/matched/explain) 全在补救这个认知负担。
+        self.priority = 'order'
         for i, r in enumerate(self.rules):
             # 规则是用户手写的 JSON, 混进一个字符串/数字是完全正常的编辑事故。
             # 这里必须逐条跳过而不是让 r.get() 抛 AttributeError —— 后者会让
@@ -389,13 +384,9 @@ class Router:
     def rule(self, url):
         """URL → (action, proxy_name, 命中的规则序号 或 None)
 
-        命中策略见 `self.priority`（rules.json 顶层 `"priority"`）：
-        `direct` 时 direct 规则优先，前面的宽 proxy 规则压不过后面的 direct 规则。
-        """
+        文件顺序 first-match-wins; block 命中即断。"""
         host, port, scheme = _split_url(url)
         ip_ref = _IPRef(host)
-        first = None                    # 第一条命中的 (priority=order 就用它)
-        direct = block = None           # 直连 / 拦截候选
         for i, r in enumerate(self.rules):
             if not isinstance(r, dict):
                 continue
@@ -411,25 +402,17 @@ class Router:
                 # 找。让它抛出去的话, 一条手写错的规则会让**所有**请求
                 # 全挂, 而不是"这一条没生效" —— 故障范围差着量级。
                 continue
-            if first is None:
-                first = (act, name, i)
             if act == 'block':
-                block = (act, name, i)
-                break               # deny 最高优先, 后面不必再扫
-            if act == 'direct' and direct is None:
-                direct = (act, name, i)
-        if block:
-            return block
-        if direct and self.priority != 'order':
-            return direct
-        return first or (self.default_action, None, None)
+                return act, name, i      # 显式拒绝最高优先, 命中即断
+            return act, name, i
+        return self.default_action, resolve_action(self.default_action)[1], None
 
     def matched(self, url):
         """所有命中规则 [(序号, 动作字符串)], 文件顺序。
 
         给 `explain` 用: 只有把"匹配了但没生效"的也列出来, 用户才能看出
-        自己写的规则是被 direct 规则优先压掉了, 而不是没匹配上 —— 这两者
-        只报最终命中项时长得一模一样。
+        自己的规则是被排在后面的规则压掉了, 而不是没匹配上 —— 这两者只报
+        最终命中项时长得一模一样。
         """
         host, port, scheme = _split_url(url)
         ip_ref = _IPRef(host)
@@ -437,7 +420,7 @@ class Router:
         for i, r in enumerate(self.rules):
             if not isinstance(r, dict):
                 continue
-            m = r.get('match')
+            m = r.get('match') or {}
             if not isinstance(m, dict) or not m:
                 continue
             if self._match(m, host, port, scheme, ip_ref):
@@ -508,23 +491,22 @@ class Router:
             return None
         if act == 'block':
             raise RuleError(f'规则拦截: {url}')
-        if act == 'proxy':
-            if name:
-                spec = self.proxies.get(name)
-                if spec is None and name not in self.proxies:
-                    raise RuleError(f'规则引用了未定义的代理: {name}')
-                return (spec or {}).get('url') if isinstance(spec, dict) else spec
-            return self.default_proxy
-        return None
+        # act == 'proxy'; 裸 proxy 已在 resolve_action 归一成 default
+        spec = self.proxies.get(name)
+        if spec is None and name not in self.proxies:
+            raise RuleError(
+                f'规则引用了未定义的代理: {name}\n'
+                f'现有: {", ".join(sorted(self.proxies)) or "(无)"}\n'
+                f'处理: webtool proxy named add {name} <url>, '
+                f'或把 default 显式配好')
+        return (spec or {}).get('url') if isinstance(spec, dict) else spec
 
     def explain(self, url):
         """给 CLI 看: 命中了哪条规则, 最终走哪条线路"""
         act, name, idx = self.rule(url)
-        if act == 'proxy' and name:
+        if act == 'proxy':
             spec = self.proxies.get(name) or {}
             target = spec.get('url') if isinstance(spec, dict) else spec
-        elif act == 'proxy':
-            target = self.default_proxy
         else:
             target = None
         out = {
@@ -534,24 +516,16 @@ class Router:
             'rule_index': idx,
             'rule': self.rules[idx] if idx is not None else None,
             'resolved_proxy': _mask(target),
-            'priority': self.priority,
         }
         hits = self.matched(url)
         if hits:
             out['matched'] = [{'index': i, 'action': a, 'effective': i == idx}
                               for i, a in hits]
-        # 有命中但没生效的 —— 要么被 direct 规则优先压掉, 要么被靠前的先吃掉。
-        # 不点出来的话, 用户看着跟自己写的规则"没匹配上"是一回事。
-        for i, a in hits:
-            if i == idx:
-                continue
-            if self.priority != 'order' and act == 'direct' and a.startswith('proxy'):
-                out['note'] = (f"规则[{i}] ({a}) 也匹配, 但规则[{idx}] 是 direct: "
-                               f"priority=direct 下 direct 规则压过 proxy 规则")
-            else:
-                out.setdefault('note', (f"规则[{i}] ({a}) 也匹配, 未生效: "
-                                        f"规则[{idx}] 在先 / 优先级更高"))
-            break
+            shadowed = [h for h in hits if h[0] != idx]
+            if shadowed:
+                out['note'] = (
+                    f'规则[{shadowed[0][0]}] ({shadowed[0][1]}) 也匹配但未生效: '
+                    f'规则[{idx}] 排在前面')
         return out
 
 
@@ -622,27 +596,41 @@ def migrate_plaintext_proxies(spec, cfg_path=None):
 
 
 def load_router(cfg):
-    """从配置构造 Router。规则来源: proxy_rules (内联) 或 rules_file (文件)"""
-    spec = cfg.get('proxy_rules')
-    rules_path = None
-    if not spec:
-        path = _rules_file_of(cfg)
-        if os.path.isfile(path):
-            rules_path = path
-            try:
-                with open(path, encoding='utf-8') as f:
-                    spec = json.load(f)
-            except (ValueError, OSError) as e:
-                # 规则文件坏了不能整个工具瘫掉: 退回"用全局 proxy 或直连",
-                # 但把原因挂出来 (不能退回纯直连, 那会让必须代理的目标连不通)
-                return _broken_router(f'规则文件读取失败: {path}: {e}',
-                                      cfg.get('proxy'))
-    spec, _migrated = migrate_plaintext_proxies(spec, rules_path)
+    """从配置构造 Router。规则只来自 rules_file 指向的文件 (默认 rules.json);
+    geoip/geosite/asn 库路径: 文件里的值优先, config.json 里的作回落"""
+    spec = _load_spec(cfg)
+    if isinstance(spec, _BrokenSpec):
+        r = Router({})
+        r.warnings = spec.warnings + [
+            '已退回: 未命中规则一律直连 (不能退成"用全局代理", '
+            '那会让直连该走的目标悄悄挂掉)']
+        return r
+    spec, _migrated = migrate_plaintext_proxies(spec, _rules_file_of(cfg))
     return Router(spec or {},
-                  geoip_db=cfg.get('geoip_db'),
-                  asn_db=cfg.get('asn_db'),
-                  geosite_db=cfg.get('geosite_db'),
-                  default_proxy=cfg.get('proxy'))
+                  geoip_db=spec.get('geoip_db') or cfg.get('geoip_db'),
+                  asn_db=spec.get('asn_db') or cfg.get('asn_db'),
+                  geosite_db=spec.get('geosite_db') or cfg.get('geosite_db'))
+
+
+def _load_spec(cfg):
+    """读规则文件。文件坏了不能整个工具瘫掉: 退回全直连, 原因挂 warnings"""
+    path = _rules_file_of(cfg)
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding='utf-8') as f:
+            spec = json.load(f)
+        return spec if isinstance(spec, dict) else {}
+    except (ValueError, OSError) as e:
+        return _BrokenSpec(path, e)
+
+
+class _BrokenSpec(dict):
+    """坏文件占位: Router 拿到空规则, warnings 里带原因"""
+
+    def __init__(self, path, err):
+        super().__init__()
+        self.warnings = [f'规则文件读取失败: {path}: {err}']
 
 
 _router_cache = (None, None)
@@ -708,23 +696,3 @@ def explain_route(url, cfg=None):
     return router(cfg).explain(url)
 
 
-class _broken_router:
-    """规则文件坏了也要能跑: 全部走默认, 但把原因挂在 warnings 上"""
-
-    def __init__(self, msg, default_proxy=None):
-        self.rules, self.proxies = [], {}
-        self.geoip_db = self.asn_db = None
-        self.default_action = 'proxy' if default_proxy else 'direct'
-        self.default_proxy = default_proxy
-        self.warnings = [msg]
-
-    def rule(self, url):
-        return self.default_action, None, None
-
-    def proxy_for(self, url):
-        return self.default_proxy
-
-    def explain(self, url):
-        return {'url': url, 'action': self.default_action, 'proxy_name': None,
-                'rule_index': None, 'rule': None,
-                'resolved_proxy': _mask(self.default_proxy)}

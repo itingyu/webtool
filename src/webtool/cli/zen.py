@@ -368,10 +368,11 @@ def _route(cfg, url, verbose=False):
     """本次请求走哪条线 (None = 直连), 全 zen 只有这一处决定
 
     交给 netx 判: `proxyhelper.for_url(url)` → 'auto' → netx 查路由表
-    (`~/.webtool/rules.json`), 没命中规则才用 config 里的默认代理。
-    **不能**把 cfg['proxy'] 直接喂进去: 那是"显式指定", 会整体绕过规则表,
+    (`~/.webtool/rules.json`, 未命中走 proxies.default)。
+    **不能**把代理 URL 直接喂进去: 那是"显式指定", 会整体绕过规则表,
     于是给 opencode.ai 配的 direct 形同虚设 (2026-10-14 修)。
     `--no-proxy` 时 do_zen 已把 cfg['proxy'] 置 'direct' → 这里尊重, 强制直连。
+    (cfg['proxy'] 现在只承载本次运行的覆盖值, 不再是持久配置)
     """
     from webtool.net import proxyhelper
     route = None if (cfg or {}).get('proxy') == 'direct' else proxyhelper.for_url(url)

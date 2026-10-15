@@ -252,10 +252,11 @@ webtool config list                                     # 看实际生效策略�
 ### 代理与分流
 
 ```bash
-webtool proxy set http://user:pass@host:port       # 密码加密入库, 配置只留用户名
-webtool proxy setpass <用户名>                      # 终端交互输入 (不回显)
-webtool proxy passwd | delpass <用户名>
+webtool proxy set http://user:pass@host:port       # 密码加密入库, rules.json 只留 user@host
+webtool proxy setpass <用户名|用户名@主机>           # 终端交互输入 (不回显)
+webtool proxy passwd | delpass <引用名>
 webtool proxy named tokyo socks5://user@127.0.0.1:1081     # 命名代理
+webtool proxy unset                                        # 清默认代理
 
 webtool proxy rule add '{"domain":["*.cn"]}' direct        # 按域名
 webtool proxy rule add '{"geosite":["cn"]}' direct         # 按域名库 (不解析 DNS)
@@ -268,7 +269,8 @@ webtool proxy geosite /path/geosite.dat                     # 配域名库 (MaxM
 webtool proxy geoip /path/GeoLite2-Country.mmdb
 ```
 
-- 动作 `direct` / `block` / `proxy` / `proxy:<名字>`；`--first` 插到最前、`--pos N` 插到第 N 位（默认追加到末尾）
+- `proxy set` = 设命名代理 `default` 并补 `default: proxy:default`——未命中规则的流量走它；旧 config.json 的 `proxy`/`fetch_proxy`/`proxy_rules` 首次运行自动迁进 rules.json
+- 动作 `direct` / `block` / `proxy:<名字>`（裸 `proxy` 等价 `proxy:default`）；`--first` 插到最前、`--pos N` 插到第 N 位（默认追加到末尾）
 - **顺序即优先级**，第一个命中的生效；`match` 内多条件 AND、同条件内多值 OR；判不出来 = 不匹配（缺库则该条跳过并提示）
 - 分流优先用 `geosite` 而不是 `geoip`：按域名查库不解析 IP，不受 CDN 就近解析影响
 - 首次运行自动生成默认 `~/.webtool/rules.json`（国内常见站 + `opencode.ai` / `exa.ai` 直连），已存在则永不覆盖

@@ -57,14 +57,14 @@ fetch 的四步：
 线路只由规则表判一次（`net/netx` 是唯一决策点），引擎、适配器、端点都不自报线路。
 
 ```jsonc
-// ~/.webtool/config.json
-{ "proxy": "http://127.0.0.1:2080", "fetch_proxy": null, "timeout": 15, "cache_dir": "~/.webtool/cache" }
+// ~/.webtool/config.json —— 只剩与线路无关的项 (timeout/cache/TLS...) + proxy_auth 密文
+{ "timeout": 15, "cache_dir": "~/.webtool/cache" }
 
-// ~/.webtool/rules.json —— 线路唯一决策源
+// ~/.webtool/rules.json —— 线路唯一决策源 (默认代理也在这)
 {
-  "default": "direct",     // 未命中时的动作 (缺省: 有全局 proxy 就用它)
-  "priority": "direct",    // 命中冲突时 direct 压过 proxy
-  "rules": [{"match": {"geosite": ["cn"]}, "action": "direct"}]
+  "default": "proxy:default",  // 未命中时的动作 (direct / block / proxy:<名>)
+  "rules": [{"match": {"geosite": ["cn"]}, "action": "direct"}],
+  "proxies": {"default": "http://127.0.0.1:2080"}
 }
 ```
 

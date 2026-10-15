@@ -235,6 +235,9 @@ def search_cmd(query: str = typer.Argument(..., help='搜索词'),
 @app.command('fetch')
 def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
               url_file: str = typer.Option(None, '--url-file', help='从文件读多个 URL(每行一个)'),
+              proxy: str = typer.Option(None, '--proxy',
+                                        help='本次线路: auto(默认, 走规则表) / direct / '
+                                             '代理名 (webtool proxy named list) / 完整 URL'),
               fmt: str = Fmt, output: str = Output,
               no_proxy: bool = NoProxy, no_cache: bool = NoCache,
               max_chars: int = typer.Option(0, '--max-chars', help='正文截断字符数, 0=不截断'),
@@ -265,6 +268,7 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
     """抓取 URL 并提取正文"""
     a = _CTX['args']
     a.url, a.url_file = url, url_file
+    a.proxy = proxy
     a.max_chars, a.raw, a.with_metadata, a.profile = max_chars, raw, with_metadata, profile
     a.extract = extract
     a.save = save

@@ -1,10 +1,14 @@
-"""代理与全局配置: ~/.webtool/config.json
+"""代理与全局配置
 
-配置分三处, 职责不重叠:
-  - `proxy` / `fetch_proxy` — 选哪条线路 (本模块); 具体哪个 URL 走哪条线
-    由规则表定 (net.rules)
+线路只有一个决策点: `~/.webtool/rules.json` (net.rules)。
+  - `proxies` — 命名代理表 (`default` 是未命中规则时的默认代理)
+  - `default` — 未命中规则时的动作: direct / block / proxy:<名>
+  - `rules` / `geoip_db` / `geosite_db` / `asn_db` — 分流规则与其依赖的库
   - `proxy_auth` — 账号密码**密文** (core.secrets_store 管加密, 本模块只读写)
-  - `proxy_rules` / `rules_file` / `geoip_db` / `asn_db` — 按 URL 分流 (net.rules)
+
+config.json 里的 `proxy` / `fetch_proxy` / `proxy_rules` 已废弃, load_config
+会自动迁进 rules.json 并从 config.json 删掉。运行期 `cfg['proxy']` 只剩一个
+含义: 本次运行的强制覆盖 (只有 'direct', 由 --no-proxy 写入)。
 
 **任何输出与报错一律脱敏** (secrets_store.redact): 原实现把完整代理 URL 拼进
 rank/zen 的错误串, 密码会进到 CLI 输出、用户贴的日志与 issue 里。
@@ -23,8 +27,6 @@ from webtool.core.secrets_store import (drop_password, redact, resolve_auth,
 CONFIG_PATH = str(USER_DIR / 'config.json')
 
 DEFAULTS = {
-    'proxy': None,
-    'fetch_proxy': None,
     'timeout': 15,
     'ua': 'auto',
     'extract': 'auto',           # 正文提取器: auto=内容层择优 / 具名=只用那一个
@@ -34,20 +36,100 @@ DEFAULTS = {
     'ca_bundle': None,           # 自定义 CA 包路径 (替代系统 CA)
     'verify_hosts': [],          # 关校验的域名单 (自签/过期证书的交易所站)
     # 代理
-    'proxy_auth': {},            # 用户名 → 密码密文
-    'proxy_rules': None,         # 内联规则表 (与 rules_file 二选一)
+    'proxy_auth': {},            # 引用名 → 密码密文 (user@host 或裸 user)
     'rules_file': None,          # 规则文件路径, 默认 ~/.webtool/rules.json
-    'geoip_db': None,            # GeoIP 国家库: .mmdb 或 v2ray/sing-box 的 geoip.dat
-    'geosite_db': None,          # geosite 域名分类库 (geosite.dat): 按域名判分类, 无需 DNS
-    'asn_db': None,              # GeoIP ASN 库 (.mmdb 或 .db/.dat)
+    'geoip_db': None,            # GeoIP 国家库 (rules.json 里的同名字段优先)
+    'geosite_db': None,          # geosite 域名分类库 (同上)
+    'asn_db': None,              # GeoIP ASN 库 (同上)
     'proxy_dns_ttl': 300,        # 规则里查 GeoIP 时的 DNS 缓存秒数
 }
 
 # DEFAULTS 里没登记的键会在 load_config 被过滤掉 —— 新增配置项必须同时加这里
 _KNOWN = set(DEFAULTS)
+# 已废弃的持久配置键: 迁进 rules.json 后从 config.json 删除
+_LEGACY_KEYS = ('proxy', 'fetch_proxy', 'proxy_rules')
+
+
+_MIGRATION_NOTES = []          # 本次进程里迁移做了什么; proxy get 时展示
+
+
+def _read_json(path):
+    try:
+        with open(path, encoding='utf-8') as f:
+            v = json.load(f)
+        return v if isinstance(v, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_json(path, data):
+    os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def _migrate_legacy_config():
+    """config.json 的 proxy / fetch_proxy / proxy_rules 一次性迁进 rules.json
+
+    - proxy → rules.json 的 proxies.default + default='proxy:default'
+      (语义等价: 未命中规则走原全局代理)
+    - fetch_proxy 的"抓取整线覆盖"没了 —— 分流只按目标 URL 判。URL 先落成
+      命名代理 fetch, 要给某些目标用就写 proxy:fetch 规则
+    - proxy_rules 内联表 → 挪进规则文件 (文件已有规则时不覆盖, 键保留并告警)
+    - rules.json 顶层废弃的 priority 键顺手删掉
+    幂等: 迁过的键不在 config.json 里, 第二次进来什么都不做。
+    """
+    if not os.path.exists(CONFIG_PATH):
+        return
+    raw = _read_json(CONFIG_PATH)
+    if not any(k in raw and raw[k] for k in _LEGACY_KEYS):
+        return
+    try:
+        rules_path = os.path.expanduser(raw.get('rules_file')
+                                        or str(USER_DIR / 'rules.json'))
+        spec = _read_json(rules_path)
+        moved, kept = [], []
+
+        if raw.get('proxy'):
+            spec.setdefault('proxies', {})['default'] = raw['proxy']
+            if not spec.get('default'):
+                spec['default'] = 'proxy:default'
+            moved.append(f"proxy {redact(raw['proxy'])} → proxies.default")
+        if raw.get('fetch_proxy'):
+            spec.setdefault('proxies', {})['fetch'] = raw['fetch_proxy']
+            moved.append(f"fetch_proxy {redact(raw['fetch_proxy'])} → "
+                         '命名代理 "fetch" (整线覆盖已废弃, 按需写 '
+                         "proxy:fetch 规则)")
+        if isinstance(raw.get('proxy_rules'), dict) and raw['proxy_rules']:
+            if not (spec.get('rules') or spec.get('proxies')):
+                for k in ('default', 'rules', 'proxies'):
+                    if k in raw['proxy_rules']:
+                        spec[k] = raw['proxy_rules'][k]
+                moved.append('proxy_rules (内联) → 规则文件')
+            else:
+                kept.append('proxy_rules 未迁: 规则文件已有内容, 请手工合并')
+
+        if 'priority' in spec:
+            del spec['priority']
+            moved.append("priority 键已删 (废弃: 规则一律按文件顺序生效)")
+
+        if moved:
+            _write_json(rules_path, spec)
+        new_raw = {k: v for k, v in raw.items()
+                   if not (k in _LEGACY_KEYS and k not in kept)}
+        _write_json(CONFIG_PATH, new_raw)
+        _MIGRATION_NOTES.extend(moved + kept)
+    except Exception as e:                     # noqa: BLE001
+        # 迁移失败不能让整个工具起不来: 老配置原样保留
+        _MIGRATION_NOTES.append(f'迁移失败 (老配置原样保留): {redact(str(e))}')
 
 
 def load_config():
+    _migrate_legacy_config()
     cfg = json.loads(json.dumps(DEFAULTS))  # deep copy
     if os.path.exists(CONFIG_PATH):
         try:
@@ -123,6 +205,13 @@ def _store_proxy_password(user, password, host, port):
     return f'{user}@{hostport}'
 
 
+def _default_proxy_url(cfg):
+    """rules.json 里的命名代理 default (没有就 None)"""
+    spec = _load_rules_file(cfg)
+    d = (spec.get('proxies') or {}).get('default')
+    return (d or {}).get('url') if isinstance(d, dict) else d
+
+
 def handle(args, cfg):
     """webtool proxy <子命令>"""
     action = args.action
@@ -152,19 +241,29 @@ def handle(args, cfg):
 # 各子命令
 
 def _get(args, cfg):
-    p = cfg.get('proxy')
-    print(redact(p) if p else '(no proxy configured)')
-    if cfg.get('engine_proxy'):
-        # 已废弃的每引擎覆盖: 线路统一由规则表决定, 提示用户改写成规则
-        print('engine_proxy: (已废弃, 线路统一由规则表决定: '
-              'webtool proxy rule add <域名> direct|proxy:<代理名>)')
+    from webtool.net import rules as _R
+    r = _R.router(cfg)
+    for w in getattr(r, 'warnings', []):
+        print(f'  ⚠ {w}', file=sys.stderr)
+    spec = _load_rules_file(cfg)
+    dflt = (spec.get('proxies') or {}).get('default')
+    if dflt:
+        print('默认代理:', redact(dflt if isinstance(dflt, str)
+                                  else (dflt or {}).get('url')))
+    else:
+        print('默认代理: (未配置; 未命中规则一律直连)')
+    print('default 动作:', spec.get('default') or '(未写, 见上面告警)')
+    print('规则文件:', _rules_path(cfg))
     auth = cfg.get('proxy_auth') or {}
     if auth:
         print('proxy_auth:', ', '.join(f'{u}(密文)' for u in auth))
+    for n in _MIGRATION_NOTES:
+        print(f'已迁移: {n}')
     return 0
 
 
 def _set(args, cfg):
+    """`proxy set <url>` = 设命名代理 default + 补 default 动作"""
     val = args.value
     if not val:
         print('usage: webtool proxy set http://host:port  '
@@ -172,7 +271,6 @@ def _set(args, cfg):
               file=sys.stderr)
         return 2
     url = _rule_syntax(val)
-    # URL 里带了密码 → 明文不许落盘: 存进保险库, 配置里只留 user@host
     scheme, user, password, host, port = proxy_url_parts(url)
     if scheme not in ('http', 'https', 'socks5', 'socks5h', 'socks4'):
         print(f'不支持的代理协议: {scheme or "(无)"} '
@@ -190,30 +288,39 @@ def _set(args, cfg):
         except Exception as e:
             print(f'密码存储失败: {redact(str(e))}', file=sys.stderr)
             return 2
-        # 关键: store_password 已经把密文写进 config.json 了, 这里必须把
-        # 密文同步回内存里的 cfg —— 否则下面 save_config(cfg) 会拿一份
-        # proxy_auth 还是 {} 的旧快照把刚写的密文覆盖掉 (看着像存成功了,
-        # 下次启动就没密码了)
-        cfg['proxy_auth'] = load_config().get('proxy_auth') or {}
-        url = (f'{scheme}://{quote(user, safe="")}@{host}'
-               + (f':{port}' if port else ''))
-        print(f'密码已加密存进保险库 (条目 {entry}); '
-              f'配置文件只留用户名, 出网时才解密')
-    cfg['proxy'] = url
-    save_config(cfg)
-    print(f'proxy saved: {redact(cfg["proxy"])} -> {CONFIG_PATH}')
+        print(f'密码已加密存进保险库 (条目 {entry}); 出网时才解密')
+    hostport = f'{host}:{port}' if port else host
+    clean = (f'{scheme}://{quote(user, safe="")}@{hostport}' if user
+             else f'{scheme}://{hostport}')
+    spec = _load_rules_file(cfg)
+    spec.setdefault('proxies', {})['default'] = clean
+    if not spec.get('default'):
+        spec['default'] = 'proxy:default'
+        print("default 动作已设为 proxy:default (原来没写)")
+    _save_rules(cfg, spec)
+    print(f'默认代理已存: {redact(clean)} -> {_rules_path(cfg)}')
     return 0
 
 
 def _unset(args, cfg):
-    cfg['proxy'] = None
-    save_config(cfg)
-    print('proxy cleared')
+    spec = _load_rules_file(cfg)
+    proxies = spec.get('proxies') or {}
+    gone = proxies.pop('default', None)
+    if spec.get('default') in ('proxy', 'proxy:default'):
+        spec['default'] = 'direct'
+    _save_rules(cfg, spec)
+    print('默认代理已清除' if gone else '(本来就没有默认代理)')
+    refs = [i for i, r in enumerate(spec.get('rules') or [])
+            if isinstance(r, dict)
+            and str(r.get('action')) in ('proxy', 'proxy:default')]
+    if refs:
+        print(f'⚠ 规则 {refs} 还引用默认代理 (action=proxy), '
+              '现在会解析失败; 请改成 proxy:<名字> 或 direct', file=sys.stderr)
     return 0
 
 
 def _test(args, cfg):
-    val = _rule_syntax(args.value) if args.value else cfg.get('proxy')
+    val = _rule_syntax(args.value) if args.value else _default_proxy_url(cfg)
     if not val:
         print('no proxy to test. use: webtool proxy test http://127.0.0.1:2080',
               file=sys.stderr)
@@ -315,11 +422,10 @@ def _rules(args, cfg):
     if args.value:                       # 带 URL → 试算这条请求走哪条线路
         print(json.dumps(r.explain(args.value), ensure_ascii=False, indent=1))
         return 0
-    spec = cfg.get('proxy_rules') or _load_rules_file(cfg)
+    spec = _load_rules_file(cfg)
     print(f'默认动作: {getattr(r, "default_action", "direct")}')
     print(f'命名代理: {json.dumps({k: redact(v.get("url") if isinstance(v, dict) else v) for k, v in (getattr(r, "proxies", {}) or {}).items()}, ensure_ascii=False)}')
-    print(f'规则文件: {_rules_path(cfg)}'
-          f'{"" if cfg.get("proxy_rules") else " (proxy_rules 为空, 读文件)"}')
+    print(f'规则文件: {_rules_path(cfg)}')
     rules = (spec or {}).get('rules')
     if not rules:
         print('未配置规则')
@@ -336,7 +442,7 @@ def _rules(args, cfg):
 def _ruleadd(args, cfg):
     """`proxy rule add <match JSON> <动作>`  →  args.user=JSON, args.act=动作"""
     from webtool.net import rules as R
-    spec = cfg.get('proxy_rules') or _load_rules_file(cfg)
+    spec = _load_rules_file(cfg)
     raw = getattr(args, 'user', None)
     act = getattr(args, 'act', None)
     if not raw or not act:
@@ -410,7 +516,7 @@ def _ruleadd(args, cfg):
 
 def _ruledel(args, cfg):
     """`proxy rule del <序号>` → args.user=序号"""
-    spec = cfg.get('proxy_rules') or _load_rules_file(cfg)
+    spec = _load_rules_file(cfg)
     try:
         idx = int(getattr(args, 'user', None))
     except (TypeError, ValueError):
@@ -591,7 +697,7 @@ def _named(args, cfg):
     `user@host`, 与全局 proxy 走同一套凭据机制 (rules.json 是人工维护的文件,
     明文密码不能落进去)。
     """
-    spec = cfg.get('proxy_rules') or _load_rules_file(cfg)
+    spec = _load_rules_file(cfg)
     proxies = spec.setdefault('proxies', {})
     sub = getattr(args, 'value', None)
     if sub in (None, '', 'list'):

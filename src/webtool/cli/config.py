@@ -25,21 +25,17 @@ CONFIG_PATH = str(USER_DIR / 'config.json')
 _DEP_ENGINE_PROXY = ('engine_proxy 已废弃: 线路统一由规则表决定, 这里配了不起作用。改用 `webtool proxy rule add <域名> direct` 或 `… proxy:<代理名>`;要清掉旧值: `webtool config unset engine_proxy`')
 
 CONFIG_KEYS = {
-    'proxy':            ('全局代理 (不带凭据; 密码用 webtool proxy setpass 存)',
-                         '如 http://127.0.0.1:2080 / socks5://...', None),
     'blocklist':        ('黑名单覆盖', '逗号分隔域名, ! 前缀表白名单例外, off 关闭', None),
     'market':           ('搜索市场', 'zh-CN / en-US 等 bing mkt 值 (仅 bing 消费)', None),
     'default_engines':  ('默认引擎组合', '逗号分隔: bing,sogou,baidu,google', None),
     'default_format':   ('默认输出格式', 'json / text / markdown', ('json', 'text', 'markdown')),
     'timeout':          ('请求超时秒数', '5 ~ 60 整数', int),
     'cache':            ('缓存开关', 'on / off', ('on', 'off')),
-    'fetch_proxy':      ('抓取专用代理', '<url>; 空=跟随全局', None),
+    'rules_file':       ('路由规则文件路径', '默认 ~/.webtool/rules.json', None),
     'extract':          ('正文提取器', 'auto=内容层择优 (默认, 最干净) / '
                                        'trafilatura / readability / boilerplate / inscriptis',
                          ('auto', 'trafilatura', 'readability', 'boilerplate',
                           'inscriptis')),
-    'proxy_rules':      ('路由规则 (内联)', 'JSON: {default, proxies, rules}; '
-                         '更推荐 webtool proxy rule add', None),
     'rules_file':       ('路由规则文件路径', '默认 ~/.webtool/rules.json', None),
     'geoip_db':        ('GeoIP 国家库', 'GeoLite2-Country.mmdb 路径; '
                          '不配则 geoip 规则不生效', None),
@@ -116,42 +112,6 @@ def _validate(key, value):
             except ValueError as e:
                 return False, f'规则文件不是合法 JSON: {path}: {e}'
         return True, path
-    if key in ('proxy', 'fetch_proxy'):
-        v = value.strip()
-        if not re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*://', v):
-            v = 'http://' + v
-        # 与 `webtool proxy set` 共用同一套拆分: 密码含 / 时 urlsplit 会把
-        # host 截断再抛 Port could not be cast, 而这类密码并不罕见
-        from webtool.net.proxy import proxy_url_parts
-        scheme, user, password, host, port = proxy_url_parts(v)
-        if scheme not in ('http', 'https', 'socks5', 'socks5h', 'socks4'):
-            return False, (f'不支持的代理协议: {scheme or "(无)"} '
-                           f'(支持 http/https/socks5/socks5h/socks4)')
-        if not host:
-            return False, '缺少主机名'
-        # 密码进保险库, 配置里只留 user@ —— 明文不落盘
-        if password:
-            from webtool.core import secrets_store as _S
-            try:
-                _S.store_password(user, password)
-            except _S.SecretError as e:
-                return False, str(e)
-            v = (f'{scheme}://{urllib.parse.quote(user, safe="")}@{host}'
-                 + (f':{port}' if port else ''))
-        return True, v
-    if key == 'proxy_rules':
-        try:
-            spec = json.loads(value)
-        except ValueError as e:
-            return False, f'必须是合法 JSON: {e}'
-        from webtool.net import rules as _R
-        try:
-            _R.Router(spec)            # 构造即校验
-        except _R.RuleError as e:
-            return False, str(e)
-        except (TypeError, ValueError) as e:
-            return False, f'规则结构非法: {e}'
-        return True, spec
     if typ in (float, int):
         try:
             v = typ(value)
@@ -248,13 +208,6 @@ def handle(args):
             cfg.setdefault('cache_ttl', {})[bucket] = v
         else:
             cfg[args.key] = v
-        # _validate 里可能刚把密码密文写进 config.json, 而这里的 cfg 是
-        # 进入 handle 时读的旧快照 —— 不合并回去, save_config 会用空的
-        # proxy_auth 把刚存的密文覆盖掉 (命令看着成功了, 下次启动就没密码)
-        if args.key in ('proxy', 'fetch_proxy'):
-            merged = load_config().get('proxy_auth') or {}
-            if merged != (cfg.get('proxy_auth') or {}):
-                cfg['proxy_auth'] = merged
         save_config(cfg)
         print(f'set {args.key} = {json.dumps(v, ensure_ascii=False)} -> {CONFIG_PATH}')
         return 0
