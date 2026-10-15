@@ -1,4 +1,12 @@
-"""
+"""zen: OpenCode Zen 免费层客户端 (公开模式, 无需 API key)
+端点 https://opencode.ai/zen/v1/chat/completions, 认证固定是占位 `Bearer public`
+(免费层不要真 key; 本包不读 OPENCODE_API_KEY —— 也没有走真 key 的代码路径)。
+免费层形状校验: tools 必须非空且含名为 bash 和 read
+的两个工具 (空壳 parameters={} 即可; 空/缺名 → 403 FreeTierError, 缺 function
+包装或 parameters 键 → 400), 分类器只认名字和形状, 不看 description/schema,
+tools 取真机定义、tool_choice 默认 auto —— 两者都是免费层闸门判据, 改不得。
+请求体: messages[0]=system / messages[-1]=user / tools 含 bash+read /
+tool_choice 存在 / stream=true。解析: 纯标准库 urllib + 逐行 SSE, read1() 读流, 字节层面切行 (decode 再切会把跨读边界的汉字写成 U+FFFD)。
 """
 
 import json
@@ -6,21 +14,45 @@ import sys
 
 from webtool.cli import zenproto as _zp
 from webtool.cli.zenproto import StickySession
+
+# ── 对外再导出: 拆包前这些名字在本模块上, 拆包后调用方不该改 import ──
+from webtool.cli.zen.client import call_zen as call_zen
+from webtool.cli.zen.client import call_zen_on_route as call_zen_on_route
+from webtool.cli.zen.client import call_zen_retry as call_zen_retry
+from webtool.cli.zen.client import fetch_models as fetch_models
+from webtool.cli.zen.client import fetch_models_detail as fetch_models_detail
+from webtool.cli.zen.client import split_think as split_think
+from webtool.cli.zen.client import _ThinkSplitter
+from webtool.cli.zen.client import _color_on
+from webtool.cli.zen.client import _tool_names
+from webtool.cli.zen.client import is_free_model
 from webtool.cli.zen.render import _C_HEAD
 from webtool.cli.zen.render import _C_RESET
 from webtool.cli.zen.render import _C_THINK
 from webtool.cli.zen.render import _C_TOOL
-from webtool.cli.zen.client import _ThinkSplitter
-from webtool.cli.zen.client import _color_on
 from webtool.cli.zen.render import _fmt_payload
 from webtool.cli.zen.render import _print_check
 from webtool.cli.zen.render import _print_models
 from webtool.cli.zen.render import _show_view
-from webtool.cli.zen.client import _tool_names
 from webtool.cli.zen.render import _tool_warn
-from webtool.cli.zen.client import call_zen_retry
-from webtool.cli.zen.client import fetch_models_detail
-from webtool.cli.zen.client import is_free_model
+
+
+def __getattr__(name):
+    """兼容旧导入路径: 私有名与常量由本函数转发到子模块
+
+    拆包前 _route/_backoff/RETRY_* 等都在本模块上, 逐个再导出既冗长又会和
+    子模块改名脱节; 这里兜底转发, 公开名仍显式再导出 (可见即可查)。
+    """
+    import importlib
+    for _m in ('client', 'render'):
+        _mod = importlib.import_module('webtool.cli.zen.' + _m)
+        try:
+            return getattr(_mod, name)
+        except AttributeError:
+            continue
+    raise AttributeError(
+        "module %r has no attribute %r" % (__name__, name))
+
 
 def _do_zen(args, cfg):
     """zen 对话主体 (do_zen 是代理开关薄壳)"""

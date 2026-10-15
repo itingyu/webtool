@@ -531,7 +531,7 @@ check(hasattr(_zen, 'call_zen_on_route'),
 _m_src = inspect.getsource(_zen.fetch_models_detail)
 check('proxy = _route(cfg, models_url, verbose=True)' in _m_src,
       'fetch_models_detail 模型清单与对话请求走同一条线路')
-check('def fetch_models(' in inspect.getsource(_zen) and
+check('def fetch_models(' in inspect.getsource(_zen.fetch_models) and
       'fetch_models_detail(' in inspect.getsource(_zen.fetch_models),
       'fetch_models 仍可用 (id 列表, 薄封装在 detail 之上)')
 # ── 三个改过的坑, 各留一条回归断言 ──────────────────────────────
