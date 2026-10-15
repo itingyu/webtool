@@ -459,6 +459,26 @@ def proxy_cmd(action: str = typer.Argument(..., help='get/set/unset/test/setpass
     return _proxy.handle(a, cfg) or 0
 
 
+@app.command('pkg', context_settings={'allow_extra_args': True,
+                                      'ignore_unknown_options': True})
+def pkg_cmd(ctx: typer.Context,
+            no_proxy: bool = NoProxy,
+            proxy: str = typer.Option(None, '--proxy',
+                                      help='强制线路: direct / 代理名 / 完整 URL '
+                                           '(缺省按规则表判)')):
+    """包管理器/git 等命令透传, 线路按规则表换算成环境变量交给子进程
+
+    webtool pkg npm install lodash
+    webtool pkg git clone https://github.com/x/y
+    选项要写在命令名前面: webtool pkg --no-proxy pip install ...
+    """
+    cfg = _proxy.load_config()
+    if _CTX.get('proxy'):
+        cfg['proxy'] = _CTX['proxy']
+    from webtool.cli import pkg as _pkg
+    return _pkg.handle(list(ctx.args), cfg, no_proxy=no_proxy, proxy=proxy)
+
+
 @app.command('engines')
 def engines_cmd(action: str = typer.Argument('list', help='list=清单+冷却状态; test=实发体检; presets=引擎组合预设'),
                 name: str = typer.Argument(None, help='test 时的引擎名; 省略=全部引擎'),
@@ -757,7 +777,9 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     # -v/-V/--version 在 click 解析前先扫: 放在子命令后面 (webtool zen --version)
     # click 会当作未知选项报错, 而用户想看的只是版本号。
-    if '--version' in argv or '-v' in argv or '-V' in argv:
+    # pkg 透传除外 —— 它后面的 -v/--version 是子命令的参数, 不能截
+    if (argv and argv[0] != 'pkg'
+            and ('--version' in argv or '-v' in argv or '-V' in argv)):
         from webtool.core import version as _v
         if _argv_format(argv) == 'json':
             import json

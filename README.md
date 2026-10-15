@@ -47,6 +47,7 @@ webtool uninstall --purge-data --yes   # 连配置/凭据/缓存一起删 (缺 -
 | `mcp` | 通用 MCP 客户端 |
 | `stock` | 股票：行情/选股/研报 + 1300+ 底层接口 |
 | `proxy` | 代理配置、凭据、按域名/IP/端口分流 |
+| `pkg` | 包管理器/git 等命令透传，线路按规则表换算成环境变量 |
 | `config` / `plugins` / `cache` / `blocklist` | 配置、插件、缓存、黑名单 |
 | `engines` | 引擎清单与体检 |
 | `upgrade` / `uninstall` | 升级、卸载 |
@@ -274,6 +275,19 @@ webtool proxy geoip /path/GeoLite2-Country.mmdb
 - **顺序即优先级**，第一个命中的生效；`match` 内多条件 AND、同条件内多值 OR；判不出来 = 不匹配（缺库则该条跳过并提示）
 - 分流优先用 `geosite` 而不是 `geoip`：按域名查库不解析 IP，不受 CDN 就近解析影响
 - 首次运行自动生成默认 `~/.webtool/rules.json`（国内常见站 + `opencode.ai` / `exa.ai` 直连），已存在则永不覆盖
+
+### pkg —— 让 npm/git 等走规则表
+
+```sh
+webtool pkg npm install lodash
+webtool pkg git clone https://github.com/x/y
+webtool pkg --no-proxy pip install -r requirements.txt
+webtool pkg --proxy tokyo git pull
+```
+
+- 线路按规则表判（参数里的 URL / 该工具默认源 / 路由表 default），换算成 `HTTP(S)_PROXY`/`ALL_PROXY` 交给子进程；继承环境里的代理键先清掉
+- 选项写在命令名前；多个目标被判到不同线路时拒绝执行并列出判定，要继续用 `--proxy` 强制
+- 退出码透传；判定结果打 stderr，stdout 干净可接管道
 - 命名代理密码与全局代理共用同一套保险库（`rules.json` 只留 `user@host`，密文在 `config.json` 的 `proxy_auth`，出网时内存解密）；日志与报错里统一脱敏成 `***`
 - google / docs.rsshub.app 被墙，直连不通，需代理或规则
 
