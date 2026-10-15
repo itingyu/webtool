@@ -35,6 +35,13 @@
   免得误伤 `example.com.cn` 之外的一切)
 - 旧版 `priority` 键已废弃: 一律按文件顺序生效, direct 规则想优先就写在前面
 
+## 其他环节的规则 (kind 条目)
+
+带 `kind` 字段的条目不参与线路路由, 按环节生效 (`Router.params_for(kind, url)`,
+first-match-wins, 无命中走该环节的通用默认): `http` (timeout/fingerprint)、
+`retry` (retries/backoff)、`breaker` (fail_threshold/cool_seconds)。match 语法
+与线路规则完全一致, 粒度一般按域名配。
+
 ## GeoIP / ASN 库
 
 `geoip_db` / `asn_db` 指向 MaxMind `.mmdb` 文件 (读库用 maxminddb, 随包安装)。
@@ -45,14 +52,13 @@
 import fnmatch
 import ipaddress
 import json
+import logging
 import os
-import socket
-import time
 from urllib.parse import urlsplit
 
-# 进程内 DNS 缓存: 域名 → (ip, 解析时刻)
-_DNS_CACHE = {}
-DNS_TTL = 300.0
+from webtool.net import dns as _dns
+
+logger = logging.getLogger(__name__)
 # GeoIP 查表缓存: ip → 国家码 (GeoIP 数据几乎不变, 缓存久一点没问题)
 _GEO_CACHE = {}
 
@@ -448,24 +454,7 @@ class _IPRef:
 
 def resolve_ip(host, timeout=3.0):
     """域名 → IP (带进程内缓存)。已是 IP 直接返回。"""
-    if not host:
-        return None
-    try:
-        ipaddress.ip_address(host)
-        return host                       # 本来就是 IP
-    except ValueError:
-        pass
-    now = time.time()
-    hit = _DNS_CACHE.get(host)
-    if hit and now - hit[1] < DNS_TTL:
-        return hit[0]
-    try:
-        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
-        ip = infos[0][4][0]
-    except (socket.gaierror, OSError, IndexError):
-        ip = None
-    _DNS_CACHE[host] = (ip, now)          # 负缓存也缓存, 防反复打 DNS
-    return ip
+    return _dns.resolve_ip(host)
 
 
 _MMDB = {}
@@ -533,7 +522,14 @@ class Router:
     def __init__(self, spec, geoip_db=None, asn_db=None, geosite_db=None):
         """spec: {'default': ..., 'rules': [...], 'proxies': {...}}"""
         spec = spec or {}
-        self.rules = spec.get('rules') or []
+        self.spec = spec
+        # kind 条目 (http/retry/breaker...) 与路由条目 (无 kind 字段) 分流:
+        # 路由匹配不认识 kind 条目, 反过来 params_for 也不吃路由条目 ——
+        # 同一份 rules.json, 两套用途互不干扰 (见 params_for)
+        self.rules = [r for r in (spec.get('rules') or [])
+                      if isinstance(r, dict) and not r.get('kind')]
+        self.kind_rules = [r for r in (spec.get('rules') or [])
+                           if isinstance(r, dict) and r.get('kind')]
         self.proxies = spec.get('proxies') or {}
         self.geoip_db = geoip_db
         self.asn_db = asn_db
@@ -562,13 +558,17 @@ class Router:
         # "后面的 direct 压过前面的 proxy"成为隐藏规则, 一堆补丁机制
         # (shadow_check/matched/explain) 全在补救这个认知负担。
         self.priority = 'order'
-        for i, r in enumerate(self.rules):
+        # 校验遍历**原始** rules (含 kind 条目与非对象项): 过滤后的 self.rules
+        # 会把编辑事故静默吞掉 —— "第 3 条少了个引号"必须仍然报出来
+        for i, r in enumerate(spec.get('rules') or []):
             # 规则是用户手写的 JSON, 混进一个字符串/数字是完全正常的编辑事故。
             # 这里必须逐条跳过而不是让 r.get() 抛 AttributeError —— 后者会让
             # "第 3 条少了个引号"变成整个工具启动即崩, 且报错完全指不到配置。
             if not isinstance(r, dict):
                 self.warnings.append(f'rules[{i}] 不是对象, 已跳过')
                 continue
+            if r.get('kind'):
+                continue                  # kind 条目不参与线路路由, 只查 match 合法性交由 params_for
             if not isinstance(r.get('match'), dict) or not r.get('match'):
                 self.warnings.append(f'rules[{i}] 缺 match 段, 已跳过')
             try:
@@ -695,6 +695,34 @@ class Router:
                 f'处理: webtool proxy named add {name} <url>, '
                 f'或把 default 显式配好')
         return (spec or {}).get('url') if isinstance(spec, dict) else spec
+
+    def params_for(self, kind, url):
+        """通用规则查询: 第一个 `kind` 命中条目的动作字段 (dict), 无命中 {}
+
+        rules.json 里带 `kind` 的条目不参与线路路由, 按环节生效, 格式统一:
+
+            {"kind": "http", "match": {"domain": "xueqiu.com"},
+             "timeout": 15, "fingerprint": "chrome131"}
+            {"kind": "retry", "match": {"domain": "sina.com.cn"},
+             "retries": 5, "backoff": "exp"}
+
+        返回该条目除 match/kind 外的全部字段; 匹配复用线路规则的 matcher
+        (domain/host/port/scheme/cidr/geosite/geoip/asn)。**特殊走规则,
+        否则走通用** —— 通用默认值住在各环节模块的顶部常量里, 不在这里。
+        粒度随对象: 这类参数一般按域名配。
+        """
+        host, port, scheme = _split_url(url)
+        ip_ref = _IPRef(host)
+        for r in self.kind_rules:
+            if r.get('kind') != kind:
+                continue
+            m = r.get('match') or {}
+            if isinstance(m, dict) and self._match(m, host, port, scheme,
+                                                   ip_ref):
+                p = {k: v for k, v in r.items() if k not in ('match', 'kind')}
+                logger.debug('rule[%s] 命中 %s: %s', kind, host, p)
+                return p
+        return {}
 
     def explain(self, url):
         """给 CLI 看: 命中了哪条规则, 最终走哪条线路"""

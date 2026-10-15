@@ -8,6 +8,7 @@ JS 请求 / api 公开 REST), sec-fetch-site 按可注册域判定; cookie 经 s
 按 URL 现算 verify 后传给 curl_cffi; 证书失败抛 TlsError 直接上抛, 不进
 降级梯 —— 换指纹换代理对证书问题一点用没有, 只是把 1 次失败放大成 4 次。
 """
+import logging
 import random
 import threading
 import time
@@ -17,6 +18,27 @@ import urllib.parse
 from curl_cffi import requests as _cr
 from curl_cffi.requests.exceptions import CertificateVerifyError
 HAS_CFFI = True
+
+logger = logging.getLogger(__name__)
+
+
+def _rule_timeout(url, timeout=None):
+    """timeout 空缺时由 http 规则 (rules.json 的 kind:http 条目) 填补
+
+    调用方显式传的 timeout 优先 —— 规则只接管"没指定"的场合 (特殊走规则,
+    否则走通用 15s)。规则查询走已缓存的 Router, 每请求一次字典匹配, 开销可忽略。
+    """
+    if timeout is not None:
+        return timeout
+    try:
+        from webtool.net import rules as _rules
+        v = _rules.router().params_for('http', url).get('timeout')
+        if v:
+            logger.debug('http 规则 timeout=%s (%s)', v, url)
+            return float(v)
+    except Exception as e:
+        logger.debug('http 规则查询失败, 用通用默认: %s', e)
+    return 15
 
 from webtool.core import state
 from webtool.core import secrets_store
@@ -277,7 +299,7 @@ __all__ = ['BlockedError', 'CooldownError', 'TlsError', 'Resp', 'get',
 
 # 主入口
 
-def get(url, *, kind='nav', referer=None, proxy=None, timeout=15,
+def get(url, *, kind='nav', referer=None, proxy=None, timeout=None,
         engine=None, rate_engine=None, headers=None, lang=LANG_ZH, max_bytes=8 * 1024 * 1024, profile=None,
         session=None, verify=None, _depth=0, raw=False):
     """浏览器指纹 GET → (text, status, via)
@@ -287,7 +309,9 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=15,
     - rate_engine: 节奏控制的桶 (一般与 engine 相同, resolve 类可单列)
     - session: 外部管理的会话 (引擎自带预热流程时传入), 此时指纹档案取 profile
     - verify: 证书校验覆盖 (None=按 core.tls 全局策略; True/False 定点决定)
+    - timeout: None 时由 http 规则 (kind:http) 填补, 仍无则通用默认 15s
     """
+    timeout = _rule_timeout(url, timeout)
     if engine and _depth == 0:
         # 冷却门只在顶层检查: 降级梯内部重试不受影响 (否则会撞上自己刚记的冷却)
         # 具体封多久、为什么封, 是拦截器自己的事 —— transport 只认结论。
@@ -404,7 +428,7 @@ class _UrllibStream:
             pass
 
 
-def open_stream(url, *, kind='nav', referer=None, proxy=None, timeout=15,
+def open_stream(url, *, kind='nav', referer=None, proxy=None, timeout=None,
                 engine=None, headers=None, lang=LANG_ZH, profile=None,
                 verify=None, session=None):
     """打开请求但先不读 body, 返回 (resp, status, via, headers)
@@ -417,6 +441,7 @@ def open_stream(url, *, kind='nav', referer=None, proxy=None, timeout=15,
     下载和取页各判一次代理, 迟早出现"网页能取、同一个站的文件下不来"。
     """
     from webtool.net import netx as _netx
+    timeout = _rule_timeout(url, timeout)
     proxy = _netx.resolve_proxy(proxy, url)
     proxy_arg = None if proxy == 'direct' else proxy
     if proxy_arg:
@@ -582,6 +607,7 @@ def request(method, url, *, kind='api', referer=None, proxy=None, timeout=15,
     """
     proxy = _resolve_proxy_auth(proxy, url)
     proxy_arg = None if proxy == 'direct' else proxy
+    timeout = _rule_timeout(url, timeout)
     if engine:
         _pace(rate_engine or engine)
     use_urllib = via == 'urllib' or cookiejar is not None \
