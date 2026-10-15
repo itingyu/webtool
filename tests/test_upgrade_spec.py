@@ -22,7 +22,9 @@ sys.path.insert(0, os.path.join(HERE, '..', 'src'))
 TMP = tempfile.mkdtemp(prefix='webtool-upgrade-spec-')
 os.environ['WEBTOOL_DIR'] = TMP
 with open(os.path.join(TMP, 'rules.json'), 'w', encoding='utf-8') as f:
-    json.dump({'default': 'direct', 'rules': []}, f)
+    json.dump({'default': 'proxy:default',
+               'proxies': {'default': 'http://127.0.0.1:2080'},
+               'rules': [{'match': {'domain': ['*.lab']}, 'action': 'direct'}]}, f)
 
 from webtool.core import upgrade as up          # noqa: E402
 from webtool.cli import app as app_mod          # noqa: E402
@@ -77,6 +79,15 @@ note = app_mod._pip_route_note('git://github.com/a/b.git', PROXY_ENV)
 check('git:// 源 + 代理 → 同样明说', note and '不认' in note, str(note))
 check('ssh 源但本来就是直连 → 不唠叨',
       app_mod._pip_route_note('git+ssh://git@github.com/a/b', DIRECT_ENV) is None)
+
+# ── 判线路用的是"源的地址", 不是写死的 github.com ────────────────────────
+check('默认源 (github) → 规则表判代理, 给 pip 塞代理变量',
+      app_mod._pip_proxy_env().get('HTTPS_PROXY') == 'http://127.0.0.1:2080',
+      str(app_mod._pip_proxy_env()))
+check('--from 换成规则表判直连的源 → 改成 NO_PROXY=* (不拿 github 的线路套)',
+      set(app_mod._pip_proxy_env('git+https://git.lab/x/y.git')) ==
+      {'NO_PROXY', 'no_proxy'},
+      str(app_mod._pip_proxy_env('git+https://git.lab/x/y.git')))
 
 # ── note 要出现在人读输出与 json 里 ─────────────────────────────────────
 _real_pip = up._pip

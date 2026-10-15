@@ -572,11 +572,16 @@ def _pip_route_note(spec, env):
             '这条实际直连。要真走代理, 换 https 源: '
             '`webtool upgrade --from git+https://…`' % transport)
 
-def _pip_proxy_env():
+def _pip_proxy_env(spec=None):
     """pip/git 是子进程, 代理只能靠环境变量给 —— 但如果拿我们自研的 httpx
-    专家库那套再包一层就等于给自己加坑, 所以直接问 netx, 它负责看 rules.json。"""
+    专家库那套再包一层就等于给自己加坑, 所以直接问 netx, 它负责看 rules.json。
+
+    判线路要用**源的地址**, 不是写死的 github.com: `--from` 换源 (镜像/内网 gitlab)
+    时, 那条源的线路跟 github 未必一样。
+    """
+    from webtool.core import upgrade as _up
     from webtool.net import netx
-    route = netx.resolve_proxy('auto', 'https://github.com')
+    route = netx.resolve_proxy('auto', _up.spec_url(spec)[0])
     if not route:
         # 规则表判为直连: 明确让它别用环境里可能存在的代理
         return {'NO_PROXY': '*', 'no_proxy': '*'}
@@ -594,8 +599,8 @@ def _upgrade_run(check_only, spec, fmt, output):
         import json as _json
         from webtool.core import upgrade as _up
         want_json = (args.format or '') == 'json'
-        env = _pip_proxy_env()
         spec = args.spec or None
+        env = _pip_proxy_env(spec)
         note = _pip_route_note(spec, env)
         if args.check_only:
             info = _up.check(spec, env_extra=env, note=note)
