@@ -7,7 +7,7 @@
 import json
 import time
 
-from webtool.net import captcha
+from webtool.net import intercept
 from webtool.core.plugins import table as _plugin_table
 
 
@@ -31,9 +31,9 @@ def _list(cfg):
     out = []
     for name, meta in _engines().items():
         row = {'engine': name, 'desc': meta['desc']}
-        cd = captcha.cooldown_left(name)
-        if cd:
-            row['cooldown'] = f'{cd}s (此前触发反爬)'
+        cool = intercept.cooldown_of(name)
+        if cool is not None:
+            row['cooldown'] = f'{cool.left}s (此前{cool.why})'
         out.append(row)
     print(json.dumps(out, ensure_ascii=False, indent=1))
     return 0
@@ -53,9 +53,9 @@ def _test(args, cfg):
     for name in names:
         meta = _engines()[name]
         row = {'engine': name}
-        cd = captcha.cooldown_left(name)
-        if cd:
-            row['cooldown'] = f'{cd}s (此前触发反爬)'
+        cool = intercept.cooldown_of(name)
+        if cool is not None:
+            row['cooldown'] = f'{cool.left}s (此前{cool.why})'
         # 线路由规则表判定 (netx.resolve_proxy), 这里不预判、不跳过:
         # 该走代理却没配/不通, 就按真实错误报出来
         proxy = cfg.get('proxy')

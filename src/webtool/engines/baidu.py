@@ -7,7 +7,7 @@ import re
 import urllib.parse
 
 from webtool.core import text
-from webtool.net import captcha, transport
+from webtool.net import intercept, transport
 
 BAIDU = 'https://www.baidu.com'
 
@@ -44,7 +44,7 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, page=1):
         if len(out) >= max_results:
             break
     _resolve_links(out, proxy, timeout)
-    captcha.mark_ok('baidu')
+    intercept.note_ok(intercept.Ctx(engine='baidu', url=url))
     return out
 
 
@@ -59,12 +59,11 @@ def _get_html(url, proxy, timeout):
                               profile=wprof, timeout=timeout)
         text, status = transport.session_get(
             url, warm, kind='nav', referer=BAIDU + '/', timeout=timeout)
-        blocked, _ = captcha.detect('baidu', text)
-        if not blocked:
-            captcha.mark_ok('baidu')
+        # 这条自造会话的路径也要过全部拦截器 (判定 + 记账一次做完)
+        hit, _ctx = intercept.gate('baidu', text, url=url)
+        if hit is None:
             transport._persist_cookies(warm, 'baidu')
             return text, 'cffi+session'
-        captcha.mark_blocked('baidu')
     except Exception:
         pass
     text, _status, via = transport.get(url, kind='nav', referer=BAIDU + '/',

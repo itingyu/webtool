@@ -347,6 +347,11 @@ config.json，而遗留键迁移顺手把该值写进了 `rules.json` 的 `proxi
   像从没被停过一样照跑。
 - **插件出错只让它自己掉队**：加载/实例化/调用三处都要 try，错误记进 `_ERR` 让
   `describe()` / `plugins check` 看得见，绝不能把整条请求链路带崩。
+- **引擎自己探通道的路径也得走拦截器**：sogou 的 PC/移动双通道、baidu 的预热会话、
+  google 的 web/news 降级都是引擎直接读正文，不走 transport —— 这些地方统一调
+  `intercept.gate(engine, text, url=…)`（判定 + 记账一次做完）与
+  `intercept.cooldown_of(engine)`（取"冷却 N s"），不许再 `captcha.detect/mark_*`。
+  否则新加的拦截器插件对这条路径莫名不生效，而报错文案又会反过来认识 captcha。
 
 ## 7. 注释与文档纪律
 

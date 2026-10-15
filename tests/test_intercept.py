@@ -162,6 +162,46 @@ check('体检拦下忘了实现 inspect 的插件',
       'inspect' in pcmd._bad_interceptor(NoInspect),
       pcmd._bad_interceptor(NoInspect))
 
+# ── 引擎内部的通道探测也得过拦截器 ───────────────────────────────────────
+# 引擎自己造会话、自己读正文的路径 (sogou PC/移动双通道、baidu 预热会话、
+# google web …) 以前直接调 captcha.detect/mark_*, 于是新加的拦截器插件对
+# 这些路径莫名不生效。现在统一走 intercept.gate (判定 + 记账一次做完)。
+class Gate(Interceptor):
+    name = 'gate'
+    priority = 40
+    seen = []
+
+    def inspect(self, ctx):
+        Gate.seen.append((ctx.engine, ctx.url))
+        if '挡路石' in (ctx.text or ''):
+            return Hit(kind='waf', why='WAF 拦截', sign='含 挡路石')
+        return None
+
+
+intercept.register(Gate)
+_h4, _c4 = intercept.gate('sogou', '页面写着 挡路石',
+                           url='https://www.sogou.com/web')
+check('引擎侧 gate 也走全部拦截器 (自定义插件管得到)',
+      _h4 is not None and _h4.by == 'gate', str(_h4))
+check('gate 交出的 ctx 就是插件看到的那次',
+      Gate.seen[-1] == ('sogou', 'https://www.sogou.com/web'), str(Gate.seen[-1]))
+check('gate 只通知判定的插件记账 (captcha 不该跟着记黑账)',
+      intercept.cooldown_of('sogou') is None,
+      str(intercept.cooldown_of('sogou')))
+
+import glob                                             # noqa: E402
+import re as _re                                        # noqa: E402
+_SRC = os.path.join(os.path.dirname(__file__), '..', 'src', 'webtool')
+_leaks = []
+for _f in (glob.glob(os.path.join(_SRC, 'engines', '*.py'))
+           + [os.path.join(_SRC, 'net', 'transport.py')]):
+    for _i, _ln in enumerate(open(_f, encoding='utf-8').read().splitlines(), 1):
+        if _re.search(r'\bcaptcha\.(detect|mark_ok|mark_blocked|suspended'
+                      r'|cooldown_left)\b', _ln):
+            _leaks.append(f'{os.path.basename(_f)}:{_i}')
+check(not _leaks, '引擎/传输层不再直连 captcha (否则自定义拦截器管不到)',
+      str(_leaks))
+
 print()
 print('%d PASS, %d FAIL' % (N[0] - len(FAIL), len(FAIL)))
 sys.exit(1 if FAIL else 0)

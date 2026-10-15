@@ -10,14 +10,14 @@
 
 数据中心 IP 下 PC 端可能常态 403, 移动端随机弹滑块, 频繁连打后全站记名,
 数分钟后逐步解封 —— 是 IP 信誉问题, 住宅 IP / 低频使用下 PC 通道是主力。
-被拦处置: captcha 冷却 (state 持久化) + 换新会话/新指纹重试。
+被拦处置: 拦截器 (net.intercept) 记冷却 + 换新会话/新指纹重试。
 """
 import re
 import time
 import urllib.parse
 import urllib.request
 
-from webtool.net import captcha, netx, transport
+from webtool.net import intercept, netx, transport
 from webtool.core.http import build_opener
 
 ENDPOINT = 'https://www.sogou.com/web'
@@ -49,7 +49,7 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None,
         html, sign = _pc_urllib(q, timeout)
     # 3) PC 命中 → 解析 (vr-title, 带摘要)
     if html:
-        captcha.mark_ok('sogou')
+        intercept.note_ok(intercept.Ctx(engine='sogou', url=ENDPOINT))
         return _parse_pc(html, max_results)
 
     # 4) PC 全拦 → 移动端 (两轮会话, 中途 PC 冷却不影响移动通道)
@@ -59,9 +59,10 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None,
             return out
         time.sleep(1.5 + attempt)
 
-    cd = captcha.cooldown_left('sogou')
+    _cool = intercept.cooldown_of('sogou', ENDPOINT)
     raise RuntimeError(f'sogou 反爬拦截({sign or "unknown"}); '
-                       f'PC+移动双通道均被拦, 冷却{cd}s, 请换 -e bing,baidu')
+                       f'PC+移动双通道均被拦, '
+                       f'冷却{_cool.left if _cool else 0}s, 请换 -e bing,baidu')
 
 
 # PC 主力 (curl_cffi)
@@ -77,11 +78,11 @@ def _pc_cffi(q, proxy, timeout):
                                              kind='nav', referer=SOUGOU + '/',
                                              timeout=timeout, profile=p)
         transport._persist_cookies(s, 'sogou')
-        blocked, sign = captcha.detect('sogou', text)
-        if not blocked:
+        # 本通道的判定与记账走 intercept: 新加的拦截器插件才管得到这条路
+        hit, _ctx = intercept.gate('sogou', text, url=url, status=status)
+        if hit is None:
             return text, None
-        captcha.mark_blocked('sogou')
-        return None, sign
+        return None, hit.sign
     except Exception as e:
         return None, f'{type(e).__name__}'
 
@@ -109,10 +110,10 @@ def _pc_urllib(q, timeout):
             sign = f'{type(e).__name__}'
             time.sleep(1.5)
             continue
-        blocked, sign = captcha.detect('sogou', html)
-        if not blocked:
+        hit, _ctx = intercept.gate('sogou', html, url=ENDPOINT)
+        if hit is None:
             return html, None
-        captcha.mark_blocked('sogou')
+        sign = hit.sign
         html = None
         time.sleep(1.5)
     return None, sign
@@ -146,10 +147,10 @@ def _mobile_search(q, max_results, proxy, timeout, _inner=False):
             html = r.text
         except Exception:
             html = None
-        if html and not captcha.detect('sogou', html)[0] \
+        if html and intercept.gate('sogou', html,
+                                   url=M_ENDPOINT)[0] is None \
                 and 'antispider' not in html.lower():
             break
-        captcha.mark_blocked('sogou')
         html = None
     if not html:
         return None

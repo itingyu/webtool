@@ -18,7 +18,7 @@ import re
 import urllib.parse
 
 from webtool.core import text
-from webtool.net import captcha, transport
+from webtool.net import intercept, transport
 
 _CN_ENDPOINT = 'https://cn.bing.com'   # 直连线路的站点端点, 供 search 解析 auto 用
 
@@ -69,13 +69,14 @@ def _cffi_html(query, max_results, proxy, timeout, market, page):
               headers=transport.headers_for('nav', url, referer=base + '/',
                                             profile=p))
     if r.status_code in (429, 403) or 'challenge-form' in r.text:
-        captcha.mark_blocked('bing')
+        _hit, _ctx = intercept.gate('bing', r.text, url=url,
+                                   status=r.status_code)
         raise RuntimeError(f'bing cffi 被风控 ({r.status_code})')
     transport._persist_cookies(s, 'bing')
     out = _parse_html(r.text, max_results)
     if not out:
         raise RuntimeError(f'bing cffi 解析 0 条 (len={len(r.text)})')
-    captcha.mark_ok('bing')
+    intercept.note_ok(intercept.Ctx(engine='bing', url=url))
     return out
 
 

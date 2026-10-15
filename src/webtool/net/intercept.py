@@ -232,6 +232,31 @@ def preflight(ctx):
     return None
 
 
+def cooldown_of(engine, url=''):
+    """这个引擎的通道现在被谁挡着? → Hit (带 left) 或 None
+
+    给"冷却 N s, 请换引擎"这类文案用 —— 引擎侧要报剩余秒数, 但不该反过来
+    认识具体插件 (谁封的、封多久由插件说了算)。
+    """
+    return preflight(Ctx(engine=engine, url=url))
+
+
+def gate(engine, text, **kw):
+    """引擎内部挨个试通道时的统一入口: 判定 + 记账一次做完 → (Hit|None, Ctx)
+
+    这些路径没有 transport 的响应对象 (引擎自己造会话、自己读正文), 但同样
+    该让所有拦截器过一遍 —— 否则新加的插件对这条路径莫名不生效。判定为"被挡"
+    时顺手 note_hit 记账 (冷却/计数), 没挡则 note_ok 复位。
+    """
+    ctx = Ctx(engine=engine, text=text or '', **kw)
+    hit = inspect(ctx)
+    if hit is None:
+        note_ok(ctx)
+    else:
+        note_hit(ctx, hit)
+    return hit, ctx
+
+
 def blocked_by(engine, text, **kw):
     """引擎自己探通道时的便捷入口 (只有正文可给): 返回 Hit 或 None
 

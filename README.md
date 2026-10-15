@@ -380,6 +380,9 @@ class MyWall(Interceptor):
 - `ctx`（`Ctx`）给到 `engine/url/status/text/headers/profile/attempt/via`，只读
 - `bypass` 返回的 `Bypass` 支持 `url` / `headers` / `profile` / `delay` / `retry`，由传输层执行
 - 只判不绕也合法（`captcha` 现在就是）：传输层按冷却 + 降级梯处理
+- 引擎自己试通道的路径（sogou PC/移动双通道、baidu 预热会话、google web/news 降级）
+  同样过拦截器：调 `intercept.gate(engine, text, url=…)` 判定 + 记账，
+  `intercept.cooldown_of(engine)` 取剩余冷却
 - 插件抛错只让它自己掉队，不拖垮整条请求链路；`webtool plugins check interceptor` 看谁坏了
 
 ## 开发

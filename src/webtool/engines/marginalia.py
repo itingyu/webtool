@@ -8,7 +8,7 @@ import time
 import urllib.parse
 
 from webtool.core import text
-from webtool.net import captcha, transport
+from webtool.net import intercept, transport
 
 _BASE = 'https://marginalia-search.com'
 _MAX_HOPS = 6          # 挑战握手最多跟几跳
@@ -24,7 +24,7 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, page=1):
         url += f'&page={page}'
     main = _fetch_result_main(url, proxy, timeout)
     out = _parse(main, max_results)
-    captcha.mark_ok('marginalia')
+    intercept.note_ok(intercept.Ctx(engine='marginalia', url=url))
     return out
 
 

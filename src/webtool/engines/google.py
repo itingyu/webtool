@@ -17,7 +17,7 @@ import re
 import urllib.parse
 
 from webtool.core import text
-from webtool.net import captcha, transport
+from webtool.net import intercept, transport
 
 _BATCH_URL = 'https://news.google.com/_/DotsSplashUi/data/batchexecute'
 
@@ -43,10 +43,11 @@ def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1
     """
     _LAST.update(channel=None, degraded_from=None, reason=None)
     if proxy:
-        if captcha.suspended('google'):
-            # 冷却期内不再试 web, 直接 news
+        _cool = intercept.cooldown_of('google')
+        if _cool is not None:
+            # 冷却期内不再试 web, 直接 news (谁封的、封多久由插件说)
             _LAST.update(channel='news', degraded_from='web',
-                         reason=f"web 端点反爬冷却中({captcha.cooldown_left('google')}s), 跳过")
+                         reason=f'web 端点{_cool.why}冷却中({_cool.left}s), 跳过')
         else:
             try:
                 out = _web(query, max_results, proxy, timeout, market, page)
@@ -108,12 +109,13 @@ def _web(query, max_results, proxy, timeout, market, page):
                     except Exception:
                         pass
                 if ok2:
-                    captcha.mark_ok('google')
+                    intercept.note_ok(intercept.Ctx(engine='google', url=url))
                     return text2, status
         except Exception:
             pass
+        _cool2 = intercept.cooldown_of('google')
         raise RuntimeError(f'google web IP级反爬({status}), 已降级/冷却'
-                           f'{captcha.cooldown_left("google")}s')
+                           f'{_cool2.left if _cool2 else 0}s')
 
     anchors = re.findall(
         r'<a\b[^>]*href="(/url\?[^"]*|https?://[^"]*)"[^>]*>(.*?)</a>', text, re.S)
@@ -138,7 +140,7 @@ def _web(query, max_results, proxy, timeout, market, page):
     if not out:
         raise RuntimeError(f'google web 解析 0 条 (status={status}, '
                            f'{"enablejs壳页" if "enablejs" in text[:2000] else "可能改版"})')
-    captcha.mark_ok('google')
+    intercept.note_ok(intercept.Ctx(engine='google', url=url))
     return out
 
 
