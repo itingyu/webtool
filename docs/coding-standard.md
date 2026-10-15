@@ -353,6 +353,20 @@ config.json，而遗留键迁移顺手把该值写进了 `rules.json` 的 `proxi
   `intercept.cooldown_of(engine)`（取"冷却 N s"），不许再 `captcha.detect/mark_*`。
   否则新加的拦截器插件对这条路径莫名不生效，而报错文案又会反过来认识 captcha。
 
+## 只有 transport 上有拦截判定，别的通道没有
+
+出网实现不止一条（`net/transport.py` 主通道、`core/http.py` urllib 通道、
+`stock/bridge/http.py` 股票自有通道、`cli/zenproto.py` LLM 流式、pip/git 子进程），
+统一的是**决策**（`netx` 的线路 + `tls.policy` 的证书 + `transport.headers_for`
+的指纹），不是实现。清单钉在 `tests/test_netx.py`「出网原语必须登记」一节，
+新增出口会被拦下来签字。
+
+由此产生一条必须知道的边界：**反爬判定/冷却/降级梯只在 transport 上**（引擎自己
+试通道的路径另有 `intercept.gate`）。走 urllib 通道的 mcpclient、zen、gnews、
+探活，以及整个 stock 包，被挡时不会记冷却、也没有验证页识别 —— 它们只会如实
+报错。给这些通道加拦截判定前先问：这个上游真的会出现人机验证页吗？会，才接；
+不会（LLM API、行情接口、MCP 服务）就是白搭一层，还多一次读正文的开销。
+
 ## 7. 注释与文档纪律
 
 - 注释只写两类：**为什么这么做**（约束、坑、不直观的取舍）与**外部协议事实**（上游字段形状、必须带的头、限速）。代码本身在做什么，不写

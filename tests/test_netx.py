@@ -866,5 +866,47 @@ _rc, _o = _cli('proxy', 'get')
 check('engine_proxy' not in (_o or '') or '已废弃' in _o,
       'proxy get 不再把 engine_proxy 当正常配置项', (_o or '')[:40])
 
+print('\n=== 13. 出网原语必须登记 (新出口不许悄悄开) ===')
+# netx 的统一是"决策"不是"实现": 现役出网实现就下面这些, 每条都得显式登记
+# 并说明它靠哪条通道。新增一处 `requests.` / `_cr.Session` / `urlopen` 就是
+# 又开了一个不受设计与测试照看的口子 —— 必须来这里签字 (顺手想清楚它要不要
+# 反爬判定、走不走路由表)。
+_NET_CHANNELS = {
+    'cli/zen.py': 'LLM 调用 (经 core.http 的 opener, 非网页通道)',
+    'cli/zenproto.py': 'LLM 流式直连 (http.client, 要拿裸流)',
+    'core/http.py': 'urllib 通道本体 (transport 备胎/探活/mcpclient/zen)',
+    'core/probe.py': '探活 (cffi 单发, 只为拿状态码)',
+    'engines/sogou.py': 'PC cffi / urllib / 移动端 三通道',
+    'net/netx.py': '决策层 + 参考通道 netx.get (当前无生产调用者)',
+    'net/transport.py': '主通道: 指纹会话 + 降级梯 + 拦截判定',
+    'stock/bridge/http.py': '股票接口自有通道 (请求层)',
+    'stock/bridge/_eco_net.py': '东财接口 (股票通道)',
+    'stock/bridge/sources/_adapter.py': '股票源适配 (股票通道)',
+    'stock/bridge/sources/_base.py': '股票源基类 (股票通道)',
+    'stock/bridge/sources/_routing.py': '股票源路由 (股票通道)',
+    'stock/bridge/sources/em.py': '东财专有 (股票通道)',
+    'stock/bridge/sources/ths.py': '同花顺专有 (股票通道)',
+    'stock/tools/extract_recipes.py': '离线工具 (抓一次配方, 不在运行链路)',
+}
+_PRIMS = [r'^\s*import\s+requests\b', r'^\s*from\s+requests\b',
+          r'^\s*import\s+http\.client\b', r'^\s*from\s+http\.client\b',
+          r'^\s*import\s+socket\b',
+          r'\brequests\.(get|post|request|Session)\b', r'\bcurl_requests\.',
+          r'from curl_cffi', r'\b_cr\.[A-Z]', r'\bcr\.Session\(', r'urlopen\(',
+          r'\bhttp\.client\b', r'HTTPConnection\(', r'\bsocket\.socket\b']
+_unregistered = []
+for _f in _SRC.rglob('*.py'):
+    _rel = str(_f.relative_to(_SRC)).replace('\\', '/')
+    _txt = _f.read_text(encoding='utf-8')
+    if any(re.search(_p, _txt) for _p in _PRIMS) and _rel not in _NET_CHANNELS:
+        _unregistered.append(_rel)
+check(not _unregistered,
+      '出网原语只出现在登记过的通道里 (新出口要显式登记)',
+      str(_unregistered))
+_stale = [k for k in _NET_CHANNELS
+          if not any(re.search(_p, (_SRC / k).read_text(encoding='utf-8'))
+                     for _p in _PRIMS)]
+check(not _stale, '登记表没有过时条目 (改过的通道要同步)', str(_stale))
+
 print(f'\n{PASS + FAIL + SKIP} 项: {PASS} PASS, {FAIL} FAIL, {SKIP} SKIP')
 sys.exit(1 if FAIL else 0)

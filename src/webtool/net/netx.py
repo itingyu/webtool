@@ -1,38 +1,30 @@
-"""统一出网层: 一处决定「这条请求怎么打出去」
+"""出网统一决策层 + 一个现成的参考通道
 
-已接入的通道都从这里拿策略, 各自不判断代理与证书:
-
-
-- `stock/bridge/http.py` — `Http(proxy=...)`, 默认 `'auto'` 问路由表
-- `core/probe.py` — 探活补保险库密码, 缓存键用归一后的形态
-- `core/http.py` / `net/transport.py` — 保留各自实现 (session 预热、指纹降级梯
-  本层不重复造), 代理归一改成调 `resolve_proxy`
-- 新增出口一律走本层: 自己写 auto 判断或密码补全 = 又造出一条不受路由表约束的链
-
-## 这一层负责什么
-
-只做**决策**, 不碰业务:
+**这一层统一的是「怎么打出去」的决策, 不是出网实现**: 各通道保留自己的实现
+(session 预热、指纹降级梯、LLM 流式、股票接口的 requests/cffi), 但下面四件事
+只许从这里拿, 谁都不许自己判断:
 
 1. `proxy='auto'` → 问路由表 (域名/端口/GeoIP/geosite/命名代理)
 2. `resolve_auth` 补保险库密码 —— 明文只在这里出现, 不落盘不进日志
 3. 证书策略 `tls.policy()` → 每个通道拿同一个决定, 不会出现「curl_cffi 拒了
    urllib 放行」的分裂
-4. 默认 UA 走浏览器指纹档案, 禁止裸 Python-urllib 指纹出网
+4. 默认 UA 走浏览器指纹档案 (`default_headers`), 禁止裸 Python-urllib 指纹出网
 
-## 怎么用
+现役通道 (各自实现, 决策都调这里):
 
-已接好的通道:
+- `net/transport.py` — 主通道: 指纹会话 + 降级梯 + **拦截判定/冷却** (net.intercept)
+- `core/http.py` — urllib 通道: transport 的备胎, 也是探活 / mcpclient / zen /
+  gnews / sogou·bing 兜底用的那条 (**不含**拦截判定)
+- `stock/bridge/http.py` — 股票接口自有通道 (requests + cffi impersonate)
+- `cli/zenproto.py` — LLM 流式直连 (http.client, 要拿裸流)
+- `pip` / `git` 子进程 (pkg / upgrade) — 环境变量代理, 判定在 upgrade 那边
 
-```python
-from webtool.net import netx
+清单钉在 `tests/test_netx.py` 的 "出网原语必须登记" 一节: 新增 `requests.` /
+`_cr.Session` / `urlopen` 会被测试拦下, 逼你想清楚它要不要过路由表与拦截器。
 
-text, status = netx.get(url)                     # 自动选通道 + 全部策略
-text, status = netx.get(url, engine='google')    # 带引擎名 (走反爬/降级梯)
-text, status = netx.get(url, proxy='direct')     # 强制直连
-text, status = netx.get(url, verify=False)       # 定点豁免该站证书
-```
-
-想接新通道, 只要实现 `_run()` 里的分支, 别的地方不用动。
+`netx.get()` 是给**新出口**备的现成实现 (cffi 指纹 → urllib 兜底, 全部策略已接线),
+当前生产代码没有调用者 (只有测试在跑)。注意它**不含**反爬判定/降级梯 —— `engine`
+参数在这里只用来挑 UA 档案; 要那套能力请用 `net.transport.get`。
 """
 import gzip
 import io

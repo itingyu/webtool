@@ -384,6 +384,7 @@ class MyWall(Interceptor):
   同样过拦截器：调 `intercept.gate(engine, text, url=…)` 判定 + 记账，
   `intercept.cooldown_of(engine)` 取剩余冷却
 - 插件抛错只让它自己掉队，不拖垮整条请求链路；`webtool plugins check interceptor` 看谁坏了
+- 这套判定只装在**网页搜索/抓取通道**上：股票接口、MCP 服务、LLM 调用这些上游不会有人机验证页，被挡时只如实报错（见 `docs/coding-standard.md` 的"只有 transport 上有拦截判定"）
 
 ## 开发
 
