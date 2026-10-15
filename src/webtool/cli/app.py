@@ -284,7 +284,7 @@ def _do(name):
 # zen
 
 @app.command('zen')
-def zen_cmd(prompt: list[str] = typer.Argument([], help='要问的问题 (留空则走 --list-models)'),
+def zen_cmd(prompt: list[str] = typer.Argument(None, help='要问的问题 (留空则走 --list-models)'),
             model: str = typer.Option(None, '--model',
                                       help='模型 id (不带 provider 前缀; 见 zen --list-models; 默认取 zen.json 的 model, 再回落 big-pickle)'),
             system: str = typer.Option(None, '--system',
@@ -378,7 +378,7 @@ def site_cmd(site: str = typer.Argument(None, help='站点 key, `webtool site li
 # rank
 
 @app.command('rank')
-def rank_cmd(sources: list[str] = typer.Argument([], help='榜单源 key; 无参数 = 榜单清单+用法'),
+def rank_cmd(sources: list[str] = typer.Argument(None, help='榜单源 key; 无参数 = 榜单清单+用法'),
              query: str = typer.Option(None, '-q', '--query',
                                        help='语义筛选词: 支持搜索的源透传站内过滤, 其余源拉榜后本地 BM25 筛选+跨源重排'),
              threshold: float = typer.Option(0.15, '-t', '--threshold',
@@ -388,14 +388,15 @@ def rank_cmd(sources: list[str] = typer.Argument([], help='榜单源 key; 无参
              no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """榜单聚合: 无参=榜单清单; 指定源=按源分组原序; -q 语义筛选"""
     a = _CTX['args']
-    a.sources, a.query, a.threshold, a.max = sources, query, threshold, max
+    # 默认值不能是 []: click 8.1.x 的 nargs=-1 参数带非 None default 直接 TypeError (老 typer 上炸)
+    a.sources, a.query, a.threshold, a.max = sources or [], query, threshold, max
     return _run('data', _entry_fn('rank'), fmt, output, no_cache, no_proxy)
 
 
 # feed
 
 @app.command('feed')
-def feed_cmd(sources: list[str] = typer.Argument([], help='feed key 或任意 RSS/Atom URL; 无参数 = 清单+用法'),
+def feed_cmd(sources: list[str] = typer.Argument(None, help='feed key 或任意 RSS/Atom URL; 无参数 = 清单+用法'),
              max: int = typer.Option(10, '-n', '--max', help='每源条数'),
              query: str = typer.Option(None, '-q', '--query', help='语义筛选词 (BM25 本地筛 + 按相关度重排)'),
              threshold: float = typer.Option(0.15, '-t', '--threshold',
@@ -427,7 +428,7 @@ def feed_cmd(sources: list[str] = typer.Argument([], help='feed key 或任意 RS
              no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """RSS/Atom 订阅源抓取 (官方 feed + 任意 URL; 支持增量)"""
     a = _CTX['args']
-    a.sources, a.max, a.query, a.threshold = sources, max, query, threshold
+    a.sources, a.max, a.query, a.threshold = sources or [], max, query, threshold
     a.new_only, a.add, a.del_src, a.mark, a.retest = new_only, add, del_src, mark, retest
     a.pick, a.param, a.example, a.top = pick, param, example, top
     a.from_url, a.instance, a.cat = from_url, instance, cat

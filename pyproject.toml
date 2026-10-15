@@ -24,7 +24,7 @@ dependencies = [
     "inscriptis",
     "pysocks",
     "curl_cffi>=0.16",
-    "typer>=0.12",
+    "typer>=0.13",
     # typer 0.26 起 vendor 了自己的 click, 不再依赖顶层 click; 更早的 typer 才用它,
     # cli/app.py 的异常类导入会按 typer 版本二选一, 所以要自己声明
     "click>=8",
