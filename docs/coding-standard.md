@@ -8,24 +8,30 @@
 
 ```
 webtool/
-  cli/          L4 应用编排   app / config / plugins / sitesearch / zen / zenproto
+  cli/          L4 应用编排   app / config / plugins / sitesearch / zenproto
                                mcp (通用 MCP 客户端)
+                               zen/  (__init__ 入口 + client + render)
   feeds/        L3 业务流程   command / sources / parse / fetch / cards / feedhealth
   stock/        L3 业务流程   engine (业务脚本层) / bridge (数据源层 + 多源编排)
-                               command (动作分发 + 渲染)
+                               command/ (__init__ 入口 + _registry 动作表
+                               + _actions* 动作 + _textfmt/_render 视图 + _common)
   radar/        L3 业务流程   routes / rules / instances / official / template
                                            / race / instances_cfg
   pipeline/     L2 合并输出   search / rank / merge / topup / qhint / query_ops
   render/       L2 合并输出   render / hotrender / output
   filters/      L2 结果过滤   blocklist / adfilter        —— 纯规则, 不出网
-  net/          L1 采集实现   transport / proxy / intercept / captcha / spa / fetch / mcpclient`
+  net/          L1 采集实现   transport / proxy / intercept / captcha / spa /
+                               fetch / mcpclient / dns / netx(门面) / rules
   engines/      L1 采集实现   baidu / bing / google / sites / hotsites
                                exa / parallel / firecrawl (MCP 语义引擎)
                                extractors / customsites ...
   core/         L0 基础设施   plugins / config_data / cache / state / http
-                                              probe / resilient
+                                              probe / resilient / logging / stdin
                 通用工具类     text / urls / jsonfmt
 ```
+
+数据源子包 (`sources/em/`) 用 mixin 组合而非继承树：方法只用 `self`，
+族间调用是属性访问不是 import，所以拆分不引入环；对外仍是同一个类名。
 
 包根只留 `__init__.py`——不允许新的包根单文件模块，模块按层归位
 （CLI 层 `cli/`、抓取层 `pipeline/`、渲染层 `render/`、网络层 `net/`）。
@@ -272,7 +278,7 @@ ip/ping 等连通性探测归 `core.probe`，不单开网络层，ICMP 受限环
   5923×23，约 76 秒），直接印会刷屏。
   `eco-search` 按中英文关键词搜（中文能命中是因为 akshare 不少接口文档首行写了中文）
 - **生态库的数据列里常有 `datetime.date` / numpy 标量**，不是 JSON 原生类型。
-  渲染层一律走 `command.py::_j` 兜底序列化 —— 直接 `json.dumps` 会 TypeError
+  渲染层一律走 `stock/command/_common.py::_j` 兜底序列化 —— 直接 `json.dumps` 会 TypeError
   **崩在渲染层**，而那时数据其实已经取到了，白跑一次网络请求
 - **第三侧 `rawapi.py`** 桥 `bridge/sources/`（随仓内置）的
     **157 个低阶方法**（`webtool stock data list api` 出清单），按数据源分包：
@@ -288,7 +294,7 @@ ip/ping 等连通性探测归 `core.probe`，不单开网络层，ICMP 受限环
   - 目录名必须是合法标识符（带连字符的名字当不了包名），业务脚本层因此叫 `engine/`。
     文档与自测脚本不进包：包内只放能跑的业务代码，副本留外面那份
   - **engine 不出网**：取数一律经 `bridge/sources/`（腾讯行情、东财涨停池的端点在
-    `sources/sina.py` 的 `gtimg_quote_flat` 与 `sources/em.py` 的 `em_zt_pool`）。engine
+    `sources/tencent.py` 的 `gtimg_quote_flat` 与 `sources/em/_quote.py` 的 `em_zt_pool`）。engine
     自己起 urllib 出口不放行 —— 少一个出网出口就少一处能绕过规则表的地方
   - **不要用 `sys.path.insert` + `importlib` 接内部依赖**。sys.path 是全局可变状态，
     谁先 import 谁改变后续所有 import 的结果：两个目录各插一次，同名模块会被加载成两份，
@@ -327,7 +333,7 @@ ip/ping 等连通性探测归 `core.probe`，不单开网络层，ICMP 受限环
   服务端 import 不了时的兜底；`do_tools`/`tool_names` 都优先读服务端，新增减工具不用改 webtool
 - **原样透传类动作**（`report` / `diagram` / `excel`）不套 json/表格渲染 —— 它们
   产出的是成稿 markdown、mermaid 源码、落盘确认，本来就是给人直接看的东西，再包一层
-  结构化输出反而破坏可读性。这类走 `command.py::_passthrough`
+  结构化输出反而破坏可读性。这类走 `stock/command/_common.py::_passthrough`
 - **`sentiment` 的分数必须带符号印出**（`+12` 而非 `12`）—— 消息面的关键信息是方向，
   印绝对值会被读成"强利好"
 - **`chain` 图的上游/中游/下游分别对应 `--driver` / `--mid` / `--catalyst`**，
@@ -341,14 +347,14 @@ ip/ping 等连通性探测归 `core.probe`，不单开网络层，ICMP 受限环
   默认吐裸 JSON 会把"能不能买、什么价买"埋在 20 行里；程序读字段用 `-f json`
 - `announcement` 动作曾起 1 个 `curl` 子进程（`np_notice_ann` 东财公告接口），
   已消除：改为 `self._std.get()` 走统一会话。理由与验证见 `bridge/ROUTING.md`
-- **stock 动作的载荷形状按动作不同，`stock/command.py` 靠 `_items_of`（广度优先下钻
+- **stock 动作的载荷形状按动作不同，`stock/command/_common.py` 的 `_items_of`（广度优先下钻
   `items/list/rows`）统一认领**：news 是 `data.items`，announcement 是 `data.data.list`，
   capital_flow north 是 `data.data.data.{hk2sh,...}`（无列表）。**认不出就标注不猜** ——
   同花顺 stockpage 是 SPA，上游站点解析不出列表会回 100KB 原始 HTML，印出来等于把噪声
   当结果
 - **stock 的 `--arg` 类型推断与 `cli/mcp.py` 有意不同**：纯数字一律留字符串（600519 是
   A股代码，整数会被动作参数校验拒）。改这段前先确认不是在给非代码字段传数字
-- **`stock/command.py::_render` 对未解析载荷只在 text/markdown 标 stderr 警告**，
+- **`stock/command/_render.py::_render` 对未解析载荷只在 text/markdown 标 stderr 警告**，
   json 保持原样 —— 程序消费方可能自己要那份 html，不该由渲染层替它决定丢弃
 - 打包数据在包根 `src/webtool/data/`（不在 `core/` 下），`core.config_data.DATA_DIR`
   指向它；`pyproject` 的 `package-data` 按此配

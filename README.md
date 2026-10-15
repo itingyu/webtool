@@ -74,7 +74,7 @@ webtool search "query" -e exa,parallel           # 语义引擎
 - 默认引擎集 `bing,sogou,baidu`；`--preset zh|en|direct` 用预设组合（`webtool engines presets` 列），优先级 `-e` > `--preset` > `config.default_engines` > 内置默认
 - 语义引擎按需加：`exa` 召回条数常最多 / `parallel` 最快且返回带日期 / `firecrawl` 能过 JS（search 免费 500 次/月），与关键词引擎重叠少
 - `--operators passthrough|strip|strict` 控制高级操作符（支持 `site:` `intitle:` `inurl:` `-词`）；`--blocklist a.com,b.com` 覆盖黑名单（前缀 `!` 表例外，`off` 关闭）
-- **多引擎并发抓取**：一次搜索同时打所有引擎（不同站点、互不排队），墙钟≈最慢那个引擎而不是各家之和。默认并发=引擎数（上限 6），`-j/--jobs N` 调（`1` = 串行，`config set jobs N` 持久化）。结果与报错一律按 `-e` 声明顺序回填，同一 query 的输出稳定可复现
+- **多引擎并发抓取**：一次搜索同时打所有引擎（不同站点、互不排队），墙钟≈最慢那个引擎而不是各家之和。默认并发=源数（上限 4，`core.resilient.MAX_WORKERS` 常量），`-j/--jobs N` 调（`1` = 串行，`config set jobs N` 持久化）。结果与报错一律按 `-e` 声明顺序回填，同一 query 的输出稳定可复现
 - 跳转链默认自动解码成真实 URL（`--no-resolve` 关）；结果综合加权排序，`-f json` 看 `weight` 与 `engines`（交叉验证数）
 - `webtool engines list|test|presets`：清单与冷却状态 / 实发体检 / 预设组合
 
@@ -247,6 +247,8 @@ webtool stock docs-stats
 
 - `-n` 条数 · `-f json|text|markdown`（`md`≡`markdown`、`txt`≡`text`，大小写不敏感）· `-o` 落盘（按 `-f` 补扩展名，`-o -` 强制 stdout）
 - `--no-cache` 跳缓存 · `--no-proxy` 本次直连 · `--proxy URL` 临时代理
+- `-d/--debug` 调试日志到 **stderr**（级别着色：DEBUG 灰 / INFO 绿 / WARN 黄 / ERROR 红；非终端与 `NO_COLOR` 自动去色），stdout 保持纯数据，可安全配 `-f json`；`WEBTOOL_DEBUG=1` 等效。日志会打出线路决策（只落 `host:port`，不带密码）、规则命中、重试与熔断状态，定位问题先加 `-d`
+- **支持 stdin 管道**：`webtool fetch -` 读 URL 列表（跳空行与 `#` 注释），`webtool search -` 读搜索词，可串联（`webtool rank 芯片 -f json | webtool search -`）；坏 JSON 行会带行号报错，不静默丢
 - 缓存 TTL：search 60s / fetch 10s / 跳转解析 10min（`config set cache_ttl.<桶>=<秒>` 覆盖）
 - 退出码：0 成功 / 1 数据动作失败 / 2 用法错误（提示走 stderr）
 - 出网走浏览器指纹；**走哪条线一次定死**：配置与路由表在请求前决定，失败就是失败，不做"直连↔代理"隐式切换。要临时直连用 `--no-proxy`，要单点覆盖加规则条目
@@ -391,7 +393,12 @@ class MyWall(Interceptor):
 ```bash
 python3 scripts/gen_requirements.py    # pyproject.toml 是依赖唯一权威, 改完重新生成 requirements.txt
 python3 scripts/audit_deps.py          # 查 import 了却没声明的依赖
-python3 -m pytest tests -q
+python3 -m pytest tests -q             # 手写脚本以子进程方式逐个跑 (tests/check_all_scripts.py)
+ruff check src tests                   # 门禁: E9 + F 全开 (含 F401)
 ```
+
+装了可编辑包时**新增模块必须重装**（`pip install -e .`）——否则 CLI 报"装包不完整"。
+分层守卫钉在 `tests/test_layering.py`（含函数内延迟 import 的 ast 扫描）：依赖反向、
+`sources/` 越层、注册表与实现漂移都会当场红。
 
 代码分层 `cli` → `feeds`/`radar`/`zen` → `pipeline`/`render` → `net`/`engines` → `core`，只允许向下依赖。改代码前读 [docs/coding-standard.md](docs/coding-standard.md)，架构见 [docs/design.md](docs/design.md)，站点/订阅扩展见 [docs/custom-sites.md](docs/custom-sites.md)。
