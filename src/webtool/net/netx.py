@@ -31,7 +31,10 @@ import urllib.error
 import urllib.request
 
 from webtool.core import tls
+from webtool.core.logging import get_logger
 from webtool.core.secrets_store import resolve_auth
+
+logger = get_logger(__name__)
 
 
 class NetError(RuntimeError):
@@ -55,9 +58,19 @@ def resolve_proxy(proxy, url=None):
         from webtool.net import rules as _rules
         proxy = _rules.resolve_route(url)
     if not proxy or proxy == 'direct':
+        logger.debug('线路: 直连 (%s)', url or '')
         return None
     # 缺密码要立刻说清楚, 不能拿空密码去撞 407 (那报错完全指不到原因)
-    return resolve_auth(proxy)
+    p = resolve_auth(proxy)
+    # 日志只落 host:port —— 归一后的 URL 可能带保险库密码, 整串打进日志就是泄密
+    from webtool.net.proxy import proxy_url_parts as _pp
+    try:
+        _, _, _, host, port = _pp(p)
+        where = '%s:%s' % (host, port) if port else host
+    except Exception:
+        where = '<unparsed>'
+    logger.debug('线路: 代理 %s (%s)', where, url or '')
+    return p
 
 
 def default_headers(url, headers=None, kind='nav', referer=None):

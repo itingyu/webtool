@@ -335,11 +335,12 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=None,
                          lang=lang, max_bytes=max_bytes, profile=profile,
                          session=session, verify=verify, raw=True)
 
-    text, status, via = _get_once(url, kind=kind, referer=referer, proxy=proxy,
-                                  timeout=timeout, engine=engine,
-                                  headers=headers, lang=lang,
+    text, status, via = _get_once(url, kind=kind, referer=referer,
+                                  proxy=proxy, timeout=timeout,
+                                  engine=engine, headers=headers, lang=lang,
                                   max_bytes=max_bytes, profile=profile,
                                   session=session, verify=verify)
+    logger.debug('GET %s -> %s via %s (timeout=%s)', url, status, via, timeout)
     # 拦截检测 + 降级梯 (只对挂了引擎名的通道做, fetch/resolve 不折腾)
     # transport 不认识"验证码": 谁挡的、凭什么、要不要冷却、有没有绕法, 全问
     # net.intercept 的拦截器插件 (captcha 只是其中一个实现)。

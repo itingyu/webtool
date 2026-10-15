@@ -8,6 +8,10 @@ import json
 import os
 import time
 
+from webtool.core.logging import get_logger
+
+logger = get_logger(__name__)
+
 TTL = {'search': 60, 'fetch': 10, 'resolve': 600, 'hot': 120, 'zen': 604800}
 
 
@@ -33,10 +37,12 @@ def get(cfg, bucket, key):
         with open(p, encoding='utf-8') as f:
             obj = json.load(f)
         if time.time() - obj['t'] < _ttl(cfg, bucket):
+            logger.debug('cache hit %s/%s', bucket, key[:40])
             return obj['v']
         os.unlink(p)
     except (OSError, KeyError, ValueError):
         pass
+    logger.debug('cache miss %s/%s', bucket, key[:40])
     return None
 
 def put(cfg, bucket, key, value):

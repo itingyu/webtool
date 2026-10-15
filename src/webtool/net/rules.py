@@ -586,8 +586,7 @@ class Router:
             if not isinstance(r, dict):
                 continue
             m = r.get('match')
-            if not isinstance(m, dict) or not m:
-                continue
+            if not isinstance(m, dict) or not m:                continue
             if not self._match(m, host, port, scheme, ip_ref):
                 continue
             try:
@@ -906,7 +905,10 @@ def resolve_route(url, cfg=None, engine=None):
     """
     r = router(cfg)
     try:
-        return r.proxy_for(url)
+        p = r.proxy_for(url)
+        act = r.rule(url)[0]
+        logger.debug('路由 %s -> %s', url, act)
+        return p
     except RuleError:
         raise
     except Exception:

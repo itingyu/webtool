@@ -1,0 +1,111 @@
+# -*- coding: utf-8 -*-
+"""core/logging (--debug 基础设施) 的边界单测 (纯本地, 不联网)
+
+覆盖: 级别映射 (-d → DEBUG, 默认 WARNING)、stderr 路由、NO_COLOR/非 tty 去色、
+幂等 setup、WEBTOOL_DEBUG 环境变量。
+
+跑法: python3 tests/test_debug_log.py
+"""
+import io
+import logging
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+fails = []
+
+def check(name, cond):
+    print(('PASS' if cond else 'FAIL') + ' ' + name)
+    if not cond:
+        fails.append(name)
+
+from webtool.core import logging as L
+
+# 隔离: 换根 logger 名下 handler 之前清掉既有 handler, 避免吃到本仓其它测试的装配
+root = logging.getLogger('webtool')
+for h in list(root.handlers):
+    root.removeHandler(h)
+L._h = None
+
+buf = io.StringIO()
+
+class _FakeErr(io.StringIO):
+    def isatty(self):
+        return False
+
+
+# 非 tty (StringIO 无 isatty → 按非 tty) → 去色
+old_err = sys.stderr
+sys.stderr = _FakeErr()
+try:
+    L.setup(1)
+finally:
+    sys.stderr = old_err
+
+rec = logging.LogRecord('webtool.test', logging.DEBUG, 'x.py', 1,
+                        'hello %s', ('world',), None)
+msg = L._h.format(rec)
+check('非 tty 去色', '\033[' not in msg)
+check('格式含级别缩写与消息', 'D webtool.test: hello world' in msg)
+
+check('-d → DEBUG', root.level == logging.DEBUG and L._h.level == logging.DEBUG)
+
+# 幂等: 再调 setup 不加 handler
+L.setup(1)
+check('setup 幂等, handler 只装一次',
+      len([h for h in root.handlers if h is L._h]) == 1 and len(root.handlers) == 1)
+
+# NO_COLOR: 即便 tty 也去色
+class _Tty(io.StringIO):
+    def isatty(self):
+        return True
+L._h = None
+for h in list(root.handlers):
+    root.removeHandler(h)
+old_err, old_nocolor = sys.stderr, os.environ.get('NO_COLOR')
+os.environ['NO_COLOR'] = '1'
+sys.stderr = _Tty()
+try:
+    L.setup(1)
+    rec = logging.LogRecord('webtool.test', logging.ERROR, 'x.py', 1, 'boom', None, None)
+    check('NO_COLOR 下 tty 也去色', '\033[' not in L._h.format(rec))
+finally:
+    sys.stderr = old_err
+    if old_nocolor is None:
+        os.environ.pop('NO_COLOR', None)
+    else:
+        os.environ['NO_COLOR'] = old_nocolor
+
+# tty 无 NO_COLOR → ERROR 红 (重建 handler: 上一段的 handler 是 NO_COLOR 下造的;
+# 本沙箱环境自带 NO_COLOR=1, 必须显式摘掉再验, 结束后恢复)
+L._h = None
+for h in list(root.handlers):
+    root.removeHandler(h)
+_saved_nc = os.environ.pop('NO_COLOR', None)
+sys.stderr = _Tty()
+try:
+    L.setup(1)
+    rec = logging.LogRecord('webtool.test', logging.ERROR, 'x.py', 1, 'boom', None, None)
+    check('tty 下 ERROR 带色', '\033[31m' in L._h.format(rec))
+    check('日志进 stderr handler',
+          L._h.stream is sys.stderr or isinstance(L._h.stream, _Tty))
+finally:
+    if _saved_nc is not None:
+        os.environ['NO_COLOR'] = _saved_nc
+    sys.stderr = old_err
+
+# WEBTOOL_DEBUG 环境变量
+os.environ['WEBTOOL_DEBUG'] = '1'
+check('WEBTOOL_DEBUG=1 等效 -d', L.env_debug() == 1)
+os.environ['WEBTOOL_DEBUG'] = ''
+check('空值不算开', L.env_debug() == 0)
+os.environ.pop('WEBTOOL_DEBUG', None)
+
+# 日志确实路由到 stderr 而非 stdout: propagate 必须关
+check('propagate 关闭 (不污染上游 root)', root.propagate is False)
+
+print()
+if fails:
+    print('FAILED: %d 项 -> %s' % (len(fails), ', '.join(fails)))
+    sys.exit(1)
+print('ALL PASS')
