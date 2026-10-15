@@ -38,6 +38,24 @@ from webtool.stock.bridge.sources.sse import SseSource
 from webtool.stock.bridge.sources.np import NpSource
 from webtool.stock.bridge.sources.ef import EfSource
 
+# ── 源注册表: 工厂的单一事实来源 ─────────────────────────────────
+# 新增一个源 = 1) 加 sources/<源>.py 2) 在 APIClient mixin 加一行
+# 3) 在这里登记。`webtool stock data list api` 的分组、selftest 的源
+# 清单未来都从这里取, 不再各自维护一份名单 (名单漂移 = 测的不是线上)。
+SOURCES = {
+    'ths': ThsSource, 'em': EmSource, 'xueqiu': XueqiuSource,
+    'sina': SinaSource, 'tencent': TencentSource, 'cninfo': CninfoSource,
+    'csindex': CsindexSource, 'sse': SseSource, 'np': NpSource,
+    'ef': EfSource,
+}
+
+def source_class(name):
+    """按名字取源类; 未知名字抛错并列出可用项 (不静默返回 None)"""
+    try:
+        return SOURCES[name]
+    except KeyError:
+        raise KeyError(f'未知数据源: {name}; 可用: {", ".join(sorted(SOURCES))}')
+
 
 class APIClient(ThsSource, EmSource, XueqiuSource, SinaSource, TencentSource,
                 CninfoSource, CsindexSource, SseSource, NpSource, EfSource):

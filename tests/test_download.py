@@ -1,9 +1,7 @@
 """下载器本地验证: 断点续传 / 校验 / 进度, 全用本地 Range 服务器, 不碰外网"""
-import hashlib
 import http.server
 import os
 import shutil
-import socket
 import sys
 import threading
 

@@ -291,7 +291,7 @@ check(bool(_mcps) and all(str(s.get('url', '')).startswith('https://')
       f'mcp.json 端点表装载 ({len(_mcps)} 项)')
 
 # 11. MCP 拆参: 位置 JSON 与 --arg 合并, 值按 JSON 字面量猜类型
-from webtool.cli.mcp import _build_args as _BA, _coerce as _CO
+from webtool.cli.mcp import _build_args as _BA
 _bcases = [('', None, {}),
            ('{"query":"x","n":3}', None, {'query': 'x', 'n': 3}),
            ('', ['query=hi', 'numResults=5', 'flag=true', 'nil=null'],
@@ -620,7 +620,7 @@ check(os.path.isfile(os.path.join(_ENGINE_DIR, '__init__.py')),
 # 上面那些只证明源码树是好的 —— 源码树里跑永远正常, 漏打包只有装包后才炸。
 # 真验: 现场打一个 wheel, 比对文件清单。判据是**逐个文件**而不是"包在不在":
 # 漏掉某个子包时包还在、只是少一半 py, 装包后 import 才报错。
-import subprocess as _sp, sysconfig as _sc, tempfile as _tf, zipfile as _zf
+import subprocess as _sp, tempfile as _tf, zipfile as _zf
 with _tf.TemporaryDirectory() as _td:
     _r = _sp.run([sys.executable, 'setup.py', 'bdist_wheel', '-d', _td],
                  cwd=os.path.join(os.path.dirname(__file__), '..'),
@@ -727,7 +727,7 @@ check(_econet.probe('baostock').get('routed') is False,
 # 的 proxies.default —— 而 finally 只还原了 config.json, 于是每跑一次测试就把
 # 用户现网的默认代理改成死端口 (实测: 2080 → :9), 用户看到的却是"我没改, 它自己
 # 变的"。规则文件和配置文件都指向临时目录, 一个字节都不许落到 HOME。
-import json as _json, os as _os, tempfile as _tf, shutil as _sh
+import json as _json, tempfile as _tf, shutil as _sh
 from pathlib import Path as _Path
 from webtool.core import config_data as _cd
 _tmpdir = _Path(_tf.mkdtemp(prefix='webtool-smoke-'))

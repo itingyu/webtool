@@ -243,7 +243,6 @@ print('\n=== 10. 真站点联调 (需 NETX_LIVE=1) ===')
 if os.environ.get('NETX_LIVE') != '1':
     skip('真实出网', '未设 NETX_LIVE=1')
 else:
-    from urllib.parse import urlsplit as _us
     write_rules({'default': 'direct', 'proxies': {}, 'rules': []})
     try:
         text, st = netx.get('https://www.baidu.com', timeout=15)
