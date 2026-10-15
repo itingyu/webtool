@@ -218,10 +218,15 @@ class Http:
             # 不继承 ssl.SSLError, 靠 tls.is_tls_error 跨通道识别): 它不是
             # "再试一次"能解决的, 得给一个能照着改的错
             if tls.is_tls_error(e):
+                host = _host(url)
+                kind, fix = tls.cert_advice(e, host)
+                head = f'{m} {url[:80]} 证书校验失败'
+                if kind:
+                    head += f' ({kind})'
                 raise HttpError(
-                    f'{m} {url[:80]} 证书校验失败: {str(e)[:160]}\n'
-                    f'  自签/过期证书站 → webtool config set verify_hosts '
-                    f'{_host(url)}') from e
+                    f'{head}: {str(e)[:160]}\n'
+                    f'  修法 → {fix or ("webtool config set verify_hosts " + host)}'
+                ) from e
             raise HttpError(f'{m} {url[:80]} 失败: {type(e).__name__}: {e}') from e
         self._last = r
         if raw:

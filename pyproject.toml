@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "webtool"
-version = "1.12.22"
+version = "1.12.23"
 description = "Agent-friendly web search & content fetch CLI: clean markdown/text/json output"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -66,6 +66,11 @@ webtool = [
   "data/*.json",
   "data/**/*.json",
   "data/**/*.md",
+  # 自带的 CA 包与站点专有证书 (data/certs/): 不带上的话 wheel 装完等于
+  # 又回到"宿主没 ca-certificates 就不校验证书"——正是它们要解决的问题
+  "data/certs/*.pem",
+  "data/certs/**/*.pem",
+  "data/certs/**/*.md",
   "stock/data/*.json",
   "stock/data/**/*.json",
   "stock/data/**/*.md",

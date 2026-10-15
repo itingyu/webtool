@@ -210,8 +210,12 @@ def _get_urllib(url, *, proxy, timeout, headers, ver, max_bytes, kind,
 
 def _tls_msg(url, e):
     host = url.split('/')[2] if '://' in url else url
-    return (f'{url[:120]} 证书校验失败: {str(e)[:160]}\n'
-            f'  自签/过期证书站 → webtool config set verify_hosts {host}')
+    kind, fix = tls.cert_advice(e, host)
+    head = f'{url[:120]} 证书校验失败'
+    if kind:
+        head += f' ({kind})'
+    return (f'{head}: {str(e)[:160]}\n'
+            f'  修法 → {fix or ("自签/过期证书站: webtool config set verify_hosts " + host)}')
 
 
 def _decode(data, headers, max_bytes):

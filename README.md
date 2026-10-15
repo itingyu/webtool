@@ -260,7 +260,13 @@ webtool config set verify_hosts czce.com.cn,gtjaqh.com  # 点名豁免, 其余�
 webtool config list                                     # 看实际生效策略与 CA 来源
 ```
 
-默认严格校验（fail-closed）；`ca_bundle` 指向不存在的文件会当场报错。`verify_hosts` 优先于全局开关，用于自签/过期证书站（覆盖子域）。证书失败抛 `TlsError` 直接上抛，不重试、不降级。环境里没装 `ca-certificates` 时自动降级为不校验并在 `config list` 打警告。
+默认严格校验（fail-closed）；`ca_bundle` 指向不存在的文件会当场报错。`verify_hosts` 优先于全局开关，用于自签/过期证书站（覆盖子域）。证书失败抛 `TlsError` 直接上抛，不重试、不降级。
+
+CA 从哪来（按顺序）：环境变量 → 系统 CA → certifi → **仓库自带** `webtool/data/certs/ca-bundle.pem`（Mozilla 根证书集，随 wheel 分发）。所以宿主没装 `ca-certificates` 也照样严格校验，不会再出现"为了能用就把全站校验关掉"。
+
+站点专有证书（自签/内部 CA）放 `webtool/data/certs/extra/*.pem` —— 该站仍走**完整校验**，只是多加一套信任根，比 `verify_hosts` 关校验强。有 extra 时才现拼合并文件（缓存在 cache/tls/）。
+
+证书失败会分**类别**报，并给出对应处置（`tls.cert_advice`）：域名不符 / 自签 / 过期 / 缺中间证书 / 需旧版 TLS 重协商 —— 各不相同，别一律去改 `ca_bundle`。
 
 ### 代理与分流
 

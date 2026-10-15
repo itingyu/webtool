@@ -314,6 +314,22 @@ config.json，而遗留键迁移顺手把该值写进了 `rules.json` 的 `proxi
 反面教材：线程里回填 + 收集循环里再回填一次 —— 结果条数翻倍，而且因为
 去重/聚类会"看起来正常"，只有顺序断言能抓到。
 
+## 站点证书进仓库，不关校验
+
+`src/webtool/data/certs/ca-bundle.pem` 是仓库自带的 CA 包（Mozilla 根证书集，
+随 wheel 分发，package-data 必须带上 `certs/*.pem` —— 漏了就等于"装完又回到
+宿主没 CA 的状态"）。探测链 环境变量 → 系统 CA → certifi → **自带**，自带那份
+是兜底：于是"宿主没装 ca-certificates"不再等于"全站不校验"。
+
+站点自签/内部 CA 用 `data/certs/extra/*.pem` 投放，**不要**用 `verify_hosts`
+或 `verify=False` —— 前者只是换信任根、仍然是验过才放行。有 extra 时才现拼
+"基础 CA + extra"的合并文件（cache/tls/，按内容指纹命名），没 extra 零开销。
+合并文件写不进去要退回基础 CA，不能因为缓存目录只读连原有信任根也弄丢。
+
+证书失败的**类别**必须分清再给修法（`tls.cert_advice`）：域名不符（塞证书没用）、
+自签（进 extra/）、过期（只能 verify_hosts）、缺中间证书（补 ca_bundle）、
+需旧版 TLS 重协商（根本不是证书问题）。一律叫用户改 `ca_bundle` 是误导。
+
 ## 7. 注释与文档纪律
 
 - 注释只写两类：**为什么这么做**（约束、坑、不直观的取舍）与**外部协议事实**（上游字段形状、必须带的头、限速）。代码本身在做什么，不写

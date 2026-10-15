@@ -503,11 +503,20 @@ def _tls_msg(url, verify, e):
         why = f'{host} 在 verify_hosts 名单里 (校验已关)'
     else:
         why = 'ssl_verify=on 严格校验中'
-    return (f'证书校验失败: {url[:90]}\n'
-            f'  原因: {str(e)[:180]}\n'
-            f'  现状: {why}\n'
-            f'  修法: 站点自签/证书过期 → webtool config set verify_hosts {host or "<域名>"}\n'
-            f'        代理 MITM    → 把代理 CA 并进去: webtool config set ca_bundle <ca.pem>')
+    kind, fix = tls.cert_advice(e, host)
+    lines = [f'证书校验失败: {url[:90]}']
+    if kind:
+        lines.append(f'  类别: {kind}')
+    lines += [f'  原因: {str(e)[:180]}',
+              f'  现状: {why}']
+    if fix:
+        lines.append(f'  修法: {fix}')
+    else:
+        lines += ['  修法: 站点自签/证书过期 → webtool config set verify_hosts '
+                  f'{host or "<域名>"}',
+                  '        代理 MITM    → 把代理 CA 并进去: '
+                  'webtool config set ca_bundle <ca.pem>']
+    return '\n'.join(lines)
 
 
 _fp_lock = threading.Lock()
