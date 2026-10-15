@@ -384,7 +384,7 @@ config.json，而遗留键迁移顺手把该值写进了 `rules.json` 的 `proxi
 
 一次搜索打多个源（引擎/站点/榜单），源之间是不同站点、彼此不排队，串行就是
 白等：实测 5 个引擎 17s → 10s，`google` 一个就能拖十几秒。并发用
-`ThreadPoolExecutor`，并发度统一走"引擎数、上限 6"（`--jobs` / `config jobs`
+`ThreadPoolExecutor`，并发度统一走"源数、上限 MAX_WORKERS=4 (core.resilient 常量, 业务模块不许自己写数字)"（`--jobs` / `config jobs`
 可覆盖），别默认全开 —— 出口是同一条代理/同一条网，开太满只是把自己打满。
 
 两条硬纪律（`tests/test_search_parallel.py` 钉住）：

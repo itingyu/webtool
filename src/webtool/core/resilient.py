@@ -22,6 +22,9 @@ RETRY_BASE = 0.5                 # 首次重试等待秒数
 RETRY_CAP = 8.0                  # 退避上限秒数
 DEFAULT_FAIL_THRESHOLD = 5       # 连续失败 N 次 → 熔断打开
 DEFAULT_COOL_SECONDS = 300       # 熔断冷却半开期
+MAX_WORKERS = 4                  # 并发上限 (全仓唯一来源): 出口是同一条代理/
+# 同一条网, 4 条已能把首轮墙钟压到接近最慢那个源; 再往上收益是零头, 风险是
+# 把自己这条线路打满导致超时。业务模块别自己写 6/8/16, 从这里取。
 
 
 def retry_policy(url):
@@ -132,17 +135,19 @@ class Breaker:
 
 
 # ── 并发: 统一线程池入口 (共享状态只在主线程写, 见规范"多源抓取"节) ──
-def parallel_map(items, fn, *, max_workers=6, desc=''):
+def parallel_map(items, fn, *, max_workers=None, desc=''):
     """items 并发跑 fn, **按声明顺序**返回 (结果, 异常或 None) 列表
 
     - 顺序恒定: 下游排序对并列项才稳定, 回填顺序不能随线程完成顺序漂
     - 单个任务异常被捕获放回自己的槽位, 不炸整批
-    - max_workers 上限 6: 出口是同一条代理/同一条网, 开太满只是把自己打满
+    - max_workers 上限 MAX_WORKERS (=4, 全仓唯一来源): 出口是同一条代理/
+      同一条网, 开太满只是把自己打满
     """
     items = list(items)
     if not items:
         return []
-    workers = max(1, min(int(max_workers or 1), 6, len(items)))
+    workers = max(1, min(int(max_workers or MAX_WORKERS), MAX_WORKERS,
+                         len(items)))
     out = [None] * len(items)
     if workers == 1:
         for i, it in enumerate(items):

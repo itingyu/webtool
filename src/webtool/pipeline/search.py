@@ -73,12 +73,13 @@ def parse_blocklist(spec):
 
 
 def _jobs(args, cfg, n):
-    """并发度: --jobs > config 的 jobs > 自动 (引擎数, 上限 6)
+    """并发度: --jobs > config 的 jobs > 自动 (源数, 上限 MAX_WORKERS=4)
 
     默认不是"全开": 一次 search 打的是不同站点, 但出口是同一条代理/同一条网,
-    6 条并发已经能把首轮墙钟压到接近最慢那个引擎; 再往上收益是零头, 风险是
+    4 条并发已能把首轮墙钟压到接近最慢那个引擎; 再往上收益是零头, 风险是
     把自己这条线路打满导致超时。显式给 --jobs 则照给 (硬钳在 1..16)。
     """
+    from webtool.core.resilient import MAX_WORKERS
     raw = getattr(args, 'jobs', None)
     if raw in (None, ''):
         raw = cfg.get('jobs')
@@ -87,7 +88,7 @@ def _jobs(args, cfg, n):
     except (TypeError, ValueError):
         j = 0
     if j <= 0:
-        j = min(n, 6)
+        j = min(n, MAX_WORKERS)
     return max(1, min(j, 16, max(n, 1)))
 
 def do_search(args, cfg):

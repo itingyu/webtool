@@ -12,6 +12,8 @@ from pathlib import Path
 from webtool.radar.instances_cfg import default_instances
 from webtool.radar.instances import instances
 
+from webtool.core.resilient import MAX_WORKERS as _MAX_W
+
 
 # 官方 feed 探测
 
@@ -167,7 +169,7 @@ def official_feeds(domains, proxy=None, refresh=False, max_sites=6):
             todo.append(d)
     if todo:
         from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=min(len(todo), 6)) as ex:
+        with ThreadPoolExecutor(max_workers=min(len(todo), _MAX_W)) as ex:
             for dom, res in zip(todo, ex.map(
                     lambda d: probe_official(d, proxy=proxy), todo)):
                 url, items, buckets = res

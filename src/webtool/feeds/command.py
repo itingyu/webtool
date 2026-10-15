@@ -20,6 +20,9 @@ from webtool.net import proxyhelper
 from webtool.feeds.fetch import pull_one
 from webtool.feeds.cards import print_route_cards
 
+from webtool.core.resilient import MAX_WORKERS as _MAX_W
+
+
 def do_feed(args, cfg):
     t0 = time.time()
     # feed --add NAME URL [desc] / --del NAME
@@ -83,7 +86,7 @@ def do_feed(args, cfg):
             except Exception as e1:
                 return k, feedhealth.classify_error(str(e1)[:120]), 0, None
 
-        with ThreadPoolExecutor(max_workers=min(len(targets), 6)) as ex:
+        with ThreadPoolExecutor(max_workers=min(len(targets), _MAX_W)) as ex:
             futs = [ex.submit(_probe, k, v) for k, v in targets.items()]
             for fu in as_completed(futs):
                 k, st, cnt, _ = fu.result()
@@ -258,7 +261,7 @@ def do_feed(args, cfg):
         return name, items, None
 
     results, errors = {}, {}
-    with ThreadPoolExecutor(max_workers=min(len(names), 6)) as ex:
+    with ThreadPoolExecutor(max_workers=min(len(names), _MAX_W)) as ex:
         futs = {ex.submit(pull, nm): nm for nm in names}
         for fu in as_completed(futs):
             nm, items, err = fu.result()

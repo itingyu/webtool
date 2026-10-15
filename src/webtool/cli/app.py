@@ -222,7 +222,7 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
                                             help='黑名单覆盖: 逗号分隔域名, 前缀 ! 表白名单例外, '
                                                  '传 off 关闭黑名单'),
                jobs: int = typer.Option(None, '-j', '--jobs',
-                                        help='并发抓取的引擎数 (默认 引擎数, 上限 6; 1=串行)')):
+                                        help='并发抓取的源数 (默认 源数, 上限 4; 1=串行)')):
     """多引擎网页搜索"""
     a = _CTX['args']
     a.update = None

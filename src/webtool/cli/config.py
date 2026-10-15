@@ -26,7 +26,7 @@ CONFIG_KEYS = {
     'blocklist':        ('黑名单覆盖', '逗号分隔域名, ! 前缀表白名单例外, off 关闭', None),
     'market':           ('搜索市场', 'zh-CN / en-US 等 bing mkt 值 (仅 bing 消费)', None),
     'default_engines':  ('默认引擎组合', '逗号分隔: bing,sogou,baidu,google', None),
-    'jobs':             ('搜索并发引擎数', '1 ~ 16 整数; 1=串行, 0/不设=按引擎数(上限 6)', int),
+    'jobs':             ('搜索并发引擎数', '1 ~ 16 整数; 1=串行, 0/不设=按源数(上限 4)', int),
     'default_format':   ('默认输出格式', 'json / text / markdown', ('json', 'text', 'markdown')),
     'timeout':          ('请求超时秒数', '5 ~ 60 整数', int),
     'cache':            ('缓存开关', 'on / off', ('on', 'off')),

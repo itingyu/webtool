@@ -37,11 +37,11 @@ def check(name, cond, detail=''):
 
 # ── 1. 并发度解析 ───────────────────────────────────────────────────────
 _j = lambda a, c, n: S._jobs(types.SimpleNamespace(jobs=a), c, n)
-check('不给 --jobs → 自动取引擎数, 上限 6', _j(None, {}, 9) == 6 and _j(None, {}, 3) == 3)
+check('不给 --jobs → 自动取源数, 上限 4', _j(None, {}, 9) == 4 and _j(None, {}, 3) == 3)
 check('配置里的 jobs 生效', _j(None, {'jobs': 2}, 5) == 2)
 check('--jobs 覆盖配置', _j(4, {'jobs': 2}, 5) == 4)
 check('--jobs 1 表示串行', _j(1, {}, 5) == 1)
-check('乱值 / 越界都钳住', _j('abc', {}, 5) == 5 and _j(99, {}, 5) == 5
+check('乱值 / 越界都钳住', _j('abc', {}, 5) == 4 and _j(99, {}, 5) == 5
       and _j(0, {}, 0) == 1)
 
 # ── 假引擎: 可控耗时, 慢的排前面 ────────────────────────────────────────
