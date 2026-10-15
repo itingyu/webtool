@@ -15,8 +15,11 @@ from typing import List
 
 import typer
 
-# typer 0.27 vendored 了 click: 异常类在 typer._click.exceptions, 与顶层 click 不同源
-from typer._click.exceptions import UsageError as _UsageError, ClickException as _ClickException
+# typer 0.26 起 vendor 了 click: 异常类在 typer._click.exceptions, 与顶层 click 不同源
+try:
+    from typer._click.exceptions import UsageError as _UsageError, ClickException as _ClickException
+except ImportError:                        # typer <= 0.25: 异常来自顶层 click
+    from click.exceptions import UsageError as _UsageError, ClickException as _ClickException
 
 from webtool.net import proxy as _proxy
 from webtool.render.output import emit, FORMATS

@@ -8,6 +8,7 @@ inscriptis
 pysocks
 curl_cffi>=0.16
 typer>=0.12
+click>=8
 certifi
 cryptography>=41
 maxminddb>=2.4

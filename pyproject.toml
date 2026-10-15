@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "webtool"
-version = "1.12.9"
+version = "1.12.10"
 description = "Agent-friendly web search & content fetch CLI: clean markdown/text/json output"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -25,6 +25,9 @@ dependencies = [
     "pysocks",
     "curl_cffi>=0.16",
     "typer>=0.12",
+    # typer 0.26 起 vendor 了自己的 click, 不再依赖顶层 click; 更早的 typer 才用它,
+    # cli/app.py 的异常类导入会按 typer 版本二选一, 所以要自己声明
+    "click>=8",
     # 核心路径直接 import: core/tls.py 的 CA 探测最后一跳就是 certifi.where(),
     # 没它时 _probe_ca() 直接 ImportError (不是可选降级)。curl_cffi/requests 会
     # 顺带带进来, 但直接 import 的东西必须自己声明, 免得哪天上游不带了就炸。
