@@ -32,6 +32,7 @@ class EmCoreMixin:
         except Exception as e:
             return _err(str(e))
 
+    @staticmethod
     def _em_secid(code: str) -> str:
         """A 股代码 -> secid (1=沪, 0=深) —— 归一见 `_symbol.em_secid`
 
