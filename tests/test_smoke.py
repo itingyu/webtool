@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 import importlib
 
 MODULES = [
-    'webtool.core.plugins', 'webtool.core.config_data', 'webtool.core.cache', 'webtool.core.state', 'webtool.core.resilient', 'webtool.core.text', 'webtool.core.urls', 'webtool.core.jsonfmt',
+    'webtool.core.plugins', 'webtool.core.config_data', 'webtool.core.cache', 'webtool.core.state', 'webtool.core.resilient', 'webtool.core.text', 'webtool.core.urls', 'webtool.core.jsonfmt', 'webtool.core.errors',
     'webtool.cli.app', 'webtool.cli.config', 'webtool.cli.plugins',
     'webtool.pipeline.search', 'webtool.pipeline.rank', 'webtool.pipeline.merge',
     'webtool.pipeline.topup',

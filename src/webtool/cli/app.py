@@ -21,6 +21,7 @@ try:
 except ImportError:                        # typer <= 0.25: 异常来自顶层 click
     from click.exceptions import UsageError as _UsageError, ClickException as _ClickException
 
+from webtool.core.errors import WebtoolError as _WebtoolError
 from webtool.net import proxy as _proxy
 from webtool.render.output import emit, FORMATS
 
@@ -865,6 +866,17 @@ def main(argv=None):
         return 0
     except KeyboardInterrupt:
         return 130
+    except _WebtoolError as e:                  # 本仓统一异常: 自带退出码
+        print(f'webtool: {e}', file=sys.stderr)
+        return e.exit_code
+    except Exception as e:                      # 兜底: 别把裸 traceback 甩给用户
+        from webtool.core import logging as _log
+        if _log.is_debug():
+            raise                              # -d 时保留完整堆栈, 便于定位
+        print(f'webtool: 内部错误 {type(e).__name__}: {str(e)[:200]}',
+              file=sys.stderr)
+        print('(加 -d 看完整堆栈)', file=sys.stderr)
+        return 1
 
 
 if __name__ == '__main__':

@@ -211,6 +211,16 @@ ip/ping 等连通性探测归 `net.connectivity`，不单开网络层，ICMP 受
 - [ ] `--debug` 下新路径有埋点；宽异常有 exc_info
 - [ ] `python3 tests/test_smoke.py` 全 PASS
 
+## 2.11 错误与退出码
+
+- 退出码口径（`core/errors.py:MEANING`）：`0` 成功 · `1` 一般错误 · `2` 用法/输入错 · `130` 中断(Ctrl-C)
+- 抛本仓异常而非手搓 `print+return`：`core.errors` 的 `UsageError`(→2) / `NotFound`(→2) /
+  `WebtoolError(msg, code=)`；`main()` 认 `exit_code` 属性统一落码
+- 想直接终止用 `core.errors.die(msg, code=)`（`sys.exit` 带正确码），别裸 `sys.exit(1)`
+- `main()` 兜底把**未预期的异常**压成一行 `webtool: 内部错误 …`（退出 1）——
+  `-d` 时改为原样抛出保留 traceback。所以"内部错误"出现在输出里 = 有 bug 没兜住，去 `-d` 复现
+- 管道截断（`| head`）产生的 BrokenPipeError 算成功（0），不算错误
+
 ## 3. 插件与配置边界
 
 - **逻辑进代码，数据进 JSON，调参进 config**：

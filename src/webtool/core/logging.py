@@ -51,6 +51,7 @@ class _ColorFmt(logging.Formatter):
 
 
 _h = None
+_debug = 0          # setup() 记下的 debug 档位, 供 is_debug() 查询
 _fh = None
 _fh_path = None
 
@@ -62,8 +63,9 @@ def setup(debug=0, log_file=None):
     正常路径没有 WARNING 以上日志, 出了问题该吵还是会吵)。
     log_file 给了就额外挂一个 DEBUG 全量的文件 handler (纯文本, 无颜色)。
     """
-    global _h, _fh, _fh_path
+    global _h, _fh, _fh_path, _debug
     root = logging.getLogger('webtool')
+    _debug = debug
     level = logging.DEBUG if debug else logging.WARNING
     path = log_file or os.environ.get('WEBTOOL_LOG_FILE') or ''
     # 有文件 handler 时, logger 本体放到 DEBUG: 文件才拿得到全量;
@@ -163,6 +165,11 @@ def timed(logger, label, **fields):
                          (' ' + plain) if plain else '', extra=extra)
         except Exception:
             pass
+
+
+def is_debug():
+    """当前是否 -d 及以上 (决定异常要不要抖 traceback)"""
+    return _debug >= 1
 
 
 def get_logger(name):
