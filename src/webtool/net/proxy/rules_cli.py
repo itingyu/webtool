@@ -124,10 +124,17 @@ def _rules(args, cfg):
         print('添加: webtool proxy rule add \'{"domain":["*.cn"]}\' direct')
         return 0
     for i, rule in enumerate(rules):
+        m = json.dumps(rule.get('match'), ensure_ascii=False)
+        if rule.get('kind'):
+            # kind 条目没有 action: 不走 resolve_action (它会当成 direct 印出来,
+            # 看着像"这条规则是直连", 实际是环节配置)
+            kv = {k: v for k, v in rule.items() if k not in ('kind', 'match')}
+            print(f'  [{i}] {m}  ⇒ {rule["kind"]}:'
+                  f'{json.dumps(kv, ensure_ascii=False)}')
+            continue
         act, name = R.resolve_action(rule.get('action'))
         via = f' → {name}' if name else ''
-        print(f'  [{i}] {json.dumps(rule.get("match"), ensure_ascii=False)}'
-              f'  ⇒ {act}{via}')
+        print(f'  [{i}] {m}  ⇒ {act}{via}')
     # 配置漂移提醒: 随包默认的 direct 域名后来又加过新的 (引擎声明直连的站),
     # 用户文件按约定永不被覆盖, 旧快照就会一直缺 —— 引擎实际走的通道与
     # docstring 声称不符, 这种错只在某个引擎悄悄 0 结果时才被发现。
@@ -277,4 +284,105 @@ def _ruledel(args, cfg):
     gone = rules.pop(idx)
     _save_rules(cfg, spec)
     print(f'已删除规则 {idx}: {json.dumps(gone, ensure_ascii=False)}')
+    return 0
+
+
+def _cert(args, cfg):
+    """`proxy cert list|sync` —— 站点证书按站点配进规则表"""
+    sub = str(getattr(args, 'value', None) or 'list').strip().lower()
+    if sub == 'list':
+        return _cert_list()
+    if sub == 'sync':
+        return _cert_sync(cfg)
+    print('用法: webtool proxy cert list | webtool proxy cert sync',
+          file=sys.stderr)
+    return 2
+
+
+def _cert_list():
+    """证书 → 它覆盖哪些站点 → 顶上有没有规则"""
+    from webtool.net import tls
+    where = tls.extra_dirs()[0]
+    certs = tls.site_certs()
+    print(f'证书目录: {where}')
+    if not certs:
+        print('未投放站点证书。')
+        print('自签/私有 CA 的站: 把它的 .pem 丢进上面目录, '
+              '再 webtool proxy cert sync 按站点配信任根')
+        return 0
+    rules = tls.tls_rules()
+    print(f'tls 规则: {len(rules)} 条 '
+          f'(webtool proxy rules 看全表)')
+    unlanded = 0
+    for c in certs:
+        ok, note = tls.cert_status(c, rules)
+        unlanded += 0 if ok else 1
+        sign = '自签' if c.get('self_signed') else '链签发'
+        print(f'  [{"✓" if ok else "✗"}] {c["name"]}  ({sign}, 至 {c.get("not_after", "?")})')
+        print(f'      站点: {", ".join(c["sites"]) if c["sites"] else "(读不出域名)"}')
+        print(f'      规则: {note}')
+    # 规则指向的文件没了 (换了机器/删了证书) 比"没配规则"更隐蔽: 请求会直接
+    # 抛 TlsConfigError, 报错里只有路径。这里提前点名。
+    for r in rules:
+        for v in (r.get('ca') if isinstance(r.get('ca'), (list, tuple))
+                  else [r.get('ca')]):
+            if v and not tls.resolve_cert_path(v):
+                print(f'  ⚠ 规则 {json.dumps(r.get("match"), ensure_ascii=False)} '
+                      f'的 ca={v!r} 找不到文件', file=sys.stderr)
+    if unlanded:
+        print(f'\n⚠ {unlanded} 份证书没有对应的 tls 规则 —— 放进 extra/ 不会生效。'
+              f'\n  修: webtool proxy cert sync (按证书里的域名自动配)')
+    return 0
+
+
+def _cert_sync(cfg):
+    """按 extra/ 里每份证书自称的域名, 把 tls 规则写进规则表
+
+    只动 `"auto": "cert"` 标记的条目 —— 手写的 tls 规则一律不碰。自动条目
+    追加在**末尾**: params_for 取第一个命中的, 于是手写规则天然压过自动的。
+    """
+    from webtool.net import tls
+    certs = tls.site_certs()
+    want = tls.cert_rules(certs)
+    skipped = [c['name'] for c in certs if c.get('error') or not c.get('sites')]
+    if skipped:
+        print(f'跳过 (读不出域名, 需要手写 match): {", ".join(skipped)}',
+              file=sys.stderr)
+    if not want:
+        print('没有可自动配的证书 (extra/ 是空的, 或证书里都没有域名)')
+        return 0
+    spec = _load_rules_file(cfg)
+    rules = spec.get('rules') or []
+    kept = [r for r in rules
+            if not (isinstance(r, dict) and r.get('auto') == 'cert')]
+    dropped = len(rules) - len(kept)
+    spec['rules'] = kept + want
+    path = _rules_path(cfg)
+    bak = None
+    if os.path.isfile(path):
+        bak = f'{path}.bak-{time.strftime("%Y%m%d-%H%M%S")}'
+        try:
+            import shutil
+            shutil.copy2(path, bak)
+        except OSError as e:
+            print(f'备份失败, 未改动: {e}', file=sys.stderr)
+            return 2
+    _save_rules(cfg, spec)
+    print(f'{len(want)} 份证书已按站点配进规则表'
+          + (f' (替换旧的自动条目 {dropped} 条)' if dropped else '')
+          + (f', 备份 {bak}' if bak else ''))
+    for r in want:
+        print('  ' + json.dumps(r, ensure_ascii=False))
+    # 同名域名被两份证书覆盖时, 前者胜 (params_for 取第一个命中) —— 不说出来
+    # 会变成"我明明换了证书却没变化"
+    dom2 = {}
+    for r in want:
+        for d in r['match']['domain']:
+            dom2.setdefault(d, []).append(r['ca'])
+    dup = {d: v for d, v in dom2.items() if len(v) > 1}
+    if dup:
+        for d, v in dup.items():
+            print(f'  ⚠ {d} 被多份证书覆盖, 生效的是 {v[0]}', file=sys.stderr)
+    print('校验: webtool proxy cert list / '
+          'webtool proxy rules https://<该站域名>/')
     return 0

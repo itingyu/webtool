@@ -90,6 +90,15 @@ class Router:
             self.warnings.append(
                 f'rules[{i}] (kind:{kind}) match 里有无法识别的键 {bad}, '
                 f'该条件不生效 (允许: {", ".join(allowed)})')
+        # 动作字段拼错同样静默: 写 `verfiy: off` 的规则在 Router 眼里完全合法,
+        # 只在"该关校验的站仍然报证书错误"时才暴露 —— 跟没配一模一样。
+        if sp is not None and sp.fields:
+            unknown = [k for k in r
+                       if k not in ('kind', 'match') and k not in sp.fields]
+            if unknown:
+                self.warnings.append(
+                    f'rules[{i}] (kind:{kind}) 有认不出的字段 {unknown}, '
+                    f'不会生效 (允许: {", ".join(sp.fields)})')
 
     def rule(self, url):
         """URL → (action, proxy_name, 命中的规则序号 或 None)

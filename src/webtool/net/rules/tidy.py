@@ -103,6 +103,13 @@ def tidy_spec(spec):
     for i, rule in enumerate(rules):
         if not isinstance(rule, dict):
             continue
+        if rule.get('kind'):
+            # kind 条目 (http/retry/breaker/tls) 没有 action, 不参与线路整理。
+            # 漏掉这一支的话, 下面"动作与默认同结果 → 删"会把它读成 direct
+            # (resolve_action(None)), 一次 `tidy --apply` 就把限速/重试/熔断/
+            # 证书整批删光 —— 而输出还写着"整理成功"。
+            kept.append({'rule': rule, 'act': None, 'doms': None, 'idx': i})
+            continue
         act = rule.get('action')
         match = rule.get('match') or {}
         if not _is_domain_only(match):

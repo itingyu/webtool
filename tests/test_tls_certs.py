@@ -68,31 +68,42 @@ check(tls._probe_ca()[0] == os.environ['SSL_CERT_FILE'],
       'extra/ 空时: 直接用基础 CA, 不做合并', str(tls._probe_ca()))
 check(tls.extra_certs() == [], 'extra() 空目录 → []')
 
-# 往 extra/ 丢一份证书 —— 同进程内必须立刻生效 (缓存按内容指纹失效)
+# 往 extra/ 丢一份证书 —— **不再全局生效**: 信任根要由 tls 规则点名 (见
+# test_tls_rules.py)。这里钉住"探测只给基础 CA", 否则全局并根的老毛病会回来。
+_saved_env_ca = os.environ['SSL_CERT_FILE']
 with open(os.path.join(base_dir, 'extra', 'site.pem'), 'wb') as f:
     f.write(blocks[0])
 tls._CA_CACHE = (None, None)
 merged, why = tls._probe_ca()
-check(merged != os.environ['SSL_CERT_FILE'], 'extra/ 有证书 → 走合并文件 (不是基础 CA)', merged)
-check('/tls/' in merged.replace(os.sep, '/'), '合并文件落在 cache/tls/ 下', merged)
-check('+ 站点证书 1 份' in why, '合并说明写清了份数', why)
-check(open(merged, 'rb').read().count(b'BEGIN CERTIFICATE') == len(blocks) + 1,
+check(merged == _saved_env_ca,
+      'extra/ 里有证书也不再全局合并 (站点证书只对点名它的规则生效)', merged)
+check('/tls/' not in merged.replace(os.sep, '/'),
+      '探测结果不再指向 cache/tls/ 的合并文件', merged)
+check(tls.extra_certs() != [], '但 extra_certs() 仍然看得见这份证书',
+      str(tls.extra_certs()))
+
+# 有规则点名时才拼"基础 CA + 该站证书"
+scoped, why2 = tls._merge_extras(_saved_env_ca, tls.extra_certs())
+check(scoped != _saved_env_ca and '/tls/' in scoped.replace(os.sep, '/'),
+      '规则点名后: 合并文件落在 cache/tls/ 下', scoped)
+check('+ 站点证书 1 份' in why2, '合并说明写清了份数', why2)
+check(open(scoped, 'rb').read().count(b'BEGIN CERTIFICATE') == len(blocks) + 1,
       '合并文件里基础 CA 与 extra 都在',
-      str(open(merged, 'rb').read().count(b'BEGIN CERTIFICATE')))
+      str(open(scoped, 'rb').read().count(b'BEGIN CERTIFICATE')))
 try:
-    ssl.create_default_context(cafile=merged)
+    ssl.create_default_context(cafile=scoped)
     ok2 = True
 except Exception as e:                                          # noqa: BLE001
     ok2 = str(e)
 check(ok2 is True, '合并出来的文件本身是合法 CA 文件', str(ok2))
-check(tls._probe_ca()[0] == merged,
-      '重复探测 → 同一份合并文件 (走缓存)')
+check(tls._merge_extras(_saved_env_ca, tls.extra_certs())[0] == scoped,
+      '重复合并 → 同一份文件 (走缓存)')
 
 with open(os.path.join(base_dir, 'extra', 'site.pem'), 'wb') as f:
     f.write(blocks[1])
-tls._CA_CACHE = (None, None)
-check(tls._probe_ca()[0] != merged,
-      '换掉 extra 里的证书 → 重新合并 (新文件)', tls._probe_ca()[0])
+check(tls._merge_extras(_saved_env_ca, tls.extra_certs())[0] != scoped,
+      '换掉 extra 里的证书 → 重新合并 (新文件)',
+      tls._merge_extras(_saved_env_ca, tls.extra_certs())[0])
 
 # ── 宿主没有 CA 时, 兜底到自带包 (而不是"关校验") ──────────────────────
 class _NoPaths:
@@ -175,8 +186,11 @@ check(os.path.basename(got[0]) == 'mine.pem' and got[0].startswith(_user_extra),
       '用户目录里的证书被收下且排最前', str(got))
 tls._CA_CACHE = (None, None)
 check(open(tls._probe_ca()[0], 'rb').read().count(b'BEGIN CERTIFICATE') ==
-      len(blocks) + 2,
-      '用户目录的证书真的进了合并文件 (基础 CA + 2 份)', str(tls._probe_ca()[0]))
+      len(blocks),
+      '用户目录的证书同样不再全局并进信任根', str(tls._probe_ca()[0]))
+_merged2 = tls._merge_extras(_saved_env_ca, tls.extra_certs())[0]
+check(open(_merged2, 'rb').read().count(b'BEGIN CERTIFICATE') == len(blocks) + 2,
+      '规则点名时用户目录的证书才进合并文件 (基础 CA + 2 份)', str(_merged2))
 with open(os.path.join(base_dir, 'extra', 'mine.pem'), 'wb') as f:
     f.write(blocks[3])
 got = tls.extra_certs()

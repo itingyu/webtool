@@ -4,7 +4,8 @@ import sys
 from webtool.net.proxy.auth import _delpass, _passwd, _setpass
 from webtool.net.proxy.geo import _asn, _geoip, _geosite
 from webtool.net.proxy.pool import _get, _named, _noproxy, _set, _test, _unset
-from webtool.net.proxy.rules_cli import _ruleadd, _ruledel, _rules, _tidy
+from webtool.net.proxy.rules_cli import (
+    _cert, _ruleadd, _ruledel, _rules, _tidy)
 
 
 def handle(args, cfg):
@@ -44,6 +45,7 @@ _ACTIONS = {
     'passwd': _passwd,
     'rules': _rules,
     'tidy': _tidy,
+    'cert': _cert,          # cert list|sync: 站点证书按站点配进规则表
     'rule': _ruleadd,       # rule add (deld 走 app 层分发)
     'ruledel': _ruledel,
     'geoip': _geoip,

@@ -31,6 +31,8 @@ src/webtool/
 └── data/                # plugins.json / filters.json / instances.json / zen.json / feeds.seed.json
                          #   certs/ca-bundle.pem = 兜底 CA (随包); 站点证书投放点
                          #   是用户目录 ~/.webtool/certs/extra/ (包内同名目录只是预置)
+                         #   站点证书要由 rules.json 里的 kind:tls 规则点名才生效
+                         #   (webtool proxy cert sync 按证书域名自动生成)
                          # 注: 在包根, core.config_data.DATA_DIR 指向它
 ```
 
@@ -78,9 +80,11 @@ fetch 的四步：
 ```
 
 - `match` 内多条件 AND，同条件内多值 OR；判不出来 = 不匹配（缺库则跳过该条并提示）
+- 带 `kind` 的规则不吃线路，按环节生效（`http` / `retry` / `breaker` / `tls`），与线路规则同住一份 rules.json、互不干扰
 - 不支持按引擎名配代理；要单点覆盖就加一条规则（按域名/IP/端口/协议），或用 `--no-proxy` / `--proxy`
 - 环境变量 `http_proxy`/`https_proxy` 不作为决策源（opener 层已堵死）；socks5 走 pysocks
-- 证书默认严格校验，失败直接抛错不重试；`verify_hosts` 点名豁免，`ca_bundle` 换 CA
+- 证书默认严格校验，失败直接抛错不重试；按站点配用 `kind:tls` 规则（`ca` 换信任根 / `verify: off` 关该站校验），
+  全局兜底才是 `verify_hosts` 点名豁免与 `ca_bundle` 换 CA；优先级 `verify=` 参数 > tls 规则 > `verify_hosts` > `ssl_verify`
 
 ## 输出
 

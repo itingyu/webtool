@@ -24,13 +24,26 @@ curl_cffi / urllib / requests 三条通道都从这里取 CA, 不各自读环境
 校验关掉"。首次运行时它会被落到 `~/.webtool/certs/ca-bundle.pem` (可增补企业根),
 那份优先; 缺了回落到包内 `webtool/data/certs/ca-bundle.pem`, 删掉重跑即重新落一份。
 
-## 站点自签证书放哪
+## 站点自签证书放哪 —— `~/.webtool/certs/extra/*.pem` + 一条 tls 规则
 
-`~/.webtool/certs/extra/*.pem` 是站点受信任证书的投放点：把站点自己的
-证书丢进去, 该站走**正常校验 + 这套信任根**, 不必 `verify_hosts` 关校验。
-有 extra 时才现拼一份"基础 CA + extra"的合并文件 (缓存在 cache/tls/),
-没 extra 的环境一分钱不多花。注意: 用户显式配了 `ca_bundle` 时按用户那份走,
-extra 不掺和 (那份的语义就是"替代", 想追加自己 cat 合并)。
+把站点自己的证书丢进 `~/.webtool/certs/extra/`, 再把**它覆盖的域名**配成规则,
+该站就走"正常校验 + 这套信任根", 不必 `verify_hosts` 关校验:
+
+    {"kind": "tls", "match": {"domain": ["*.zce.com.cn"]}, "ca": "extra/zce.pem"}
+
+为什么非要那条规则: 证书是**某个站点的**证书, 信任根就该只对这个站点生效。
+以前 extra/ 是全局并进信任根的 —— 一份站点自签证书顺手给所有域名开了口子,
+企业 MITM 根一旦丢进去全站都认它。现在按站点配, 命中才现拼一份
+"基础 CA + 该站证书"的合并文件 (缓存在 cache/tls/), 没命中一分钱不多花。
+
+规则里的 `ca` 是**追加**语义 (基础 CA + 该站证书), 与全局 `ca_bundle` 的
+"替代"语义相反: 站点证书只对自己有意义, 没理由把公共根挡在外面。`ca` 可以写
+绝对路径, 也可以写相对 `~/.webtool/certs/` 的路径 (`extra/zce.pem`) —— 后者
+换机器、换 home 目录都还认。`verify: off` 则只对该站关校验 (比 verify_hosts
+多一个精确性: 规则里能连端口一起限)。
+
+`webtool proxy cert list` 看 extra/ 里每份证书**是哪些站点的**、顶上有没有规则;
+`webtool proxy cert sync` 按证书里的域名把规则自动写好。
 
 投放点必须落在**用户目录**: 包内那份 (`webtool/data/certs/extra/`) 在
 site-packages 里, 升级时整棵被替换掉 —— 实测往包目录塞的证书
@@ -39,7 +52,11 @@ site-packages 里, 升级时整棵被替换掉 —— 实测往包目录塞的�
 
 ## 决策优先级
 
-单次调用 `verify=` 参数 > `verify_hosts` 命中 > `ssl_verify` 总开关。
+单次调用 `verify=` 参数 > tls 规则命中该域名 > `verify_hosts` 命中 > `ssl_verify` 总开关。
+
+tls 规则排第二: 规则是"这个域名该用什么信任根"的**站点级**答案, 比全域总开关
+和全域名单都具体。`verify=` 参数排第一仍是惯例 —— 调用方显式指定的定点豁免
+(某个已知自签接口) 优先于配置, 否则老代码的意图会被规则悄悄改掉。
 
 返回值统一用 curl_cffi / requests 通用语义: `False` (不校验) 或 `'<CA 路径>'`
 (校验, 且信任根由本模块指定)。校验开启时**不给 True** —— curl_cffi 与 requests
@@ -53,7 +70,9 @@ import threading
 __all__ = ['TlsError', 'TlsConfigError', 'policy', 'ssl_context', 'describe',
            'insecure_hosts', 'host_of', 'hit_insecure', 'is_tls_error',
            'ca_available', 'bundled_ca', 'ca_bundle_candidates', 'extra_certs',
-           'extra_dirs', 'cert_advice']
+           'extra_dirs', 'cert_advice', 'rule_params', 'tls_rules',
+           'cert_sites', 'site_certs', 'cert_rules', 'cert_status',
+           'resolve_cert_path']
 
 # 配置文件读一次, 按 (mtime, size) 指纹缓存 —— 改配置后同进程内自动生效
 _LOCK = threading.Lock()
@@ -199,8 +218,10 @@ def bundled_ca():
 def extra_certs():
     """站点专有证书: 用户目录 `~/.webtool/certs/extra/` + 包内预置, 按名去重
 
-    自签/私有 CA 的站点: 把它的 .pem 丢进用户目录, 该站就"验得通"了 ——
-    仍然是"验过才放行", 只是换了一套信任根, 比 verify_hosts 关校验强。
+    自签/私有 CA 的站点: 把它的 .pem 丢进用户目录, 再按站点配一条 tls 规则
+    (webtool proxy cert sync 自动做), 该站就"验得通"了 —— 仍然是"验过才放行",
+    只是换了一套只对它生效的信任根。**放进 extra/ 本身不生效**, 一定要有规则
+    点名 (见 cert_status)。
     """
     out, seen = [], set()
     for d in extra_dirs():
@@ -218,10 +239,11 @@ def extra_certs():
     return out
 
 def _ca_signature():
-    """CA 决策的全部输入指纹: 配置 + 每份 extra 证书
+    """CA 决策的全部输入指纹: 配置 + 每份 CA 包
 
-    不这么算的话, 往 extra/ 里新丢一份证书在**同进程内不生效** (缓存没失效),
-    表现成"明明放了却还报证书错误"。
+    注意**不含** extra/ 里的站点证书: 它们不再全局并进信任根 (那是"一份站点
+    证书给所有域名开口子"), 只对规则点名的站点生效 —— 那份合并走
+    _scoped_ca, 指纹由 _merge_extras 自己按内容算, 与这里的探测缓存无关。
     """
     sig = [_stamp()]
     # 用户目录那份 CA 包是可编辑的 —— 换了它必须让缓存失效, 否则"改了没生效"
@@ -231,19 +253,17 @@ def _ca_signature():
             sig.append((p, st.st_mtime_ns, st.st_size))
         except OSError:
             sig.append((p, None))
-    for p in extra_certs():
-        try:
-            st = os.stat(p)
-            sig.append((p, st.st_mtime_ns, st.st_size))
-        except OSError:
-            sig.append((p, None))
     return tuple(sig)
 
 def _merge_extras(base, extras):
-    """基础 CA + extra 证书 → 合并文件路径 (按内容指纹缓存)
+    """基础 CA + 站点证书 → 合并文件路径 (按内容指纹缓存)
 
     返回 (路径, 附加说明)。写不进去就退回 base —— 不能因为缓存目录只读
     就把用户原有的信任根也弄丢。
+
+    先按指纹算文件名、命中就直接返回, **不读内容**: 这个函数在请求链路上
+    (每个 tls 规则命中的站点都要一次), 每次都把 200KB 的 CA 包读一遍等于
+    给每个请求加一次全量 IO。
     """
     import hashlib
     h = hashlib.sha256()
@@ -253,6 +273,14 @@ def _merge_extras(base, extras):
             h.update(('%s|%s|%s\n' % (p, st.st_mtime_ns, st.st_size)).encode())
         except OSError:
             h.update(('%s|-\n' % p).encode())
+    out_dir = os.path.join(_cache_dir(), 'tls')
+    out = os.path.join(out_dir, 'ca-%s.pem' % h.hexdigest()[:16])
+    why = 'CA 包 %s + 站点证书 %d 份' % (base, len(extras))
+    try:
+        if os.path.isfile(out) and os.path.getsize(out) > 0:
+            return out, why
+    except OSError:
+        pass
     blob = []
     try:
         for p in [base] + extras:
@@ -260,18 +288,15 @@ def _merge_extras(base, extras):
                 blob.append(f.read())
     except OSError as e:
         return base, 'CA 包 %s (extra 读不到: %s)' % (base, e)
-    out_dir = os.path.join(_cache_dir(), 'tls')
-    out = os.path.join(out_dir, 'ca-%s.pem' % h.hexdigest()[:16])
     try:
-        if not (os.path.isfile(out) and os.path.getsize(out) > 0):
-            os.makedirs(out_dir, exist_ok=True)
-            tmp = '%s.tmp%d' % (out, os.getpid())
-            with open(tmp, 'wb') as f:
-                f.write(b'\n'.join(blob))
-            os.replace(tmp, out)
+        os.makedirs(out_dir, exist_ok=True)
+        tmp = '%s.tmp%d' % (out, os.getpid())
+        with open(tmp, 'wb') as f:
+            f.write(b'\n'.join(blob))
+        os.replace(tmp, out)
     except OSError as e:
         return base, 'CA 包 %s (extra 合并失败: %s)' % (base, e)
-    return out, 'CA 包 %s + 站点证书 %d 份' % (base, len(extras))
+    return out, why
 
 def _cache_dir():
     from webtool.net.proxy import load_config
@@ -287,7 +312,8 @@ def _probe_ca():
     → **自带** `~/.webtool/certs/ca-bundle.pem` (缺则包内那份): 最后那份兜底, 于是"宿主
     一个 CA 都没有"不再等于"全站不校验"。
 
-    有 `certs/extra/*.pem` 时, 选中的 base 会与它们合并 (见 _merge_extras)。
+    这里**只给基础 CA**: 站点自己的证书要由 tls 规则点名才生效 (见 _scoped_ca)，
+    不再全局并进信任根。
     """
     global _CA_CACHE
     with _LOCK:
@@ -320,13 +346,11 @@ def _probe_ca():
                         continue
                 except OSError:
                     continue
-                extras = extra_certs()
-                mp, reason = (_merge_extras(p, extras) if extras
-                              else (p, 'CA 包 %s' % p))
+                reason = 'CA 包 %s' % p
                 if bundled and os.path.abspath(p) == os.path.abspath(bundled):
                     where = '用户目录' if p == ca_bundle_candidates()[0] else '包内'
                     reason += ' (自带 %s, 宿主没装 ca-certificates)' % where
-                _CA_CACHE = (stamp, (mp, reason))
+                _CA_CACHE = (stamp, (p, reason))
                 return _CA_CACHE[1]
         _CA_CACHE = (stamp, (None, '环境里找不到任何 CA 包 '
                                    '(装 ca-certificates 或配 ca_bundle)'))
@@ -344,6 +368,193 @@ def _system_ca():
     return _probe_ca()[0]
 
 
+# ── 站点级证书策略: rules.json 里的 kind:tls 规则 ──────────────────────
+
+def tls_rules():
+    """rules.json 里全部 kind:tls 规则 (原样返回, 顺序同文件)"""
+    try:
+        from webtool.net.rules import router as _router
+        return [r for r in _router().kind_rules if r.get('kind') == 'tls']
+    except Exception:                     # 规则文件坏了 → 当作没有 (policy 另有兜底)
+        return []
+
+
+def rule_params(url):
+    """该 URL 命中的 tls 规则字段; 无命中 → {}
+
+    走 Router.params_for —— 匹配器 (domain/host/port/scheme/cidr/geosite/…)
+    与线路规则共用一套, 不在这里另写一份"域名怎么算命中"。
+    """
+    if not url:
+        return {}
+    try:
+        from webtool.net.rules import router as _router
+        return _router().params_for('tls', url) or {}
+    except Exception:                     # 规则表坏了不能把请求连带干掉
+        return {}
+
+
+def resolve_cert_path(p):
+    """把规则里的 ca 值解析成真实文件路径; 不存在 → ''
+
+    支持三种写法, 按序试: 绝对/带 ~ 的路径 → 相对用户证书目录
+    (`extra/zce.pem` = `~/.webtool/certs/extra/zce.pem`) → 相对包内证书目录。
+    相对写法让规则换机器、换 home 都还认 —— 写死绝对路径的规则一换环境就失效,
+    而失效的表现是"某站又开始报证书错误", 很难联想到规则。
+    """
+    if not p:
+        return ''
+    s = os.path.expanduser(str(p).strip())
+    cands = [s]
+    if not os.path.isabs(s):
+        from webtool.core.config_data import USER_DIR
+        cands += [os.path.join(str(USER_DIR), 'certs', s),
+                  os.path.join(_certs_dir(), s)]
+    for c in cands:
+        try:
+            if os.path.isfile(c) and os.path.getsize(c) > 0:
+                return c
+        except OSError:
+            continue
+    return ''
+
+
+def _scoped_ca(ca, host=''):
+    """tls 规则的 ca → 该站点的信任根文件路径 (基础 CA + 该站证书)
+
+    **追加**语义, 与全局 ca_bundle 的"替代"相反 —— 站点自签证书只对自己有意义,
+    没理由把公共根挡在外面。环境连基础 CA 都没有时退回"只用这份", 至少能用。
+    """
+    items = ca if isinstance(ca, (list, tuple)) else [ca]
+    paths = [p for p in (resolve_cert_path(x) for x in items) if p]
+    if not paths:
+        raise TlsConfigError(
+            f'tls 规则的 ca 指向的文件不存在: {ca!r}'
+            f'{(" (域名 %s)" % host) if host else ""}\n'
+            f'  相对路径按 ~/.webtool/certs/ 解析, 例如 "extra/zce.pem" → '
+            f'{os.path.join(str(_user_dir()), "certs", "extra", "zce.pem")}\n'
+            f'  修法: webtool proxy cert sync (按 extra/ 里的证书自动配), '
+            f'或改掉这条规则的 ca')
+    base = _system_ca()
+    if not base:
+        return paths[0]
+    merged, _why = _merge_extras(base, paths)
+    return merged
+
+
+def _user_dir():
+    from webtool.core.config_data import USER_DIR
+    return USER_DIR
+
+
+def cert_sites(path):
+    """一份证书覆盖的域名 (SAN dNSName 在前, CN 兜底), 去重保序; 读不出 → []
+
+    要它是因为"证书是哪些站点的"只有证书自己知道: 让用户拿 openssl 手抄域名
+    再手写规则, 一份证书多个 SAN 就是一场抄错。这里直接从证书里读。
+    """
+    try:
+        d = ssl._ssl._test_decode_cert(os.path.expanduser(str(path)))
+    except Exception:                     # 坏文件/不是 PEM/不是证书对象
+        return []
+    out = []
+
+    def _add(h):
+        h = str(h or '').strip().lower().rstrip('.').lstrip('.')
+        if h and h not in out and ' ' not in h:
+            out.append(h)
+
+    for kind, val in (d.get('subjectAltName') or ()):
+        if str(kind).upper() in ('DNS', 'DNSNAME'):
+            _add(val)
+    for rdn in (d.get('subject') or ()):
+        for k, v in rdn:
+            # CN 只在看着像域名时收下: 通配/纯名字 (如 "My Company CA") 收进来
+            # 只会生成一条永远命不中的规则
+            if str(k) == 'commonName' and '.' in str(v or ''):
+                _add(v)
+    return out
+
+
+def _cert_info(path):
+    """一份证书的体检: 站点 / 自签与否 / 有效期"""
+    info = {'path': path, 'name': os.path.basename(path), 'sites': []}
+    try:
+        d = ssl._ssl._test_decode_cert(os.path.expanduser(path))
+    except Exception:
+        info['error'] = '读不出证书内容 (不是 PEM/已损坏)'
+        return info
+    info['sites'] = cert_sites(path)
+    sub = d.get('subject') or ()
+    iss = d.get('issuer') or ()
+    info['self_signed'] = _flatten(sub) == _flatten(iss)
+    info['not_after'] = d.get('notAfter') or ''
+    info.pop('error', None)
+    return info
+
+
+def _flatten(name):
+    return tuple(sorted((str(k), str(v)) for rdn in (name or ()) for k, v in rdn))
+
+
+def site_certs():
+    """extra/ 里每份证书 → 它覆盖的站点 (给 CLI/体检用)
+
+    返回 [{'path','name','sites','self_signed','not_after'}]。
+    """
+    return [_cert_info(p) for p in extra_certs()]
+
+
+def cert_rules(certs=None):
+    """extra/ 里的证书 → kind:tls 规则条目 (一份证书一条)
+
+    match 用证书自称的域名, ca 用**相对 ~/.webtool/certs/ 的路径** —— 规则文件
+    里写绝对路径的话, 换 home 就整批失效。
+    """
+    out = []
+    for c in (site_certs() if certs is None else certs):
+        if not c.get('sites') or c.get('error'):
+            continue
+        out.append({'kind': 'tls', 'match': {'domain': list(c['sites'])},
+                    'ca': _rel_cert_path(c['path']), 'auto': 'cert'})
+    return out
+
+
+def _rel_cert_path(path):
+    """证书路径 → 规则里的写法 (在用户证书目录下就用相对路径)"""
+    p = os.path.abspath(os.path.expanduser(str(path)))
+    base = os.path.join(str(_user_dir()), 'certs')
+    try:
+        rel = os.path.relpath(p, base)
+    except ValueError:                    # 跨盘符 (Windows)
+        return p
+    if rel not in ('.', '..') and not rel.startswith('..' + os.sep):
+        return rel.replace(os.sep, '/')
+    return p
+
+
+def cert_status(cert, rules=None):
+    """这份证书有没有"落地" → (是否落地, 说明)
+
+    落地 = 它覆盖的每个站点都命中一条 tls 规则。光把证书放进 extra/ 不再是
+    生效条件了 —— 不提示的话, 用户会以为"放了就行", 而现象只是"还是报证书错误"。
+    """
+    rules = tls_rules() if rules is None else rules
+    if cert.get('error'):
+        return False, cert['error']
+    if not cert.get('sites'):
+        return False, '证书里读不出任何域名 (CA 证书? 需要手写 match)'
+    unlanded = []
+    for h in cert['sites']:
+        rp = rule_params('https://%s/' % h)
+        if not rp.get('ca') and 'verify' not in rp:
+            unlanded.append(h)
+    if unlanded:
+        return False, (f'{len(unlanded)}/{len(cert["sites"])} 个域名没有 tls 规则'
+                       f' (如 {unlanded[0]})')
+    return True, '已按站点配进规则表'
+
+
 def policy(url=None, verify=None):
     """该 URL 该怎么验证书 → False / '<CA 路径>'
 
@@ -355,6 +566,7 @@ def policy(url=None, verify=None):
     (调用方显式意图优先, 例如某个已知自签接口的定点豁免)。**传 CA 文件路径**
     等价于 requests 的 `verify=<ca>`: 用它当信任根、开启校验。
 
+    优先级: verify= 参数 > tls 规则 > verify_hosts > ssl_verify 总开关。
     环境无任何 CA 包时自动降级为 False (理由见 _probe_ca) —— 这种情况下
     严格校验等于全线不可用, 且报错完全指不到根因。
     """
@@ -363,14 +575,39 @@ def policy(url=None, verify=None):
         _s = verify.strip()
         if _s not in _TRUTHY and _s not in _FALSY:
             return _s
+    host = host_of(url)
     on, ca, hosts = _load()
     if verify is not None:
+        # 调用方显式表态 (verify=False: 某个已知自签接口的定点豁免; verify=True:
+        # 强制校验) —— 规则不参与。规则在这里插一杠子的话, 老代码"我知道这个
+        # 接口是自签的"会被悄悄改成"按规则校验", 表现成同一个接口有时通有时不通。
         on = _as_bool(verify)
-    elif url and hit_insecure(host_of(url), hosts):
-        on = False
+    else:
+        rp = rule_params(url)
+        if rp.get('ca'):
+            # 规则点名了信任根: 校验开着, 且用"基础 CA + 该站证书"
+            return _scoped_ca(rp['ca'], host)
+        if 'verify' in rp:
+            on = _rule_bool(rp['verify'], host)
+        elif url and hit_insecure(host, hosts):
+            on = False
     if not on:
         return False
     return ca or _system_ca() or False
+
+
+def _rule_bool(v, host=''):
+    """规则里的 verify 值 → bool。写错值当场报出来, 不静默当成"没表态"
+
+    静默忽略最坏: 用户写了 `verify: "false"` 之外的拼写 (比如 `verify: "no!"`),
+    校验照开、站点照报错, 而规则看上去"配了"。
+    """
+    try:
+        return _as_bool(v)
+    except TlsConfigError:
+        raise TlsConfigError(
+            f'rules.json 的 tls 规则 (域名 {host or "?"}) verify={v!r} 认不出; '
+            f'只认 on/off (写成 true/false、1/0、yes/no 也认)') from None
 
 
 def is_tls_error(exc):
@@ -416,10 +653,11 @@ _CERT_CODES = {
          '证书过期不是信任根能修的: webtool config set verify_hosts <域名> '
          '(只对这个域关校验)'),
     18: ('自签证书 (站方自己签的)',
-         '把该站证书丢进 ~/.webtool/certs/extra/ 即可被信任; '
-         '或 webtool config set verify_hosts <域名>'),
+         '把该站证书丢进 ~/.webtool/certs/extra/, 再跑 webtool proxy cert sync '
+         '(按站点把信任根配进规则表); 或 webtool config set verify_hosts <域名>'),
     19: ('自签证书 (链内自签)',
-         '同上: 证书放 ~/.webtool/certs/extra/, 或 verify_hosts 点名'),
+         '同上: 证书放 ~/.webtool/certs/extra/ 后跑 webtool proxy cert sync, '
+         '或 verify_hosts 点名'),
     20: ('拿不到签发者证书 (上游没发中间证书)',
          '用 ca_bundle 把缺的中间证书补上: webtool config set ca_bundle <ca.pem> '
          '(把系统 CA 与中间证书 cat 在一起)'),
@@ -536,4 +774,19 @@ def describe():
             f'webtool config set ca_bundle <ca.pem>')
     elif ca_path:
         out['ca_source'] = ca_reason
+    # 站点证书: 放进 extra/ 只是"备着", 生效要有一条点名该站点的 tls 规则。
+    # 这一条必须看得见, 否则现象只是"某站还是报证书错误", 与"没放证书"无异。
+    certs = site_certs()
+    if certs:
+        rows = []
+        for c in certs:
+            landed, note = cert_status(c)
+            rows.append({'name': c['name'], 'sites': c['sites'],
+                         'landed': landed, 'note': note})
+        out['site_certs'] = rows
+        bad = [x['name'] for x in rows if not x['landed']]
+        if bad:
+            note = ('站点证书还没配进规则表 (%s): 光放进 extra/ 不会生效。'
+                    '修: webtool proxy cert sync' % ', '.join(bad))
+            out['warning'] = (out['warning'] + ' ' + note) if out.get('warning') else note
     return out

@@ -270,7 +270,21 @@ webtool config list                                     # 看实际生效策略�
 
 CA 从哪来（按顺序）：环境变量 → 系统 CA → certifi → **仓库自带** `webtool/data/certs/ca-bundle.pem`（Mozilla 根证书集，随 wheel 分发）。所以宿主没装 `ca-certificates` 也照样严格校验，不会再出现"为了能用就把全站校验关掉"。
 
-站点专有证书（自签/内部 CA）放 `webtool/data/certs/extra/*.pem` —— 该站仍走**完整校验**，只是多加一套信任根，比 `verify_hosts` 关校验强。有 extra 时才现拼合并文件（缓存在 cache/tls/）。
+站点专有证书（自签/内部 CA）放 `~/.webtool/certs/extra/*.pem`，**再按站点配一条规则**——证书是哪个站的，信任根就只对那个站生效：
+
+```bash
+webtool proxy cert list        # 每份证书是哪些站点的、顶上有没有规则、何时过期
+webtool proxy cert sync        # 按证书自称的域名 (SAN/CN) 自动写好规则
+```
+
+```json
+{"kind": "tls", "match": {"domain": ["zce.com.cn", "*.zce.com.cn"]},
+ "ca": "extra/zce.pem"}          // 该站: 完整校验 + 这套信任根 (追加到基础 CA)
+{"kind": "tls", "match": {"domain": ["old.example.cn"]},
+ "verify": "off"}                // 该站: 单独关校验 (比 verify_hosts 多一层端口限制)
+```
+
+**光把证书放进 `extra/` 不生效**——没规则的证书不会并进信任根（否则一份站点证书等于给所有域名开口子），`config list` 会点名提醒。`ca` 支持相对 `~/.webtool/certs/` 的路径，换机器、换 home 都还认。决策优先级：`verify=` 参数 > tls 规则 > `verify_hosts` > `ssl_verify`。
 
 证书失败会分**类别**报，并给出对应处置（`tls.cert_advice`）：域名不符 / 自签 / 过期 / 缺中间证书 / 需旧版 TLS 重协商 —— 各不相同，别一律去改 `ca_bundle`。
 
@@ -292,6 +306,8 @@ webtool proxy rule add '{"domain":["ads.tracker.io"]}' block
 webtool proxy rule del 2                                    # 0 起
 webtool proxy rules [URL]                                   # 列规则 / 试算
 webtool proxy tidy [--apply]                                # 合并同动作规则 / 去冗余 (干跑默认, 落盘先备份)
+webtool proxy cert list                                     # 站点证书: 覆盖哪些域名 / 有没有规则 / 有效期
+webtool proxy cert sync                                     # 按证书自称的域名把证书规则写进规则表
 webtool proxy geosite /path/geosite.dat                     # 配域名库 (MaxMind .mmdb 或 v2ray/sing-box .dat)
 webtool proxy geoip /path/GeoLite2-Country.mmdb
 ```

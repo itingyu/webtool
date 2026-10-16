@@ -49,7 +49,9 @@ CONFIG_KEYS = {
                           '如 /etc/ssl/corp-ca.pem; 想追加而非替代请自行 cat 合并', None),
     'verify_hosts':     ('关校验的域名单 (自签/过期证书站)',
                           '逗号分隔, 如 czce.com.cn,gtjaqh.com (覆盖子域); '
-                          '其余域仍严格校验', None),
+                          '其余域仍严格校验。有该站证书时优先用规则: '
+                          '证书丢 ~/.webtool/certs/extra/ 后 webtool proxy cert sync',
+                          None),
     'cache_ttl.<bucket>':   ('分桶缓存 TTL 秒覆盖',
                              '<bucket>=<sec>, 如 cache_ttl.search=30 (桶: search/fetch/resolve/hot/zen)',
                              None),
