@@ -43,6 +43,10 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, page=1):
                     'is_ad': is_ad, 'resolved': bool(real)})
         if len(out) >= max_results:
             break
+    if not out:
+        # 静默空返回最坏: 上游给验证码页/壳页时看起来"正常但没结果"。
+        # bing/google 都是 raise 交给上层降级, baidu 补齐同款。
+        raise RuntimeError(f'baidu 解析 0 条 (len={len(html)}), 疑似验证码页/壳页')
     _resolve_links(out, proxy, timeout)
     intercept.note_ok(intercept.Ctx(engine='baidu', url=url))
     return out

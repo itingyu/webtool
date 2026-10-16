@@ -14,12 +14,15 @@
 """
 
 from webtool.core import text
+from webtool.core.logging import get_logger
 import http.cookiejar
 import re
 import time
 import urllib.parse
 
 from webtool.net import intercept, netx, transport
+
+logger = get_logger(__name__)
 
 ENDPOINT = 'https://www.sogou.com/web'
 SOUGOU = 'https://www.sogou.com'
@@ -43,9 +46,16 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None,
     if not html:
         html, sign = _pc_urllib(q, timeout)
     # 3) PC 命中 → 解析 (vr-title, 带摘要)
+    #    "拿到 HTML" != "拿到结果": 上游已开始给 JS 壳页 (整页只有一个
+    #    "加载中"), 这种页面有内容但解析 0 条。按老写法会把它当成功直接返回
+    #    0 条, 既不走移动通道也不报错 —— 静默退化最坏。改成解析为空就继续往下走。
     if html:
-        intercept.note_ok(intercept.Ctx(engine='sogou', url=ENDPOINT))
-        return _parse_pc(html, max_results)
+        out = _parse_pc(html, max_results)
+        if out:
+            intercept.note_ok(intercept.Ctx(engine='sogou', url=ENDPOINT))
+            return out
+        logger.debug('sogou PC 页有内容但解析 0 条 (%d 字节), 判为壳页, '
+                     '转移动通道', len(html))
 
     # 4) PC 全拦 → 移动端 (两轮会话, 中途 PC 冷却不影响移动通道)
     for attempt in range(2):
