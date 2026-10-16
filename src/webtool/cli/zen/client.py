@@ -104,11 +104,18 @@ from webtool.cli.zen.think import (  # noqa: E402,F401
 
 def call_zen(model, prompt, system=None, session=None, on_delta=None,
              tool_choice=None, tool_names=None, proxy=None, on_reason=None,
-             reasoning_effort=None, max_tokens=None):
-    """发一次请求, 流式返回 {ok, status, text, usage, ...}。不重试。"""
+             reasoning_effort=None, max_tokens=None, messages=None,
+             tool_defs=None, allow_tool_calls=False):
+    """发一次请求, 流式返回 {ok, status, text, usage, ...}。不重试。
+
+    `messages` 给了就发整个会话 (agent 多轮), prompt/system 不再拼; `tool_defs`
+    是已筛好的工具定义。`allow_tool_calls=True` 时, "模型要调工具"是**正常的一轮**
+    而不是错误 (单发模式仍当失败: 那个模式没有循环, 回了也没人执行)。
+    """
     cfg = {'proxy': proxy} if proxy else {}
     body = build_body(model, prompt, system, tool_choice, tool_names,
-                      reasoning_effort, max_tokens)
+                      reasoning_effort, max_tokens, messages=messages,
+                      tool_defs=tool_defs)
     headers = session.headers() if session else build_headers()
     chat_url = _endpoints()[0]
     t0 = time.time()
@@ -202,21 +209,26 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
 
     if any(e == '__TOOLCALLS__' for e in stream_err):
         others = [e for e in stream_err if e != '__TOOLCALLS__']
-        return dict(base, ok=False, tool_calls=True,
-                    tool_calls_detail=tool_calls, truncated=True,
-                    error_body=('model requested a tool call, which this '
-                                'client never executes (no tool loop)'
-                                + ('; ' + '; '.join(others) if others
-                                   else ''))[:300])
+        if not allow_tool_calls:
+            return dict(base, ok=False, tool_calls=True,
+                        tool_calls_detail=tool_calls, truncated=True,
+                        error_body=('model requested a tool call, which this '
+                                    'client never executes (no tool loop)'
+                                    + ('; ' + '; '.join(others) if others
+                                       else ''))[:300])
+        # agent 模式: 要调工具是正常一轮, 上面的标记不算错误 —— 只留真正的
+        # 流异常 (半路断/finish_reason 异常), 否则收尾会把成功的一轮判成失败
+        stream_err = others
     if stream_err:
         return dict(base, ok=False, truncated=True,
                     error_body='stream error: ' + '; '.join(stream_err)[:300])
-    if not text.strip():
-        return dict(base, ok=False, tool_calls_detail=tool_calls,
-                    error_body='empty response (HTTP 200 but no content)')
+    # 要调工具的那一轮正文常是空的 (模型把话全省在参数里), 所以先认工具再判空
     if tool_calls:
         return dict(base, ok=True, tool_calls=True,
                     tool_calls_detail=tool_calls)
+    if not text.strip():
+        return dict(base, ok=False, tool_calls_detail=tool_calls,
+                    error_body='empty response (HTTP 200 but no content)')
     return dict(base, ok=True)
 
 def _route(cfg, url, verbose=False):
@@ -316,7 +328,8 @@ def _max_tokens_limit(res):
 def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
                    tool_choice=None, tool_names=None, cfg=None, max_attempts=2,
                    verbose=False, on_reason=None, reasoning_effort=None,
-                   max_tokens=None):
+                   max_tokens=None, messages=None, tool_defs=None,
+                   allow_tool_calls=False):
     """只重试瞬时故障: 连接错误 / 408 / 429 / 5xx。**同一线路**重试。
 
     退避是指数的 (见 _backoff): 2/4/8/16s + 抖动, 60s 封顶, 默认 4 次;服务端 Retry-After 优先。
@@ -325,6 +338,8 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
     重试除了把已流出去的正文再打一遍没有任何意义。
 
     线路在循环外一次定死 (cfg + 路由表): 重试只重试同一条线, 不换线。
+
+    agent 多轮 (messages/tool_defs/allow_tool_calls) 从这透传给 call_zen。
     """
     import sys
     last = None
@@ -340,7 +355,9 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
         last = call_zen(model, prompt, system, session, on_delta, tool_choice,
                         tool_names, proxy=route, on_reason=on_reason,
                         reasoning_effort=reasoning_effort,
-                        max_tokens=max_tokens)
+                        max_tokens=max_tokens, messages=messages,
+                        tool_defs=tool_defs,
+                        allow_tool_calls=allow_tool_calls)
         if last.get('ok'):
             return last
         status = last.get('status', 0)
@@ -355,7 +372,9 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
             reasoning_effort = None
             last = call_zen(model, prompt, system, session, on_delta, tool_choice,
                             tool_names, proxy=route, on_reason=on_reason,
-                            reasoning_effort=None, max_tokens=max_tokens)
+                            reasoning_effort=None, max_tokens=max_tokens,
+                            messages=messages, tool_defs=tool_defs,
+                            allow_tool_calls=allow_tool_calls)
             if last.get('ok') or last.get('status') == 200:
                 return last
             status = last.get('status', 0)
@@ -372,7 +391,9 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
                                 tool_choice, tool_names, proxy=route,
                                 on_reason=on_reason,
                                 reasoning_effort=reasoning_effort,
-                                max_tokens=max_tokens)
+                                max_tokens=max_tokens, messages=messages,
+                                tool_defs=tool_defs,
+                                allow_tool_calls=allow_tool_calls)
                 if last.get('ok') or last.get('status') == 200:
                     return last
                 status = last.get('status', 0)

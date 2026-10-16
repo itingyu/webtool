@@ -103,7 +103,8 @@ _REAL = C.call_zen
 
 def fake_call(model, prompt, system=None, session=None, on_delta=None,
               tool_choice=None, tool_names=None, proxy=None, on_reason=None,
-              reasoning_effort=None, max_tokens=None):
+              reasoning_effort=None, max_tokens=None, messages=None,
+              tool_defs=None, allow_tool_calls=False):
     CALLS.append(max_tokens)
     if max_tokens and max_tokens > 131072:
         return {'ok': False, 'status': 400, 'error_body':

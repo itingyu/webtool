@@ -135,6 +135,24 @@ def zen_cmd(prompt: list[str] = typer.Argument(None, help='要问的问题 (留�
                                                help='忘掉记住的上限; 配合 --model 只忘那一个, 否则全忘'),
             sticky: bool = typer.Option(True, '--sticky/--no-sticky',
                                         help='固定会话 id, 按整点轮换 (默认开); --no-sticky 每次运行换新'),
+            agent: bool = typer.Option(False, '--agent',
+                                       help='多轮工具循环: 模型调工具 → 本地执行 → 结果回喂 → 再问, 直到给出答案'),
+            agent_tools: str = typer.Option(None, '--agent-tools',
+                                            help='agent 能用的工具 (逗号清单; 默认 read,glob,grep,websearch,webfetch)'),
+            agent_max_steps: int = typer.Option(20, '--agent-max-steps',
+                                                help='agent 最多几轮模型请求 (默认 20; 到顶如实报停)'),
+            agent_max_chars: int = typer.Option(8000, '--agent-max-chars',
+                                                help='单次工具输出回喂给模型的字数上限 (默认 8000, 超出截断)'),
+            workspace: str = typer.Option(None, '--workspace', '-w',
+                                          help='agent 工作空间目录 (默认当前目录); read/glob/grep 只能碰里面, AGENTS.md 会进 system'),
+            session: str = typer.Option(None, '--session',
+                                        help='命名会话 (首次自动创建, 存 ~/.webtool/zen_sessions/<名>.json); 同名再跑即接着聊'),
+            continue_session: bool = typer.Option(False, '--continue',
+                                                  help='接最近一条会话 (一般配合 --agent)'),
+            sessions: bool = typer.Option(False, '--sessions',
+                                          help='列出保存的会话 (不联网)'),
+            clear_session: bool = typer.Option(False, '--clear-session',
+                                               help='删掉 --session 指的会话 (不给则删最近一条)'),
             fmt: str = Fmt, output: str = Output,
             no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """OpenCode Zen 免费层对话 (OpenAI 兼容, 公开模式, 无需 key)"""
@@ -157,6 +175,14 @@ def zen_cmd(prompt: list[str] = typer.Argument(None, help='要问的问题 (留�
     a.stream = dfl['live'] if live is None else live
     a.show_body, a.show_text = show_body, show_text
     a.retries, a.sticky = retries, sticky
+    a.agent = agent
+    a.agent_tools = agent_tools
+    # 步数/输出上限取正数: 0 或负数会让循环一轮都不跑/立刻截断, 那是没配好不是用法
+    a.agent_max_steps = max(1, agent_max_steps)
+    a.agent_max_chars = max(200, agent_max_chars)
+    a.workspace = workspace
+    a.session, a.continue_session = session, continue_session
+    a.sessions, a.clear_session = sessions, clear_session
     a.reasoning = show_reasoning
     a.think = _norm_think(think if think is not None else dfl['reasoning_effort'])
     return _run('data', _entry_fn('zen'), fmt, output, no_cache, no_proxy)

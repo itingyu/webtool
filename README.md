@@ -172,6 +172,29 @@ webtool zen "问题" --show headers         # request(默认)/headers/body/text
 webtool zen "问题" --no-sticky            # 会话 id 每次换新 (默认粘性, 按整点轮换)
 ```
 
+### zen --agent（多轮工具循环）
+
+不带 `--agent` 时模型要调工具就算失败（`client.call_zen` 报 no tool loop）—— 没有循环没人执行。带了就地补上那个循环：模型要工具 → 本地执行 → 结果按 `role:tool` 回喂 → 再问，直到它给出答案或到步数上限。
+
+```bash
+webtool zen "这个仓库是干什么的" --agent                  # 自动 glob/read/grep
+webtool zen "查一下今天有什么新闻" --agent                # 自动 websearch/webfetch
+webtool zen "看看 src 里的分层对不对" --agent -w .        # 工作空间 = 当前目录
+webtool zen "继续" --agent --continue                    # 接最近一条会话
+webtool zen "刚才那个再说细点" --agent --session notes     # 命名会话, 同名再跑即接着聊
+webtool zen --sessions                                    # 列会话 (不联网)
+webtool zen --session notes --clear-session               # 删掉某条会话
+webtool zen "问题" --agent --agent-max-steps 40           # 放宽轮数 (默认 20)
+webtool zen "问题" --agent --agent-tools read,grep        # 只给模型看这几个工具
+```
+
+- **执行的只有只读 + web 类**：`read` / `glob` / `grep` / `websearch` / `webfetch`。`websearch`/`webfetch` 走本仓自己的 search / fetch 管线（线路、缓存、过滤全一致），不另写一份抓取逻辑
+- **`bash` / `write` / `edit` 没有实现**：调用它们会拿到一条"不可用"的工具结果（不是静默忽略——那会让模型以为已执行然后编造结果）。工具清单里仍留着 `bash`/`read`，因为免费层闸门要求这两个同时在（缺任一即 403）
+- **工作空间是条边界**：`-w/--workspace <目录>`（默认当前目录），`read`/`glob`/`grep` 的路径只能在它里面解析，相对路径、绝对路径、symlink 绕出去一律拒绝并把理由回给模型；工作空间里的 `AGENTS.md` 会并进 system prompt
+- **会话落盘**：`--session <名>` 存 `~/.webtool/zen_sessions/<名>.json`（messages 全量），**每轮存一次**——中途断网时已问过的还在；`--continue` 接最近一条。恢复时只保留最新的一份 system（旧那份的工具集/工作空间可能已变）
+- 终端里边收边打，每步打 `[第 N 步] <工具> <参数>` 与一行结果摘要；`--agent-max-chars`（默认 8000）控制单次工具输出回喂的字数，超出截断并在尾部标明原文长度
+- 到 `--agent-max-steps` 仍要工具就**如实报停**（`stopped_by_limit`），不假装答完了
+
 - 模型上下架频繁，先 `--list-free` 再用；清单按命名约定推免费层，能否用只有 `--check` 真调才算数
 - `--think` 原样透传上游 `reasoning_effort`，可选值随模型而异，客户端不预判；被上游拒会自动去掉该字段重试一次
 - 终端里边收边打、思考与正文分开着色；管道/`-f json` 时一次性输出（`--no-reasoning` 只要答案）

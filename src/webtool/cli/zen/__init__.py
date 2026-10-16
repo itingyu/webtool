@@ -14,21 +14,25 @@ import sys
 
 from webtool.cli import zenproto as _zp
 from webtool.cli.zenproto import StickySession
+from webtool.core.errors import UsageError
 
 # ── 对外再导出: 拆包前这些名字在本模块上, 拆包后调用方不该改 import ──
+# (私有名与常量不在此列 —— 由下面的 __getattr__ 转发到子模块, 逐个再导出既冗长
+#  又会和子模块改名脱节)
 from webtool.cli.zen.client import call_zen as call_zen
 from webtool.cli.zen.client import call_zen_on_route as call_zen_on_route
 from webtool.cli.zen.client import call_zen_retry as call_zen_retry
 from webtool.cli.zen.client import fetch_models as fetch_models
 from webtool.cli.zen.client import fetch_models_detail as fetch_models_detail
 from webtool.cli.zen.client import split_think as split_think
-from webtool.cli.zen.client import _ThinkSplitter
 from webtool.cli.zen.client import _color_on
 from webtool.cli.zen.client import _tool_names
 from webtool.cli.zen.client import is_free_model
-from webtool.cli.zen.render import _C_HEAD
 from webtool.cli.zen.render import _C_RESET
 from webtool.cli.zen.render import _C_THINK
+from webtool.cli.zen.render import StreamView
+from webtool.cli.zen.render import agent_payload
+from webtool.cli.zen.render import print_agent_step
 from webtool.cli.zen.render import print_tool_calls
 from webtool.cli.zen.render import _fmt_payload
 from webtool.cli.zen.render import _print_check
@@ -68,6 +72,121 @@ def _lim_clamp(args):
               '(--limits 看记住的值)' % (args.model, known), file=sys.stderr)
     return v
 
+def _agent_ctx(args, cfg):
+    """agent 模式的前置件: 工具名 / 工具定义 / 工作空间 / 会话名
+
+    会话名三条来源 (优先级从高到低): --session <名> > --continue (最近一条)
+    > 不带会话 (一次性跑)。工作空间与工具名在这里定死, 后面每轮都用同一份 ——
+    中途换工作空间的话, 第一轮读到的文件和最后一轮读到的不是同一个目录。
+    """
+    from webtool.cli.zen import agent as _ag
+    from webtool.cli.zen import session as _ses
+    from webtool.cli.zen.workspace import Workspace
+    names = _ag.resolve_names(getattr(args, 'agent_tools', None))
+    args._agent_names = names
+    ws = Workspace.resolve(getattr(args, 'workspace', None))
+    args.workspace_resolved = ws
+    name = getattr(args, 'session', None)
+    if not name and getattr(args, 'continue_session', False):
+        name = _ses.latest()
+        if not name:
+            raise UsageError('--continue: 还没有任何会话, 先用 --session <名> 开一条')
+        print('zen: 接上会话 %s' % name, file=sys.stderr)
+    args.session = name
+    return names, ws, name
+
+
+def _agent_messages(args, prompt, ws, names, ses_name):
+    """这一轮要发出去的 messages (接旧会话 or 开新的)"""
+    from webtool.cli.zen import agent as _ag
+    from webtool.cli.zen import session as _ses
+    system = _ag.agent_system(args.system, names, ws)
+    if not ses_name:
+        return _ag.initial_messages(system, prompt)
+    old = _ses.load(ses_name)
+    if not old:
+        return _ag.initial_messages(system, prompt)
+    print('zen: 会话 %s 有 %d 条历史, 接上'
+          % (ses_name, len(old.get('messages') or [])), file=sys.stderr)
+    return _ag.resume_messages(old['messages'], system, prompt)
+
+
+def _do_agent(args, cfg, prompt):
+    """--agent: 多轮工具循环 (模型要工具 → 执行 → 回喂 → 再问)"""
+    from webtool.cli.zen import agent as _ag
+    from webtool.cli.zen import session as _ses
+
+    names, ws, ses_name = _agent_ctx(args, cfg)
+    if not prompt:
+        raise UsageError('--agent 要给问题 (留空只会拿到一个"请输入问题"的回合)')
+    session = StickySession() if args.sticky else None
+    fmt = getattr(args, 'format', None) or 'text'
+    tty = sys.stdout.isatty()
+    live = args.stream and fmt != 'json' and tty
+    show_reason = getattr(args, 'reasoning', True) and fmt != 'json'
+    color = _color_on()
+    reason_sink = sys.stdout if tty else sys.stderr
+    sv = StreamView(live=live, show_reason=show_reason, color=color,
+                    sink=sys.stdout, reason_sink=reason_sink)
+    ctx = {'workspace': ws, 'cfg': cfg, 'max_chars': args.agent_max_chars,
+           'tool_names': names}
+    max_tokens = args.max_tokens
+    tool_defs = _ag.tool_specs(names)
+
+    def call_turn(messages):
+        # 线路在 call_zen_retry 内一次定死, 每轮都走同一条线
+        return call_zen_retry(args.model, None, None, session, sv.on_delta,
+                              args.tool_choice, _tool_names(args), cfg,
+                              max_attempts=args.retries, verbose=args.stream,
+                              on_reason=sv.on_reason,
+                              reasoning_effort=getattr(args, 'think', None),
+                              max_tokens=max_tokens, messages=messages,
+                              tool_defs=tool_defs, allow_tool_calls=True)
+
+    messages = _agent_messages(args, prompt, ws, names, ses_name)
+
+    def on_tools(calls, step):
+        shown = {'step': step, 'call': calls[0] if len(calls) == 1
+                 else {'name': '%d 个工具' % len(calls),
+                       'args': {'calls': [c.get('name') for c in calls]}}}
+        print_agent_step(shown, color=color, sink=sys.stdout)
+        sv.round_break()
+        return _ag.exec_calls(calls, ctx, sink=sys.stdout)
+
+    def after_step(msgs, step):
+        # 每轮存一次: 中途断网/超限时已经问过的还在, 下次能接着聊
+        if ses_name:
+            _ses.save(ses_name, msgs, model=args.model, workspace=ws)
+
+    res, steps, messages = _ag.agent_loop(call_turn, messages, on_tools,
+                                          max_steps=args.agent_max_steps,
+                                          after_step=after_step)
+    sv.finish()
+    if ses_name:
+        _ses.save(ses_name, messages, model=args.model, workspace=ws)
+
+    if fmt == 'json':
+        print(json.dumps(agent_payload(res, args, steps), indent=2,
+                         ensure_ascii=False))
+    else:
+        if res.get('reasoning') and show_reason and not live:
+            print('[思考] %s' % res['reasoning'].strip(), file=reason_sink)
+        if live and sv.printed:
+            print('')
+        print(res.get('text', ''))
+        if res.get('stopped_by_limit'):
+            print('[zen] 达到 --agent-max-steps=%d 上限, 模型仍在调工具; '
+                  '加大它或把问题拆小' % args.agent_max_steps, file=sys.stderr)
+        if ses_name:
+            print('[zen] 会话 %s 已存 (%d 轮, --continue 接着聊)'
+                  % (ses_name, steps), file=sys.stderr)
+    if not res.get('ok'):
+        print('[zen] %s %s' % (res.get('status'), (res.get('error_body') or '')[:300]),
+              file=sys.stderr)
+        return 2
+    return 0
+
+
 def _do_zen(args, cfg):
     """zen 对话主体 (do_zen 是代理开关薄壳)"""
     # 命令行层 (cli/app.py) 已经把变长参数拼成了字符串; 这里只兜住直接传 list
@@ -97,15 +216,45 @@ def _do_zen(args, cfg):
                 print(ln)
         return 0
 
+    # 会话管理 (不联网): --sessions 列 / --clear-session 删
+    if getattr(args, 'sessions', False) or getattr(args, 'clear_session', False):
+        from webtool.cli.zen import session as _ses
+        if args.clear_session:
+            name = args.session or _ses.latest()
+            if not name:
+                print('zen: 没有会话可清', file=sys.stderr)
+                return 2
+            n = _ses.remove(name)
+            print('已删会话 %s' % name if n else '没有会话 %s 可删' % name)
+            return 0 if n else 1
+        if args.format == 'json':
+            print(json.dumps({'sessions': _ses.recent()}, indent=2,
+                             ensure_ascii=False))
+            return 0
+        print(_ses.fmt_rows(_ses.recent()))
+        return 0
+
     # dry-run: 打印请求, 不联网
     view = _show_view(args)
     if view:
         ses = StickySession() if args.sticky else None
-        pv = _zp.request_preview(args.model, prompt, args.system,
-                                 args.tool_choice, _tool_names(args),
-                                 ses_id=ses.ses_id if ses else None,
-                                 reasoning_effort=getattr(args, 'think', None),
-                                 max_tokens=_lim_clamp(args))
+        pv = None
+        if getattr(args, 'agent', False):
+            from webtool.cli.zen import agent as _ag
+            names, ws, _ = _agent_ctx(args, cfg)
+            pv = _zp.request_preview(
+                args.model, prompt, args.system, args.tool_choice,
+                _tool_names(args), ses_id=ses.ses_id if ses else None,
+                reasoning_effort=getattr(args, 'think', None),
+                max_tokens=_lim_clamp(args),
+                messages=_agent_messages(args, prompt, ws, names, args.session),
+                tool_defs=_ag.tool_specs(names))
+        else:
+            pv = _zp.request_preview(args.model, prompt, args.system,
+                                     args.tool_choice, _tool_names(args),
+                                     ses_id=ses.ses_id if ses else None,
+                                     reasoning_effort=getattr(args, 'think', None),
+                                     max_tokens=_lim_clamp(args))
         if view == 'headers':
             out = pv['headers']
         elif view == 'body':
@@ -156,6 +305,10 @@ def _do_zen(args, cfg):
                         'error': (res.get('error_body') or '').strip()})
         return _print_check(got, args.format)
 
+    # agent 模式: 多轮工具循环
+    if getattr(args, 'agent', False):
+        return _do_agent(args, cfg, prompt)
+
     # 真正的调用
     session = StickySession() if args.sticky else None
     # 实时刷屏只在"人在看终端"时做: stdout 被管道接走、或要 -f json 时, 缓冲
@@ -169,64 +322,24 @@ def _do_zen(args, cfg):
     # 思考灰、工具调用黄、分段标签青、正文原色。推理过程是输出的一部分, 不是
     # 错误, 不塞 stderr。stdout 被重定向时只留回答 (思考挪 stderr), 管道干净。
     reason_sink = sys.stdout if tty else sys.stderr
-    streamed = []
-    marks = {'reason': False, 'text': False}
-    splitter = _ThinkSplitter()
+    sv = StreamView(live=live, show_reason=show_reason, color=color,
+                    sink=sys.stdout, reason_sink=reason_sink)
 
-    def _head(tag):
-        return (_C_HEAD + tag + _C_RESET) if color else tag
-
-    def on_reason(chunk):
-        if not (live and show_reason):
-            return
-        if not marks['reason']:
-            marks['reason'] = True
-            sys.stdout.write(_head('[思考] ') + (_C_THINK if color else ''))
-        sys.stdout.write(chunk)
-        sys.stdout.flush()
-
-    def _emit_text(piece):
-        streamed.append(piece)
-        if show_reason and not marks['text']:
-            marks['text'] = True
-            if marks['reason']:                # 从灰色思考切回原色正文
-                sys.stdout.write((_C_RESET if color else '') + '\n'
-                                 + _head('[回答] '))
-        sys.stdout.write(piece)
-
-    def on_delta(text):
-        if not live:
-            return
-        for kind, piece in splitter.feed(text):   # 混在正文里的思考标签就地分流
-            if kind == 'think':
-                on_reason(piece)
-            else:
-                _emit_text(piece)
-        sys.stdout.flush()
-
-    res = call_zen_retry(args.model, prompt, args.system, session, on_delta,
+    res = call_zen_retry(args.model, prompt, args.system, session, sv.on_delta,
                          args.tool_choice, _tool_names(args), cfg,
                          max_attempts=args.retries,
-                         verbose=args.stream, on_reason=on_reason,
+                         verbose=args.stream, on_reason=sv.on_reason,
                          reasoning_effort=getattr(args, 'think', None),
                          max_tokens=getattr(args, 'max_tokens', None))
     # 线路已在 call_zen_retry 内一次定死, 重试只重试同一条线。
-    if live:
-        for kind, piece in splitter.flush():      # 收尾: 扣在缓冲里的尾巴
-            if kind == 'think':
-                on_reason(piece)
-            else:
-                _emit_text(piece)
-        if color and (marks['reason'] or marks['text']):
-            sys.stdout.write(_C_RESET)
-        sys.stdout.flush()
+    sv.finish()
 
     # stdout 只出最终结果 (流式内容已随 on_delta 打出), 管道里 json 不会被流污染
     calls = res.get('tool_calls_detail') or []
     if fmt == 'json':
         print(json.dumps(_fmt_payload(res, args), indent=2, ensure_ascii=False))
     elif live:
-        if marks['reason'] or marks['text']:
+        if sv.printed:
             print('')              # 流出去过东西就补个换行收尾
         # 工具调用等流读完再打: 名字先到、参数后到, 早点打只有 "(…)" 可写
         print_tool_calls(calls, color=color, sink=sys.stdout)
@@ -234,17 +347,17 @@ def _do_zen(args, cfg):
         # 缓冲模式: 思考先打 (终端走 stdout, 重定向走 stderr), 回答只走 stdout
         if show_reason and (res.get('reasoning') or '').strip():
             think = res['reasoning'].strip()
-            print('%s %s%s%s' % (_head('[思考]'), _C_THINK if color else '', think,
-                                 _C_RESET if color else ''), file=reason_sink)
+            print('[思考] %s%s%s' % (_C_THINK if color else '', think,
+                                    _C_RESET if color else ''), file=reason_sink)
             if tty:                       # 终端上给回答也起个头, 两段一眼分得开
-                print('%s %s' % (_head('[回答]'), res.get('text', '')))
+                print('[回答] %s' % res.get('text', ''))
                 print_tool_calls(calls, color=color, sink=reason_sink)
                 return 0 if res.get('ok') else 2
         print(res.get('text', ''))
         print_tool_calls(calls, color=color, sink=reason_sink)
     if not res.get('ok'):
-        print('%s %s %s' % (_head('[zen]'), res.get('status'),
-                            (res.get('error_body') or '')[:300]),
+        print('[zen] %s %s' % (res.get('status'),
+                               (res.get('error_body') or '')[:300]),
               file=sys.stderr)
         return 2
     return 0

@@ -107,7 +107,8 @@ def resolve_tool_names(spec=None):
 
 def request_preview(model, prompt, system=None, tool_choice=None,
                     tool_names=None, ses_id=None, msg_id=None, url=None,
-                    reasoning_effort=None, max_tokens=None):
+                    reasoning_effort=None, max_tokens=None, messages=None,
+                    tool_defs=None):
     """将要发出的请求 (不出网): {method, url, headers, body}
 
     与 `call_zen` 走同一套 `build_body` / `build_headers` / `_endpoints`,
@@ -120,7 +121,8 @@ def request_preview(model, prompt, system=None, tool_choice=None,
     顺序: 我们的 10 个在前, 库补的两个 + Connection 追加在后; HTTP 头顺序无语义, 看集合。
     """
     body_bytes = build_body(model, prompt, system, tool_choice, tool_names,
-                            reasoning_effort, max_tokens)
+                            reasoning_effort, max_tokens, messages=messages,
+                            tool_defs=tool_defs)
     url = url or _endpoints()[0]
     wire = {k.title(): v for k, v in build_headers(ses_id, msg_id).items()}
     wire['Connection'] = 'close'                  # urllib 写死的, 不是我们的选择
@@ -256,22 +258,26 @@ def model_headers():
             'Authorization': 'Bearer public'}
 
 
-def build_body(model, prompt, system=None, tool_choice=None, tool_names=None,
-               reasoning_effort=None, max_tokens=None, extra=None):
+def build_body(model, prompt=None, system=None, tool_choice=None, tool_names=None,
+               reasoning_effort=None, max_tokens=None, extra=None, messages=None,
+               tool_defs=None):
     """OpenAI Chat Completions 请求体
 
     tools 用真机定义、tool_choice 默认 auto —— 两者都是闸门判据 (见文件头注释)。
     `reasoning_effort` 只在显式给值时带上 (可选值随模型而异, 见 zen --think)。
     `extra` (默认取 zen.json 的 extra_body) 原样并入, 同名字段以它为准。
+
+    `messages` 给了就**原样**当整个会话 (多轮循环用), prompt/system 不再拼;
+    不给才走两消息的默认形状。`tool_defs` 是**已筛好的工具定义列表**, agent
+    模式自己挑子集时从这走 —— 筛选逻辑只在 tools() 一处, 别再写一份。
     """
     body = {
         'model': model,
         'max_tokens': max_tokens or DEFAULT_MAX_TOKENS,
-        'messages': [
-            {'role': 'system', 'content': system or DEFAULT_SYSTEM},
-            {'role': 'user', 'content': prompt},
-        ],
-        'tools': tools(tool_names),
+        'messages': ([{'role': 'system', 'content': system or DEFAULT_SYSTEM},
+                      {'role': 'user', 'content': prompt or ''}]
+                     if messages is None else messages),
+        'tools': tool_defs if tool_defs is not None else tools(tool_names),
         'tool_choice': tool_choice or 'auto',
         'stream': True,
         'stream_options': {'include_usage': True},

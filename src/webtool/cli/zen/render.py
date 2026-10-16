@@ -19,6 +19,7 @@ from webtool.cli import zenproto as _zp
 # 流式生成中间只要有 delta 就永不触发, 所以给够即可。
 from webtool.cli.zen.client import _tool_names
 from webtool.cli.zen.client import is_free_model
+from webtool.cli.zen.think import _ThinkSplitter
 
 _C_RESET = '\033[0m'
 
@@ -171,6 +172,120 @@ def _print_check(rows, fmt):
     print(_table(['模型', '实测', '耗时', '首答 / 失败原因'], body))
     print(f'\n{ok_n}/{len(rows)} 可用')
     return 0 if ok_n else 1
+
+class StreamView:
+    """终端里的流式视图: 思考/回答分段上色, 工具步骤逐条打
+
+    单发与 agent 共用 —— 两条路径的差别只是"打了几轮", 观感必须一致 (同一套
+    分段与配色), 各写一份的话第二轮起就会和第一轮长得不一样。
+    stdout 被重定向时思考挪 stderr, 管道里保持干净。
+    """
+
+    def __init__(self, live=True, show_reason=True, color=False, sink=None,
+                 reason_sink=None):
+        self.live = live
+        self.show_reason = show_reason
+        self.color = color
+        self.sink = sink or sys.stdout
+        self.reason_sink = reason_sink or self.sink
+        self.marks = {'reason': False, 'text': False}
+        self.splitter = _ThinkSplitter()
+
+    def head(self, tag):
+        return (_C_HEAD + tag + _C_RESET) if self.color else tag
+
+    def on_reason(self, chunk):
+        if not (self.live and self.show_reason):
+            return
+        if not self.marks['reason']:
+            self.marks['reason'] = True
+            self.sink.write(self.head('[思考] ')
+                            + (_C_THINK if self.color else ''))
+        self.sink.write(chunk)
+        self.sink.flush()
+
+    def _emit_text(self, piece):
+        if self.show_reason and not self.marks['text']:
+            self.marks['text'] = True
+            if self.marks['reason']:            # 从灰色思考切回原色正文
+                self.sink.write((_C_RESET if self.color else '') + '\n'
+                                + self.head('[回答] '))
+        self.sink.write(piece)
+
+    def on_delta(self, text):
+        if not self.live:
+            return
+        for kind, piece in self.splitter.feed(text):   # 混在正文里的思考标签就地分流
+            if kind == 'think':
+                self.on_reason(piece)
+            else:
+                self._emit_text(piece)
+        self.sink.flush()
+
+    def round_break(self):
+        """一轮跑完: 收尾当前思考/正文, 下一轮的输出重新起段
+
+        agent 模式下模型会在工具结果之后继续说话, 不重新起段的话第二轮的正文
+        会紧贴在第一轮后面, 看不出中间隔着一次工具调用。
+        """
+        if not self.live:
+            return
+        for kind, piece in self.splitter.flush():
+            if kind == 'think':
+                self.on_reason(piece)
+            else:
+                self._emit_text(piece)
+        if self.color and (self.marks['reason'] or self.marks['text']):
+            self.sink.write(_C_RESET)
+        self.sink.write('\n')
+        self.marks = {'reason': False, 'text': False}
+        self.sink.flush()
+
+    def finish(self):
+        """流全部读完: 扣缓冲里的尾巴 (不再起新段)"""
+        if not self.live:
+            return
+        for kind, piece in self.splitter.flush():
+            if kind == 'think':
+                self.on_reason(piece)
+            else:
+                self._emit_text(piece)
+        if self.color and (self.marks['reason'] or self.marks['text']):
+            self.sink.write(_C_RESET)
+        self.sink.flush()
+
+    @property
+    def printed(self):
+        return bool(self.marks['reason'] or self.marks['text'])
+
+
+def print_agent_step(step, color=False, sink=None):
+    """agent 的一步: `[第 2 步] read {"filePath":"a.py"}` (step = {step, call})"""
+    line = '[第 %d 步] %s' % (step.get('step', 0), fmt_tool_call(step.get('call') or {}))
+    if color:
+        line = _C_TOOL + line + _C_RESET
+    print(line, file=sink or sys.stdout)
+
+
+def agent_payload(res, args, steps=0):
+    """agent 的 json 载荷: 单发的字段 + 轮数/工作空间/会话/工具执行情况"""
+    out = _fmt_payload(res, args)
+    out['agent'] = True
+    if steps:
+        out['steps'] = steps
+    if res.get('stopped_by_limit'):
+        out['stopped_by_limit'] = True
+        out['error_body'] = ('达到 --agent-max-steps=%s 上限, 模型仍在调工具; '
+                             '加大它或把问题拆小' % getattr(args, 'agent_max_steps', ''))
+    ws = getattr(args, 'workspace_resolved', None) or getattr(args, 'workspace', None)
+    if ws:
+        out['workspace'] = str(getattr(ws, 'root', ws))
+    if getattr(args, 'session', None):
+        out['session'] = args.session
+    if getattr(args, 'agent_tools', None):
+        out['agent_tools'] = list(getattr(args, '_agent_names', []) or [])
+    return out
+
 
 def _tool_warn(args):
     """`--tools` 选得不合规时的提醒 (闸门要 bash+read 同时在, 名字还要真存在)

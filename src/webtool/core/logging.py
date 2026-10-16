@@ -228,6 +228,15 @@ def is_debug():
     return _debug >= 1
 
 
+def debug_level():
+    """当前 debug 叠加次数 (0 / 1 / 2) —— 供需要复原日志配置的调用方
+
+    is_debug() 只答"开没开", 复原配置时 -d 与 -dd 得分清 (前者只放本仓 DEBUG,
+    后者连三方库一起放), 所以这里给原值。
+    """
+    return _debug
+
+
 def get_logger(name):
     """统一入口; 名字传 __name__ (webtool.* 前缀自动挂到根 logger 下)"""
     return logging.getLogger(name)

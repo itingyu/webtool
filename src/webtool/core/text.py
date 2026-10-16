@@ -67,6 +67,16 @@ _RE_MD_BLANK = re.compile(r'\n{3,}')
 _RE_FM = re.compile(r'\A---\n[\s\S]*?\n---\n')           # YAML 元数据头
 
 
+def strip_front_matter(s):
+    """切掉开头的 YAML 元数据头 (`---\\ntitle: ...\\n---\\n`), 没有就原样返回
+
+    只要正文时的入口 (markdown 仍是 markdown, 不做去标记)。元数据单独取,
+    留在正文里会被下游当成内容的一部分。
+    """
+    m = _RE_FM.match(s or '')
+    return (s or '')[m.end():] if m else (s or '')
+
+
 def md_to_text(s, keep_meta=True):
     """markdown 正文 → 纯文本: 去标记, 内容一字不少
 
