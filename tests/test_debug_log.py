@@ -110,7 +110,7 @@ _tmpf = os.path.join(tempfile.mkdtemp(), 'wt.log')
 for h in list(root.handlers):
     root.removeHandler(h)
 L.setup(0, log_file=_tmpf)
-logging.getLogger('webtool.core.cache').debug('trace-me')
+logging.getLogger('webtool.dao.cache').debug('trace-me')
 check('log-file 捕获 DEBUG (即使没开 -d)',
       os.path.exists(_tmpf) and 'trace-me' in open(_tmpf, encoding='utf-8').read())
 check('log-file 时 logger 本体放到 DEBUG',

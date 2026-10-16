@@ -16,12 +16,14 @@ src/webtool/
 ├── net/                 # L0 网络底座按 OSI 归位: transport 指纹传输 / fingerprints 指纹档案 / pacing 节奏·超时 /
 │                        #   adapters requests 适配器 / proxy 线路 / tls 证书策略 / stream SSE+WS /
 │                        #   rules 规则引擎 / http urllib 通道 / download 分片下载 / connectivity 探活 / dns / intercept 拦截绕过 / captcha / spa
-├── engines/             # 各站适配器 (由 plugins.json 的 module 指向) + extractors / customsites
+├── engines/             # 各站适配器 (由 plugins.json 的 module 指向) + extractors / customsites / source (SearchSource 适配器)
+├── sources/             # 数据契约层 (L0'): DataPacket 统一信封 + SourceBase 接口 + 注册表工厂
+├── dao/                 # DAO 层: cache 分桶 TTL / state 跨进程状态 / checkpoint 断点 (只存取, 不懂业务)
 ├── core/                # L0 底座
-│   ├── plugins.py       # Registry: 七类插件统一注册表 (懒解析 + 三层来源)
+│   ├── plugins.py       # Registry: 八类插件统一注册表 (engine/site/hot/extractor/resolver/filter/transformer/interceptor/source)
 │   ├── config_data.py   # 配置合并: 包内 data/*.json + ~/.webtool/ 同名文件 (深合并, 列表替换, 指纹判失效)
-│   ├── cache.py state.py resilient.py
-│   └── text.py urls.py jsonfmt.py
+│   ├── resilient.py     # 弹性: parallel_map / retry / breaker / fetch 包装
+│   └── text.py urls.py jsonfmt.py errors.py logging.py stdin.py
 ├── stock/               # 股票: command (动作) / bridge (数据源层) / data/reverse (逆向文档)
 └── data/                # plugins.json / filters.json / instances.json / zen.json / feeds.seed.json
                          # 注: 在包根, core.config_data.DATA_DIR 指向它
@@ -29,7 +31,7 @@ src/webtool/
 
 依赖只允许向下：`cli` → `feeds`/`radar`/`zen` → `pipeline`/`render` → `net`/`engines` → `core`。
 
-**扩展方式**：七类插件（engine / hot / site / extractor / resolver / filter / transformer）在 `data/plugins.json` 声明元数据与模块路径，用户经 `~/.webtool/plugins.json` 覆盖或追加，`包路径:函数名` 约定，详见 README。适配器函数体（URL 构造、解析）属代码，留在 `engines/*.py`；权重、描述、代理偏好、过滤规则等元数据全部外置到 JSON。
+**扩展方式**：各类插件（engine / hot / site / extractor / resolver / filter / transformer / interceptor / source）在 `data/plugins.json` 声明元数据与模块路径，用户经 `~/.webtool/plugins.json` 覆盖或追加，`包路径:函数名` 约定，详见 README。适配器函数体（URL 构造、解析）属代码，留在 `engines/*.py`；权重、描述、代理偏好、过滤规则等元数据全部外置到 JSON。
 
 ## search 与 fetch
 

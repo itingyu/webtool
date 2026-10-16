@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""冒烟测试: 全模块 import + 七类插件表非空 + plugins 体检 + 关键配置装载
+"""冒烟测试: 全模块 import + 各类插件表非空 + plugins 体检 + 关键配置装载
 
 跑法: python3 tests/test_smoke.py   (或 pytest tests/test_smoke.py)
 P0 教训: Registry.items() 误当 dict 迭代曾把 rank/feed 全崩 —— 一行
@@ -13,7 +13,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 import importlib
 
 MODULES = [
-    'webtool.core.plugins', 'webtool.core.config_data', 'webtool.core.cache', 'webtool.core.state', 'webtool.core.resilient', 'webtool.core.text', 'webtool.core.urls', 'webtool.core.jsonfmt', 'webtool.core.errors',
+    'webtool.core.plugins', 'webtool.core.config_data', 'webtool.core.resilient', 'webtool.core.text', 'webtool.core.urls', 'webtool.core.jsonfmt', 'webtool.core.errors',
+    'webtool.dao', 'webtool.dao.cache', 'webtool.dao.state', 'webtool.dao.checkpoint',
+    'webtool.sources', 'webtool.sources.contract', 'webtool.sources.registry',
+    'webtool.engines.source', 'webtool.feeds.source',
     'webtool.cli.app', 'webtool.cli.config', 'webtool.cli.plugins',
     'webtool.pipeline.search', 'webtool.pipeline.rank', 'webtool.pipeline.merge',
     'webtool.pipeline.topup',
@@ -59,7 +62,7 @@ for m in MODULES:
     except Exception as e:
         check(False, f'import {m}: {type(e).__name__}: {e}')
 
-# 2. 七类插件表非空且可迭代 (k,v) 对
+# 2. 各类插件表非空且可迭代 (k,v) 对
 from webtool.core import plugins
 for kind in ('engine', 'hot', 'site', 'extractor', 'resolver', 'filter'):
     try:

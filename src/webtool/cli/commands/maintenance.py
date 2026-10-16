@@ -163,7 +163,7 @@ def cache_cmd(action: str = typer.Argument(..., help='clear/info'),
     a.action = action
 
     def fn(args, cfg):
-        from webtool.core import cache
+        from webtool.dao import cache
         return cache.handle(args, cfg)
     return _run(None, fn, fmt, output, False, False)
 

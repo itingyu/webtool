@@ -34,7 +34,7 @@ from webtool.net.pacing import (  # noqa: E402,F401
 )
 
 
-from webtool.core import state
+from webtool.dao import state
 from webtool.core import secrets_store
 from webtool.net import tls
 from webtool.core import urls

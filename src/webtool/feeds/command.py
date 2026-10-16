@@ -10,7 +10,7 @@ import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from webtool.core import cache
+from webtool.dao import cache
 from webtool.core import jsonfmt
 import webtool.feeds.feedhealth as feedhealth
 from webtool.feeds.sources import (FEEDS_FILE, FEED_STATE_FILE,

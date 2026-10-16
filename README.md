@@ -326,7 +326,7 @@ webtool plugins list|check|reload|enable|disable
 webtool cache / webtool blocklist
 ```
 
-八类插件：`engine`（搜索引擎）、`hot`（榜单源）、`site`（站内站点）、`extractor`（正文提取器）、`resolver`（跳转链解码）、`filter`（结果过滤）、`transformer`（结果改写）、`interceptor`（拦截检测与绕过）。清单在 `src/webtool/data/plugins.json`，用户在 `~/.webtool/plugins.json` 覆盖或追加：
+九类插件：`engine`（搜索引擎）、`hot`（榜单源）、`site`（站内站点）、`extractor`（正文提取器）、`resolver`（跳转链解码）、`filter`（结果过滤）、`transformer`（结果改写）、`interceptor`（拦截检测与绕过）、`source`（数据源，`SourceBase` 实现）。清单在 `src/webtool/data/plugins.json`，用户在 `~/.webtool/plugins.json` 覆盖或追加：
 
 ```jsonc
 // ~/.webtool/plugins.json

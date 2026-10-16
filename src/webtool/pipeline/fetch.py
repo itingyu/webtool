@@ -11,7 +11,7 @@ import sys
 import time
 from urllib.parse import unquote, urlparse
 
-from webtool.core import cache
+from webtool.dao import cache
 from webtool.core import text
 import webtool.engines.extractors as extractors
 from webtool.core.logging import get_logger

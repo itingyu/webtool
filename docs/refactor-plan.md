@@ -35,7 +35,7 @@
 - 全局 `--debug/-d`：`core/logging.py`，分级配色、stderr 输出、`WEBTOOL_DEBUG` 兜底，已接入 app 回调。
 - stdin：`core/stdin.py`（`read_input/parse_lines/parse_jsonl`），`-o -` 输出侧已有。
 - 弹性层：`core/resilient.py`（`parallel_map` / 重试退避 / 熔断 / checkpoint 雏形）。
-- 插件工厂：`core/plugins.py` 八类注册表（engine/hot/site/extractor/resolver/filter/transformer/interceptor），懒解析 + 三层来源。
+- 插件工厂：`core/plugins.py` 九类注册表（engine/hot/site/extractor/resolver/filter/transformer/interceptor/source），懒解析 + 三层来源。
 
 **缺口（本方案要补的）：**
 
@@ -288,7 +288,7 @@ S.ws_key() / ws_accept()  # WebSocket 握手; encode_frame()/FrameReader 帧编�
 | **P2** ✅ | `rules.py` → `rules/` 子包 + `RuleSpec` 元数据注册制；内置 http/retry/breaker，match 键拼错告警 | 中 | G3 可扩展 |
 | **P3** ✅ | 新增 `net/stream.py`: iter_sse + 解压器 + WS 帧编解码; zen 改调 iter_sse; 修 2 个压缩流真 bug | 中 | G2 通道 |
 | **P4** ✅ | 大文件拆分: `proxy` P4a · `transport` P4b · `zen/client` P4c · `cli/app` P4d · `net/fetch`→`pipeline/fetch` P4e · `download` P4f —— 计划内的六个大文件全部落地 | 中 | G5 |
-| **P5** | 抽 `sources/`(DataPacket+SourceBase) + `dao/` + `process/` 层；`sources` kind 登记 | 高 | G4 R3/R4 |
+| **P5** ✅ | 抽 `sources/`(DataPacket+SourceBase+工厂) + `dao/`(cache/state/checkpoint); `source` kind 登记 (plugins.json) + `SearchSource`/`FeedSource` 两个真实实现。**`process/` 不新建** —— `pipeline/` 已是这一层 (融合/排序/归一), 再开同名包等于双轨 | 高 | G4 R3/R4 |
 | **P6** ✅ | 日志 2.0: `-dd` 放开三方库 · `--log-file`(JSONL) · `timed` 耗时埋点 | 低 | R9 可观测 |
 | **P7** ✅ | stdin 收口(?已有 helper, 补 `site`) · checkpoint 已通用(fetch) | 低 | R10 管道 |
 | **P8** ✅ | `core/errors.py` 统一异常/退出码; `main()` 兜底不甩裸 traceback (-d 保留) | 低 | R13 友好 |
@@ -317,6 +317,9 @@ S.ws_key() / ws_accept()  # WebSocket 握手; encode_frame()/FrameReader 帧编�
 
 - **不搞"为分层而分层"**：OSI 只回答"谁依赖谁"，不按 L1~L7 建目录；一个实现不抽策略基类。
 - **P5 抽 `sources/`/`dao/` 风险最高**：stock 已有 `bridge/sources`（图灵完备的数据源层），搜索/抓取侧另起 `sources/` 可能双轨。**先做接口对齐调研**，能复用 `bridge` 的契约就复用，不新增第二套。
+- **P5 落地结论 (接口对齐调研后)**：stock 的 `bridge/sources` 是「一个 APIClient 持 154 个方法」的**胖门面**，契约是 `{ok,data,raw_size}` 信封；搜索/抓取侧要的是「一次取数一个信封」的**瘦接口**。两者复用同一份 `DataPacket` 反而会把 stock 的 154 个方法硬塞进 `items`。故 `sources/` 只做**搜索/抓取侧**的契约，stock 侧维持 `_ok/_err` 信封不动 —— 需要时用 `sources/` 包一个 stock 适配器即可，不强行统一。
+- **`dao/` 的层位修正**：原图把 dao 画在 L1 (采集实现)。但 `state` 存的是 cookie 与熔断器计数，消费方是 `net/transport.py` / `net/captcha.py` —— 放 L1 会让 net 反向依赖上层。实际落成「持久化原语层」：只 import 标准库 + `core.logging`，位于 core 之下，任何层都可以用。层位由图好看决定会破依赖方向，这里按依赖图定。
+
 - **迁移不留薄壳**：`core/tls`→`net/tls`、`core/probe`→`net/connectivity`、`core/http`→`net/http` 一律**改全量调用点**，不在 `core/` 放 re-export 别名 —— 别名即 `core → net` 反向依赖，守卫会拒。
 - **规则不是万能**：能靠默认路径覆盖的就不加 kind；加 kind 必须同时给通用默认 + 文档一条。
 - **不动已验证的线路语义**：env 不作为决策源、不做隐式降级（先直连失败再代理）等既有铁律继续有效。

@@ -3,7 +3,7 @@ import concurrent.futures
 import sys
 import time
 
-from webtool.core import cache
+from webtool.dao import cache
 from webtool.core import config_data
 from webtool.core.plugins import table as _plugin_table
 from webtool.filters.blocklist import filter_blocklist, is_blocked

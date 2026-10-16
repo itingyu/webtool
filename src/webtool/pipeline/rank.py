@@ -16,7 +16,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from webtool.core import cache
+from webtool.dao import cache
 from webtool.core.secrets_store import redact as _mask
 from webtool.engines.hotsites import HOT_SITES, default_hot_sources
 

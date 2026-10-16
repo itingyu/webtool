@@ -10,7 +10,7 @@ import time
 import urllib.parse
 from http import cookiejar
 
-from webtool.core import state
+from webtool.dao import state
 from webtool.net import transport
 
 log = logging.getLogger(__name__)

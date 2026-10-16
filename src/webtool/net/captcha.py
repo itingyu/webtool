@@ -7,7 +7,7 @@
 """
 import time
 
-from webtool.core import state
+from webtool.dao import state
 
 # 验证页指纹的通用段: 任何引擎命中都算被拦 (Cloudflare 质询等)
 _GENERIC_SIGNS = [

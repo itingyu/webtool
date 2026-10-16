@@ -40,7 +40,7 @@ def fetch_models_detail(cfg, refresh=False, timeout=15.0, proxy=None):
     接口原样给的字段 —— 上游哪天多给一列(上下文/价格), 加一行就能进表;
     老缓存里的 ids 结构照旧读得动。
     """
-    from webtool.core import cache as _cache
+    from webtool.dao import cache as _cache
     key = 'zen/models'
     chat_url, models_url = _endpoints()
     if not refresh:

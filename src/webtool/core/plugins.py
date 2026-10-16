@@ -1,4 +1,4 @@
-"""插件注册表: 七类扩展点的统一入口
+"""插件注册表: 九类扩展点的统一入口
 
 清单在 src/webtool/data/plugins.json (内置) + ~/.webtool/plugins.json (用户),
 用户文件按段深合并覆盖内置 —— 改权重、加插件、调顺序都不用改代码。
@@ -491,9 +491,10 @@ RESOLVERS = Registry('resolver')         # 跳转链解码器 (按 URL 特征匹
 FILTERS = Registry('filter')             # 结果过滤器
 TRANSFORMERS = Registry('transformer')   # 结果改写
 INTERCEPTORS = Registry('interceptor')   # 拦截检测/绕过 (见 net.intercept)
+SOURCES = Registry('source')             # 数据源 (SourceBase: fetch(req)→DataPacket)
 
 _REGISTRIES = (ENGINES, SITES, HOT_SITES, EXTRACTORS,
-               RESOLVERS, FILTERS, TRANSFORMERS, INTERCEPTORS)
+               RESOLVERS, FILTERS, TRANSFORMERS, INTERCEPTORS, SOURCES)
 
 
 def by_kind(kind):

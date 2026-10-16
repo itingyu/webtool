@@ -3,7 +3,7 @@ import json
 import sys
 import time
 
-from webtool.core import cache
+from webtool.dao import cache
 from webtool.engines.sites import sites_table
 
 

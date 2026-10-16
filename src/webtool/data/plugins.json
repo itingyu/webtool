@@ -484,5 +484,15 @@
    "priority": 10,
    "desc": "人机验证页 (百度/搜狗/Google 等) 的识别与冷却; 内置同名实现, 这里可覆盖或停用"
   }
+ },
+ "source": {
+  "search": {
+   "module": "webtool.engines.source:SearchSource",
+   "desc": "搜索/站点引擎 → 数据源适配器 (get_source(\"search\", engine=\"bing\"))"
+  },
+  "feed": {
+   "module": "webtool.feeds.source:FeedSource",
+   "desc": "RSS/Atom 源 → 数据源适配器 (get_source(\"feed\", feed=\"<名>\"))"
+  }
  }
 }

@@ -25,7 +25,7 @@ def check(name, cond, detail=''):
     if not cond:
         fails.append(name)
 
-from webtool.core import state
+from webtool.dao import state
 state.PATH = os.path.join(_TMP, '.webtool', 'state.json')
 
 from webtool.core.resilient import Breaker as _Breaker

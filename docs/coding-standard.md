@@ -226,7 +226,7 @@ ip/ping 等连通性探测归 `net.connectivity`，不单开网络层，ICMP 受
 ## 3. 插件与配置边界
 
 - **逻辑进代码，数据进 JSON，调参进 config**：
-  - 抓取/解析逻辑 → 模块函数，经 `plugins.json` 声明成插件（engine/site/hot/extractor/resolver/filter/transformer/interceptor 八类，函数类签名见 `plugins.SIGNATURES`，`interceptor` 是类见下）
+  - 抓取/解析逻辑 → 模块函数，经 `plugins.json` 声明成插件（engine/site/hot/extractor/resolver/filter/transformer/interceptor/source 九类，函数类签名见 `plugins.SIGNATURES`，`interceptor`/`source` 是类见下）
   - **引擎预设**（`plugins.json` 的 `presets` 段）走 `config_data.load`，**不走插件注册表** —— preset
   是纯数据没有 module/params 可执行字段，注册表那套 fn 解析用不上；同文件意味着用户覆盖
   `plugins.json` 时引擎与预设一起生效。优先级 `--engine` > `--preset` > `config.default_engines` >

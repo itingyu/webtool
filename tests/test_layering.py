@@ -52,6 +52,14 @@ UPPER = {
     'core':    {'webtool.net', 'webtool.engines', 'webtool.pipeline',
                 'webtool.render', 'webtool.feeds', 'webtool.stock',
                 'webtool.radar', 'webtool.cli', 'webtool.filters'},
+    'dao':     {'webtool.net', 'webtool.engines', 'webtool.pipeline',
+                'webtool.render', 'webtool.feeds', 'webtool.stock',
+                'webtool.radar', 'webtool.cli', 'webtool.filters',
+                'webtool.core'},
+    # sources 是契约层: 只出 DataPacket/SourceBase/工厂, 实现由采集层提供
+    'sources': {'webtool.net', 'webtool.engines', 'webtool.pipeline',
+                'webtool.render', 'webtool.feeds', 'webtool.stock',
+                'webtool.radar', 'webtool.cli', 'webtool.filters'},
     'net':     {'webtool.engines', 'webtool.pipeline', 'webtool.render',
                 'webtool.feeds', 'webtool.stock', 'webtool.radar',
                 'webtool.cli', 'webtool.filters'},
@@ -66,6 +74,9 @@ WHITELIST = {
     # 弹性层 fetch() 直接包 net.transport/proxyhelper; 待 P4 把纯弹性
     # (parallel_map/retry/breaker/checkpoint) 与 net 取数包装拆开
     ('core/resilient.py', 'webtool.net'),
+    # dao 只准碰 core.logging 这一个无依赖的基础模块 (拿统一 logger/--debug 集成);
+    # dao 不得反向 import core 的其余部分, 免得两个基础包互相咬住成环
+    ('dao/cache.py', 'webtool.core'),
 }
 
 for pkg, forbidden in UPPER.items():
