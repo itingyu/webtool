@@ -11,6 +11,7 @@ import os
 import re
 from urllib.parse import unquote
 
+from webtool.core import config_schema as _schema
 from webtool.core.config_data import USER_DIR
 
 logger = logging.getLogger(__name__)
@@ -23,35 +24,11 @@ from webtool.core.secrets_store import redact, store_password
 CONFIG_PATH = str(USER_DIR / 'config.json')
 
 
-DEFAULTS = {
-    'timeout': 15,
-    'default_format': None,      # 数据命令的默认输出格式 (cli._ctx 收口读取)
-    'cache': None,               # 磁盘缓存总开关 on/off; None=开
-    'extract': 'auto',           # 正文提取器: auto=内容层择优 / 具名=只用那一个
-    'cache_dir': str(USER_DIR / 'cache'),
-    # 搜索行为 (cli 侧可写; 业务侧在 pipeline/search 读)
-    'market': None,              # 搜索市场 (bing mkt); None=zh-CN
-    'default_engines': None,     # 默认引擎组合; None=内置组合
-    'jobs': None,                # 搜索并发引擎数; None=按源数(上限 4)
-    'blocklist': None,           # 域名黑名单覆盖; None=用内置表
-    'cache_ttl': {},             # 分桶 TTL 覆盖 {"search": 30, ...}
-    # 合并排序权重 (low_prior / low_prior_value / ref_hosts) **不在这里**:
-    # 唯一的消费方 pipeline/merge.py 读的是 data/filters.json 的 merge 段, 而
-    # 不是 config.json。白收这三个键的后果是用户写进 config.json 时 load_config
-    # 原样返回 (看着像配上了)、实际零效果且无任何提示 —— tests/test_smoke.py
-    # §15 会把这类键从白名单里挑出来
-    # TLS (实际决策在 webtool.net.tls, 这里只负责存)
-    'ssl_verify': True,          # 证书校验总开关
-    'ca_bundle': None,           # 自定义 CA 包路径 (替代系统 CA)
-    'verify_hosts': [],          # 关校验的域名单 (自签/过期证书的交易所站)
-    # 代理
-    'proxy_auth': {},            # 引用名 → 密码密文 (user@host 或裸 user)
-    'rules_file': None,          # 规则文件路径, 默认 ~/.webtool/rules.json
-    'geoip_db': None,            # GeoIP 国家库 (rules.json 里的同名字段优先)
-    'geosite_db': None,          # geosite 域名分类库 (同上)
-    'asn_db': None,              # GeoIP ASN 库 (同上)
-    'proxy_dns_ttl': 300,        # 规则里查 GeoIP 时的 DNS 缓存秒数
-}
+# config.json 的键表在 core/config_schema.py (唯一来源): 这里的 DEFAULTS 只是它
+# 的默认值投影, 兼作 load_config 的白名单 (见 _KNOWN)。CLI 侧的说明与校验也从
+# 同一张表派生 (cli/config.py::CONFIG_KEYS) —— 同一批键写两遍时出的三类事故
+# (写了读不回来 / 白收没人读的键 / 校验串了别人的区间) 都是这张表分两处维护来的。
+DEFAULTS = dict(_schema.DEFAULTS)
 
 
 _KNOWN = set(DEFAULTS)

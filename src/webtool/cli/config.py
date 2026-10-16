@@ -13,49 +13,19 @@ import json
 import os
 import sys
 
+from webtool.core import config_schema as _schema
 from webtool.core.config_data import USER_DIR
 from webtool.core.secrets_store import redact as _redact
 from webtool.net.proxy import store as _store
 
 CONFIG_PATH = str(USER_DIR / 'config.json')
 
-# 可配置键白名单: (键名, 说明, 合法值)
-# 废弃配置的提示文案 (set/get 都指回规则表)
-_DEP_ENGINE_PROXY = ('engine_proxy 已废弃: 线路统一由规则表决定, 这里配了不起作用。改用 `webtool proxy rule add <域名> direct` 或 `… proxy:<代理名>`;要清掉旧值: `webtool config unset engine_proxy`')
+# 键表在 core/config_schema.py (唯一来源: 默认值/说明/校验都在那里), 这里只取
+# 展示用的投影。同一个键写两遍的后果见那个文件的文件头。
+CONFIG_KEYS = _schema.cli_table()
 
-CONFIG_KEYS = {
-    'blocklist':        ('黑名单覆盖', '逗号分隔域名, ! 前缀表白名单例外, off 关闭', None),
-    'market':           ('搜索市场', 'zh-CN / en-US 等 bing mkt 值 (仅 bing 消费)', None),
-    'default_engines':  ('默认引擎组合', '逗号分隔: bing,sogou,baidu,google', None),
-    'jobs':             ('搜索并发引擎数', '1 ~ 16 整数; 1=串行, 0/不设=按源数(上限 4)', int),
-    'default_format':   ('默认输出格式', 'json / text / markdown', ('json', 'text', 'markdown')),
-    'timeout':          ('请求超时秒数', '5 ~ 60 整数', int),
-    'cache':            ('缓存开关', 'on / off', ('on', 'off')),
-    'rules_file':       ('路由规则文件路径', '默认 ~/.webtool/rules.json', None),
-    'extract':          ('正文提取器', 'auto=内容层择优 (默认, 最干净) / '
-                                       'trafilatura / readability / boilerplate / inscriptis',
-                         ('auto', 'trafilatura', 'readability', 'boilerplate',
-                          'inscriptis')),
-    'geoip_db':        ('GeoIP 国家库', 'GeoLite2-Country.mmdb 路径; '
-                         '不配则 geoip 规则不生效', None),
-    'geosite_db':      ('GeoSite 域名分类库', 'geosite.dat 路径; '
-                         '供规则表按域名分类命中', None),
-    'cache_dir':       ('缓存目录', '默认 ~/.webtool/cache; 换目录后旧缓存不迁移', None),
-    'asn_db':          ('GeoIP ASN 库', 'GeoLite2-ASN.mmdb 路径', None),
-    'proxy_dns_ttl':   ('代理解析 DNS 缓存秒数', '正整数, 默认 60', int),
-    'ssl_verify':       ('证书校验总开关', 'on / off (off = 全站不校验证书, '
-                          '慎用, 通常应该用 verify_hosts 点名)', ('on', 'off')),
-    'ca_bundle':        ('自定义 CA 包路径 (ssl_verify=on 时替代系统 CA)',
-                          '如 /etc/ssl/corp-ca.pem; 想追加而非替代请自行 cat 合并', None),
-    'verify_hosts':     ('关校验的域名单 (自签/过期证书站)',
-                          '逗号分隔, 如 czce.com.cn,gtjaqh.com (覆盖子域); '
-                          '其余域仍严格校验。有该站证书时优先用规则: '
-                          '证书丢 ~/.webtool/certs/extra/ 后 webtool proxy cert sync',
-                          None),
-    'cache_ttl.<bucket>':   ('分桶缓存 TTL 秒覆盖',
-                             '<bucket>=<sec>, 如 cache_ttl.search=30 (桶: search/fetch/resolve/hot/zen)',
-                             None),
-}
+# 废弃配置的提示文案 (set/get 都指回规则表)
+_DEP_ENGINE_PROXY = _schema.DEPRECATED_ENGINE_PROXY
 
 
 def load_config():
@@ -75,77 +45,14 @@ def save_config(cfg):
 
 
 def _validate(key, value):
-    """返回 (ok, 转换后的值/错误信息)"""
-    if key.startswith('engine_proxy'):
-        # 老的每引擎覆盖: 先于"未知键"报出来, 否则用户只看到一句"未知配置键"
-        return False, _DEP_ENGINE_PROXY
-    if key.startswith('cache_ttl.'):
-        # 桶名自由 (search/hot/引擎名...), 但帮助文案里那个占位符不是桶名 ——
-        # 照抄 `cache_ttl.<bucket>` 会写进一个永远命不中的桶, 还看不出错
-        bucket = key.split('.', 1)[1]
-        if not bucket or '<' in bucket or '>' in bucket:
-            return False, ('桶名要写实际名字, 不能照抄占位符: 如 '
-                           'cache_ttl.search=30 (桶: search/fetch/resolve/hot/zen/'
-                           '引擎名)')
-        return True, value          # 复合键: 桶/引擎名自由, 值按原样
-    if key not in CONFIG_KEYS:
-        return False, f'未知配置键: {key}\n可用键: {", ".join(CONFIG_KEYS)}'
-    desc, hint, typ = CONFIG_KEYS[key]
-    if key == 'ca_bundle':
-        # 路径必须当场验: 写进去一个不存在的文件, 等到出网时才炸最难查
-        path = os.path.expanduser(value.strip())
-        if not os.path.isfile(path):
-            return False, f'CA 文件不存在: {path}'
-        return True, path
-    if key == 'verify_hosts':
-        raw = value.replace(';', ',').split(',')
-        hosts = [h.strip().lower().lstrip('.') for h in raw if h.strip()]
-        if not hosts:
-            return False, '至少给一个域名, 或用 unset 清空'
-        bad = [h for h in hosts if '/' in h or ' ' in h]
-        if bad:
-            return False, f'只写域名不要带路径/空格: {", ".join(bad)}'
-        return True, hosts
-    if key in ('geoip_db', 'asn_db'):
-        path = os.path.expanduser(value.strip())
-        if not os.path.isfile(path):
-            return False, f'数据库文件不存在: {path}'
-        if not path.endswith('.mmdb'):
-            return False, 'GeoIP 库应为 .mmdb (MaxMind DB 格式)'
-        return True, path
-    if key == 'rules_file':
-        path = os.path.expanduser(value.strip())
-        # 规则文件允许不存在 (用户可能先 set 再写), 但存在时必须能解析
-        if os.path.isfile(path):
-            try:
-                with open(path, encoding='utf-8') as f:
-                    json.load(f)
-            except ValueError as e:
-                return False, f'规则文件不是合法 JSON: {path}: {e}'
-        return True, path
-    if key == 'jobs':
-        try:
-            v = int(value)
-        except ValueError:
-            return False, '并发数要是整数 (1 ~ 16; 1=串行)'
-        if not (1 <= v <= 16):
-            return False, '取值范围 1 ~ 16 (1=串行)'
-        return True, v
-    if typ in (float, int):
-        try:
-            v = typ(value)
-            if typ is float and not (0 <= v <= 2.0):
-                return False, '取值范围 0 ~ 2.0'
-            if typ is int and not (5 <= v <= 60):
-                return False, '取值范围 5 ~ 60'
-            return True, v
-        except ValueError:
-            return False, f'需要 {"浮点" if typ is float else "整数"}: {value}'
-    if isinstance(typ, tuple):
-        if value.lower() not in typ:
-            return False, f'合法值: {"/".join(typ)}'
-        return True, value.lower()
-    return True, value  # 自由文本 (proxy/default_engines 等)
+    """set 前的取值校验 → (ok, 转换后的值/错误信息)
+
+    校验规则跟着键走 (core/config_schema.py): 每个键自带范围/枚举/路径检查,
+    不再在这里按类型共用一段区间 —— `typ=int` 被 timeout 与 proxy_dns_ttl 共用
+    时, 后者被套上了前者的 5~60, 于是 `config set proxy_dns_ttl 300` (恰是它
+    的默认值) 被拒。
+    """
+    return _schema.validate(key, value)
 
 
 def handle(args):

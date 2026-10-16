@@ -1142,12 +1142,13 @@ check(_ft._save_body(_SN(save='/tmp/'), 'http://x/p', '文'.encode(), {}) == '/t
 check(_ft._save_body(_SN(save=_DEST), 'http://x/l.png', _LOGO, {}, status=404) == '',
       '404 不落盘 (存下来的会是那页错误信息)')
 
-print('\n=== 15. 配置键两个键表必须对齐 (config set 写了要真生效) ===')
+print('\n=== 15. 配置键只有一张表 (config set 写了要真生效) ===')
 # 起因: `ua` 能写能存没人读; `cache`/`default_format` 键在 cli/config.py 的键表
 # 里、却不在 net.proxy.store 的 _KNOWN 白名单里, 被 load_config 静默过滤;
 # `default_engines`/`market`/`cache_ttl.*` 同样是"set 得进、读不回来" ——
 # 用户配了没反应, 排查时还以为是代码 bug。
-# 三道检查: ①读得到的键都收进白名单 ②CLI 能写的键都读得回来 ③每个键都有人读
+# 现在两张表都从 core/config_schema.py 派生 (structural: 不可能再漂), 检查从
+# "两个键表对齐" 换成"两个键表确实派生自唯一来源 + 没有漏网的例外"。
 import re as _re2
 import json as _json15
 from webtool.net.proxy.store import DEFAULTS as _DEF
@@ -1213,6 +1214,18 @@ _unwritable = sorted({k.split('.')[0] for k in _CKEYS} - set(_DEF))
 check(not _unwritable,
       'config set 能写的键都读得回来 (否则写了白写): '
       + (', '.join(_unwritable) or 'ok'))
+
+# 派生关系本身要钉住: 两侧都从唯一来源投影, 而不是各自维护一份再对齐
+from webtool.core import config_schema as _SCHEMA
+check(_DEF == dict(_SCHEMA.DEFAULTS),
+      'store.DEFAULTS 就是 schema.DEFAULTS (键表没有第二份)')
+check(_CKEYS == _SCHEMA.cli_table(),
+      'cli.CONFIG_KEYS 就是 schema.cli_table() (说明/提示没有第二份)')
+# 不给 CLI 入口的键是**例外**, 不是默认: 新增一个必须在这里说清为什么
+_NO_CLI = {k for k, v in _SCHEMA.KEYS.items() if not v.cli}
+check(_NO_CLI == {'cache_ttl', 'proxy_auth'},
+      '不进 CLI 键表的键就那两个 (复合键 + 密文), 没有漏网的例外: '
+      + (', '.join(sorted(_NO_CLI)) or 'ok'))
 
 _dead_cfg = []
 for _k in sorted(_DEF):
