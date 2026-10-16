@@ -18,13 +18,13 @@ FAIL = []
 N = [0]
 
 
-def check(name, cond, detail=''):
+def check(cond, msg, detail=''):
     N[0] += 1
     if cond:
-        print('PASS %s' % name)
+        print('PASS %s' % msg)
     else:
-        FAIL.append(name)
-        print('FAIL %s  %s' % (name, detail))
+        FAIL.append(msg)
+        print('FAIL %s  %s' % (msg, detail))
 
 
 CAPTCHA_PAGE = ('<html><head><title>Please verify you are human</title>'
@@ -90,14 +90,14 @@ try:
     err = None
 except Exception as e:                      # noqa: BLE001
     err = e
-check('验证页在 transport 里被判成"拦截"并报错',
-      err is not None and '验证页拦截' in str(err), repr(err))
-check('报错带上判定依据与冷却剩余',
-      err is not None and '(' in str(err) and '冷却' in str(err), repr(err))
-check('被拦后引擎进冷却 (note_hit 真的记了账)', captcha.suspended('baidu'))
-check('降级梯里做了退避 (没白重试)', len(SLEPT) > t0, str(SLEPT[t0:]))
-check('梯子重试了多次 (每次都撞上验证页)',
-      HITS['captcha'] >= 2, str(HITS))
+check(err is not None and '验证页拦截' in str(err),
+      '验证页在 transport 里被判成"拦截"并报错', repr(err))
+check(err is not None and '(' in str(err) and '冷却' in str(err),
+      '报错带上判定依据与冷却剩余', repr(err))
+check(captcha.suspended('baidu'), '被拦后引擎进冷却 (note_hit 真的记了账)')
+check(len(SLEPT) > t0, '降级梯里做了退避 (没白重试)', str(SLEPT[t0:]))
+check(HITS['captcha'] >= 2,
+      '梯子重试了多次 (每次都撞上验证页)', str(HITS))
 
 # ── 2. 冷却门接上了: 再发就拦在门口 (transport 不认识"验证码") ────────────
 try:
@@ -105,11 +105,11 @@ try:
     err2 = None
 except Exception as e:                      # noqa: BLE001
     err2 = e
-check('冷却期内直接挡回 (CooldownError)',
-      err2 is not None and type(err2).__name__ == 'CooldownError', repr(err2))
-check('挡回的人话来自插件 (transport 不认识"验证码")',
-      err2 is not None and '人机验证' in str(err2), repr(err2))
-check('挡住时不发请求', HITS['captcha'] == 4, str(HITS))
+check(err2 is not None and type(err2).__name__ == 'CooldownError',
+      '冷却期内直接挡回 (CooldownError)', repr(err2))
+check(err2 is not None and '人机验证' in str(err2),
+      '挡回的人话来自插件 (transport 不认识"验证码")', repr(err2))
+check(HITS['captcha'] == 4, '挡住时不发请求', str(HITS))
 
 # ── 3. 复位后能正常拿到正文 ──────────────────────────────────────────────
 captcha.mark_ok('baidu')
@@ -119,7 +119,7 @@ try:
     err3 = None
 except Exception as e:                      # noqa: BLE001
     txt, err3 = '', e
-check('复位后正常页直接返回', err3 is None and '正常内容' in txt, repr(err3))
+check(err3 is None and '正常内容' in txt, '复位后正常页直接返回', repr(err3))
 
 # ── 4. 绕法生效: 新加的插件能改下一次重试的形状 ──────────────────────────
 class Waf(Interceptor):
@@ -144,9 +144,9 @@ try:
     err4 = None
 except Exception as e:                      # noqa: BLE001
     txt4, err4 = '', e
-check('插件给的绕法被 transport 执行 (换地址后拿到正常页)',
-      err4 is None and '正常内容' in txt4, repr(err4))
-check('绕法只在被拦后才用 (不是自动改写请求)', HITS['waf'] == before + 1,
+check(err4 is None and '正常内容' in txt4,
+      '插件给的绕法被 transport 执行 (换地址后拿到正常页)', repr(err4))
+check(HITS['waf'] == before + 1, '绕法只在被拦后才用 (不是自动改写请求)',
       str(HITS))
 
 _srv.shutdown()

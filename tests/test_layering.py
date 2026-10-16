@@ -22,10 +22,11 @@ ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                     'src', 'webtool')
 fails = []
 
-def check(name, cond, detail=''):
-    print(('PASS' if cond else 'FAIL') + ' ' + name + (f' ({detail})' if detail and not cond else ''))
+def check(cond, msg, detail=''):
+    tag = f' ({detail})' if detail and not cond else ''
+    print(('PASS' if cond else 'FAIL') + ' ' + msg + tag)
     if not cond:
-        fails.append(name)
+        fails.append(msg)
 
 def top_module(dotted):
     parts = dotted.split('.')
@@ -92,7 +93,7 @@ for pkg, forbidden in UPPER.items():
             allowed = {w_pkg for (w_file, w_pkg) in WHITELIST
                        if w_file in rel}
             bad = found - allowed
-            check(f'{rel} 不依赖上层', not bad, sorted(bad) and str(sorted(bad)))
+            check(not bad, f'{rel} 不依赖上层', sorted(bad) and str(sorted(bad)))
 
 # 数据源包: 只吃 net/core/本包
 src_dir = os.path.join(ROOT, 'stock', 'bridge', 'sources')
@@ -105,25 +106,25 @@ for dirpath, dirnames, filenames in os.walk(src_dir):
         rel = os.path.relpath(path, ROOT)
         found = imports_of(path) - {'webtool', 'webtool.net', 'webtool.core',
                                     'webtool.stock'}
-        check(f'{rel} 只依赖 net/core/stock', not found, str(sorted(found)))
+        check(not found, f'{rel} 只依赖 net/core/stock', str(sorted(found)))
 
 # 源注册表与 APIClient 一致性
 from webtool.stock.bridge import sources as S
 names = sorted(S.SOURCES)
-check('注册表覆盖全部源 (10 个)', len(names) == 10, str(names))
+check(len(names) == 10, '注册表覆盖全部源 (10 个)', str(names))
 try:
     S.source_class('nope')
-    check('source_class 未知名字抛 KeyError', False)
+    check(False, 'source_class 未知名字抛 KeyError')
 except KeyError as e:
-    check('source_class 未知名字抛 KeyError 并列可用项', '可用' in str(e))
+    check('可用' in str(e), 'source_class 未知名字抛 KeyError 并列可用项')
 for n, c in S.SOURCES.items():
-    check(f'注册表 {n} -> {c.__name__}', isinstance(c, type))
+    check(isinstance(c, type), f'注册表 {n} -> {c.__name__}')
 
 # gtimg 迁移后: SinaSource 不再持 gtimg, TencentSource 持有
-check('gtimg_* 已归位 TencentSource',
-      all(hasattr(S.TencentSource, m)
+check(all(hasattr(S.TencentSource, m)
           for m in ('gtimg_hq', 'gtimg_quote_flat', 'gtimg_fund'))
-      and not any(m.startswith('gtimg_') for m in dir(S.SinaSource)))
+      and not any(m.startswith('gtimg_') for m in dir(S.SinaSource)),
+      'gtimg_* 已归位 TencentSource')
 
 print()
 if fails:

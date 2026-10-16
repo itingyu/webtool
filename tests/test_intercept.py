@@ -16,13 +16,13 @@ FAIL = []
 N = [0]
 
 
-def check(name, cond, detail=''):
+def check(cond, msg, detail=''):
     N[0] += 1
     if cond:
-        print('PASS %s' % name)
+        print('PASS %s' % msg)
     else:
-        FAIL.append(name)
-        print('FAIL %s  %s' % (name, detail))
+        FAIL.append(msg)
+        print('FAIL %s  %s' % (msg, detail))
 
 
 from webtool.core import config_data                 # noqa: E402
@@ -33,40 +33,40 @@ CAPTCHA_PAGE = '请完成验证后继续访问' * 40
 
 # ── 内置注册 ─────────────────────────────────────────────────────────────
 names = [p.name for p in intercept.interceptors()]
-check('内置 captcha 在册', 'captcha' in names, str(names))
-check('captcha 的优先级是 10',
-      [p.priority for p in intercept.interceptors()
-       if p.name == 'captcha'] == [10])
-check('describe 能报出插件与来源',
-      intercept.describe()[0]['name'] == 'captcha'
-      and 'captcha' in intercept.describe()[0]['module'])
+check('captcha' in names, '内置 captcha 在册', str(names))
+check([p.priority for p in intercept.interceptors()
+       if p.name == 'captcha'] == [10],
+      'captcha 的优先级是 10')
+check(intercept.describe()[0]['name'] == 'captcha'
+      and 'captcha' in intercept.describe()[0]['module'],
+      'describe 能报出插件与来源')
 
 # ── 判定 ─────────────────────────────────────────────────────────────────
 hit = intercept.inspect(Ctx(engine='baidu', status=200, text=CAPTCHA_PAGE))
-check('验证页被判出来', hit is not None and hit.kind == 'captcha', str(hit))
-check('命中者记在 hit.by 上', hit and hit.by == 'captcha')
-check('判定依据带在 hit.sign 上 (报错要用)', hit and hit.sign != '')
+check(hit is not None and hit.kind == 'captcha', '验证页被判出来', str(hit))
+check(hit and hit.by == 'captcha', '命中者记在 hit.by 上')
+check(hit and hit.sign != '', '判定依据带在 hit.sign 上 (报错要用)')
 # baidu 的判定里有一条"正文短得可疑", 所以正常页要造够长 (2400 字)
-check('正常页不误报',
-      intercept.inspect(Ctx(engine='baidu', text='正常结果 ' * 400)) is None)
-check('没有引擎名的通道不判 (fetch/resolve 不折腾)',
-      intercept.inspect(Ctx(engine='', text=CAPTCHA_PAGE)) is None)
-check('引擎侧便捷入口同样走全部拦截器',
-      intercept.blocked_by('baidu', CAPTCHA_PAGE) is not None)
+check(intercept.inspect(Ctx(engine='baidu', text='正常结果 ' * 400)) is None,
+      '正常页不误报')
+check(intercept.inspect(Ctx(engine='', text=CAPTCHA_PAGE)) is None,
+      '没有引擎名的通道不判 (fetch/resolve 不折腾)')
+check(intercept.blocked_by('baidu', CAPTCHA_PAGE) is not None,
+      '引擎侧便捷入口同样走全部拦截器')
 
 # ── 记账与冷却门 ─────────────────────────────────────────────────────────
 pre = intercept.preflight(Ctx(engine='baidu'))
-check('没被拦过的引擎不封门', pre is None)
+check(pre is None, '没被拦过的引擎不封门')
 ctx2 = Ctx(engine='baidu', status=200, text=CAPTCHA_PAGE)
 h2 = intercept.inspect(ctx2)
 intercept.note_hit(ctx2, h2)
-check('note_hit 把冷却剩余写回 hit.left', h2.left > 0, str(h2.left))
+check(h2.left > 0, 'note_hit 把冷却剩余写回 hit.left', str(h2.left))
 pre2 = intercept.preflight(Ctx(engine='baidu'))
-check('冷却期内 preflight 拦下', pre2 is not None and pre2.left > 0, str(pre2))
-check('preflight 用的人话是"人机验证"', pre2 and pre2.why == '人机验证')
+check(pre2 is not None and pre2.left > 0, '冷却期内 preflight 拦下', str(pre2))
+check(pre2 and pre2.why == '人机验证', 'preflight 用的人话是"人机验证"')
 intercept.note_ok(ctx2)
-check('note_ok 复位后门就开了',
-      intercept.preflight(Ctx(engine='baidu')) is None)
+check(intercept.preflight(Ctx(engine='baidu')) is None,
+      'note_ok 复位后门就开了')
 
 # ── 插件: 顺序 / 报错隔离 / 绕过 ──────────────────────────────────────────
 class Boom(Interceptor):
@@ -103,15 +103,15 @@ intercept.register(Waf)
 intercept.register(Slow)
 
 hit3 = intercept.inspect(Ctx(engine='x', url='https://t/1', text='页面写着 被盾 两个字母'))
-check('插件抛错不影响后面的插件', hit3 is not None and hit3.by == 'waf', str(hit3))
-check('抛错的插件在 describe 里看得见',
-      any(d['name'] == 'boom' and d['error'] for d in intercept.describe()),
+check(hit3 is not None and hit3.by == 'waf', '插件抛错不影响后面的插件', str(hit3))
+check(any(d['name'] == 'boom' and d['error'] for d in intercept.describe()),
+      '抛错的插件在 describe 里看得见',
       str(intercept.describe()))
-check('优先级小的先跑 (slow 先于 waf, 但判不出就让位)',
-      Waf.seen == ['https://t/1'], str(Waf.seen))
+check(Waf.seen == ['https://t/1'],
+      '优先级小的先跑 (slow 先于 waf, 但判不出就让位)', str(Waf.seen))
 
 bp = intercept.bypass(Ctx(engine='x', url='https://t/1', text='被盾'), hit3)
-check('判定的插件给出的绕法能拿到', bp is not None and bp.how == '换通道重试')
+check(bp is not None and bp.how == '换通道重试', '判定的插件给出的绕法能拿到')
 
 # ── 配置覆盖: 同名换实现 / 显式停用 ───────────────────────────────────────
 # 用户侧 plugins.json 若不存在就现写一份 (只写要改的段, 深合并前不必抄整份)
@@ -132,18 +132,18 @@ def write_user_interceptor(entry):
 
 write_user_interceptor({'captcha': {
     'module': 'webtool.net.captcha:CaptchaInterceptor', 'priority': 3}})
-check('配置里能改内置插件的优先级',
-      [p.priority for p in intercept.interceptors()
+check([p.priority for p in intercept.interceptors()
        if p.name == 'captcha'] == [3],
+      '配置里能改内置插件的优先级',
       str([(p.name, p.priority) for p in intercept.interceptors()]))
 
 write_user_interceptor({'captcha': {
     'module': 'webtool.net.captcha:CaptchaInterceptor', 'enabled': False}})
-check('配置里能停用内置插件',
-      'captcha' not in [p.name for p in intercept.interceptors()],
+check('captcha' not in [p.name for p in intercept.interceptors()],
+      '配置里能停用内置插件',
       str([p.name for p in intercept.interceptors()]))
-check('停用后验证页不再命中 captcha',
-      intercept.blocked_by('baidu', CAPTCHA_PAGE) is None)
+check(intercept.blocked_by('baidu', CAPTCHA_PAGE) is None,
+      '停用后验证页不再命中 captcha')
 
 # ── 体检: 写错插件要在 `plugins check` 里看得见 ───────────────────────────
 from webtool.cli import plugins as pcmd                 # noqa: E402
@@ -154,12 +154,12 @@ class NoInspect(Interceptor):
     name = 'noinspect'                                # 忘了实现 inspect
 
 
-check('体检认得过关的实现', pcmd._bad_interceptor(CaptchaInterceptor) == '',
+check(pcmd._bad_interceptor(CaptchaInterceptor) == '', '体检认得过关的实现',
       pcmd._bad_interceptor(CaptchaInterceptor))
-check('体检拦下不是 Interceptor 的东西',
-      '不是' in pcmd._bad_interceptor(dict), pcmd._bad_interceptor(dict))
-check('体检拦下忘了实现 inspect 的插件',
-      'inspect' in pcmd._bad_interceptor(NoInspect),
+check('不是' in pcmd._bad_interceptor(dict),
+      '体检拦下不是 Interceptor 的东西', pcmd._bad_interceptor(dict))
+check('inspect' in pcmd._bad_interceptor(NoInspect),
+      '体检拦下忘了实现 inspect 的插件',
       pcmd._bad_interceptor(NoInspect))
 
 # ── 引擎内部的通道探测也得过拦截器 ───────────────────────────────────────
@@ -181,12 +181,12 @@ class Gate(Interceptor):
 intercept.register(Gate)
 _h4, _c4 = intercept.gate('sogou', '页面写着 挡路石',
                            url='https://www.sogou.com/web')
-check('引擎侧 gate 也走全部拦截器 (自定义插件管得到)',
-      _h4 is not None and _h4.by == 'gate', str(_h4))
-check('gate 交出的 ctx 就是插件看到的那次',
-      Gate.seen[-1] == ('sogou', 'https://www.sogou.com/web'), str(Gate.seen[-1]))
-check('gate 只通知判定的插件记账 (captcha 不该跟着记黑账)',
-      intercept.cooldown_of('sogou') is None,
+check(_h4 is not None and _h4.by == 'gate',
+      '引擎侧 gate 也走全部拦截器 (自定义插件管得到)', str(_h4))
+check(Gate.seen[-1] == ('sogou', 'https://www.sogou.com/web'),
+      'gate 交出的 ctx 就是插件看到的那次', str(Gate.seen[-1]))
+check(intercept.cooldown_of('sogou') is None,
+      'gate 只通知判定的插件记账 (captcha 不该跟着记黑账)',
       str(intercept.cooldown_of('sogou')))
 
 import glob                                             # noqa: E402

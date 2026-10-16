@@ -22,14 +22,14 @@ from webtool.cli import app as _app_mod          # noqa: E402
 PASS = FAIL = SKIP = 0
 
 
-def check(cond, msg, extra=''):
+def check(cond, msg, detail=''):
     global PASS, FAIL
     if cond:
         PASS += 1
         print('PASS ' + msg)
     else:
         FAIL += 1
-        print('FAIL ' + msg + (' | ' + str(extra) if extra else ''))
+        print('FAIL ' + msg + (' | ' + str(detail) if detail else ''))
 
 
 def run(*argv):

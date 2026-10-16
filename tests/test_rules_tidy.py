@@ -17,12 +17,12 @@ from webtool.net import rules as R
 fails = []
 
 
-def check(name, cond, detail=''):
+def check(cond, msg, detail=''):
     if cond:
-        print(f'PASS {name}')
+        print(f'PASS {msg}')
     else:
-        print(f'FAIL {name} {detail}')
-        fails.append(name)
+        print(f'FAIL {msg} {detail}')
+        fails.append(msg)
 
 
 def spec(rules, default='proxy:default', proxies=None):
@@ -37,23 +37,23 @@ def doms(s, i=0):
 # 1. 同一规则内被宽条目覆盖的删掉, 宽条目自己留着
 s, rep = R.tidy_spec(spec([{'match': {'domain': ['opencode.ai', '*.opencode.ai']},
                             'action': 'direct'}]))
-check('子域条目被裸后缀覆盖 → 删', doms(s) == ['opencode.ai'], doms(s))
+check(doms(s) == ['opencode.ai'], '子域条目被裸后缀覆盖 → 删', doms(s))
 
 # 2. 前一条规则已覆盖的条目 → 整条删 (first-match-wins 下永不生效)
 s, rep = R.tidy_spec(spec([
     {'match': {'domain': ['*.cn']}, 'action': 'direct'},
     {'match': {'domain': ['*.sina.com.cn', '*.10jqka.com.cn']}, 'action': 'direct'}]))
-check('被前面规则覆盖的死规则被删', len(s['rules']) == 1 and doms(s) == ['*.cn'],
+check(len(s['rules']) == 1 and doms(s) == ['*.cn'], '被前面规则覆盖的死规则被删',
       s['rules'])
-check('死规则有报告', any('死规则' in x for x in rep), rep)
+check(any('死规则' in x for x in rep), '死规则有报告', rep)
 
 # 3. 同动作合并: 中间夹着异动作规则, 且不冲突 → 合
 s, rep = R.tidy_spec(spec([
     {'match': {'domain': ['*.a.com']}, 'action': 'direct'},
     {'match': {'domain': ['google.com']}, 'action': 'proxy:default'},
     {'match': {'domain': ['*.b.com']}, 'action': 'direct'}]))
-check('跨异动作规则的安全合并', len(s['rules']) == 1
-      and set(doms(s)) == {'*.a.com', '*.b.com'}, s['rules'])
+check(len(s['rules']) == 1
+      and set(doms(s)) == {'*.a.com', '*.b.com'}, '跨异动作规则的安全合并', s['rules'])
 
 # 4. 合并不安全: 两条 direct 单独都不覆盖中间那条, 但合并后的并集覆盖
 #    (中间规则的多个域名分别落在两边) → 拒绝合并
@@ -63,21 +63,21 @@ s, rep = R.tidy_spec(spec([
     {'match': {'domain': ['b.com']}, 'action': 'direct'}],
     proxies={'default': 'http://127.0.0.1:2080',
              'other': 'socks5h://127.0.0.1:1080'}))
-check('合并会吃掉中间规则时不合并', len(s['rules']) == 3, s['rules'])
-check('两条 direct 都还在', [r['action'] for r in s['rules']] ==
-      ['direct', 'proxy:other', 'direct'], s['rules'])
+check(len(s['rules']) == 3, '合并会吃掉中间规则时不合并', s['rules'])
+check([r['action'] for r in s['rules']] ==
+      ['direct', 'proxy:other', 'direct'], '两条 direct 都还在', s['rules'])
 
 # 5. 与默认动作相同的规则 → 删, 并给提示
 s, rep = R.tidy_spec(spec([{'match': {'domain': ['google.com']},
                             'action': 'proxy:default'}]))
-check('与默认同结果的规则被删', s['rules'] == [], s['rules'])
-check('给出"改默认动作会连带变"的提示',
-      any('提示' in x and '默认' in x for x in rep), rep)
+check(s['rules'] == [], '与默认同结果的规则被删', s['rules'])
+check(any('提示' in x and '默认' in x for x in rep),
+      '给出"改默认动作会连带变"的提示', rep)
 
 # 6. 混了 port/cidr 的规则一律不动
 mixed = {'match': {'domain': ['x.com'], 'port': [8080]}, 'action': 'direct'}
 s, rep = R.tidy_spec(spec([mixed, {'match': {'domain': ['x.com']}, 'action': 'direct'}]))
-check('非纯域名规则原样保留', s['rules'][0] == mixed, s['rules'])
+check(s['rules'][0] == mixed, '非纯域名规则原样保留', s['rules'])
 
 # 7. 幂等: 合并过的表再合并不变
 s1, _ = R.tidy_spec(spec([
@@ -85,7 +85,7 @@ s1, _ = R.tidy_spec(spec([
     {'match': {'domain': ['*.exa.ai']}, 'action': 'direct'},
     {'match': {'domain': ['google.com', '*.google.com']}, 'action': 'proxy:default'}]))
 s2, rep2 = R.tidy_spec(s1)
-check('幂等', s2 == s1 and not any(x.startswith('〔') for x in rep2), rep2)
+check(s2 == s1 and not any(x.startswith('〔') for x in rep2), '幂等', rep2)
 
 # 8. 语义等价回归: 合并前后逐域名判线必须一致
 old = spec([
@@ -104,33 +104,33 @@ for h in probes:
     a, b = ro.explain(u), rn.explain(u)
     if (a.get('action'), a.get('proxy')) != (b.get('action'), b.get('proxy')):
         diff.append((h, a.get('action'), b.get('action')))
-check('合并前后判线一致', not diff, diff)
+check(not diff, '合并前后判线一致', diff)
 
 # 9. 不修改传入的 dict (纯函数)
 orig = spec([{'match': {'domain': ['*.cn', '*.sina.com.cn']}, 'action': 'direct'}])
 snapshot = copy.deepcopy(orig)
 R.tidy_spec(orig)
-check('不改传进来的 spec', orig == snapshot)
+check(orig == snapshot, '不改传进来的 spec')
 
 # 10. 种子规则: 空表才补 (从包内模板读), 已有规则一律不动
 tpl = os.path.join(os.path.dirname(__file__), '..', 'src', 'webtool', 'data', 'rules.json')
 s = spec([])
 s['rules'] = []
 n = R.seed_rules(s, tpl)
-check('空规则表从模板补种子', n >= 1 and len(s['rules']) == n and n == 1, s)
+check(n >= 1 and len(s['rules']) == n and n == 1, '空规则表从模板补种子', s)
 
 s2 = spec([{'match': {'domain': ['*.mine.com']}, 'action': 'direct'}])
 n2 = R.seed_rules(s2, tpl)
-check('已有规则不覆盖', n2 == 0 and doms(s2) == ['*.mine.com'], s2)
+check(n2 == 0 and doms(s2) == ['*.mine.com'], '已有规则不覆盖', s2)
 
 # 模板本身要是"合并后的形态": 动作相同的规则只有一条
 import json
 tpl_spec = json.load(open(tpl, encoding='utf-8'))
 acts = [r.get('action') for r in tpl_spec.get('rules') or []]
-check('模板已合并 (同动作只有一条)', len(acts) == len(set(acts)), acts)
-check('模板不含冗余条目 (tidy 无结构性问题)',
-      not [x for x in R.tidy_spec(tpl_spec)[1]
+check(len(acts) == len(set(acts)), '模板已合并 (同动作只有一条)', acts)
+check(not [x for x in R.tidy_spec(tpl_spec)[1]
            if x.startswith('〔') and not x.startswith(('〔同默认〕', '〔提示〕'))],
+      '模板不含冗余条目 (tidy 无结构性问题)',
       R.tidy_spec(tpl_spec)[1])
 
 print('\n' + ('ALL PASS' if not fails else f'FAILED: {fails}'))

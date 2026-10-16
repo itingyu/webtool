@@ -15,10 +15,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 fails = []
 
-def check(name, cond):
-    print(('PASS' if cond else 'FAIL') + ' ' + name)
+def check(cond, msg):
+    print(('PASS' if cond else 'FAIL') + ' ' + msg)
     if not cond:
-        fails.append(name)
+        fails.append(msg)
 
 from webtool.core import logging as L
 
@@ -46,19 +46,19 @@ finally:
 rec = logging.LogRecord('webtool.test', logging.DEBUG, 'x.py', 1,
                         'hello %s', ('world',), None)
 msg = L._h.format(rec)
-check('非 tty 去色', '\033[' not in msg)
-check('格式含级别缩写与消息', 'D ' in msg and msg.endswith('hello world'))
+check('\033[' not in msg, '非 tty 去色')
+check('D ' in msg and msg.endswith('hello world'), '格式含级别缩写与消息')
 # 时间/线程/文件行号是排查三要素, 缺任一项这行日志都不及格 (见 test_smoke §17)
-check('格式含时间(带毫秒)', _re3.match(r'\d\d:\d\d:\d\d\.\d{3} ', msg) is not None)
-check('格式含线程名', '[MainThread] ' in msg)
-check('格式含文件:行号', ' x.py:1 ' in msg)
+check(_re3.match(r'\d\d:\d\d:\d\d\.\d{3} ', msg) is not None, '格式含时间(带毫秒)')
+check('[MainThread] ' in msg, '格式含线程名')
+check(' x.py:1 ' in msg, '格式含文件:行号')
 
-check('-d → DEBUG', root.level == logging.DEBUG and L._h.level == logging.DEBUG)
+check(root.level == logging.DEBUG and L._h.level == logging.DEBUG, '-d → DEBUG')
 
 # 幂等: 再调 setup 不加 handler
 L.setup(1)
-check('setup 幂等, handler 只装一次',
-      len([h for h in root.handlers if h is L._h]) == 1 and len(root.handlers) == 1)
+check(len([h for h in root.handlers if h is L._h]) == 1 and len(root.handlers) == 1,
+      'setup 幂等, handler 只装一次')
 
 # NO_COLOR: 即便 tty 也去色
 class _Tty(io.StringIO):
@@ -73,7 +73,7 @@ sys.stderr = _Tty()
 try:
     L.setup(1)
     rec = logging.LogRecord('webtool.test', logging.ERROR, 'x.py', 1, 'boom', None, None)
-    check('NO_COLOR 下 tty 也去色', '\033[' not in L._h.format(rec))
+    check('\033[' not in L._h.format(rec), 'NO_COLOR 下 tty 也去色')
 finally:
     sys.stderr = old_err
     if old_nocolor is None:
@@ -91,9 +91,9 @@ sys.stderr = _Tty()
 try:
     L.setup(1)
     rec = logging.LogRecord('webtool.test', logging.ERROR, 'x.py', 1, 'boom', None, None)
-    check('tty 下 ERROR 带色', '\033[31m' in L._h.format(rec))
-    check('日志进 stderr handler',
-          L._h.stream is sys.stderr or isinstance(L._h.stream, _Tty))
+    check('\033[31m' in L._h.format(rec), 'tty 下 ERROR 带色')
+    check(L._h.stream is sys.stderr or isinstance(L._h.stream, _Tty),
+          '日志进 stderr handler')
 finally:
     if _saved_nc is not None:
         os.environ['NO_COLOR'] = _saved_nc
@@ -101,13 +101,13 @@ finally:
 
 # WEBTOOL_DEBUG 环境变量
 os.environ['WEBTOOL_DEBUG'] = '1'
-check('WEBTOOL_DEBUG=1 等效 -d', L.env_debug() == 1)
+check(L.env_debug() == 1, 'WEBTOOL_DEBUG=1 等效 -d')
 os.environ['WEBTOOL_DEBUG'] = ''
-check('空值不算开', L.env_debug() == 0)
+check(L.env_debug() == 0, '空值不算开')
 os.environ.pop('WEBTOOL_DEBUG', None)
 
 # 日志确实路由到 stderr 而非 stdout: propagate 必须关
-check('propagate 关闭 (不污染上游 root)', root.propagate is False)
+check(root.propagate is False, 'propagate 关闭 (不污染上游 root)')
 
 # --log-file / WEBTOOL_LOG_FILE: 文件拿全量 DEBUG, stderr 不冒
 import tempfile  # noqa: E402
@@ -116,17 +116,17 @@ for h in list(root.handlers):
     root.removeHandler(h)
 L.setup(0, log_file=_tmpf)
 logging.getLogger('webtool.dao.cache').debug('trace-me')
-check('log-file 捕获 DEBUG (即使没开 -d)',
-      os.path.exists(_tmpf) and 'trace-me' in open(_tmpf, encoding='utf-8').read())
-check('log-file 时 logger 本体放到 DEBUG',
-      logging.getLogger('webtool').level == logging.DEBUG)
-check('stderr handler 仍按 debug 卡在 WARNING', L._h.level == logging.WARNING)
+check(os.path.exists(_tmpf) and 'trace-me' in open(_tmpf, encoding='utf-8').read(),
+      'log-file 捕获 DEBUG (即使没开 -d)')
+check(logging.getLogger('webtool').level == logging.DEBUG,
+      'log-file 时 logger 本体放到 DEBUG')
+check(L._h.level == logging.WARNING, 'stderr handler 仍按 debug 卡在 WARNING')
 
 for h in list(root.handlers):
     root.removeHandler(h)
 L.setup(2)
-check('-dd 放开三方库 DEBUG',
-      logging.getLogger('urllib3').level == logging.DEBUG)
+check(logging.getLogger('urllib3').level == logging.DEBUG,
+      '-dd 放开三方库 DEBUG')
 for h in list(root.handlers):
     root.removeHandler(h)
 

@@ -33,12 +33,12 @@ from webtool.net import proxy as P
 fails = []
 
 
-def check(name, cond, detail=''):
+def check(cond, msg, detail=''):
     if cond:
-        print(f'PASS {name}')
+        print(f'PASS {msg}')
     else:
-        print(f'FAIL {name} {detail}')
-        fails.append(name)
+        print(f'FAIL {msg} {detail}')
+        fails.append(msg)
 
 
 def _md5(p):
@@ -82,41 +82,41 @@ EXISTING = {'default': 'proxy:default',
 
 # 1. 规则文件已有 default → 遗留键不许覆盖, 且要出声
 rules, cfg, notes = run(dict(LEGACY), dict(EXISTING))
-check('已有 proxies.default 不被遗留键覆盖',
-      rules['proxies']['default'] == 'http://127.0.0.1:2080', rules.get('proxies'))
-check('覆盖被拒时给出说明并带上被丢弃的值',
-      '未迁' in notes and '127.0.0.1:9' in notes, notes[:200])
-check('规则文件其余内容不被顺手改写', rules['rules'] == EXISTING['rules'], rules)
-check('被拒的遗留键从 config.json 摘掉 (不再反复唠叨)', 'proxy' not in cfg, cfg)
+check(rules['proxies']['default'] == 'http://127.0.0.1:2080',
+      '已有 proxies.default 不被遗留键覆盖', rules.get('proxies'))
+check('未迁' in notes and '127.0.0.1:9' in notes,
+      '覆盖被拒时给出说明并带上被丢弃的值', notes[:200])
+check(rules['rules'] == EXISTING['rules'], '规则文件其余内容不被顺手改写', rules)
+check('proxy' not in cfg, '被拒的遗留键从 config.json 摘掉 (不再反复唠叨)', cfg)
 
 # 2. 规则文件为空 → 正常迁移 (升级路径不能破)
 rules, cfg, notes = run(dict(LEGACY), {'rules': []})
-check('无已有配置时正常迁移',
-      rules['proxies']['default'] == 'http://127.0.0.1:9'
-      and rules.get('default') == 'proxy:default', rules)
-check('迁移后 config.json 摘掉遗留键', 'proxy' not in cfg, cfg)
+check(rules['proxies']['default'] == 'http://127.0.0.1:9'
+      and rules.get('default') == 'proxy:default',
+      '无已有配置时正常迁移', rules)
+check('proxy' not in cfg, '迁移后 config.json 摘掉遗留键', cfg)
 
 # 3. 值相同 → 不算冲突
 rules, cfg, notes = run(dict(LEGACY),
                         dict(EXISTING, proxies={'default': 'http://127.0.0.1:9'}))
-check('值与现有一致时不报冲突',
-      rules['proxies']['default'] == 'http://127.0.0.1:9' and '未迁' not in notes,
+check(rules['proxies']['default'] == 'http://127.0.0.1:9' and '未迁' not in notes,
+      '值与现有一致时不报冲突',
       notes[:120])
 
 # 4. 没迁成的 proxy_rules 必须留在 config.json (不能假称保留实则删掉)
 rules, cfg, notes = run({'proxy_rules': [{'domain': ['x.com'], 'action': 'direct'}]},
                         dict(EXISTING))
-check('没迁成的 proxy_rules 留在 config.json', 'proxy_rules' in cfg, cfg)
+check('proxy_rules' in cfg, '没迁成的 proxy_rules 留在 config.json', cfg)
 
 # 5. 没有遗留键时什么都不写 (读操作不该有副作用)
 _c = {'rules_file': None, 'proxies': {}}
 rules, cfg, notes = run({'theme': 'dark'}, dict(EXISTING))
-check('没有遗留键时不写 rules.json', rules == EXISTING, rules)
-check('没有遗留键时不改 config.json', cfg == {'theme': 'dark'}, cfg)
+check(rules == EXISTING, '没有遗留键时不写 rules.json', rules)
+check(cfg == {'theme': 'dark'}, '没有遗留键时不改 config.json', cfg)
 
 # 6. 真实文件零改动 (helper 打错路径会在这里当场暴露)
-check('真实 config.json/rules.json 未被本测试改动',
-      (_md5(REAL_CFG), _md5(REAL_RULES)) == _before,
+check((_md5(REAL_CFG), _md5(REAL_RULES)) == _before,
+      '真实 config.json/rules.json 未被本测试改动',
       f'{_before} → {(_md5(REAL_CFG), _md5(REAL_RULES))}')
 
 print('\n' + ('ALL PASS' if not fails else f'FAILED: {fails}'))

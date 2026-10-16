@@ -31,10 +31,10 @@ from webtool.net import proxy as wproxy           # noqa: E402
 fails = []
 
 
-def check(name, cond, detail=''):
-    print(('PASS ' if cond else 'FAIL ') + name + ('' if cond else '  ' + detail))
+def check(cond, msg, detail=''):
+    print(('PASS ' if cond else 'FAIL ') + msg + ('' if cond else '  ' + detail))
     if not cond:
-        fails.append(name)
+        fails.append(msg)
 
 
 def md5s(root):
@@ -70,38 +70,38 @@ write('MY-NOTES.md', 'do not touch')
 before = md5s(TMP)
 
 created = boot.ensure_user_files()
-check('首次运行: 已有的文件一个都没新建', created == [], str(created))
-check('首次运行: 已有文件一个字节没变', md5s(TMP) == before,
+check(created == [], '首次运行: 已有的文件一个都没新建', str(created))
+check(md5s(TMP) == before, '首次运行: 已有文件一个字节没变',
       str([k for k in before if before.get(k) != md5s(TMP).get(k)]))
 
 # 规则表走一遍读取 (会经过遗留键迁移那条路)
 wproxy._load_rules_file(None)
 loaded = json.load(open(os.path.join(TMP, 'rules.json'), encoding='utf-8'))
-check('读过规则表后: 手写键还在', loaded.get('my_own_key') == ['hand-written'])
-check('读过规则表后: 代理线路没被改',
-      loaded['proxies']['default'] == 'http://127.0.0.1:2080')
-check('读过规则表后: 文件没被重写', md5s(TMP)['rules.json'] == before['rules.json'])
+check(loaded.get('my_own_key') == ['hand-written'], '读过规则表后: 手写键还在')
+check(loaded['proxies']['default'] == 'http://127.0.0.1:2080',
+      '读过规则表后: 代理线路没被改')
+check(md5s(TMP)['rules.json'] == before['rules.json'], '读过规则表后: 文件没被重写')
 
 # ── 2. 只缺 rules.json 时才补, 且不动别的 ───────────────────────────────
 os.unlink(os.path.join(TMP, 'rules.json'))
 created = boot.ensure_user_files()
-check('缺 rules.json → 补上', os.path.isfile(os.path.join(TMP, 'rules.json')))
-check('补种子不改动 config.json / 凭据',
-      json.load(open(os.path.join(TMP, 'config.json')))['my_own_knob'] == 'keep-me'
-      and os.path.isfile(os.path.join(TMP, 'secrets', 'vault.json')))
+check(os.path.isfile(os.path.join(TMP, 'rules.json')), '缺 rules.json → 补上')
+check(json.load(open(os.path.join(TMP, 'config.json')))['my_own_knob'] == 'keep-me'
+      and os.path.isfile(os.path.join(TMP, 'secrets', 'vault.json')),
+      '补种子不改动 config.json / 凭据')
 
 # ── 3. 种子文件清单只该有"整份落盘"的那几样 ─────────────────────────────
-check('SEED_FILES 只补整份落盘的文件 (不含走两层合并的 config.json)',
-      'config.json' not in boot.SEED_FILES
-      and 'plugins.json' not in boot.SEED_FILES, str(boot.SEED_FILES))
+check('config.json' not in boot.SEED_FILES
+      and 'plugins.json' not in boot.SEED_FILES,
+      'SEED_FILES 只补整份落盘的文件 (不含走两层合并的 config.json)', str(boot.SEED_FILES))
 
 # ── 4. 卸载默认不动数据, 只有显式 --purge-data 才删 ─────────────────────
 inv = un.data_inventory()
-check('卸载: 默认报的是安全模式 (不删数据)', inv is not None)
+check(inv is not None, '卸载: 默认报的是安全模式 (不删数据)')
 dry = un.perform(dry=True)
-check('卸载 dry-run: 只列出 pip uninstall, 不碰数据',
-      dry['dry_run'] and 'uninstall' in ' '.join(dry['cmd']))
-check('卸载后 ~/.webtool 仍在', os.path.isdir(TMP))
+check(dry['dry_run'] and 'uninstall' in ' '.join(dry['cmd']),
+      '卸载 dry-run: 只列出 pip uninstall, 不碰数据')
+check(os.path.isdir(TMP), '卸载后 ~/.webtool 仍在')
 
 # ── 5. upgrade 的 pip 参数里不该出现任何"清home"的动作 ──────────────────
 from webtool.core import upgrade as up            # noqa: E402
@@ -115,9 +115,9 @@ def _capture(args, timeout=None, env_extra=None):
 
 up._pip = _capture
 up.upgrade('webtool @ git+https://github.com/itingyu/webtool')
-check('upgrade 只跑 pip install --force-reinstall --no-deps (不卸载/不删数据)',
-      _capture.args[:3] == ['install', '--force-reinstall', '--no-deps'] and
+check(_capture.args[:3] == ['install', '--force-reinstall', '--no-deps'] and
       not any(a in _capture.args for a in ('uninstall', '--purge', 'clean')),
+      'upgrade 只跑 pip install --force-reinstall --no-deps (不卸载/不删数据)',
       str(_capture.args))
 up._pip = _real
 

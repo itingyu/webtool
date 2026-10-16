@@ -489,6 +489,17 @@ ip/ping 等连通性探测归 `net.connectivity`，不单开网络层，ICMP 受
 （查半天也想不到是环境变量）。所以装显式代理一律走
 `net.http._NoBypassProxyHandler`；`direct` 用空 ProxyHandler 反遮环境代理。
 
+## 测试脚本的 check() 只有一个签名
+
+手写测试序列统一 `check(cond, msg, detail='')` —— **条件在前，说明在后**。
+曾经 21 个脚本写 `check(说明, 条件)`、8 个写 `check(条件, 说明)`，同一个名字
+两套顺序，读的人得先翻定义。
+
+统一时最大的坑是**漏搬某个调用点**：如果那个脚本的 `check()` 体用 f-string
+打印（不靠 `+` 拼串），传反了也不报错 —— 说明文字是字符串、恒真，于是永远
+PASS。所以 `test_smoke.py` §21 用 AST 扫调用点，第一位是字符串常量 / f-string
+/ `%` 拼接就判 FAIL。
+
 ## 测试不许碰真实 HOME
 
 测试要验证"改配置 → 行为跟随"时，必须在**临时目录**里造配置，一个字节都

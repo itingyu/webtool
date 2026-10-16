@@ -20,10 +20,10 @@ os.environ['HOME'] = _TMP
 
 fails = []
 
-def check(name, cond):
-    print(('PASS' if cond else 'FAIL') + ' ' + name)
+def check(cond, msg):
+    print(('PASS' if cond else 'FAIL') + ' ' + msg)
     if not cond:
-        fails.append(name)
+        fails.append(msg)
 
 from webtool.dao import state
 state.PATH = os.path.join(_TMP, '.webtool', 'state.json')
@@ -41,8 +41,8 @@ def _flaky():
 sleeps = []
 out = R.retry_call(_flaky, url='', retries=3, backoff='flat',
                    sleep=lambda s: sleeps.append(s))
-check('重试到成功返回结果', out == 'ok' and len(calls) == 3)
-check('重试之间有等待', len(sleeps) == 2)
+check(out == 'ok' and len(calls) == 3, '重试到成功返回结果')
+check(len(sleeps) == 2, '重试之间有等待')
 
 def _always_fail():
     raise IOError('nope')
@@ -50,12 +50,12 @@ def _always_fail():
 try:
     R.retry_call(_always_fail, url='', retries=2, backoff='flat',
                  sleep=lambda s: None)
-    check('耗尽后原样抛异常', False)
+    check(False, '耗尽后原样抛异常')
 except IOError:
-    check('耗尽后原样抛异常', True)
+    check(True, '耗尽后原样抛异常')
 
 R.retry_call(lambda: 'x', url='', retries=0, backoff='flat')
-check('retries=0 直接调用不重试', True)
+check(True, 'retries=0 直接调用不重试')
 
 delays = []
 def _f():
@@ -64,7 +64,7 @@ try:
     R.retry_call(_f, url='', retries=6, backoff='exp', sleep=delays.append)
 except IOError:
     pass
-check('exp 退避有上限', all(d <= R.RETRY_CAP for d in delays) and len(delays) == 6)
+check(all(d <= R.RETRY_CAP for d in delays) and len(delays) == 6, 'exp 退避有上限')
 
 seen = []
 try:
@@ -72,87 +72,87 @@ try:
                  sleep=lambda s: None, on_retry=lambda a, e: seen.append(a))
 except IOError:
     pass
-check('on_retry 每次重试都回调', seen == [1])
+check(seen == [1], 'on_retry 每次重试都回调')
 
-check('retry_policy 无规则走默认',
-      R.retry_policy('https://example.org/') == (R.DEFAULT_RETRIES,
-                                                 R.DEFAULT_BACKOFF))
-check('breaker_policy 无规则走默认',
-      R.breaker_policy('https://example.org/') == (R.DEFAULT_FAIL_THRESHOLD,
-                                                   R.DEFAULT_COOL_SECONDS))
+check(R.retry_policy('https://example.org/') == (R.DEFAULT_RETRIES,
+                                                 R.DEFAULT_BACKOFF),
+      'retry_policy 无规则走默认')
+check(R.breaker_policy('https://example.org/') == (R.DEFAULT_FAIL_THRESHOLD,
+                                                   R.DEFAULT_COOL_SECONDS),
+      'breaker_policy 无规则走默认')
 
 # ── 2. Breaker ───────────────────────────────────────────────────
 b = R.Breaker('https://flaky.example/x')
-check('初始未打开', b.check() is None)
+check(b.check() is None, '初始未打开')
 for _ in range(R.DEFAULT_FAIL_THRESHOLD - 1):
     b.record(False)
-check('未到阈值不打开', b.check() is None)
+check(b.check() is None, '未到阈值不打开')
 b.record(False)
 left = b.check()
-check('到阈值打开并报剩余冷却', isinstance(left, (int, float)) and left > 0)
+check(isinstance(left, (int, float)) and left > 0, '到阈值打开并报剩余冷却')
 
 b2 = R.Breaker('https://ok.example/x')
 for _ in range(10):
     b2.record(False)
     b2.record(True)
-check('成功清零连败', b2._load().get('fails') == 0)
+check(b2._load().get('fails') == 0, '成功清零连败')
 
 b3 = R.Breaker('https://half.example/x')
 for _ in range(R.DEFAULT_FAIL_THRESHOLD):
     b3.record(False)
 state.set_breaker(b3.name, open_until=1)          # 手工过期 → 半开
-check('冷却过期后放行 (半开清零)',
-      b3.check() is None and b3._load().get('fails') == 0)
+check(b3.check() is None and b3._load().get('fails') == 0,
+      '冷却过期后放行 (半开清零)')
 
 # ── 3. parallel_map ──────────────────────────────────────────────
 import time as _t
 items = list(range(8))
 res = R.parallel_map(items, lambda x: (x, x * 2) if x != 3 else x, max_workers=4)
-check('顺序按声明 (结果与输入一一对应)',
-      [r[0] for r in res[:3]] == [(0, 0), (1, 2), (2, 4)])
+check([r[0] for r in res[:3]] == [(0, 0), (1, 2), (2, 4)],
+      '顺序按声明 (结果与输入一一对应)')
 
 def _boom(x):
     if x == 3:
         raise ValueError('x=3')
     return x
 res2 = R.parallel_map(items, _boom, max_workers=4)
-check('单任务异常不炸整批',
-      [r[0] for r in res2 if r[1] is None] == [0, 1, 2, 4, 5, 6, 7])
-check('异常放回自己的槽位', isinstance(res2[3][1], ValueError))
+check([r[0] for r in res2 if r[1] is None] == [0, 1, 2, 4, 5, 6, 7],
+      '单任务异常不炸整批')
+check(isinstance(res2[3][1], ValueError), '异常放回自己的槽位')
 
 t0 = _t.time()
 R.parallel_map(range(6), lambda x: (_t.sleep(0.2), x)[1], max_workers=6)
-check('并发确实并发 (6×0.2s < 1s)', _t.time() - t0 < 0.9)
-check('空列表返回空', R.parallel_map([], lambda x: x) == [])
-check('声明顺序在多线程下也保持',
-      [r[0] for r in R.parallel_map(range(20), lambda x: x, max_workers=8)] == list(range(20)))
+check(_t.time() - t0 < 0.9, '并发确实并发 (6×0.2s < 1s)')
+check(R.parallel_map([], lambda x: x) == [], '空列表返回空')
+check([r[0] for r in R.parallel_map(range(20), lambda x: x, max_workers=8)] == list(range(20)),
+      '声明顺序在多线程下也保持')
 
 # ── 4. Checkpoint ────────────────────────────────────────────────
 cp = R.Checkpoint('unittest-' + os.path.basename(_TMP))
 cp.clear()
-check('初始全部待办', cp.pending(['a', 'b', 'c']) == ['a', 'b', 'c'])
+check(cp.pending(['a', 'b', 'c']) == ['a', 'b', 'c'], '初始全部待办')
 cp.done('a')
 cp.done('b')
-check('已完成条目被跳过', cp.pending(['a', 'b', 'c']) == ['c'])
+check(cp.pending(['a', 'b', 'c']) == ['c'], '已完成条目被跳过')
 cp2 = R.Checkpoint('unittest-' + os.path.basename(_TMP))
-check('断点跨实例生效 (落盘)', cp2.pending(['a', 'b', 'c']) == ['c'])
+check(cp2.pending(['a', 'b', 'c']) == ['c'], '断点跨实例生效 (落盘)')
 cp2.clear()
-check('清空后重新待办', cp2.pending(['a']) == ['a'])
+check(cp2.pending(['a']) == ['a'], '清空后重新待办')
 
 # ── 5. stdin ────────────────────────────────────────────────────
 from webtool.core import stdin as S
 
-check('显式参数直接返回', S.read_input('abc') == 'abc')
-check('parse_lines 跳空行与注释',
-      S.parse_lines('a\n\n# c\nb\n') == ['a', 'b'])
-check('parse_jsonl 逐行解析',
-      S.parse_jsonl('{"a":1}\n{"b":2}') == [{'a': 1}, {'b': 2}])
+check(S.read_input('abc') == 'abc', '显式参数直接返回')
+check(S.parse_lines('a\n\n# c\nb\n') == ['a', 'b'],
+      'parse_lines 跳空行与注释')
+check(S.parse_jsonl('{"a":1}\n{"b":2}') == [{'a': 1}, {'b': 2}],
+      'parse_jsonl 逐行解析')
 try:
     S.parse_jsonl('{"a":1}\nnot-json')
-    check('parse_jsonl 坏行报错 rc=2', False)
+    check(False, 'parse_jsonl 坏行报错 rc=2')
 except SystemExit as e:
-    check('parse_jsonl 坏行报错 rc=2', e.code == 2)
-check('空文本 → 空列表', S.parse_lines('') == [])
+    check(e.code == 2, 'parse_jsonl 坏行报错 rc=2')
+check(S.parse_lines('') == [], '空文本 → 空列表')
 
 _stdin = sys.stdin
 class _Pipe(io.StringIO):
@@ -164,17 +164,17 @@ class _Tty(io.StringIO):
 
 sys.stdin = _Pipe('x\n')
 try:
-    check('无参 + 管道 → 读 stdin', S.read_input() == 'x')
+    check(S.read_input() == 'x', '无参 + 管道 → 读 stdin')
 finally:
     sys.stdin = _stdin
 sys.stdin = _Tty('x\n')
 try:
-    check('无参 + tty → None', S.read_input() is None)
+    check(S.read_input() is None, '无参 + tty → None')
     try:
         S.read_input('-')
-        check("'-' + tty → 用法错 rc=2", False)
+        check(False, "'-' + tty → 用法错 rc=2")
     except SystemExit as e:
-        check("'-' + tty → 用法错 rc=2", e.code == 2)
+        check(e.code == 2, "'-' + tty → 用法错 rc=2")
 finally:
     sys.stdin = _stdin
 

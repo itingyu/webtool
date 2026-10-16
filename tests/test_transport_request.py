@@ -32,13 +32,13 @@ N = [0]
 FAIL = []
 
 
-def check(cond, msg, extra=''):
+def check(cond, msg, detail=''):
     N[0] += 1
     if cond:
-        print(f'PASS {msg}' + (f' ({extra})' if extra else ''))
+        print(f'PASS {msg}' + (f' ({detail})' if detail else ''))
     else:
         FAIL.append(msg)
-        print(f'FAIL {msg}' + (f' ({extra})' if extra else ''))
+        print(f'FAIL {msg}' + (f' ({detail})' if detail else ''))
 
 
 SEEN = []

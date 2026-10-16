@@ -1287,6 +1287,30 @@ for _f in _ext_files:
 check(not _ext_hits,
       '代码常量里没有仓外路径 (有就换机器挂/静默降级): ' + str(_ext_hits[:3]))
 
+print('\n=== 21. 各测试脚本的 check() 参数顺序统一 (AST 扫调用点) ===')
+# 出过一次: 21 个脚本写 check(说明, 条件), 8 个写 check(条件, 说明), 同一个名字两套
+# 顺序, 看的人得先翻定义。统一成 check(条件, 说明, detail='') 后, 最大的坑是漏搬
+# 某个调用点 —— 如果那个脚本的 check() 体用 f-string 打印, 传反了也不报错, 只会
+# 永远 PASS (说明文字是字符串, 恒真)。所以专门扫: 第一位不许是说明文字。
+_MSG_BAD = 0
+_tests_dir = _pl.Path(__file__).resolve().parent
+for _f in sorted(_tests_dir.glob('test_*.py')):
+    _t = _ast2.parse(_f.read_text(encoding='utf-8'))
+    for _n in _ast2.walk(_t):
+        if not (isinstance(_n, _ast2.Call) and getattr(_n.func, 'id', '') == 'check'):
+            continue
+        if not _n.args:
+            continue
+        _a0 = _n.args[0]
+        _looks_like_msg = (
+            (isinstance(_a0, _ast2.Constant) and isinstance(_a0.value, str))
+            or isinstance(_a0, _ast2.JoinedStr)
+            or (isinstance(_a0, _ast2.BinOp) and isinstance(_a0.op, _ast2.Mod)))
+        if _looks_like_msg:
+            _MSG_BAD += 1
+            print('   %s:%d 第一位是说明文字' % (_f.name, _n.lineno))
+check(_MSG_BAD == 0, 'check() 第一位一律是条件 (说明文字排第二): %d 处不符' % _MSG_BAD)
+
 if fails:
     sys.exit(1)
 print('ALL PASS')

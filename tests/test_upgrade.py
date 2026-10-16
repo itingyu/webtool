@@ -22,14 +22,14 @@ from webtool.core import version as _ver           # noqa: E402
 PASS = FAIL = SKIP = 0
 
 
-def check(cond, label, detail=''):
+def check(cond, msg, detail=''):
     global PASS, FAIL
     if cond:
         PASS += 1
-        print(f'PASS {label}' + (f' ({detail})' if detail else ''))
+        print(f'PASS {msg}' + (f' ({detail})' if detail else ''))
     else:
         FAIL += 1
-        print(f'FAIL {label}' + (f' (实际 {detail})' if detail else ''))
+        print(f'FAIL {msg}' + (f' (实际 {detail})' if detail else ''))
 
 
 def skip(label, why):

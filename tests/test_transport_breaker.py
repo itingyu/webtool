@@ -20,10 +20,10 @@ os.environ['HOME'] = _TMP
 
 fails = []
 
-def check(name, cond, detail=''):
-    print(('PASS' if cond else 'FAIL') + ' ' + name + (' ' + detail if detail and not cond else ''))
+def check(cond, msg, detail=''):
+    print(('PASS' if cond else 'FAIL') + ' ' + msg + (' ' + detail if detail and not cond else ''))
     if not cond:
-        fails.append(name)
+        fails.append(msg)
 
 from webtool.dao import state
 state.PATH = os.path.join(_TMP, '.webtool', 'state.json')
@@ -63,17 +63,17 @@ for _ in range(DEFAULT_FAIL_THRESHOLD):
     except RuntimeError:
         pass
     except T.BreakerOpenError as e:
-        check('阈值前不该已打开', False)
-check('阈值前每次都真发了请求', len(calls) - n0 == DEFAULT_FAIL_THRESHOLD,
+        check(False, '阈值前不该已打开')
+check(len(calls) - n0 == DEFAULT_FAIL_THRESHOLD, '阈值前每次都真发了请求',
       '实发 %d' % (len(calls) - n0))
 
 before = len(calls)
 try:
     T.get(URL)
-    check('熔断打开后抛 BreakerOpenError', False)
+    check(False, '熔断打开后抛 BreakerOpenError')
 except T.BreakerOpenError as e:
-    check('熔断打开后抛 BreakerOpenError', '熔断打开中' in str(e))
-check('短路: 请求根本没发出去', len(calls) == before)
+    check('熔断打开中' in str(e), '熔断打开后抛 BreakerOpenError')
+check(len(calls) == before, '短路: 请求根本没发出去')
 
 # ── 3. TlsError 不连坐 ──────────────────────────────────────────
 TLSURL = 'https://tls.example/x'
@@ -86,9 +86,9 @@ for _ in range(DEFAULT_FAIL_THRESHOLD + 2):
     except T.TlsError:
         pass
     except T.BreakerOpenError:
-        check('TlsError 不该触发熔断', False)
-check('TlsError 不累计失败',
-      int(Breaker(TLSURL)._load().get('fails', 0)) == 0)
+        check(False, 'TlsError 不该触发熔断')
+check(int(Breaker(TLSURL)._load().get('fails', 0)) == 0,
+      'TlsError 不累计失败')
 
 # ── 4. 成功清零 ─────────────────────────────────────────────────
 OKURL = 'https://ok2.example/y'
@@ -100,10 +100,10 @@ for _ in range(3):
         T.get(OKURL)
     except RuntimeError:
         pass
-check('失败已累计', int(Breaker(OKURL)._load().get('fails', 0)) == 3)
+check(int(Breaker(OKURL)._load().get('fails', 0)) == 3, '失败已累计')
 mode['kind'] = 'ok'
 T.get(OKURL)
-check('成功清零连败', int(Breaker(OKURL)._load().get('fails', 0)) == 0)
+check(int(Breaker(OKURL)._load().get('fails', 0)) == 0, '成功清零连败')
 
 # ── 5. 域隔离 ───────────────────────────────────────────────────
 A, B = 'https://iso-a.example/a', 'https://iso-b.example/b'
@@ -122,9 +122,9 @@ except T.BreakerOpenError:
 mode['kind'] = 'ok'
 try:
     r = T.get(B)
-    check('另一个站不受影响', r[0] == 'body')
+    check(r[0] == 'body', '另一个站不受影响')
 except Exception as e:
-    check('另一个站不受影响', False)
+    check(False, '另一个站不受影响')
 
 # ── 6. 非幂等通道 (request) 共用同一套熔断 ──────────────────────
 import inspect
@@ -135,12 +135,12 @@ for _ in range(DEFAULT_FAIL_THRESHOLD):
     br.record(False)
 try:
     T._breaker_guard(REQURL)
-    check('共用 helper: 已打开的熔断对 request 通道同样生效', False)
+    check(False, '共用 helper: 已打开的熔断对 request 通道同样生效')
 except T.BreakerOpenError:
-    check('共用 helper: 已打开的熔断对 request 通道同样生效', True)
-check('request 通道确实走同一个熔断 helper',
-      '_breaker_guard(' in inspect.getsource(T.request) and
-      '_count_failure(' in inspect.getsource(T._guarded))
+    check(True, '共用 helper: 已打开的熔断对 request 通道同样生效')
+check('_breaker_guard(' in inspect.getsource(T.request) and
+      '_count_failure(' in inspect.getsource(T._guarded),
+      'request 通道确实走同一个熔断 helper')
 
 print()
 if fails:

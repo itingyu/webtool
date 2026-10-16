@@ -32,12 +32,12 @@ from webtool.cli import app as app_mod          # noqa: E402
 fails = []
 
 
-def check(name, cond, detail=''):
+def check(cond, msg, detail=''):
     if cond:
-        print('PASS %s' % name)
+        print('PASS %s' % msg)
     else:
-        print('FAIL %s %s' % (name, detail))
-        fails.append(name)
+        print('FAIL %s %s' % (msg, detail))
+        fails.append(msg)
 
 
 PROXY_ENV = {'HTTP_PROXY': 'http://127.0.0.1:2080',
@@ -61,50 +61,50 @@ cases = [
 ]
 for spec, want_url, want_tr in cases:
     got_url, got_tr = up.spec_url(spec)
-    check('spec_url %s' % spec, (got_url, got_tr) == (want_url, want_tr),
+    check((got_url, got_tr) == (want_url, want_tr), 'spec_url %s' % spec,
           '%r != %r' % ((got_url, got_tr), (want_url, want_tr)))
 
-check('spec_url 不给 spec → 按默认官方仓库 (https)',
-      up.spec_url(None)[1] == 'https', str(up.spec_url(None)))
+check(up.spec_url(None)[1] == 'https',
+      'spec_url 不给 spec → 按默认官方仓库 (https)', str(up.spec_url(None)))
 
 # ── 只有 http(s)/index 才认环境变量里的代理 ─────────────────────────────
-check('https 源 + 代理 → 无需提示',
-      app_mod._pip_route_note('git+https://github.com/a/b', PROXY_ENV) is None)
-check('PyPI 源 + 代理 → 无需提示',
-      app_mod._pip_route_note('requests', PROXY_ENV) is None)
+check(app_mod._pip_route_note('git+https://github.com/a/b', PROXY_ENV) is None,
+      'https 源 + 代理 → 无需提示')
+check(app_mod._pip_route_note('requests', PROXY_ENV) is None,
+      'PyPI 源 + 代理 → 无需提示')
 note = app_mod._pip_route_note('git+ssh://git@github.com/a/b', PROXY_ENV)
-check('ssh 源 + 代理 → 明说代理无效并给出替代命令',
-      note and '不认' in note and 'git+https' in note, str(note))
+check(note and '不认' in note and 'git+https' in note,
+      'ssh 源 + 代理 → 明说代理无效并给出替代命令', str(note))
 note = app_mod._pip_route_note('git://github.com/a/b.git', PROXY_ENV)
-check('git:// 源 + 代理 → 同样明说', note and '不认' in note, str(note))
-check('本地源 + 代理 → 不唠叨 (压根不出网)',
-      app_mod._pip_route_note('file:///srv/webtool', PROXY_ENV) is None)
-check('ssh 源但本来就是直连 → 不唠叨',
-      app_mod._pip_route_note('git+ssh://git@github.com/a/b', DIRECT_ENV) is None)
+check(note and '不认' in note, 'git:// 源 + 代理 → 同样明说', str(note))
+check(app_mod._pip_route_note('file:///srv/webtool', PROXY_ENV) is None,
+      '本地源 + 代理 → 不唠叨 (压根不出网)')
+check(app_mod._pip_route_note('git+ssh://git@github.com/a/b', DIRECT_ENV) is None,
+      'ssh 源但本来就是直连 → 不唠叨')
 
 # ── 判线路用的是"源的地址", 不是写死的 github.com ────────────────────────
-check('默认源 (github) → 规则表判代理, 给 pip 塞代理变量',
-      app_mod._pip_proxy_env().get('HTTPS_PROXY') == 'http://127.0.0.1:2080',
+check(app_mod._pip_proxy_env().get('HTTPS_PROXY') == 'http://127.0.0.1:2080',
+      '默认源 (github) → 规则表判代理, 给 pip 塞代理变量',
       str(app_mod._pip_proxy_env()))
-check('--from 换成规则表判直连的源 → 改成 NO_PROXY=* (不拿 github 的线路套)',
-      set(app_mod._pip_proxy_env('git+https://git.lab/x/y.git')) ==
+check(set(app_mod._pip_proxy_env('git+https://git.lab/x/y.git')) ==
       {'NO_PROXY', 'no_proxy'},
+      '--from 换成规则表判直连的源 → 改成 NO_PROXY=* (不拿 github 的线路套)',
       str(app_mod._pip_proxy_env('git+https://git.lab/x/y.git')))
 
 # ── note 要出现在人读输出与 json 里 ─────────────────────────────────────
 _real_pip = up._pip
 up._pip = lambda args, timeout=None, env_extra=None: (0, '', '')
 _info = up.check('git+ssh://git@github.com/a/b', env_extra=PROXY_ENV, note=note)
-check('check: json 带 route_note', _info.get('route_note') == note)
-check('check: describe 打成"注意"行', '注意' in up.describe(_info),
+check(_info.get('route_note') == note, 'check: json 带 route_note')
+check('注意' in up.describe(_info), 'check: describe 打成"注意"行',
       up.describe(_info).replace('\n', ' | ')[:120])
 _info2 = up.check('git+https://github.com/a/b', env_extra=PROXY_ENV)
-check('check: 正常源不带 route_note, 也不多一行',
-      'route_note' not in _info2 and '注意' not in up.describe(_info2))
+check('route_note' not in _info2 and '注意' not in up.describe(_info2),
+      'check: 正常源不带 route_note, 也不多一行')
 
 _res = up.upgrade('git+ssh://git@github.com/a/b', env_extra=PROXY_ENV, note=note)
-check('upgrade: log 里紧跟 pip 行插了注意',
-      _res['log'][1].startswith('注意') and _res['route_note'] == note,
+check(_res['log'][1].startswith('注意') and _res['route_note'] == note,
+      'upgrade: log 里紧跟 pip 行插了注意',
       str(_res['log'][:2]))
 up._pip = _real_pip
 
