@@ -508,6 +508,7 @@ from webtool.stock.bridge import srv as _srv_probe
 
 _ENGINE_DIR = _eng.ENGINE_DIR
 _STOCK_DIR = os.path.dirname(_ENGINE_DIR)
+_SOURCES_DIR = os.path.join(_STOCK_DIR, 'bridge', 'sources')
 
 print()
 print('=== stock engine (包内静态 import) ===')
@@ -634,11 +635,21 @@ with _tf.TemporaryDirectory() as _td:
                       'webtool/stock/engine/clients/__init__.py',
                       'webtool/stock/data/api_categories.json'):
             check(_need in _names, f'wheel 内含 {_need}')
-        # 数据源池按源拆成十个模块, 漏一个那个源整条不可用 —— 逐个点名
-        for _s in ('_base', 'ths', 'em', 'xueqiu', 'sina', 'tencent',
+        # 数据源池按源拆成十个模块, 漏一个那个源整条不可用 —— 逐个点名。
+        # em 是**包** (按端点族拆的 mixin 子模块), 所以对它逐文件比对而不是
+        # 断言一个 sources/em.py: 包拆出来之后那个路径就不存在了, 断言不跟着改
+        # 就成了恒 FAIL 的死检查 (守卫看着还在, 实际早就不看任何东西了)。
+        for _s in ('_base', 'ths', 'xueqiu', 'sina', 'tencent',
                    'cninfo', 'csindex', 'sse', 'np', 'ef'):
             check(f'webtool/stock/bridge/sources/{_s}.py' in _names,
                   f'wheel 内含 sources/{_s}.py')
+        _em_dir = os.path.join(_SOURCES_DIR, 'em')
+        _em_py = sorted(f for f in os.listdir(_em_dir) if f.endswith('.py'))
+        _em_miss = [f for f in _em_py
+                    if f'webtool/stock/bridge/sources/em/{f}' not in _names]
+        check(not _em_miss,
+              f'sources/em 包全部 {len(_em_py)} 个 py 都进了 wheel'
+              + (f' (缺 {len(_em_miss)}: {_em_miss[:3]})' if _em_miss else ''))
         # engine 逐文件比对: 源码树有 py, wheel 就必须有同名条目
         _src_py = {os.path.relpath(os.path.join(r, f),
                                    _ENGINE_DIR).replace(os.sep, '/')

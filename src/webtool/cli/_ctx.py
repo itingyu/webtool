@@ -8,7 +8,12 @@ import sys
 from contextlib import redirect_stdout
 
 import typer
-from typer._click.exceptions import UsageError as _UsageError
+
+# typer 0.26 起 vendor 了 click: 异常类在 typer._click.exceptions, 与顶层 click 不同源
+try:
+    from typer._click.exceptions import UsageError as _UsageError
+except ImportError:                        # typer <= 0.25: 异常来自顶层 click
+    from click.exceptions import UsageError as _UsageError
 
 from webtool.core.logging import get_logger
 from webtool.net import proxy as _proxy
