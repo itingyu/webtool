@@ -536,6 +536,36 @@ def _passwd(args, cfg):
     return 0
 
 
+def _drift_hint(spec, cfg):
+    """用户规则缺随包默认的 direct 域名时, 给一句可执行的补法"""
+    import json as _json
+    from importlib import resources
+
+    from webtool.net import rules as _R
+    try:
+        shipped = _json.loads(
+            resources.files('webtool').joinpath('data/rules.json').read_text())
+    except (OSError, ValueError):
+        return
+    def domains(sp):
+        out = set()
+        for r in (sp or {}).get('rules') or []:
+            if not isinstance(r, dict) or r.get('kind'):
+                continue
+            if _R.resolve_action(r.get('action'))[0] != 'direct':
+                continue
+            for d in (r.get('match') or {}).get('domain') or []:
+                out.add(d.lower().lstrip('*').lstrip('.'))
+        return out
+    missing = domains(shipped) - domains(spec)
+    if missing:
+        sample = ' '.join(sorted(missing)[:6])
+        print('ℹ 随包默认的直连域名有更新, 你的规则文件还没有 (%d 个): %s'
+              % (len(missing), sample))
+        print("  补: webtool proxy rule add '{\"domain\":[\"%s\"]}' direct"
+              % '", "'.join(sorted(missing)[:6]))
+
+
 def _rules(args, cfg):
     """规则查看 / 试算"""
     from webtool.net import rules as R
@@ -559,6 +589,10 @@ def _rules(args, cfg):
         via = f' → {name}' if name else ''
         print(f'  [{i}] {json.dumps(rule.get("match"), ensure_ascii=False)}'
               f'  ⇒ {act}{via}')
+    # 配置漂移提醒: 随包默认的 direct 域名后来又加过新的 (引擎声明直连的站),
+    # 用户文件按约定永不被覆盖, 旧快照就会一直缺 —— 引擎实际走的通道与
+    # docstring 声称不符, 这种错只在某个引擎悄悄 0 结果时才被发现。
+    _drift_hint(spec, cfg)
     # 有冗余就当场说, 别等用户自己发现规则表越长越难维护
     try:
         _, report = R.tidy_spec(spec)
