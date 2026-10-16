@@ -14,6 +14,9 @@ from urllib.parse import unquote, urlparse
 from webtool.core import cache
 from webtool.core import text
 import webtool.engines.extractors as extractors
+from webtool.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 # 提取链世代: 提取算法换一代就 +1。缓存键里带着它, 换了算法就等于换了一套缓存,
 # 免得把上一代留下的垃圾正文 (整页 dump 那种) 继续端给用户。
@@ -184,7 +187,7 @@ def _read_capped(resp, cap):
             if len(buf) >= cap:
                 break
     except Exception:
-        pass
+        logger.debug('忽略异常 (容忍路径)', exc_info=True)
     finally:
         try:
             resp.close()
@@ -258,6 +261,22 @@ def do_fetch(args, cfg):
         return 2
 
     single = len(urls) == 1
+
+    # 断点续跑 (R9): 批任务挂掉重跑, 已成功的条目不再花网络。按 URL 集合
+    # 指纹记账 —— 同一批 URL 共享一个 checkpoint, 换一批互不干扰。
+    cp = None
+    if getattr(args, 'resume', False) and not single:
+        import hashlib
+        from webtool.core.resilient import Checkpoint
+        cp = Checkpoint('fetch-' + hashlib.md5(
+            '\n'.join(sorted(urls)).encode()).hexdigest()[:10])
+        done_n = len(urls) - len(cp.pending(urls))
+        if done_n:
+            print(f'[resume] 跳过已完成 {done_n}/{len(urls)}', file=sys.stderr)
+        urls = cp.pending(urls)
+        if not urls:
+            print('[resume] 本批全部已完成', file=sys.stderr)
+            return 0
     results = []
     # 'auto' = 路由表按域名/IP/协议分流; --proxy 可临时点名或强制直连
     proxy = 'auto'
@@ -299,8 +318,14 @@ def do_fetch(args, cfg):
     if single:
         results = [work(urls[0])]
     else:
-        with cf.ThreadPoolExecutor(min(5, len(urls))) as ex:
+        from webtool.core.resilient import MAX_WORKERS
+        with cf.ThreadPoolExecutor(min(MAX_WORKERS, len(urls))) as ex:
             results = list(ex.map(work, urls))
+
+    if cp is not None:
+        for u, r in zip(urls, results):
+            if not r.get('error'):
+                cp.done(u)
 
     if args.format == 'json' and not single:
         print(json.dumps(results, ensure_ascii=False, indent=1))
@@ -488,7 +513,7 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
                 except Exception:
                     pass
     except Exception:
-        pass
+        logger.debug('忽略异常 (容忍路径)', exc_info=True)
     if args.raw:
         return {'url': url, 'status': status, 'html': html, 'via': via,
                 'took_ms': int((time.time() - t0) * 1000)}

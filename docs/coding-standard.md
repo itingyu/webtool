@@ -144,6 +144,8 @@ ip/ping 等连通性探测归 `core.probe`，不单开网络层，ICMP 受限环
 - 粒度随对象：proxy/dns/HTTP 指纹/熔断按**域名**；timeout/retry 按域名+路径；渲染按输出格式
 - 匹配：具体 > 通配，priority 显式可调；**无命中走通用默认值**，通用默认值集中在该层模块顶部常量，不散落调用点
 - 新环节要特殊化时先问：默认路径能不能覆盖？能就不加 kind；加 kind 必须同时给通用默认 + 文档一条
+- **kind 必须有消费方才立**：`http`/`retry`/`breaker` 已接线（transport/resilient）；
+  `params_for()` 对任意 kind 都能查，但没有消费方的 kind 属预留位，不写进文档当能力
 
 ## 2.6 日志与 --debug
 
@@ -447,9 +449,11 @@ config.json，而遗留键迁移顺手把该值写进了 `rules.json` 的 `proxi
 feeds、股票源（`stock/bridge/**`）、MCP（`net/mcpclient`）、LLM（`cli/zen`）、
 探活（`core/probe`）都经它出网 —— 线路（`netx`）、证书（`tls.policy`）、
 指纹（`headers_for`）、cookie、流式读法全在那一层，别处不再各建一套。
-`core/http.py` 的 urllib 通道是 transport 的备胎本体（cffi 崩了才走），不是
-第二条策略。清单钉在 `tests/test_netx.py`「出网原语必须登记」一节：新开一个
+`core/http.py` 的 urllib 通道是 transport 的备胎本体（cffi 崩了才走），不是第二条策略。清单钉在 `tests/test_netx.py`「出网原语必须登记」一节：新开一个
 `requests.` / `_cr.Session` / `urlopen` 出口会被测试拦下，逼你来这里签字。
+（`core/http.py` 曾被列入"与 net 层重叠待合并"——评估结论：不合并。它是
+net 之下的原语，net/proxy、net/netx、net/transport 三处依赖它，按"谁被
+依赖更广住更低"恰好住对了；真正重叠的通道组装已由 transport 统一。）
 
 只留下三个明确例外（都登记在册）：
 

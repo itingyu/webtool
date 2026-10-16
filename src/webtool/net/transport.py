@@ -237,7 +237,7 @@ def _export_cookies(session):
                         'domain': c.domain, 'path': c.path,
                         'expires': c.expires, 'secure': bool(c.secure)})
     except Exception:
-        pass
+        logger.debug('忽略异常 (容忍路径)', exc_info=True)
     return out
 
 
@@ -1052,7 +1052,7 @@ def resolve_redirect(url, *, referer=None, proxy=None, timeout=10,
         # 变成一个查不出原因的错误结果
         raise TlsError(_tls_msg(url, verify, e)) from e
     except Exception:
-        pass
+        logger.debug('忽略异常 (容忍路径)', exc_info=True)
     return None
 
 

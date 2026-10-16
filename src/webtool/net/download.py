@@ -21,6 +21,9 @@ import shutil
 import sys
 import threading
 import time
+from webtool.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 CHUNK = 64 * 1024
 # .part 的同伴: 记着"这是谁的、下到哪、服务端那份的验证器"。给 .part 再挂后缀
@@ -453,4 +456,4 @@ def _close(resp):
     try:
         resp.close()
     except Exception:
-        pass
+        logger.debug('忽略异常 (容忍路径)', exc_info=True)

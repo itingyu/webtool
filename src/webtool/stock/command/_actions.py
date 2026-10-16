@@ -24,17 +24,18 @@ from webtool.stock.bridge import srv as _srv
 
 from webtool.stock.command._common import _args_dict
 from webtool.stock.command._common import _code
+from webtool.stock.command._common import codes_input
 from webtool.stock.command._common import _index_symbol
 from webtool.stock.command._common import _write_kline_chart
 
 def _act_quote(args, cfg):
-    return _engine.do_quote(args.codes)
+    return _engine.do_quote(codes_input(args))
 
 def _act_pool(args, cfg):
     return _engine.do_pool(args.date, args.only_buy)
 
 def _act_check(args, cfg):
-    return _engine.do_check(args.codes)
+    return _engine.do_check(codes_input(args))
 
 def _act_calendar(args, cfg):
     return _engine.do_calendar(args.date, args.n)
@@ -58,7 +59,7 @@ def _act_screen(args, cfg):
     return _engine.do_screen(args.pool, args.min_score, args.codes)
 
 def _act_risk(args, cfg):
-    return _engine.do_risk(args.codes)
+    return _engine.do_risk(codes_input(args))
 
 def _act_holder(args, cfg):
     """股东研究 (东财) —— 持仓变动/机构调研, 比 stock_top_holders 动作更细"""

@@ -261,3 +261,21 @@ def _j(v, n=200):
     except (TypeError, ValueError):
         return str(v)[:n]
 
+
+
+def codes_input(args):
+    """多代码动作的输入归一: 显式参数 > '-' / 管道 stdin
+
+    `webtool stock quote -`、`cat codes.txt | webtool stock check` 都到这;
+    单股动作 (kline 等) 取首个时也先过这里, 保证 '-' 不会当代码去查。
+    """
+    codes = list(getattr(args, 'codes', None) or [])
+    if codes == ['-'] or not codes:
+        from webtool.core import stdin as _stdin
+        parsed = _stdin.parse_lines(_stdin.read_input(
+            '-' if not codes and _stdin.is_pipe() else (codes[0] if codes else None)))
+        if parsed:
+            return parsed
+        if not codes:
+            return []
+    return codes

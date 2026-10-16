@@ -249,6 +249,9 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
                                              '代理名 (webtool proxy named list) / 完整 URL'),
               fmt: str = Fmt, output: str = Output,
               no_proxy: bool = NoProxy, no_cache: bool = NoCache,
+              resume: bool = typer.Option(False, '--resume',
+                                          help='多 URL 批任务断点续跑: 跳过上批已成功的 URL '
+                                               '(按 URL 集合指纹记账)'),
               max_chars: int = typer.Option(0, '--max-chars', help='正文截断字符数, 0=不截断'),
               raw: bool = typer.Option(False, '--raw', help='跳过正文提取, 输出原始 HTML'),
               with_metadata: bool = typer.Option(False, '--with-metadata',
@@ -284,6 +287,7 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
     a.progress = progress
     a.jobs = jobs
     a.via = via
+    a.resume = resume
     return _run('data', _do('fetch'), fmt, output, no_cache, no_proxy)
 
 

@@ -17,6 +17,9 @@ SPA 站点的首屏数据通常以 JSON 形态内嵌在 HTML 的 <script> 里 (S
 import json
 import re
 import urllib.parse
+from webtool.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 # window.<STATE> = {...} 挂载点 (Next/Nuxt/Redux/Vue/自研常见命名)
 # 内置名单 + 用户追加: filters.json 的 spa.extra_state_names (新框架名免改代码)
@@ -275,7 +278,7 @@ def _fmt_time(v):
         if 1e9 < ts < 4e9:
             return datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M')
     except Exception:
-        pass
+        logger.debug('忽略异常 (容忍路径)', exc_info=True)
     return None
 
 
