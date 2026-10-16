@@ -22,6 +22,7 @@ import json
 
 
 from webtool.stock.command._common import _passthrough
+from webtool.stock.command._common import _j
 from webtool.stock.command._common import _unresolved
 
 # 视图助手: _render 等外部调用方按本模块 (text 视图门面) 取用, 不直接
@@ -64,7 +65,7 @@ def _text(out, action):
                 print('\n--- meta ---')
                 print(json.dumps(rest, ensure_ascii=False, indent=1))
             return
-        print(json.dumps(out, ensure_ascii=False, indent=1))
+        print(_j(out, 2000))
         return
 
     if action == 'eco-health':
@@ -142,9 +143,9 @@ def _text(out, action):
     if isinstance(out, dict):
         for k, v in out.items():
             if isinstance(v, (dict, list)):
-                print(f"{k}: {json.dumps(v, ensure_ascii=False)}")
+                print(f"{k}: {_j(v, 2000)}")
             else:
                 print(f"{k}: {v}")
     else:
-        print(json.dumps(out, ensure_ascii=False, indent=1))
+        print(_j(out, 2000))
 

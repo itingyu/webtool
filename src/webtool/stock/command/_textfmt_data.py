@@ -47,7 +47,7 @@ def _text_srv(out, note_only=False):
     if note_only:
         return
     if not isinstance(out, dict):
-        print(json.dumps(out, ensure_ascii=False, indent=1))
+        print(_j(out, 2000))
         return
     source = out.get('source')
     if source:
@@ -79,7 +79,7 @@ def _text_srv(out, note_only=False):
             else:
                 print(f'{k}: {v}')
         return
-    print(json.dumps(data, ensure_ascii=False, indent=1)[:2000])
+    print(_j(data, 2000))
 
 def _text_raw(out, action=''):
     """原始 API 载荷: 摘要 + 键结构, 不倾倒原始 JSON。
@@ -89,7 +89,7 @@ def _text_raw(out, action=''):
     要全量用 -f json。
     """
     if not isinstance(out, dict):
-        print(json.dumps(out, ensure_ascii=False)[:2000])
+        print(_j(out, 2000))
         return
     if action == 'api-list':
         print(f"数据源层共 {out.get('count')} 个方法 "
