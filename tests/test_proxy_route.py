@@ -30,10 +30,13 @@ with open(os.path.join(TMP, 'rules.json'), 'w', encoding='utf-8') as f:
     json.dump({'default': 'proxy:default',
                'proxies': {'default': 'http://127.0.0.1:2080',
                            'ghost': 'http://127.0.0.1:2080'},
-               'rules': [{'match': {'domain': ['*.cn']}, 'action': 'direct'}]}, f)
+               'rules': [{'match': {'domain': ['*.cn']}, 'action': 'direct'},
+                         {'match': {'domain': ['*.so.com']}, 'action': 'direct'}]}, f)
 
 from webtool.net import http as whttp
+from webtool.net import netx as wnetx
 from webtool.net import proxy as wproxy
+from webtool.net import proxyhelper as wpxh
 
 fails = []
 
@@ -132,5 +135,60 @@ check('没人引用的代理不算"在用"', not wproxy._proxy_is_used(
     cfg, 'http://127.0.0.1:34567'))
 
 srv.shutdown()
+# --- 5. proxy=None 必须与 'auto' 同义 (曾经是"强制直连", 规则表连问都不问) ----
+# 症状: 引擎签名都写 `proxy=None`, 谁忘了把管线传下来的 'auto' 再传下去,
+# 谁的会话就永久直连 —— 用户在 rules.json 里写的域名规则对那个引擎完全失效。
+DIRECT_URL = 'https://www.so.com/s?q=x'          # 命中 *.so.com -> direct
+DEFAULT_URL = 'https://example.com/page'         # 无规则命中 -> default 代理
+DEFAULT_PX = 'http://127.0.0.1:2080'
+
+check('None 与 auto 同结果 (无规则命中处)',
+      wnetx.resolve_proxy(None, DEFAULT_URL) == wnetx.resolve_proxy('auto', DEFAULT_URL),
+      f'{wnetx.resolve_proxy(None, DEFAULT_URL)!r} vs {wnetx.resolve_proxy("auto", DEFAULT_URL)!r}')
+check('None 会走默认代理而非被当成直连',
+      wnetx.resolve_proxy(None, DEFAULT_URL) == DEFAULT_PX,
+      repr(wnetx.resolve_proxy(None, DEFAULT_URL)))
+check('None 时域名规则仍然生效',
+      wnetx.resolve_proxy(None, DIRECT_URL) is None,
+      repr(wnetx.resolve_proxy(None, DIRECT_URL)))
+check("显式 'direct' 才是强制直连",
+      wnetx.resolve_proxy('direct', DEFAULT_URL) is None,
+      repr(wnetx.resolve_proxy('direct', DEFAULT_URL)))
+
+# 两条入口 (transport 走 netx / resilient·feeds 走 proxyhelper) 不能再给出相反答案
+for _u in (DEFAULT_URL, DIRECT_URL):
+    check(f'两条入口对 None 一致 ({_u.split("/")[2]})',
+          wnetx.resolve_proxy(None, _u) == wpxh.resolve(None, _u),
+          f'netx={wnetx.resolve_proxy(None, _u)!r} proxyhelper={wpxh.resolve(None, _u)!r}')
+
+check('没给 url 时退默认动作而非抛错',
+      wnetx.resolve_proxy(None, None) == DEFAULT_PX,
+      repr(wnetx.resolve_proxy(None, None)))
+
+# 归一结果再喂回来 (同一 URL) 必须等价 —— 引擎把上游归一出的 None 原样回传
+# (bing 就这么干) 时, 不该被当成"没表态"再问一次规则表而翻案。
+for _u in (DEFAULT_URL, DIRECT_URL):
+    _once = wnetx.resolve_proxy(None, _u)
+    _twice = wnetx.resolve_proxy(_once or 'direct', _u)
+    check(f'归一结果回喂等价 ({_u.split("/")[2]})', _once == _twice,
+          f'{_once!r} -> {_twice!r}')
+
+# --- 6. SOCKS5 的 DNS 归属: socks5:// 各库都读成本地解析, 等于代理白配 ----
+# curl 与 requests 都把 `socks5://` 当"本机解析域名、只把 IP 交给代理",
+# `socks5h://` 才是远端解析。国内本机 DNS 常被污染 —— 用户写 socks5:// 时
+# 看着走了代理, 实际 DNS 仍走本地。归一层统一升级, 各通道一起到位。
+_socks_url = 'https://www.example.org/x'
+check('socks5:// 归一成 socks5h:// (远端解析)',
+      wnetx.resolve_proxy('socks5://127.0.0.1:1080', _socks_url) ==
+      'socks5h://127.0.0.1:1080',
+      repr(wnetx.resolve_proxy('socks5://127.0.0.1:1080', _socks_url)))
+check('socks5h:// 已经是远端解析, 不重复改写',
+      wnetx.resolve_proxy('socks5h://127.0.0.1:1080', _socks_url) ==
+      'socks5h://127.0.0.1:1080',
+      repr(wnetx.resolve_proxy('socks5h://127.0.0.1:1080', _socks_url)))
+check('http:// 代理不被误改',
+      wnetx.resolve_proxy('http://127.0.0.1:2080', _socks_url) ==
+      'http://127.0.0.1:2080')
+
 print('\n' + ('ALL PASS' if not fails else f'FAILED: {fails}'))
 sys.exit(1 if fails else 0)

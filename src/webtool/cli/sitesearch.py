@@ -69,7 +69,7 @@ def do_site(args, cfg):
         # proxy 字段), 其余一律交规则表 ('auto')。内置站点不带线路, 也没有任何
         # 单站点/单引擎的覆盖配置。
         if args.no_proxy:
-            proxy = 'direct'      # 'direct' 才是强制直连, None 会被当成 auto
+            proxy = 'direct'      # 强制直连只能写 'direct'; None 与 'auto' 同义
         elif kind == 'custom':
             proxy = spec.get('proxy', 'auto')      # 用户自己写的站点配置
         else:

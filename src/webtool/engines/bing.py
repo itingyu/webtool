@@ -61,8 +61,11 @@ def _cffi_html(query, max_results, proxy, timeout, market, page):
     url = (f'{base}/search?q={q}&count={count}&first={first}'
            f'&setmkt={urllib.parse.quote(market)}')
     # 线路照传 (归一已在上游做完): 写死 None 等于无视用户配的代理, 主机名
-    # 换成了 www 却不挂代理, 出口 IP 与域名对不上, 拿到的还是国外版重排
-    s, p = transport._new_session('chrome131_win', proxy, 'bing', url=url)
+    # 换成了 www 却不挂代理, 出口 IP 与域名对不上, 拿到的还是国外版重排。
+    # 补 `or 'direct'`: 上游归一出的 None 是"直连"的**结论**, 不是"没表态" ——
+    # 直接回传 None 会被 netx 当成 'auto' 再问一遍规则表 (多问一次, 且以另一个
+    # URL 问, 规则按 path/port 写时可能翻案)。'direct' 才幂等。
+    s, p = transport._new_session('chrome131_win', proxy or 'direct', 'bing', url=url)
     # 首页预热: 领会话 cookie + 让服务端看到导航行为 (公共通道, 指纹与搜索请求同源)
     transport.warm_session(s, base + '/', timeout=timeout, profile=p)
     r = s.get(url, timeout=timeout,
@@ -109,10 +112,13 @@ def _resilient(url, proxy=None, timeout=15, headers=None):
     出网走 net.transport 的 urllib 底层 (via='urllib'): 这条兜底的存在意义就是
     换一套 HTTP/TLS 栈, 但代理、证书、密码补全仍归那一层 —— 否则 bing 的兜底
     会自成一套线路判断。headers 已由调用方按 full=True 拼好, 这里 raw 透传。
+
+    `proxy or 'direct'`: 传进来的是上游已归一的**结论** (None = 直连)。回传 None
+    会被 netx 当 'auto' 重问规则表, 传 'direct' 才表示"已决策, 别再问"。
     """
     from webtool.net import transport
     try:
-        r = transport.request('GET', url, proxy=proxy, timeout=timeout,
+        r = transport.request('GET', url, proxy=proxy or 'direct', timeout=timeout,
                               headers=headers, raw_headers=True, via='urllib')
         return r.text, r.status_code, 'direct' if not proxy else 'proxy'
     except Exception as e:

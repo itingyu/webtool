@@ -92,16 +92,13 @@ def _host(url):
 def _py_proxies(proxy_url):
     """代理 URL → requests 的 proxies 字典。
 
-    socks 走 urllib 的 `socks5://` 语义 (远端解析 DNS); requests 必须写
-    `socks5h://` 才是远端解析 —— 写成 socks5:// 会**本地**解析域名, 于是
-    socks 代理服务器根本用不上, 看似配了代理实际仍在本地解析。
+    入参必须是 **netx 归一过**的值 (已含 socks5→socks5h 的远端解析升级),
+    这里只做 URL→字典 的形状转换, 不再自己判线路、不再改 scheme —— 一份
+    知识只留一处, 否则哪条通道漏改就出现"配了代理实际仍本地解析"。
     """
     if not proxy_url:
         return None
-    u = proxy_url
-    if u.startswith('socks5://'):
-        u = 'socks5h://' + u[len('socks5://'):]
-    return {'http': u, 'https': u}
+    return {'http': proxy_url, 'https': proxy_url}
 
 
 class Http:

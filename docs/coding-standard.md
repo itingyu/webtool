@@ -290,6 +290,25 @@ ip/ping 等连通性探测归 `net.connectivity`，不单开网络层，ICMP 受
   再代理"这类回退会让同一次请求走哪条线取决于它先在哪失败，"代理失败退直连"更会毁掉只允许
   代理出网的目标。写通道别加 `allow_fallback` 参数，也别在适配器里写死 `proxy=None` ——
   那等于无视管线传入的代理
+- **`None` 与 `'auto'` 在代理语义上是同一个意思**：都是"调用方没表态，交规则表定"。
+  `'direct'` 才是"强制直连"。这条曾经不一致（`netx.resolve_proxy` 把 None 当直连，
+  `proxyhelper.resolve` 把 None 升成 auto，同一份 rules.json 在两条入口给出相反结果），
+  最坑的是看不出区别：引擎签名都写 `proxy=None`，谁忘了把管线传下来的 `'auto'` 再传下去，
+  谁的会话就永久直连、规则表连问都不问一次。`--no-proxy` 一律传字符串 `'direct'`。
+  `tests/test_netx.py` 有纯文本守卫盯这条
+- **归一结果回喂必须补 `'direct'`**：`netx.resolve_proxy` 返回的 `None` 是"已判定的直连"
+  这个**结论**，不是"没表态"。原样回传给下游（`transport.request` / `_new_session`）会被
+  当成 `'auto'` 再问一遍规则表 —— 多问一次，且往往以另一个 URL 问（bing 用 CN 端点判完
+  再拿真实 URL 建会话），规则按 path/port 写时结果就可能翻案。要么别提前归一，要么回喂时
+  写 `proxy or 'direct'`
+- **线路归一必须带目标 URL**：`netx.resolve_proxy(proxy, url)` 少了 url 就只能退默认动作，
+  域名/端口/协议/GeoIP 规则对该请求全部失效 —— 这正是用户看到"规则没起作用"的根因。
+  `stock/bridge/sources/_routing.resolve(url, override)` 形参顺序相反（URL 在前），别混
+- **SOCKS5 的 DNS 归属只在归一层升级**：curl 与 requests 都把 `socks5://` 读成**本地**
+  解析（域名先在本机解析，代理只转 IP），`socks5h://` 才是远端解析。国内本机 DNS 常被污染，
+  写 `socks5://` 等于代理白配、看着走了其实还是本地网络。升级点收口在
+  `netx.resolve_proxy`，下游（`_py_proxies`、`_routing.proxies_for`）只做 URL→字典 的形状
+  转换，不自己判线路、不改 scheme —— 否则哪条通道漏改就重现这个坑
 - **环境变量不是线路决策源**。`http_proxy`/`https_proxy` 在容器里很常见，各库默认都会读它
   （urllib 的默认 `ProxyHandler`、requests 与 curl_cffi 的 `trust_env=True`）—— 于是规则表
   判定"直连"的主机被悄悄送去代理，用户改配置文件改不动。已经在三处堵死：`net.http.build_opener`

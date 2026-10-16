@@ -58,7 +58,7 @@ def _proxy_for(spec, args, cfg):
     `spec` 保留是为了接口不变 (自建端点表若留了 proxy 字段, 删掉即可, 不报错)。
     """
     if getattr(args, 'no_proxy', False):
-        return None
+        return 'direct'    # 必须写字符串 'direct': None 与 'auto' 同义 (都交规则表)
     return 'auto'      # 交给路由表按域名/IP/协议分流
 
 

@@ -417,9 +417,11 @@ check(_PF({'proxy': 'direct'}, _a_direct, _cfg_proxy) == 'auto',
 # 分流 (含默认动作与全局 proxy); 不是把全局 URL 抄一遍
 check(_PF({}, _a_direct, _cfg_proxy) == 'auto',
       '端点未声明 → 交路由表 (auto), 由规则决定走哪条线')
-check(_PF({'proxy': 'direct'}, _a_noproxy, _cfg_proxy) is None,
+# 'direct' 是"强制直连"的约定值: None 与 'auto' 同义 (都交规则表), 拿 None
+# 当强制直连会让 --no-proxy 反而回去跟全局配置走 (见 net/netx.resolve_proxy)
+check(_PF({'proxy': 'direct'}, _a_noproxy, _cfg_proxy) == 'direct',
       '--no-proxy 强制直连 (用户显式意图)')
-check(_PF({}, _a_noproxy, _cfg_proxy) is None, '--no-proxy 覆盖全局配置')
+check(_PF({}, _a_noproxy, _cfg_proxy) == 'direct', '--no-proxy 覆盖全局配置')
 
 # 13. parallel 引擎 + fetch --via 远程 reader 兜底判定
 from webtool.engines import parallel as _par

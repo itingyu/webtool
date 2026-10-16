@@ -10,7 +10,7 @@
 
     self._std = requests.Session()          # 无代理, 干净
     ...
-    r = self._std.get(url, proxies=netx.pxies_for(url))   # 每请求按域名算
+    r = self._std.get(url, proxies=_routing.proxies_for(url))   # 每请求按域名算
 
 写进 `session.proxies` 的话一条 session 只能服务一个出口, 而数据源层同时打
 十余个域名, 逐域名决策就没了。`curl_cffi` 会话 (雪球 TLS 指纹) 同理。
@@ -70,9 +70,8 @@ def proxies_for(url: str, override: str | None = None) -> dict | None:
     px = resolve(url, override)
     if not px:
         return None
-    if 'socks5://' in px and 'socks5h://' not in px:
-        # socks5 会被 requests 本地解析 DNS, 代理服务器根本用不上
-        px = px.replace('socks5://', 'socks5h://', 1)
+    # socks5→socks5h 的远端解析升级已收口在 netx.resolve_proxy 里 (各通道共用),
+    # 这里拿到的 px 已是 socks5h, 不再自己改写 —— 一份知识只留一处
     return {'http': px, 'https': px}
 
 

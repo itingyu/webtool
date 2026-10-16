@@ -30,7 +30,9 @@ def proxy_ok(proxy, timeout=6):
     # 缓存键用归一后的形态: 'user@host' 与 'user:明文@host' 指向同一条代理,
     # 分开缓存会让同一条代理被探两次 (后者还必然失败, 因为密码没补)
     try:
-        px = netx.resolve_proxy(proxy)
+        # 缓存键取"这次探活实际会走的线路": 把探活 URL 交给规则表, 与 head_probe
+        # 的决策同源 (留空 url 会退默认动作, 键就和真正用的线路对不上了)
+        px = netx.resolve_proxy(proxy, 'https://www.bing.com/generate_204')
     except Exception:
         px = proxy
     key = px or proxy

@@ -44,24 +44,38 @@ class NetError(RuntimeError):
 def resolve_proxy(proxy, url=None):
     """把 proxy 参数归一成「实际代理 URL / None」。
 
-    - `'auto'`  → 问路由表 (需要 url)
-    - `None`    → 直连
-    - `'direct'`→ 直连 (语义与 auto 不同: 这是调用方显式要求)
-    - `<url>`   → 强制走这条, 并补上保险库密码
+    - `None` / `'auto'` → 问路由表 (需要 url); 没给 url 就只能退默认动作
+    - `'direct'`        → 直连 (调用方**显式**要求, 规则表不说话)
+    - `<url>`           → 强制走这条, 并补上保险库密码
+
+    **None 与 'auto' 同义**, 都是"调用方没表态, 交规则表定"。这条曾经不一致:
+    本函数把 None 当直连, 而 `proxyhelper.resolve` 把 None 升成 auto —— 同一份
+    规则在两条入口上给出相反结果。最坑的是调用方看不出区别: 引擎签名都是
+    `proxy=None`, 谁忘了把管线传下来的 'auto' 再传下去, 谁的会话就永远直连、
+    规则表连问都不问一次。强制直连请写 'direct' (CLI 的 --no-proxy 就是这么传的)。
 
     这是**唯一**该碰代理的地方: 其他模块拿到的 proxy 一律是已归一、可直接
     交给底层库的值, 不再各自去 resolve_auth / 判断 auto。
     """
-    if proxy == 'auto':
+    if proxy is None or proxy == 'auto':
         if not url:
-            return None
-        from webtool.net import rules as _rules
-        proxy = _rules.resolve_route(url)
+            # 没有目标 URL 就拿不到域名, 只能退默认动作 (本轮仍由规则表说了算)
+            from webtool.net import rules as _rules
+            proxy = _rules.resolve_route(None)
+        else:
+            from webtool.net import rules as _rules
+            proxy = _rules.resolve_route(url)
     if not proxy or proxy == 'direct':
         logger.debug('线路: 直连 (%s)', url or '')
         return None
     # 缺密码要立刻说清楚, 不能拿空密码去撞 407 (那报错完全指不到原因)
     p = resolve_auth(proxy)
+    # SOCKS5 的 DNS 归属: curl 和 requests 都把 `socks5://` 读成**本地**解析
+    # (域名先在本机解析成 IP, 代理只转 IP), `socks5h://` 才是把域名交给代理远端解析。
+    # 国内本机 DNS 常被污染, 写 socks5:// 等于代理白配、看着走了其实还是本地网络。
+    # 统一在这里升级一次, 各通道 (curl_cffi/urllib/requests/--proxy 环境变量) 一起到位。
+    if p.startswith('socks5://'):
+        p = 'socks5h://' + p[len('socks5://'):]
     # 日志只落 host:port —— 归一后的 URL 可能带保险库密码, 整串打进日志就是泄密
     from webtool.net.proxy import proxy_url_parts as _pp
     try:

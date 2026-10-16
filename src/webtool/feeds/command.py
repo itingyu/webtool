@@ -251,7 +251,8 @@ def do_feed(args, cfg):
             if c is not None:
                 return name, c, None
         # 单线路: 由 proxyhelper/路由表一次决定, 失败直接报错
-        px = proxyhelper.resolve(None if args.no_proxy else cfg.get('proxy'),
+        # --no-proxy 要的是"强制直连", 那是字符串 'direct'; None 与 'auto' 同义
+        px = proxyhelper.resolve('direct' if args.no_proxy else cfg.get('proxy'),
                                  specs[name]['url'])
         try:
             items = pull_one(name, specs[name]['url'], n, px, cfg.get('timeout', 15))

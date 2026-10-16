@@ -178,7 +178,9 @@ def print_route_cards(cards, kw, args, cfg):
              instance_candidates(base, getattr(args, 'instance', None), cfg))
     # 线路一次定死: 失败只换实例, 不换线路 —— 两个维度混在一起会让"哪个实例
     # 能用"取决于它先在哪条线挂。
-    px = (None if getattr(args, 'no_proxy', False)
+    # 必须写 'direct' 而不是 None: None 与 'auto' 同义 (都交规则表),
+    # 写成 None 会让 --no-proxy 反而退回"跟配置走"
+    px = ('direct' if getattr(args, 'no_proxy', False)
           else cfg.get('proxy') or 'auto')
     for cand in cands:
         if cand:

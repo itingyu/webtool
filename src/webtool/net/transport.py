@@ -96,10 +96,13 @@ def _new_session(profile_name, proxy=None, engine=None, url=None):
     `proxy` 走 netx 归一 —— 'auto' 之类的值原样塞给 curl_cffi 会被当成主机名解析
     (`Could not resolve proxy: auto`), 配了代理反而全挂。
 
-    **url 必须传**: 'auto' 的线路由路由表按域名决定, 没有目标 URL 就只能退回
+    **url 必须传**: `'auto'`/`None` 的线路由路由表按域名决定, 没有目标 URL 就只能退回
     默认动作, 于是 `*.cn` direct 这类规则对会话失效 (引擎的会话恰恰是打
     境内站, 最容易被规则分流)。引擎手上都有实际要请求的 URL, 传进来即可。
-    归一是幂等的 —— 引擎自己先 resolve 过再传已归一的 URL, 不会二次补密码。
+    归一只对**同一个 URL** 幂等: 引擎自己先 resolve 过、再把已归一的 URL 传进来,
+    不会二次补密码。但若拿另一个 URL (如 CN 端点) 判完再把结果回喂, 规则按
+    path/port 写时就可能翻案 —— 提前归一过就回喂 `proxy or 'direct'`
+    ('direct' 是"已判定直连"的幂等写法, 见 bing)。
 
     engines 取每个引擎的实际入口 (只用于判定线路, 不发请求)。
     """

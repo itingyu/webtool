@@ -55,8 +55,8 @@ def _resolve(name, n, q, cfg, no_proxy):
     还会静默降级, 状态说不清。
     """
     timeout = cfg.get('timeout', 15)
-    # 'direct' 是强制直连的约定值 —— 写成 None 会被 proxyhelper 当成 auto,
-    # 于是 --no-proxy 反而"跟配置走"
+    # 强制直连只能写 'direct': None 与 'auto' 同义 (都是"未表态, 交规则表"),
+    # 写成 None 会让 --no-proxy 反而"跟配置走"
     gproxy = 'direct' if no_proxy else 'auto'   # 交给路由表按域名/IP/协议分流
     try:
         items = _pull_once(name, n, q, gproxy, timeout)

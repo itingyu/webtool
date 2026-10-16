@@ -160,14 +160,23 @@ hd = Http(timeout=10, proxy='direct')
 check(hd.proxy == 'direct', 'Http(proxy=direct) 记录该设置')
 check(Http(timeout=10).proxy == 'auto', 'Http 默认 auto (问路由表)')
 
-print('\n=== 6. socks 代理在 requests 侧必须是 socks5h ===')
-# requests 的 socks5:// 会**本地**解析 DNS, 代理服务器根本用不上;
-# 远端解析必须写 socks5h:// —— 这个坑只会表现为"配了 socks 却还直连"
-p = _py_proxies('socks5://u@1.2.3.4:1080')
-check(p['http'] == 'socks5h://u@1.2.3.4:1080', 'socks5 → socks5h (远端解析)',
-      p['http'])
-check(_py_proxies('socks5h://1.2.3.4:1080')['http'] == 'socks5h://1.2.3.4:1080',
-      'socks5h 不被二次改写')
+print('\n=== 6. socks 代理的远端解析必须收口在归一层 ===')
+# requests / curl 都把 socks5:// 读成**本地**解析 DNS, 代理服务器根本用不上;
+# 远端解析必须写 socks5h:// —— 这个坑只会表现为"配了 socks 却还直连"。
+# 升级点已收口到 netx.resolve_proxy (所有通道共用), 各下游只做形状转换。
+_s5u = 'https://example.com/x'
+check(netx.resolve_proxy('socks5://1.2.3.4:1080', _s5u) ==
+      'socks5h://1.2.3.4:1080', 'netx 把 socks5 升成 socks5h (远端解析)',
+      repr(netx.resolve_proxy('socks5://1.2.3.4:1080', _s5u)))
+check(netx.resolve_proxy('socks5h://1.2.3.4:1080', _s5u) ==
+      'socks5h://1.2.3.4:1080', 'socks5h 不被二次改写')
+check(netx.resolve_proxy('http://1.2.3.4:8080', _s5u) == 'http://1.2.3.4:8080',
+      'http 代理原样, 不被误改')
+# 下游 (_py_proxies) 只转形状, 不再自己判线路/改 scheme —— 一份知识只留一处
+p = _py_proxies('socks5h://1.2.3.4:1080')
+check(p['http'] == 'socks5h://1.2.3.4:1080' and p['https'] ==
+      'socks5h://1.2.3.4:1080', '归一结果原样转成 requests 的 proxies 字典',
+      str(p))
 check(_py_proxies('http://1.2.3.4:8080')['https'] == 'http://1.2.3.4:8080',
       'http 代理原样')
 check(_py_proxies(None) is None, '无代理 → None (不走 proxies 参数)')
@@ -902,6 +911,85 @@ _stale = [k for k in _NET_CHANNELS
           if not any(re.search(_p, (_SRC / k).read_text(encoding='utf-8'))
                      for _p in _PRIMS)]
 check(not _stale, '登记表没有过时条目 (改过的通道要同步)', str(_stale))
+
+# ── 线路决策必须收口: 谁都别自己决定"直连还是走代理" ──────────────────────────
+# 起因: netx.resolve_proxy 曾把 None 当"强制直连", 而 proxyhelper.resolve 把
+# None 升成 auto —— 同一份 rules.json 在两条入口上给出相反结果。更坑的是调用方
+# 看不出区别: 引擎签名都是 `proxy=None`, 谁忘了把管线传下来的 'auto' 再传下去,
+# 谁的会话就永久直连、规则表连问都不问一次。
+print('\n== 线路决策只许有一个出口 ==')
+
+_route_callers = set()
+for _f in _SRC.rglob('*.py'):
+    _rel = str(_f.relative_to(_SRC)).replace('\\', '/')
+    _txt = _f.read_text(encoding='utf-8')
+    if re.search(r'(?<!def )\b(?:rules\.)?(?:resolve_route|proxy_for)\(', _txt):
+        # 去掉"定义处": `def proxy_for(` 不算调用
+        _calls = [m for m in re.finditer(r'\b(?:rules\.)?(?:resolve_route|proxy_for)\(', _txt)
+                  if 'def ' not in _txt[max(0, m.start() - 4):m.start()]]
+        if _calls:
+            _route_callers.add(_rel)
+_ROUTE_OK = {
+    'net/netx.py',        # 唯一收口点: 把 None/'auto'/'direct'/具体 URL 归一
+    'net/rules/loader.py',  # 路由表实现本身 (自检入口)
+    'net/rules/router.py',  # 路由表实现本身 (proxy_for 的定义)
+    'cli/pkg.py',         # 终端消费者: 只把结论翻成子进程的 *_PROXY 环境变量
+}
+_stray_route = sorted(_route_callers - _ROUTE_OK)
+check(not _stray_route,
+      'resolve_route/proxy_for 没扩散 (别的模块一律经 netx.resolve_proxy)',
+      str(_stray_route))
+
+# 只在**线路**上做 'auto' 分支。`via == 'auto'` 那类取数通道选择不算 (另一码事)
+_out_auto = subprocess.run(['rg', '-n', '-l', r"proxy\w*\s*==\s*'auto'", 'src'],
+                           cwd=ROOT, capture_output=True, text=True).stdout
+_auto_users = set(_out_auto.strip().splitlines()) if _out_auto.strip() else set()
+_AUTO_USERS_OK = {'src/webtool/net/netx.py', 'src/webtool/net/http.py',
+                  'src/webtool/net/rules/loader.py',
+                  'src/webtool/cli/pkg.py', 'src/webtool/net/proxyhelper.py'}
+check(not (_auto_users - _AUTO_USERS_OK),
+      "只有归一层的入口能在 proxy 上做 'auto' 分支",
+      str(sorted(_auto_users - _AUTO_USERS_OK)))
+
+# --no-proxy 的约定值: 必须写字符串 'direct'。写 None 会被当成"没表态"交回规则表,
+# 于是 --no-proxy 反而"跟配置走"。这一条是纯文本守卫, 专治手滑。
+# 只看两种真出事的写法: `None if ... no_proxy` / `if ... no_proxy:` 紧跟 `return None`。
+# (函数签名里的 `no_proxy=False, proxy=None` 和纯转发 `_run(None, ..., no_proxy)` 不算)
+_bad_np = []
+for _f in _SRC.rglob('*.py'):
+    _lines = _f.read_text(encoding='utf-8').splitlines()
+    for _i, _ln in enumerate(_lines, 1):
+        if 'def ' in _ln or 'no_proxy' not in _ln:
+            continue
+        _nxt = _lines[_i].strip() if _i < len(_lines) else ''
+        if re.search(r'None\s+if', _ln) or re.match(r'return\s+None\b', _nxt):
+            _bad_np.append(f'{_f.relative_to(_SRC)}:{_i}')
+check(not _bad_np,
+      "no_proxy 的行不许拿 None 当强制直连 (要写 'direct')", str(_bad_np))
+
+# 代理归一必须带目标 URL: 只传代理、不传 URL 等于规则表拿不到域名, 只能退默认动作,
+# 域名规则对那条请求就是失效的 —— 用户看到的"规则没起作用"多半是这个。
+# netx.resolve_proxy / proxyhelper.resolve 形参是 (proxy, url) → 必须两参;
+# stock 的 _routing.resolve 是 (url, override) → 一参正常。
+# 只认这几个具名入口, 免得 Path.resolve() 之类混进来。
+_bare_resolve = []
+for _f in _SRC.rglob('*.py'):
+    _txt = _f.read_text(encoding='utf-8')
+    _rel = str(_f.relative_to(_SRC)).replace('\\', '/')
+    for _m in re.finditer(r'\b(resolve_proxy|_routing\.resolve|proxyhelper\.resolve|'
+                          r'netx\.resolve|_netx\.resolve)\(([^()]*)\)', _txt):
+        _fn, _args = _m.group(1), _m.group(2)
+        if 'def ' in _txt[max(0, _m.start() - 30):_m.start()]:
+            continue
+        # _routing.resolve(url, override) 首参就是 URL, 一参也合规;
+        # 其余几个形参是 (proxy, url), 少了 URL 就是规则表拿不到域名
+        _need_two = _fn != '_routing.resolve'
+        if not _args or (_need_two and ',' not in _args):
+            _bang = _txt[: _m.start()].count('\n') + 1
+            _bare_resolve.append(f'{_rel}:{_bang} ({_fn})')
+check(not _bare_resolve,
+      '每次线路归一都带上了目标 URL (单参调用规则表拿不到域名)',
+      str(_bare_resolve))
 
 print(f'\n{PASS + FAIL + SKIP} 项: {PASS} PASS, {FAIL} FAIL, {SKIP} SKIP')
 sys.exit(1 if FAIL else 0)
