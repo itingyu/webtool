@@ -490,9 +490,21 @@
    "module": "webtool.engines.source:SearchSource",
    "desc": "搜索/站点引擎 → 数据源适配器 (get_source(\"search\", engine=\"bing\"))"
   },
+  "site": {
+   "module": "webtool.engines.source:SiteSource",
+   "desc": "站内搜索 → 数据源适配器 (get_source(\"site\", site=\"github\"))"
+  },
+  "hot": {
+   "module": "webtool.engines.source:HotSource",
+   "desc": "榜单/热搜源 → 数据源适配器 (get_source(\"hot\", hot=\"zhihu\"))"
+  },
   "feed": {
    "module": "webtool.feeds.source:FeedSource",
    "desc": "RSS/Atom 源 → 数据源适配器 (get_source(\"feed\", feed=\"<名>\"))"
+  },
+  "page": {
+   "module": "webtool.pipeline.source:PageSource",
+   "desc": "URL → 正文/文件 → 数据源适配器 (get_source(\"page\").fetch({\"url\": ...}))"
   }
  }
 }

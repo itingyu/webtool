@@ -18,6 +18,7 @@ src/webtool/
 │                        #   rules 规则引擎 / http urllib 通道 / download 分片下载 / connectivity 探活 / dns / intercept 拦截绕过 / captcha / spa
 ├── engines/             # 各站适配器 (由 plugins.json 的 module 指向) + extractors / customsites / source (SearchSource 适配器)
 ├── sources/             # 数据契约层 (L0'): DataPacket 统一信封 + SourceBase 接口 + 注册表工厂
+│                        #   五类内置源: search(引擎) · site(站内) · hot(榜单) · feed(RSS) · page(URL→正文)
 ├── dao/                 # DAO 层: cache 分桶 TTL / state 跨进程状态 / checkpoint 断点 (只存取, 不懂业务)
 ├── core/                # L0 底座
 │   ├── plugins.py       # Registry: 八类插件统一注册表 (engine/site/hot/extractor/resolver/filter/transformer/interceptor/source)

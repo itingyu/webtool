@@ -288,7 +288,7 @@ S.ws_key() / ws_accept()  # WebSocket 握手; encode_frame()/FrameReader 帧编�
 | **P2** ✅ | `rules.py` → `rules/` 子包 + `RuleSpec` 元数据注册制；内置 http/retry/breaker，match 键拼错告警 | 中 | G3 可扩展 |
 | **P3** ✅ | 新增 `net/stream.py`: iter_sse + 解压器 + WS 帧编解码; zen 改调 iter_sse; 修 2 个压缩流真 bug | 中 | G2 通道 |
 | **P4** ✅ | 大文件拆分: `proxy` P4a · `transport` P4b · `zen/client` P4c · `cli/app` P4d · `net/fetch`→`pipeline/fetch` P4e · `download` P4f —— 计划内的六个大文件全部落地 | 中 | G5 |
-| **P5** ✅ | 抽 `sources/`(DataPacket+SourceBase+工厂) + `dao/`(cache/state/checkpoint); `source` kind 登记 (plugins.json) + `SearchSource`/`FeedSource` 两个真实实现。**`process/` 不新建** —— `pipeline/` 已是这一层 (融合/排序/归一), 再开同名包等于双轨 | 高 | G4 R3/R4 |
+| **P5** ✅ | 抽 `sources/`(DataPacket+SourceBase+工厂) + `dao/`(cache/state/checkpoint); `source` kind 登记 (plugins.json) + 五个真实实现 `SearchSource`/`SiteSource`/`HotSource`/`FeedSource`/`PageSource` (把 engine/site/hot/feeds/fetch 五处各异的调用约定抹平成一个 `fetch(req)`)。**`process/` 不新建** —— `pipeline/` 已是这一层 (融合/排序/归一), 再开同名包等于双轨 | 高 | G4 R3/R4 |
 | **P6** ✅ | 日志 2.0: `-dd` 放开三方库 · `--log-file`(JSONL) · `timed` 耗时埋点 | 低 | R9 可观测 |
 | **P7** ✅ | stdin 收口(?已有 helper, 补 `site`) · checkpoint 已通用(fetch) | 低 | R10 管道 |
 | **P8** ✅ | `core/errors.py` 统一异常/退出码; `main()` 兜底不甩裸 traceback (-d 保留) | 低 | R13 友好 |

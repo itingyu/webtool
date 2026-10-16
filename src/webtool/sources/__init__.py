@@ -1,10 +1,12 @@
 """数据源接口层 (L0'): 统一数据契约 + 适配器接口 + 工厂
 
 `DataPacket` 是取数的统一信封, `SourceBase` 是数据源要实现的接口, `get(name)`
-是按名字造实例的工厂。三者都不依赖任何采集实现 —— 实现落在各自的层:
+是按名字造实例的工厂。三者都不依赖任何采集实现 —— 实现落在各自的层, 由契约把
+三类插件各不相同的调用约定抹平:
 
-  engines/source.py   `SearchSource`  包一个搜索/站点引擎 → DataPacket
-  feeds/source.py     `FeedSource`    包一个 RSS/Atom 源     → DataPacket
+  engines/source.py   `SearchSource` (engine) · `SiteSource` (site) · `HotSource` (hot)
+  feeds/source.py     `FeedSource`   (RSS/Atom 源)
+  pipeline/source.py  `PageSource`   (URL → 正文/文件)
 
 登记与实例化见 `webtool.sources.registry`; 契约细节见 `contract`。
 """
