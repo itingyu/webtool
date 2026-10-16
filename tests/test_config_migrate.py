@@ -49,7 +49,7 @@ def _md5(p):
 
 
 # 真实文件指纹: 用例跑完必须原样 (helper 写错路径时能立刻发现, 而不是把现网改坏)
-REAL_CFG, REAL_RULES = str(P.CONFIG_PATH), str(P.USER_DIR / 'rules.json')
+REAL_CFG, REAL_RULES = str(P.store.CONFIG_PATH), str(P.store.USER_DIR / 'rules.json')
 _before = (_md5(REAL_CFG), _md5(REAL_RULES))
 
 
@@ -60,19 +60,19 @@ def run(cfg, rules):
                                    encoding='utf-8')
     (d / 'rules.json').write_text(json.dumps(rules, ensure_ascii=False),
                                   encoding='utf-8')
-    o_cfg, o_dir, o_notes = P.CONFIG_PATH, P.USER_DIR, list(P._MIGRATION_NOTES)
-    P.CONFIG_PATH = str(d / 'config.json')
-    P.USER_DIR = d
+    o_cfg, o_dir, o_notes = P.store.CONFIG_PATH, P.store.USER_DIR, list(P.store._MIGRATION_NOTES)
+    P.store.CONFIG_PATH = str(d / 'config.json')
+    P.store.USER_DIR = d
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             P._migrate_legacy_config()
-        notes = ' / '.join(P._MIGRATION_NOTES[len(o_notes):])
+        notes = ' / '.join(P.store._MIGRATION_NOTES[len(o_notes):])
         return (json.loads((d / 'rules.json').read_text(encoding='utf-8')),
                 json.loads((d / 'config.json').read_text(encoding='utf-8')),
                 notes)
     finally:
-        P.CONFIG_PATH, P.USER_DIR = o_cfg, o_dir
-        del P._MIGRATION_NOTES[len(o_notes):]
+        P.store.CONFIG_PATH, P.store.USER_DIR = o_cfg, o_dir
+        del P.store._MIGRATION_NOTES[len(o_notes):]
 
 
 LEGACY = {'proxy': 'http://127.0.0.1:9'}

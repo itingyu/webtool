@@ -85,10 +85,10 @@ check(not tls.hit_insecure('', _hosts), '空 host 不命中')
 # 默认: 严格校验, 返回解析好的 CA 路径 (不是 True —— True 会让各通道
 # 自己去读 REQUESTS_CA_BUNDLE, 三通道就可能用三套信任根)
 import webtool.net.proxy as _px
-_orig_path = _px.CONFIG_PATH
+_orig_path = _px.store.CONFIG_PATH
 with tempfile.TemporaryDirectory() as _d:
     _cfg = os.path.join(_d, 'config.json')
-    _px.CONFIG_PATH = _cfg
+    _px.store.CONFIG_PATH = _cfg
     try:
         def _write(**kw):
             json.dump(kw, open(_cfg, 'w'))
@@ -146,7 +146,7 @@ with tempfile.TemporaryDirectory() as _d:
         except tls.TlsConfigError:
             check(True, 'ssl_verify 非法值即报错')
     finally:
-        _px.CONFIG_PATH = _orig_path
+        _px.store.CONFIG_PATH = _orig_path
         tls._CACHE = (None, None)
 
 # ---- 3. ssl_context 语义 ----

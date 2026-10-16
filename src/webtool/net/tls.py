@@ -85,7 +85,7 @@ def _as_bool(v, default=True):
 
 
 def _stamp():
-    from webtool.net.proxy import CONFIG_PATH
+    from webtool.net.proxy.store import CONFIG_PATH
     try:
         st = os.stat(CONFIG_PATH)
         return (st.st_mtime_ns, st.st_size)

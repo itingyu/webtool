@@ -744,8 +744,8 @@ _real_before = _real_rules_md5()
 # 光改 config_data.USER_DIR 不够: 路由/配置读取走的是 net.proxy 模块自己的全局
 # (CONFIG_PATH / USER_DIR), 只改前者会让这段测试其实在读写真实配置 (踩过)。
 from webtool.net import proxy as _px
-_px_old_cfg, _px_old_dir = _px.CONFIG_PATH, _px.USER_DIR
-_px.CONFIG_PATH, _px.USER_DIR = str(_tmpdir / 'config.json'), _tmpdir
+_px_old_cfg, _px_old_dir = _px.store.CONFIG_PATH, _px.store.USER_DIR
+_px.store.CONFIG_PATH, _px.store.USER_DIR = str(_tmpdir / 'config.json'), _tmpdir
 try:
     _cd.USER_DIR = _tmpdir
     _json.dump({'proxy': 'http://127.0.0.1:9',
@@ -765,7 +765,7 @@ except Exception as e:                                   # noqa: BLE001
     check(False, f'路由断言异常: {type(e).__name__}: {e}')
 finally:
     _cd.USER_DIR = _old_user_dir
-    _px.CONFIG_PATH, _px.USER_DIR = _px_old_cfg, _px_old_dir
+    _px.store.CONFIG_PATH, _px.store.USER_DIR = _px_old_cfg, _px_old_dir
     _sh.rmtree(_tmpdir, ignore_errors=True)
     _routing.reset_cache()
 check(_real_rules_md5() == _real_before, '真实 rules.json 未被测试改动')

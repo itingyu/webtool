@@ -42,6 +42,14 @@ webtool/
 `radar` 切成 routes(官方目录)/rules(规则库)/instances(实例探活)/official(官网兜底)/
 template(模板语法)/race(并发) 六块，每块对应一个独立的数据源或算法。
 
+**拆单文件为包时，`X.py` → `X/` 的再导出要留神 monkeypatch 目标迁移**：测试（含
+`test_smoke`/`test_tls`/`test_config_migrate`）惯用 `改模块全局变量` 来隔离，
+例如 `proxy.CONFIG_PATH = 临时路径`。单文件时"模块全局"就是函数真正读的那个变量；
+拆成包后 `proxy.CONFIG_PATH` 只是 `__init__` 的副本，函数读的是 `proxy/store.py`
+里的那个 —— 补丁打不到，测试会静默读写**真实配置**。规矩：**补丁打在定义处**
+（`proxy.store.CONFIG_PATH`），并让消费者从定义处 import（如 `tls` 从
+`proxy.store` 取 `CONFIG_PATH`），别从包根取会变的全局。
+
 ### net/ 内部分层（按实际业务归位，OSI 仅作依赖方向参照）
 
 **分层是指导思想，不是目录模板**：OSI 用来回答"这一层该不该依赖那一层"（依赖只许向下），
@@ -52,7 +60,7 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 net/
 ├── connectivity   连通性探测：TCP 握手探活 / 可达性缓存（net.connectivity 已并入）
 ├── dns            域名 → IP：系统 resolver + 进程内缓存（负缓存也缓存）
-├── proxy          代理池、proxyhelper、按域名的 proxy 规则（不动）
+├── proxy/         代理配置子包: store(config/原语/迁移) auth geo rules_cli pool cli
 ├── tls.py         证书校验、CA、verify_hosts、TLS 策略唯一决策点（原 net/tls 归位）
 ├── http.py        urllib 兜底通道（transport 的备胎本体，非第二条策略）
 ├── stream.py      L7 流式原语：SSE 逐行 iter_sse() + 增量解压 + WS 帧编解码（出网仍走 transport）

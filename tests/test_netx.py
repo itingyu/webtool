@@ -216,10 +216,10 @@ out2 = subprocess.run(
 #   net/http.py     — build_opener 是 urllib 侧的公共出口, zen/mcpclient/
 #                      sogou/gnews 都直接调它, 补密码必须发生在这里
 #   net/transport.py — _get_once 是预热/降级梯的深层出口, 保留兜底
-#   net/proxy.py     — proxy set/test 的 CLI 路径, 要在报错前先补全
+#   net/proxy/pool.py — proxy set/test 的 CLI 路径, 要在报错前先补全
 ALLOWED_AUTH = {'src/webtool/core/secrets_store.py', 'src/webtool/net/netx.py',
                 'src/webtool/net/http.py', 'src/webtool/net/transport.py',
-                'src/webtool/net/proxy.py'}
+                'src/webtool/net/proxy/pool.py'}
 stray2 = [f for f in out2 if f.endswith('.py') and f not in ALLOWED_AUTH]
 check(not stray2, 'resolve_auth 没扩散到未经审计的模块', str(stray2))
 
@@ -846,7 +846,7 @@ print('\n=== 线路只有一个决策点: 规则表 ===')
 _ROOT = __import__('pathlib').Path(__file__).resolve().parent.parent
 _SRC = _ROOT / 'src' / 'webtool'
 for _f in ('pipeline/search.py', 'cli/sitesearch.py', 'engines/status.py',
-           'net/transport.py', 'net/proxy.py', 'net/mcpclient.py'):
+           'net/transport.py', 'net/proxy/pool.py', 'net/mcpclient.py'):
     _t = (_SRC / _f).read_text(encoding='utf-8')
     check('engine_proxy' not in _t or '已废弃' in _t,
           f'{_f}: 没有引擎级线路覆盖 (只剩"已废弃"提示)', _f)
