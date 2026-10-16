@@ -514,7 +514,7 @@ print('\n=== 15. 残留直连审计 (本轮补挖出来的几处) ===')
 import inspect                                  # noqa: E402
 from webtool.cli import zen as _zen             # noqa: E402
 from webtool.cli import app as _app              # noqa: E402
-from webtool.net import fetch as netfetch        # noqa: E402
+from webtool.pipeline import fetch as netfetch        # noqa: E402
 import importlib                                # noqa: E402
 # radar/__init__.py 把 instances/routes/rules re-export 成同名函数, 属性遮蔽了
 # 子模块, 直接 import 会拿到函数 —— 只能按路径取模块

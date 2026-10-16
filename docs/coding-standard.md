@@ -128,7 +128,7 @@ ip/ping 等连通性探测归 `net.connectivity`，不单开网络层，ICMP 受
 - **非法值直接退出码 2**，不静默回落 text（`cli/app.py::_norm_fmt`）。回落会让 Agent
   拿到人类可读文本却毫无提示，解析阶段才炸
 - 数据命令自己按 `args.format` 渲染（`render.render` / `render.hotrender` /
-  `net/fetch._emit`）；管理命令内部是 print，由 `cli/adminfmt.py` 把吐出的 JSON 转格式
+  `pipeline/fetch._emit`）；管理命令内部是 print，由 `cli/adminfmt.py` 把吐出的 JSON 转格式
 - 管理命令不给 `-f` 时保持原样直出（不套一层），给了才转
 - 需要表格/再加工时用 `-f json` 自行转换，不提供 csv：抓来的字段是不可信文本，
   导出表格必然要回答「要不要防公式注入」，这个长期负担不值当
@@ -265,7 +265,7 @@ ip/ping 等连通性探测归 `net.connectivity`，不单开网络层，ICMP 受
   要让某个 MCP 端点进 `search` 引擎池，实现 `search(query, max_results, proxy, timeout, market, **_)` 返回
   `[{rank, title, url, snippet}]`，再在 `data/plugins.json` 的 `engine` 段登记 `module` + `enabled_by_default`。
   端点侧的 `verbs` 映射不写死在代码里 —— 新端点声明 `verbs` 即可复用。要支持新协议的端点才写新的 `cli/<name>.py`，别把协议塞进引擎里
-- **同一个 MCP 端点的 `web_fetch` 返回形状按端点不同，必须在 `net/fetch.py::_reader_text` 分派**，
+- **同一个 MCP 端点的 `web_fetch` 返回形状按端点不同，必须在 `pipeline/fetch.py::_reader_text` 分派**，
   别写死一种：firecrawl 回 `{"markdown": ...}`、parallel 回 `{"results":[{excerpts:[...]}]}`、
   exa 回已拼好的 markdown 纯文本。新增通道时**先实测形状**再写分支，并在该通道的 docstring 注明是否已用真 key 验证过
   （无 key 的端点只能按公开文档推定 —— 这种代码要明说"未实测"，别让人误以为已验证）。

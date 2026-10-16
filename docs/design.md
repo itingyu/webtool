@@ -10,7 +10,7 @@ src/webtool/
 │   └── sitesearch / zen / zenproto   # 站内搜索调度 / LLM 对话编排 / OpenAI 兼容协议
 ├── feeds/               # RSS/Atom 订阅聚合: command / sources / parse / fetch / cards / feedhealth
 ├── radar/               # RSSHub 路由查询与参数填充: routes / rules / instances / official / template / race
-├── pipeline/            # search 调度 / rank 榜单 / merge 排序去重 / topup 补量 / qhint 质量诊断 / query_ops
+├── pipeline/            # search 调度 / fetch URL→正文 / rank 榜单 / merge 排序去重 / topup 补量 / qhint 质量诊断 / query_ops
 ├── render/              # render 正文渲染 / hotrender 榜单分节 / output 落盘
 ├── filters/             # blocklist 站点黑名单 / adfilter 广告识别 (纯规则, 不出网)
 ├── net/                 # L0 网络底座按 OSI 归位: transport 指纹传输 / fingerprints 指纹档案 / pacing 节奏·超时 /

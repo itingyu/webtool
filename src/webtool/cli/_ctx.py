@@ -139,14 +139,14 @@ _CTX = {}
 
 def _do(name):
     def fn(args, cfg):
-        import webtool.net.fetch as fetch
+        import webtool.pipeline.fetch as fetch
         return getattr(fetch, f'do_{name}')(args, cfg)
     return fn
 
 def _entry_fn(name):
     def fn(args, cfg):
         import importlib
-        mod = {'zen': ('cli.zen', 'do_zen'), 'fetch': ('net.fetch', 'do_fetch'),
+        mod = {'zen': ('cli.zen', 'do_zen'), 'fetch': ('pipeline.fetch', 'do_fetch'),
                'site': ('cli.sitesearch', 'do_site'),
                'rank': ('pipeline.rank', 'do_rank'),
                'stock': ('stock.command', 'do_stock'),

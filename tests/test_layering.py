@@ -66,9 +66,6 @@ WHITELIST = {
     # 弹性层 fetch() 直接包 net.transport/proxyhelper; 待 P4 把纯弹性
     # (parallel_map/retry/breaker/checkpoint) 与 net 取数包装拆开
     ('core/resilient.py', 'webtool.net'),
-    # net/fetch 的判型分派调 engines.extractors; 待 P4 把提取分派上移,
-    # 让 net/fetch 只留裸流式获取
-    ('net/fetch.py', 'webtool.engines'),
 }
 
 for pkg, forbidden in UPPER.items():

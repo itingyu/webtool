@@ -121,7 +121,7 @@ def resolve_mode(mode):
     """把配置/参数里的提取器名规整成合法值; 认不出来就是 auto
 
     配置里写错一个名字就让 fetch 全崩是没道理的 —— 退回默认行为, 顶多不是你想要
-    的那个提取器。CLI 那头 `--extract` 传错会直接报错退出 (见 net/fetch.py),
+    的那个提取器。CLI 那头 `--extract` 传错会直接报错退出 (见 pipeline/fetch.py),
     因为那是当场打的字, 值得立刻纠正。
     """
     m = (mode or 'auto').strip().lower()

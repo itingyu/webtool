@@ -25,7 +25,7 @@ MODULES = [
     'webtool.feeds.command', 'webtool.feeds.sources', 'webtool.feeds.parse', 'webtool.feeds.fetch', 'webtool.feeds.cards', 'webtool.radar', 'webtool.radar.race', 'webtool.radar.template',
     'webtool.radar.routes', 'webtool.radar.instances',
     'webtool.radar.official', 'webtool.radar.instances_cfg', 'webtool.cli.zen',
-    'webtool.cli.sitesearch', 'webtool.net.fetch', 'webtool.engines.extractors',
+    'webtool.cli.sitesearch', 'webtool.pipeline.fetch', 'webtool.engines.extractors',
     'webtool.engines.boilerplate',
     'webtool.filters.blocklist', 'webtool.filters.adfilter', 'webtool.pipeline.query_ops',
     'webtool.engines.hotsites', 'webtool.engines.sites',
@@ -445,7 +445,7 @@ check(_pparsed[1].get('publish_date') == '2026-07-28', '有日期则保留')
 check(_par._parse('not json', 10) == [] and _par._parse('', 10) == [], '非 JSON/空文本不产出')
 check(len(_par._parse(_pj, 1)) == 1, 'max_results 截断生效')
 # reader 返回分派: parallel 出 JSON 需解包, exa 出 markdown 原样
-from webtool.net import fetch as _ft
+from webtool.pipeline import fetch as _ft
 _pr = ('{"results":[{"title":"T","excerpts":["正文A","正文B"]}]}')
 check(_ft._reader_text('parallel', _pr) == '# T\n正文A\n\n正文B', 'parallel JSON 解包为正文')
 check(_ft._reader_text('exa', '# 标题\n正文') == '# 标题\n正文', 'exa markdown 原样透传')
@@ -985,7 +985,7 @@ check(_tx.md_to_text(r'价格 \*literally\* 与 a*b*c') == '价格 *literally* �
 # 打出个空行还退出码 0)
 import io as _io
 import contextlib as _ctx
-from webtool.net import fetch as _ft
+from webtool.pipeline import fetch as _ft
 
 
 class _A:
