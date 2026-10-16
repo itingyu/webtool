@@ -42,7 +42,7 @@
 | 缺口 | 现状问题 | 影响 |
 |---|---|---|
 | ~~G1 `net/` 内 OSI 归位不清~~ ✅P1 | `tls.py` 在 `core/`；ip/ping 探测在 `core/probe`；L4/L7 边界模糊 —— **已迁 `net/tls`·`net/http`·`net/connectivity`** | 已归位 |
-| G2 SSE / WebSocket 无独立通道 | LLM 流式散在 `cli/zenproto.py`（**用 http.client 直连，L4 层直接出网**）与 `net/mcpclient.py` | 违反分层；新流式协议各写一遍 |
+| ~~G2 SSE / WebSocket 无独立通道~~ ✅P3 | 澄清: zen **并未** `http.client` 直连, 已走 `transport(stream=True)`; 真实缺口是 SSE 切帧+解压逻辑住在 CLI 层, 不可复用 | 已抽 `net/stream.py` |
 | ~~G3 规则引擎不可扩展~~ ✅P2 | 已拆 `rules/` 子包 + `RuleSpec` 注册制；匹配器本就通用，补齐 kind 目录与 match 键校验 | 新增环节不改 rules 包 |
 | G4 无统一数据源接口 | 规范提 `sources/`(DataPacket) 但搜索/抓取侧没有抽象，只有 stock 有 | R3/R4 落不了地；新数据源各写一套 |
 | G5 大文件 | `transport.py 1093` / `proxy.py 989` / ~~`rules.py 923`~~ ✅P2 / `fetch.py 674` / `download.py 459` / `cli/app.py 870` / `zen/client.py 504` | 可读性/可维护性差 |
@@ -112,7 +112,7 @@ net/
 │                             ← 规范早已写 net/tls, 本次归位
 ├── transport.py      L4/L5  会话编排: DNS+代理+TLS+HTTP 组装 (工厂)
 ├── http.py           L7     HTTP 通道: urllib 兜底本体 (P1 由 core 迁入)
-├── stream.py         L7     SSE + WebSocket: open_sse() / open_ws() (R2/G2 新增)
+├── stream.py         L7     SSE iter_sse()/decompressor() + WebSocket 帧编解码 (P3)
 ├── download.py       L7     大文件: 分片 / 续传 / .part 原子改名
 ├── intercept.py      L7     拦截与绕过: captcha / spa 数据提取 / 反爬降级梯
 ├── rules/            —      规则引擎子包 (R7, 见第四节): spec/builtin/matchers/geodb/router/tidy/migrate/loader
@@ -260,15 +260,19 @@ class SourceBase(ABC):                # 数据源接口: 不知道给谁用
 
 ### 6.4 SSE / WebSocket 通道（G2）
 
-新增 `net/stream.py` 作为 L7 流式原语，**收口跨层直连**：
+新增 `net/stream.py` 作为 L7 流式原语。**先说清楚**：早前 G2 写的"zenproto 用 `http.client` 直连出网"**不成立**——zen 一直走 `transport.request(stream=True)`，分层没问题（`_NET_CHANNELS` 那条注释失实）。真实缺口是 **SSE 的切帧+增量解压住在 CLI 层**（`cli/zen/client.py`），别处要用得重写。已落地：
 
 ```python
-def open_sse(url, *, proxy='auto', headers=None, on_event=None): ...  # 逐事件 yield
-def open_ws(url, *, proxy='auto', headers=None): ...                  # 收发双工
+from webtool.net import stream as S
+S.iter_sse(resp)          # transport 流式响应 → 逐行 (字节层切行 + 增量解压 + EOF flush)
+S.decompressor(enc)       # 增量解压器 (gzip/deflate; br/zstd 明确报错)
+S.ws_key() / ws_accept()  # WebSocket 握手; encode_frame()/FrameReader 帧编解码+分片+ping/pong
 ```
 
-- 走 `netx` 判线路 + `transport` 的会话/指纹 + `tls` 策略，与 HTTP 通道同一套底座。
-- `cli/zenproto.py`、`cli/zen/client.py`、`net/mcpclient.py` 的流式改调 `open_sse`，**消除 L4 层 http.client 直连出网**。
+- 出网仍走 `transport`（指纹/线路/证书同源），本模块只管"裸流怎么切帧"。
+- `cli/zen/client.py` 已改调 `iter_sse`（`_unzipper` 保留为兼容别名）；出网原语未变。
+- **`open_ws` 建连未做**：需保持底层裸读写，curl_cffi 不暴露，另开 socket/CONNECT 要重接线路线路+证书，且**当前无消费方**——按"有消费方才立"不预造；协议层已就绪并有单测。
+- 顺带修掉两个真 bug：① 解压器 EOF 不 `flush()` → 压缩流尾巴丢失；② `if not chunk: break` 把"解压后空输出"误判成 EOF → 压缩流被提前截断。
 
 ---
 
@@ -281,7 +285,7 @@ def open_ws(url, *, proxy='auto', headers=None): ...                  # 收发�
 | **P0** | 冻结本方案 + 更新 `docs/coding-standard.md` 对齐 | 无 | 本文 + 规范修订 |
 | **P1** ✅ | `tls`/`http`/`connectivity` 从 `core` 迁 `net`（不留薄壳，调用点全量改）；**修复失效的分层守卫** | 低 | G1 归位 · 守卫生效 |
 | **P2** ✅ | `rules.py` → `rules/` 子包 + `RuleSpec` 元数据注册制；内置 http/retry/breaker，match 键拼错告警 | 中 | G3 可扩展 |
-| **P3** | 新增 `net/stream.py`，迁移 zenproto/zen/mcpclient 流式 | 中 | G2 SSE/WS |
+| **P3** ✅ | 新增 `net/stream.py`: iter_sse + 解压器 + WS 帧编解码; zen 改调 iter_sse; 修 2 个压缩流真 bug | 中 | G2 通道 |
 | **P4** | 拆 `transport/proxy/fetch/cli.app/zen.client` 大文件 | 中 | G5 文件粒度 |
 | **P5** | 抽 `sources/`(DataPacket+SourceBase) + `dao/` + `process/` 层；`sources` kind 登记 | 高 | G4 R3/R4 |
 | **P6** | `--log-file` JSON 日志 + 标准埋点补齐 + `-dd` | 低 | G6 R9 |

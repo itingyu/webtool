@@ -55,6 +55,7 @@ net/
 ├── proxy          代理池、proxyhelper、按域名的 proxy 规则（不动）
 ├── tls.py         证书校验、CA、verify_hosts、TLS 策略唯一决策点（原 net/tls 归位）
 ├── http.py        urllib 兜底通道（transport 的备胎本体，非第二条策略）
+├── stream.py      L7 流式原语：SSE 逐行 iter_sse() + 增量解压 + WS 帧编解码（出网仍走 transport）
 ├── transport.py   会话编排（DNS+代理+TLS+HTTP 组装，工厂产出）
 ├── fetch/download L7 通道：HTTP、流式（SSE/WebSocket 按需再加）
 ├── intercept.py   拦截与绕过（captcha/spa 并入，不动）

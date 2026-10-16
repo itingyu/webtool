@@ -12,7 +12,6 @@ tool_choice 存在 / stream=true。解析: 纯标准库 urllib + 逐行 SSE, rea
 
 import json
 import re
-import zlib
 import random
 import sys
 import time
@@ -93,26 +92,9 @@ def _tool_names(args):
     return _zp.resolve_tool_names(getattr(args, 'tools', None))
 
 def _unzipper(encoding):
-    """按 Content-Encoding 增量解压 (urllib 拿到压缩流不会自己解)
-
-    头既然照真机发了 `Accept-Encoding: gzip, deflate, br, zstd`, 上游哪天开始
-    压缩就得能接住 —— 否则流式解析静默变乱码, 比报错更难查。
-    上游目前不压缩 SSE (Content-Encoding 空), 这里是兜底。
-    gzip/deflate 走 stdlib 增量解; br/zstd 没有 stdlib 支持, 直接明确报错。
-    """
-    enc = (encoding or '').strip().lower()
-    if enc in ('', 'identity'):
-        return lambda b: b
-    if enc in ('gzip', 'x-gzip'):
-        d = zlib.decompressobj(16 + zlib.MAX_WBITS)
-    elif enc == 'deflate':
-        d = zlib.decompressobj(zlib.MAX_WBITS)
-    else:
-        def _no_impl(_b):
-            raise RuntimeError('上游返回 %s 压缩, 本地没有对应库 (装 brotli/'
-                               'zstandard, 或从 Accept-Encoding 去掉它)' % enc)
-        return _no_impl
-    return lambda b: d.decompress(b) if b else b
+    """增量解压器 (兼容旧名): 实现已下沉 net/stream.decompressor (L7 流式原语)"""
+    from webtool.net.stream import decompressor
+    return decompressor(encoding)
 
 _THINK_TAGS = ('<think>', '<thinking>', '<reasoning>')
 
@@ -260,35 +242,18 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
             return {'ok': False, 'status': _resp.status_code,
                     'elapsed': time.time() - t0, 'error_body': _resp.text,
                     'retry_after': _resp.headers.get('retry-after')}
-        with _resp.raw as r:
-            remainder = b''
-            saw_done = False
-            # read1() 有数据就返回; read(n) 会阻塞到攒满 n 字节, 流式就没了
-            read = getattr(r, 'read1', None) or (lambda n: r.read(n))
-            unzip = _unzipper(r.headers.get('Content-Encoding'))
-            while True:
-                try:
-                    chunk = unzip(read(65536))
-                except (TimeoutError, OSError) as e:
-                    stream_err.append('stream aborted after %d chars: %s: %s'
-                                      % (len(''.join(text_parts)),
-                                         type(e).__name__, str(e)[:100]))
-                    break
-                if not chunk:
-                    break
-                remainder += chunk
-                # 字节层切行: 整块 decode 再切会把被边界截断的汉字写成 U+FFFD
-                if b'\n' not in remainder:
-                    continue
-                *complete, remainder = remainder.split(b'\n')
-                lines = [c.decode('utf-8', errors='replace') for c in complete]
-                saw_done = saw_done or any(l.strip() == 'data: [DONE]'
-                                           for l in lines)
-                drain(lines)
-            if remainder:
-                drain([remainder.decode('utf-8', errors='replace')])
-            if not saw_done and not stream_err:
-                stream_err.append('stream closed without [DONE] and without content')
+        from webtool.net import stream as _stream
+        saw_done = False
+        try:
+            for line in _stream.iter_sse(_resp):
+                if line.strip() == 'data: [DONE]':
+                    saw_done = True
+                drain([line])
+        except _stream.StreamAborted as e:
+            stream_err.append('stream aborted after %d chars: %s'
+                              % (len(''.join(text_parts)), e))
+        if not saw_done and not stream_err:
+            stream_err.append('stream closed without [DONE] and without content')
     except Exception as e:
         # DNS 失败 / 连接被拒 / TLS 失败 / socket 超时。重试层只按状态码判断,
         # 这些必须自己兜住, 否则整个调用冒泡成 traceback。

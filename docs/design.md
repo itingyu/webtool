@@ -13,7 +13,7 @@ src/webtool/
 ├── pipeline/            # search 调度 / rank 榜单 / merge 排序去重 / topup 补量 / qhint 质量诊断 / query_ops
 ├── render/              # render 正文渲染 / hotrender 榜单分节 / output 落盘
 ├── filters/             # blocklist 站点黑名单 / adfilter 广告识别 (纯规则, 不出网)
-├── net/                 # L0 网络底座按 OSI 归位: transport 指纹传输 / proxy 线路 / tls 证书策略 /
+├── net/                 # L0 网络底座按 OSI 归位: transport 指纹传输 / proxy 线路 / tls 证书策略 / stream SSE+WS /
 │                        #   http urllib 通道 / connectivity 探活 / dns / intercept 拦截绕过 / captcha / spa / fetch
 ├── engines/             # 各站适配器 (由 plugins.json 的 module 指向) + extractors / customsites
 ├── core/                # L0 底座
