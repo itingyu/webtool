@@ -19,17 +19,23 @@ curl_cffi / urllib / requests 三条通道都从这里取 CA, 不各自读环境
 ## 环境没有 CA 包时
 
 精简环境可能压根没装 ca-certificates（Alpine 需 `apk add ca-certificates`）。
-仓库自带一份 CA 包 (`webtool/data/certs/ca-bundle.pem`, Mozilla 根证书集, 随
-wheel 分发), 探测链把它排在最后兜底 —— 所以"环境没 CA"在装了本包的环境里
-已经不成立, 不会再出现"为了能用就把全站校验关掉"。
+仓库自带一份 CA 包 (Mozilla 根证书集, 随 wheel 分发), 探测链把它排在最后兜底
+—— 所以"环境没 CA"在装了本包的环境里已经不成立, 不会再出现"为了能用就把全站
+校验关掉"。首次运行时它会被落到 `~/.webtool/certs/ca-bundle.pem` (可增补企业根),
+那份优先; 缺了回落到包内 `webtool/data/certs/ca-bundle.pem`, 删掉重跑即重新落一份。
 
 ## 站点自签证书放哪
 
-`webtool/data/certs/extra/*.pem` 是包内受信任证书的投放点：把站点自己的
+`~/.webtool/certs/extra/*.pem` 是站点受信任证书的投放点：把站点自己的
 证书丢进去, 该站走**正常校验 + 这套信任根**, 不必 `verify_hosts` 关校验。
 有 extra 时才现拼一份"基础 CA + extra"的合并文件 (缓存在 cache/tls/),
 没 extra 的环境一分钱不多花。注意: 用户显式配了 `ca_bundle` 时按用户那份走,
 extra 不掺和 (那份的语义就是"替代", 想追加自己 cat 合并)。
+
+投放点必须落在**用户目录**: 包内那份 (`webtool/data/certs/extra/`) 在
+site-packages 里, 升级时整棵被替换掉 —— 实测往包目录塞的证书
+`pip install --upgrade` 之后片甲不留, 表现成"某个站的证书突然又报错了"。
+包内目录只作发行方预置 (同名时用户目录优先)。
 
 ## 决策优先级
 
@@ -46,7 +52,8 @@ import threading
 
 __all__ = ['TlsError', 'TlsConfigError', 'policy', 'ssl_context', 'describe',
            'insecure_hosts', 'host_of', 'hit_insecure', 'is_tls_error',
-           'ca_available', 'bundled_ca', 'extra_certs', 'cert_advice']
+           'ca_available', 'bundled_ca', 'ca_bundle_candidates', 'extra_certs',
+           'extra_dirs', 'cert_advice']
 
 # 配置文件读一次, 按 (mtime, size) 指纹缓存 —— 改配置后同进程内自动生效
 _LOCK = threading.Lock()
@@ -159,30 +166,54 @@ def _certs_dir():
     from webtool.core.config_data import DATA_DIR
     return os.path.join(str(DATA_DIR), 'certs')
 
+def extra_dirs():
+    """站点证书投放点, 用户目录在前 (同名时用户那份胜出)
+
+    用户目录 (`~/.webtool/certs/extra/`, 跟 WEBTOOL_DIR 走) 是给"用的人"的:
+    包目录在 site-packages 里, `pip install --upgrade` 会把整棵目录换掉,
+    塞在那儿的证书活不过一次升级。包内目录留着当发行方预置。
+    """
+    from webtool.core.config_data import USER_DIR
+    return [os.path.join(str(USER_DIR), 'certs', 'extra'),
+            os.path.join(_certs_dir(), 'extra')]
+
+def ca_bundle_candidates():
+    """自带 CA 包的候选路径: 用户目录那份在前, 包内那份兜底
+
+    用户那份是"可以增补的" (把企业根 cat 进去), 包内那份是发行时的那一版。
+    """
+    from webtool.core.config_data import USER_DIR
+    return [os.path.join(str(USER_DIR), 'certs', 'ca-bundle.pem'),
+            os.path.join(_certs_dir(), 'ca-bundle.pem')]
+
 def bundled_ca():
-    """仓库自带的 CA 包路径; 没有 (或空) 返回 None"""
-    p = os.path.join(_certs_dir(), 'ca-bundle.pem')
-    try:
-        return p if os.path.getsize(p) > 0 else None
-    except OSError:
-        return None
+    """当前该用的自带 CA 包路径; 两份都没有 (或都空) 返回 None"""
+    for p in ca_bundle_candidates():
+        try:
+            if os.path.getsize(p) > 0:
+                return p
+        except OSError:
+            continue
+    return None
 
 def extra_certs():
-    """包内站点专有证书 `certs/extra/*.pem` (按文件名排序, 稳定可复现)
+    """站点专有证书: 用户目录 `~/.webtool/certs/extra/` + 包内预置, 按名去重
 
-    自签/私有 CA 的站点: 把它的 .pem 丢进这个目录, 该站就"验得通"了 ——
+    自签/私有 CA 的站点: 把它的 .pem 丢进用户目录, 该站就"验得通"了 ——
     仍然是"验过才放行", 只是换了一套信任根, 比 verify_hosts 关校验强。
     """
-    d = os.path.join(_certs_dir(), 'extra')
-    try:
-        names = sorted(os.listdir(d))
-    except OSError:
-        return []
-    out = []
-    for n in names:
-        if n.lower().endswith(('.pem', '.crt')):
+    out, seen = [], set()
+    for d in extra_dirs():
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            continue
+        for n in names:
             p = os.path.join(d, n)
+            if not n.lower().endswith(('.pem', '.crt')) or n in seen:
+                continue
             if os.path.isfile(p):
+                seen.add(n)
                 out.append(p)
     return out
 
@@ -193,6 +224,13 @@ def _ca_signature():
     表现成"明明放了却还报证书错误"。
     """
     sig = [_stamp()]
+    # 用户目录那份 CA 包是可编辑的 —— 换了它必须让缓存失效, 否则"改了没生效"
+    for p in ca_bundle_candidates():
+        try:
+            st = os.stat(p)
+            sig.append((p, st.st_mtime_ns, st.st_size))
+        except OSError:
+            sig.append((p, None))
     for p in extra_certs():
         try:
             st = os.stat(p)
@@ -233,7 +271,7 @@ def _merge_extras(base, extras):
             os.replace(tmp, out)
     except OSError as e:
         return base, 'CA 包 %s (extra 合并失败: %s)' % (base, e)
-    return out, 'CA 包 %s + 包内 %d 份站点证书' % (base, len(extras))
+    return out, 'CA 包 %s + 站点证书 %d 份' % (base, len(extras))
 
 def _cache_dir():
     from webtool.net.proxy import load_config
@@ -246,7 +284,7 @@ def _probe_ca():
 
     为什么要有探测: 有些精简环境压根没装 ca-certificates (Alpine 需
     `apk add ca-certificates`)。候选顺序是 环境变量 → 系统路径 → certifi
-    → **仓库自带** `data/certs/ca-bundle.pem`: 最后那份是保底, 于是"宿主
+    → **自带** `~/.webtool/certs/ca-bundle.pem` (缺则包内那份): 最后那份兜底, 于是"宿主
     一个 CA 都没有"不再等于"全站不校验"。
 
     有 `certs/extra/*.pem` 时, 选中的 base 会与它们合并 (见 _merge_extras)。
@@ -286,7 +324,8 @@ def _probe_ca():
                 mp, reason = (_merge_extras(p, extras) if extras
                               else (p, 'CA 包 %s' % p))
                 if bundled and os.path.abspath(p) == os.path.abspath(bundled):
-                    reason += ' (仓库自带, 宿主没装 ca-certificates)'
+                    where = '用户目录' if p == ca_bundle_candidates()[0] else '包内'
+                    reason += ' (自带 %s, 宿主没装 ca-certificates)' % where
                 _CA_CACHE = (stamp, (mp, reason))
                 return _CA_CACHE[1]
         _CA_CACHE = (stamp, (None, '环境里找不到任何 CA 包 '
@@ -377,10 +416,10 @@ _CERT_CODES = {
          '证书过期不是信任根能修的: webtool config set verify_hosts <域名> '
          '(只对这个域关校验)'),
     18: ('自签证书 (站方自己签的)',
-         '把该站证书丢进 webtool/data/certs/extra/ 即可被信任; '
+         '把该站证书丢进 ~/.webtool/certs/extra/ 即可被信任; '
          '或 webtool config set verify_hosts <域名>'),
     19: ('自签证书 (链内自签)',
-         '同上: 证书放 data/certs/extra/, 或 verify_hosts 点名'),
+         '同上: 证书放 ~/.webtool/certs/extra/, 或 verify_hosts 点名'),
     20: ('拿不到签发者证书 (上游没发中间证书)',
          '用 ca_bundle 把缺的中间证书补上: webtool config set ca_bundle <ca.pem> '
          '(把系统 CA 与中间证书 cat 在一起)'),

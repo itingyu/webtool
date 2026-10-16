@@ -15,6 +15,7 @@ import sys
 
 from webtool.core.config_data import USER_DIR
 from webtool.core.secrets_store import redact as _redact
+from webtool.net.proxy import store as _store
 
 CONFIG_PATH = str(USER_DIR / 'config.json')
 
@@ -77,6 +78,13 @@ def _validate(key, value):
         # 老的每引擎覆盖: 先于"未知键"报出来, 否则用户只看到一句"未知配置键"
         return False, _DEP_ENGINE_PROXY
     if key.startswith('cache_ttl.'):
+        # 桶名自由 (search/hot/引擎名...), 但帮助文案里那个占位符不是桶名 ——
+        # 照抄 `cache_ttl.<bucket>` 会写进一个永远命不中的桶, 还看不出错
+        bucket = key.split('.', 1)[1]
+        if not bucket or '<' in bucket or '>' in bucket:
+            return False, ('桶名要写实际名字, 不能照抄占位符: 如 '
+                           'cache_ttl.search=30 (桶: search/fetch/resolve/hot/zen/'
+                           '引擎名)')
         return True, value          # 复合键: 桶/引擎名自由, 值按原样
     if key not in CONFIG_KEYS:
         return False, f'未知配置键: {key}\n可用键: {", ".join(CONFIG_KEYS)}'
@@ -163,6 +171,13 @@ def handle(args):
                 cur = json.dumps(cfg.get(base, '(未设置)'), ensure_ascii=False)
             rows.append({'key': k, 'desc': desc, 'current': _redact(cur),
                          'hint': hint})
+        # 文件里有、但没人认的键: 读配置时会被丢掉, 且每次启动刷一条警告。
+        # 不列出来用户就只能看到警告、不知道那个键叫什么名字 —— 列出来才删得掉。
+        junk = _store.unknown_keys()
+        for k in junk:
+            rows.append({'key': k, 'desc': '⚠ 文件里有、但没人认的键 (会被忽略)',
+                         'current': _redact(json.dumps(cfg.get(k), ensure_ascii=False)),
+                         'hint': f'删掉它: webtool config unset {k}'})
         warn = tls_view.get('warning')
         # 给了 -f 就交结构化数据给 cli/adminfmt 转格式; 没给保持人类可读表格
         if fmt and fmt != 'json':

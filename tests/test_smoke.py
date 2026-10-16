@@ -48,10 +48,11 @@ MODULES = [
 fails = []
 
 
-def check(cond, msg):
+def check(cond, msg, detail=''):
     if not cond:
         fails.append(msg)
-    print(('PASS ' if cond else 'FAIL ') + msg)
+    print(('PASS ' if cond else 'FAIL ') + msg
+          + (f'  [{detail}]' if detail and not cond else ''))
 
 
 # 1. 全模块 import (拦 Registry 解包/签名这类 import 期崩溃)
@@ -1310,6 +1311,43 @@ for _f in sorted(_tests_dir.glob('test_*.py')):
             _MSG_BAD += 1
             print('   %s:%d 第一位是说明文字' % (_f.name, _n.lineno))
 check(_MSG_BAD == 0, 'check() 第一位一律是条件 (说明文字排第二): %d 处不符' % _MSG_BAD)
+
+print('\n=== 22. 没人认的配置键: 看得见、删得掉 ===')
+# store.load_config 会把 config.json 里不认识的键静默丢掉, 并每次启动刷一条警告。
+# 只报不列, 用户就永远删不掉它 —— 老版本留下的死键 (ua / cafile 这类) 表现成
+# "我明明配了却不生效", 而 config set 又拒绝未知键, 想删都不知道键叫什么。
+# 所以三件事要齐: list 列得出来、警告里给得出删除命令、unset 删得掉。
+import json as _json22
+with _tf.TemporaryDirectory() as _td22:
+    _env22 = dict(os.environ, WEBTOOL_DIR=_td22)
+    _cfg22 = os.path.join(_td22, 'config.json')
+    with open(_cfg22, 'w', encoding='utf-8') as _f22:
+        _json22.dump({'ua': 'curl/8', 'cafile': '/etc/ssl/x.pem'}, _f22)
+
+    def _cli22(*a):
+        return _sp.run([sys.executable, '-m', 'webtool', *a], env=_env22,
+                       capture_output=True, text=True)
+
+    _r22 = _cli22('config', 'list')
+    _o22 = _r22.stdout
+    check('ua' in _o22 and 'cafile' in _o22 and '没人认的键' in _o22,
+          'config list 把没人认的键列出来 (不列就删不掉)', _o22[-300:])
+    check('webtool config unset ua' in _o22,
+          '每个死键后面跟着怎么删 (照抄即用)', _o22[-300:])
+    _w22 = _cli22('config', 'get', 'ca_bundle').stderr
+    check('键不在白名单' in _w22 and 'config unset' in _w22 and 'config.json' in _w22,
+          '警告要说清: 哪个文件、键叫什么、怎么删', _w22[-300:])
+    check(_cli22('config', 'set', 'cache_ttl.<bucket>', '30').returncode == 2,
+          '照抄帮助里的占位符当桶名 → 当场拒绝 (否则写进命不中的桶)')
+    check(_cli22('config', 'set', 'cache_ttl.hot', '30').returncode == 0,
+          '真桶名照写不误 (cache_ttl.hot)')
+    check(_cli22('config', 'unset', 'ua').returncode == 0
+          and _cli22('config', 'unset', 'cafile').returncode == 0,
+          'unset 能删掉这些没人认的键')
+    _o22b = _cli22('config', 'list').stdout
+    _w22b = _cli22('config', 'get', 'ca_bundle').stderr
+    check('没人认的键' not in _o22b and '键不在白名单' not in _w22b,
+          '删干净后: list 不再列、警告不再刷', _o22b[-200:] + _w22b[-200:])
 
 if fails:
     sys.exit(1)

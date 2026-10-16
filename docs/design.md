@@ -29,6 +29,8 @@ src/webtool/
 │                        #   data/trading_calendar/holidays-<年>.json = 交易日历 (运行必需,
 │                        #   随包分发; 曾经读项目外的 shared/短线复盘/, 换机就静默降级)
 └── data/                # plugins.json / filters.json / instances.json / zen.json / feeds.seed.json
+                         #   certs/ca-bundle.pem = 兜底 CA (随包); 站点证书投放点
+                         #   是用户目录 ~/.webtool/certs/extra/ (包内同名目录只是预置)
                          # 注: 在包根, core.config_data.DATA_DIR 指向它
 ```
 

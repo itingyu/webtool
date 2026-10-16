@@ -36,6 +36,7 @@ with open(os.path.join(TMP, 'rules.json'), 'w', encoding='utf-8') as f:
 from webtool.net import http as whttp
 from webtool.net import netx as wnetx
 from webtool.net import proxy as wproxy
+from webtool.net import transport as wtx
 from webtool.net import proxyhelper as wpxh
 
 fails = []
@@ -189,6 +190,40 @@ check(wnetx.resolve_proxy('socks5h://127.0.0.1:1080', _socks_url) ==
 check(wnetx.resolve_proxy('http://127.0.0.1:2080', _socks_url) ==
       'http://127.0.0.1:2080',
       'http:// 代理不被误改')
+
+# --- 7. requests 会话必须照样问规则表 -----------------------------------------
+# requests 的 Session.send 每回都把 merge_setting(request.proxies, session.proxies)
+# 塞给适配器, 而 requests_session 建出来的 session 恰好 proxies={} —— 老代码把这
+# 个空 dict 读成"调用点表态: 强制直连", 于是整个 stock 桥 (61 处 requests_session)
+# 一律直连, rules.json 形同虚设: 实测规则写着走代理, 日志却是"线路=直连
+# (显式direct)", 请求照样直连出门。
+check(wtx._proxy_choice({}, 'auto') == 'auto',
+      '空 proxies 不等于"强制直连": 没表态就按建成时的模式走 (去问规则表)',
+      repr(wtx._proxy_choice({}, 'auto')))
+check(wtx._proxy_choice(None, 'auto') == 'auto', 'None 同理 (同样 = 没表态)',
+      repr(wtx._proxy_choice(None, 'auto')))
+check(wtx._proxy_choice({'https': 'http://127.0.0.1:2080'}, 'auto') ==
+      'http://127.0.0.1:2080', '给了真代理就用它')
+check(wtx._proxy_choice({'https': None}, 'auto') == 'direct',
+      '给了键没给值 = 这条强制直连')
+
+# 端到端: 规则表让 *.invalid 走假代理 —— 只有真去问了规则表才拿得到 204
+srv7, proxy_url7 = serve_fake_proxy()
+with open(os.path.join(TMP, 'rules.json'), 'w', encoding='utf-8') as f:
+    json.dump({'default': 'direct', 'proxies': {'fake': proxy_url7},
+               'rules': [{'match': {'domain': ['*.invalid']},
+                          'action': 'proxy:fake'}]}, f)
+try:
+    _r7 = wtx.requests_session(proxy='auto', timeout=10).get(
+        'http://stock.invalid/zt')
+    check(_r7.status_code == 204
+          and any('stock.invalid' in p for p in _FakeProxy.seen),
+          '规则说走代理, requests 会话就得走代理 (不许写死直连)',
+          f'{_r7.status_code} {_FakeProxy.seen}')
+except Exception as e:
+    check(False, '规则说走代理, requests 会话就得走代理 (不许写死直连)',
+          str(e)[:120])
+srv7.shutdown()
 
 print('\n' + ('ALL PASS' if not fails else f'FAILED: {fails}'))
 sys.exit(1 if fails else 0)

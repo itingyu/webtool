@@ -589,15 +589,19 @@ def _request_once(method, url, *, kind='api', referer=None, proxy=None, timeout=
 def _proxy_choice(proxies, override):
     """requests 传进来的请求级 `proxies=` → 本层的 proxy 取值
 
-    - 调用点显式给了 proxies (stock 用 `netx.proxies_for` 逐 URL 算出来的,
-      直连时给 None) → 以它为准: 给 None 就是"这条强制直连", 不能当成没给
-    - 没给 → 用建成时定的 override ('auto' 即问路由表)
+    - 给了真代理 → 用它
+    - 给了键却没给值 (`{'https': None}`) → "这条强制直连"
+    - `{}` / `None` → **调用点没表态**, 按建成时的 override ('auto' 即问路由表)
+
+    那个 `{}` 是最坑的一格: requests 的 `Session.send` 每回都会把
+    `merge_setting(request.proxies, session.proxies)` 塞给适配器, 而
+    `requests_session` 建出来的 session 恰好 `proxies={}` —— 于是**每一发**
+    都带着个空 dict 进来。老代码把它读成"调用点表态了: 强制直连", 结果整个
+    stock 桥 (61 处 requests_session) 一律直连, `rules.json` 形同虚设 ——
+    实测规则写着走代理, 日志却是 `线路=直连 (显式direct)`, 请求照样直连出门。
     """
     if proxies:
-        v = proxies.get('https') or proxies.get('http')
-        return v or 'direct'
-    if proxies is not None:
-        return 'direct'
+        return proxies.get('https') or proxies.get('http') or 'direct'
     return override
 
 

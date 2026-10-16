@@ -29,7 +29,7 @@ from webtool.cli.zen.client import is_free_model
 from webtool.cli.zen.render import _C_HEAD
 from webtool.cli.zen.render import _C_RESET
 from webtool.cli.zen.render import _C_THINK
-from webtool.cli.zen.render import _C_TOOL
+from webtool.cli.zen.render import print_tool_calls
 from webtool.cli.zen.render import _fmt_payload
 from webtool.cli.zen.render import _print_check
 from webtool.cli.zen.render import _print_models
@@ -174,20 +174,11 @@ def _do_zen(args, cfg):
                 _emit_text(piece)
         sys.stdout.flush()
 
-    def on_tool(name):
-        if not live:
-            return
-        sys.stdout.write('\n%s[工具] %s(…)%s'
-                         % ((_C_TOOL if color else ''), name,
-                            (_C_RESET if color else '')))
-        sys.stdout.flush()
-
     res = call_zen_retry(args.model, prompt, args.system, session, on_delta,
                          args.tool_choice, _tool_names(args), cfg,
                          max_attempts=args.retries,
                          verbose=args.stream, on_reason=on_reason,
                          reasoning_effort=getattr(args, 'think', None),
-                         on_tool=on_tool,
                          max_tokens=getattr(args, 'max_tokens', None))
     # 线路已在 call_zen_retry 内一次定死, 重试只重试同一条线。
     if live:
@@ -199,17 +190,16 @@ def _do_zen(args, cfg):
         if color and (marks['reason'] or marks['text']):
             sys.stdout.write(_C_RESET)
         sys.stdout.flush()
-    else:
-        for c in res.get('tool_calls_detail') or []:
-            line = '[工具] %s(%s)  ← 本客户端不执行工具, 仅展示' % (
-                c.get('name'), json.dumps(c.get('args', {}), ensure_ascii=False))
-            print(line, file=sys.stderr)
 
     # stdout 只出最终结果 (流式内容已随 on_delta 打出), 管道里 json 不会被流污染
+    calls = res.get('tool_calls_detail') or []
     if fmt == 'json':
         print(json.dumps(_fmt_payload(res, args), indent=2, ensure_ascii=False))
-    elif live and streamed:
-        print('')              # 已流出去, 补个换行收尾
+    elif live:
+        if marks['reason'] or marks['text']:
+            print('')              # 流出去过东西就补个换行收尾
+        # 工具调用等流读完再打: 名字先到、参数后到, 早点打只有 "(…)" 可写
+        print_tool_calls(calls, color=color, sink=sys.stdout)
     else:
         # 缓冲模式: 思考先打 (终端走 stdout, 重定向走 stderr), 回答只走 stdout
         if show_reason and (res.get('reasoning') or '').strip():
@@ -218,8 +208,10 @@ def _do_zen(args, cfg):
                                  _C_RESET if color else ''), file=reason_sink)
             if tty:                       # 终端上给回答也起个头, 两段一眼分得开
                 print('%s %s' % (_head('[回答]'), res.get('text', '')))
+                print_tool_calls(calls, color=color, sink=reason_sink)
                 return 0 if res.get('ok') else 2
         print(res.get('text', ''))
+        print_tool_calls(calls, color=color, sink=reason_sink)
     if not res.get('ok'):
         print('%s %s %s' % (_head('[zen]'), res.get('status'),
                             (res.get('error_body') or '')[:300]),

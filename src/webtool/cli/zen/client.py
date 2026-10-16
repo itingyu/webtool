@@ -104,7 +104,7 @@ from webtool.cli.zen.think import (  # noqa: E402,F401
 
 def call_zen(model, prompt, system=None, session=None, on_delta=None,
              tool_choice=None, tool_names=None, proxy=None, on_reason=None,
-             reasoning_effort=None, on_tool=None, max_tokens=None):
+             reasoning_effort=None, max_tokens=None):
     """发一次请求, 流式返回 {ok, status, text, usage, ...}。不重试。"""
     cfg = {'proxy': proxy} if proxy else {}
     body = build_body(model, prompt, system, tool_choice, tool_names,
@@ -136,10 +136,7 @@ def call_zen(model, prompt, system=None, session=None, on_delta=None,
                 if c.get('type'):
                     acc['type'] = c['type']
                 if c.get('name'):
-                    _first = not acc['name']       # 只报一次: 名字刚出现时
                     acc['name'] += c['name']
-                    if _first and on_tool:
-                        on_tool(acc['name'])
                 if c.get('arguments'):
                     acc['arguments'] += c['arguments']
             if u:
@@ -320,7 +317,7 @@ def _max_tokens_limit(res):
 def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
                    tool_choice=None, tool_names=None, cfg=None, max_attempts=2,
                    verbose=False, on_reason=None, reasoning_effort=None,
-                   on_tool=None, max_tokens=None):
+                   max_tokens=None):
     """只重试瞬时故障: 连接错误 / 408 / 429 / 5xx。**同一线路**重试。
 
     退避是指数的 (见 _backoff): 2/4/8/16s + 抖动, 60s 封顶, 默认 4 次;服务端 Retry-After 优先。
@@ -336,7 +333,7 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
     for attempt in range(1, max(1, max_attempts) + 1):
         last = call_zen(model, prompt, system, session, on_delta, tool_choice,
                         tool_names, proxy=route, on_reason=on_reason,
-                        reasoning_effort=reasoning_effort, on_tool=on_tool,
+                        reasoning_effort=reasoning_effort,
                         max_tokens=max_tokens)
         if last.get('ok'):
             return last
@@ -352,8 +349,7 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
             reasoning_effort = None
             last = call_zen(model, prompt, system, session, on_delta, tool_choice,
                             tool_names, proxy=route, on_reason=on_reason,
-                            reasoning_effort=None, on_tool=on_tool,
-                            max_tokens=max_tokens)
+                            reasoning_effort=None, max_tokens=max_tokens)
             if last.get('ok') or last.get('status') == 200:
                 return last
             status = last.get('status', 0)
@@ -366,7 +362,7 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
             max_tokens = lim
             last = call_zen(model, prompt, system, session, on_delta, tool_choice,
                             tool_names, proxy=route, on_reason=on_reason,
-                            reasoning_effort=reasoning_effort, on_tool=on_tool,
+                            reasoning_effort=reasoning_effort,
                             max_tokens=max_tokens)
             if last.get('ok') or last.get('status') == 200:
                 return last

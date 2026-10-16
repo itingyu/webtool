@@ -176,14 +176,34 @@ def load_config():
             fresh = [k for k in dropped if k not in _WARNED_KEYS]
             if fresh:
                 _WARNED_KEYS.update(fresh)
-                logger.warning('config | 键不在白名单, 已忽略: %s —— 键名拼错? '
-                               '还是新键忘了加进 net/proxy/store.DEFAULTS',
-                               ','.join(fresh))
+                # 光说"不在白名单"用户删不掉它: 文件名、键名、删除命令都得给,
+                # 否则就是每次启动刷一条没人能处理的警告 (老版本留下的死键尤其
+                # 像"我明明配了却不生效")。config list 末尾也会把它们列出来。
+                logger.warning(
+                    'config | 键不在白名单, 已忽略: %s —— 拼错了? 还是老版本留下的'
+                    '死键? 文件 %s; 删: webtool config unset <键>; 看: webtool '
+                    'config list 末尾"没人认的键"',
+                    ','.join(fresh), CONFIG_PATH)
         elif user is not None:
             logger.warning('config | 顶层不是对象而是 %s, 已忽略: %s',
                            type(user).__name__, CONFIG_PATH)
     return cfg
 
+
+def unknown_keys():
+    """config.json 里有、却没人认的键 (读配置时会被丢掉的那些)
+
+    给 `webtool config list` 用 —— 用户看不见一个键, 就永远删不掉它, 只能
+    反复吃那条"键不在白名单"的警告。只读一眼文件, 不碰缓存。
+    """
+    try:
+        with open(CONFIG_PATH, encoding='utf-8') as f:
+            user = json.load(f)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(user, dict):
+        return []
+    return sorted(k for k in user if k not in _KNOWN)
 
 def save_config(cfg):
     os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)

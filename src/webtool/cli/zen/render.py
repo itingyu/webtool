@@ -11,6 +11,7 @@ tool_choice 存在 / stream=true。解析: 纯标准库 urllib + 逐行 SSE, rea
 """
 
 import json
+import sys
 
 from webtool.cli import zenproto as _zp
 
@@ -26,6 +27,37 @@ _C_THINK = '\033[90m'      # 灰: 思考
 _C_TOOL = '\033[33m'       # 黄: 工具调用
 
 _C_HEAD = '\033[36m'       # 青: 分段标签
+
+_TOOL_ARG_MAX = 300        # 工具参数打印上限: 模型可能一次生成整篇文件
+
+_TOOL_HINT = '← 本客户端不执行工具, 仅展示'
+
+def fmt_tool_call(call, limit=_TOOL_ARG_MAX):
+    """一条工具调用压成一行: `bash {"command": "ls -la"}`
+
+    参数是模型现生成的, 可能很长 (整篇文件), 所以 json 化后截断 —— 截断处标出
+    总长度, 免得看起来像"参数就这么点"。
+    """
+    try:
+        body = json.dumps(call.get('args') or {}, ensure_ascii=False)
+    except (TypeError, ValueError):        # args 里混进了不可序列化的东西
+        body = str(call.get('args'))
+    if len(body) > limit:
+        body = '%s…(共 %d 字)' % (body[:limit], len(body))
+    return '%s %s' % (call.get('name') or '?', body)
+
+def print_tool_calls(calls, color=False, sink=None):
+    """逐条打工具调用: 名字 + 参数, 一行一条
+
+    要等整条流读完才能打 —— 流式过程中只先到名字, 参数是后面几帧才拼起来的,
+    早点打就只能写个"(…)", 那正是用户看不懂的三个点。
+    """
+    out = sink or sys.stdout
+    for c in calls:
+        line = '%s %s  %s' % ('[工具]', fmt_tool_call(c), _TOOL_HINT)
+        if color:
+            line = _C_TOOL + line + _C_RESET
+        print(line, file=out)
 
 def _fmt_payload(res, args):
     """-f text/markdown 只要答案; json 给完整结构 (usage / reasoning / tool_calls)"""

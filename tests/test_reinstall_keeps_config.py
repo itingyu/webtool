@@ -15,6 +15,7 @@ pip 重装、`webtool upgrade`、`webtool uninstall` 都会碰到同一个目录
 import hashlib
 import json
 import os
+import shutil
 import sys
 import tempfile
 
@@ -67,6 +68,10 @@ write('rules.json', RULES)
 write('plugins.json', {'my_plugin': {'enabled': True}})
 write('secrets/vault.json', '{"mine": "ciphertext"}')
 write('MY-NOTES.md', 'do not touch')
+# 证书目录: 首次运行会把包内那份落过来, 用户已经有的 (含自己改过的说明) 不许碰
+write('certs/README.md', 'my own cert notes')
+write('certs/ca-bundle.pem', 'my own bundle')
+os.makedirs(os.path.join(TMP, 'certs', 'extra'), exist_ok=True)
 before = md5s(TMP)
 
 created = boot.ensure_user_files()
@@ -89,6 +94,29 @@ check(os.path.isfile(os.path.join(TMP, 'rules.json')), '缺 rules.json → 补�
 check(json.load(open(os.path.join(TMP, 'config.json')))['my_own_knob'] == 'keep-me'
       and os.path.isfile(os.path.join(TMP, 'secrets', 'vault.json')),
       '补种子不改动 config.json / 凭据')
+
+# ── 2.5 证书目录: 缺了就整棵补回来, 已有的不碰 ──────────────────────────
+# 包目录在 site-packages 里, 升级整棵换掉 —— 所以"投放点"必须落在用户目录,
+# 而且安装/首次运行就要建出来: 目录不存在, 用户按报错去放证书只会扑空。
+os.unlink(os.path.join(TMP, 'rules.json'))
+shutil.rmtree(os.path.join(TMP, 'certs'))
+created = boot.ensure_user_files()
+check(os.path.isdir(os.path.join(TMP, 'certs', 'extra')),
+      '首次运行: 证书投放点 certs/extra/ 建出来了', str(created))
+check(os.path.isfile(os.path.join(TMP, 'certs', 'ca-bundle.pem'))
+      and os.path.getsize(os.path.join(TMP, 'certs', 'ca-bundle.pem')) > 0,
+      '首次运行: 自带 CA 包复制到用户目录 (可增补企业根)')
+check(os.path.isfile(os.path.join(TMP, 'certs', 'README.md')),
+      '首次运行: 投放点说明一起落地 (空目录不解释自己)')
+with open(os.path.join(TMP, 'certs', 'extra', 'mine.pem'), 'w') as f:
+    f.write('my cert\n')
+with open(os.path.join(TMP, 'certs', 'ca-bundle.pem'), 'w') as f:
+    f.write('my own bundle\n')
+created = boot.ensure_user_files()
+check(created == [], '再跑一次: 已有的证书/目录一个都没重建', str(created))
+check(open(os.path.join(TMP, 'certs', 'extra', 'mine.pem')).read() == 'my cert\n'
+      and open(os.path.join(TMP, 'certs', 'ca-bundle.pem')).read() == 'my own bundle\n',
+      '用户改过的证书与 CA 包不被包内那份覆盖')
 
 # ── 3. 种子文件清单只该有"整份落盘"的那几样 ─────────────────────────────
 check('config.json' not in boot.SEED_FILES
