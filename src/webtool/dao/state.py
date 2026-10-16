@@ -8,7 +8,10 @@ import json
 import os
 import tempfile
 import threading
+import logging
 import time
+
+logger = logging.getLogger(__name__)
 
 PATH = os.path.expanduser('~/.webtool/state.json')
 TTL = {'cookies': 14 * 86400,
@@ -80,6 +83,12 @@ def reset_captcha(engine):
 
 def save_cookies(engine, cookies):
     """cookies: [{name,value,domain,path,expires,secure}, ...] 过期项已滤除"""
+    if cookies is None or not isinstance(cookies, list):
+        # 上游导出 cookie 失败时(曾返回 None)会把 items 写成 null, 落盘后
+        # 下次 load_cookies 直接 TypeError, 而报错点离真凶很远。宁可少存一次
+        logger.warning('state | 拒绝写入非列表 cookies engine=%s type=%s',
+                       engine, type(cookies).__name__)
+        return
     with _lock:
         load()['cookies'][engine] = {'ts': time.time(), 'items': cookies}
         _save_locked()
@@ -94,7 +103,7 @@ def load_cookies(engine):
         return []
     now = time.time()
     out = []
-    for c in box.get('items', []):
+    for c in (box.get('items') or []):      # 老数据可能是 null, 别炸在这
         exp = c.get('expires')
         if exp and exp < now:            # 会话 cookie (exp=None) 保留
             continue

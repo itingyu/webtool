@@ -36,7 +36,7 @@ def _cfg_timeout():
             v = (load_config() or {}).get('timeout')
             v = float(v) if v else None
         except Exception as e:
-            logger.debug('config.json timeout 读取失败: %s', e)
+            logger.debug('pacing | config timeout 读取失败: %s', e)
             v = None
         _CFG_CACHE = (stamp, v)
         return v
@@ -62,13 +62,13 @@ def rule_timeout(url, timeout=None):
         from webtool.net import rules as _rules
         v = _rules.router().params_for('http', url).get('timeout')
         if v:
-            logger.debug('http 规则 timeout=%s (%s)', v, url)
+            logger.debug('pacing | http 规则 timeout=%s (%s)', v, url)
             return float(v)
     except Exception as e:
-        logger.debug('http 规则查询失败, 用通用默认: %s', e)
+        logger.debug('pacing | http 规则查询失败, 用通用默认: %s', e)
     v = _cfg_timeout()
     if v:
-        logger.debug('config.json timeout=%s (%s)', v, url)
+        logger.debug('pacing | config timeout=%s (%s)', v, url)
         return v
     return 15
 

@@ -34,7 +34,7 @@ def retry_policy(url):
         return int(p.get('retries') or DEFAULT_RETRIES), \
             str(p.get('backoff') or DEFAULT_BACKOFF)
     except Exception as e:                 # 规则读不到不能连累重试
-        logger.debug('retry 规则查询失败, 用默认: %s', e)
+        logger.debug('resilient | retry 规则查询失败, 用默认: %s', e)
         return DEFAULT_RETRIES, DEFAULT_BACKOFF
 
 
@@ -46,7 +46,7 @@ def breaker_policy(url):
         return int(p.get('fail_threshold') or DEFAULT_FAIL_THRESHOLD), \
             int(p.get('cool_seconds') or DEFAULT_COOL_SECONDS)
     except Exception as e:
-        logger.debug('breaker 规则查询失败, 用默认: %s', e)
+        logger.debug('resilient | breaker 规则查询失败, 用默认: %s', e)
         return DEFAULT_FAIL_THRESHOLD, DEFAULT_COOL_SECONDS
 
 
@@ -76,7 +76,7 @@ def retry_call(fn, *, url=None, retries=None, backoff=None,
                 d = min(RETRY_CAP, RETRY_BASE)
             if on_retry:
                 on_retry(attempt, e)
-            logger.debug('重试 %s/%s (%s: %s), 等 %.1fs',
+            logger.debug('resilient | 重试 %s/%s (%s: %s), 等 %.1fs',
                          attempt, r, type(e).__name__, str(e)[:80], d)
             sleep(d)
 
@@ -107,7 +107,7 @@ class Breaker:
         until = br.get('open_until', 0)
         left = until - time.time()
         if left > 0:
-            logger.debug('熔断打开 %s (剩 %.0fs)', self.host, left)
+            logger.debug('resilient | 熔断打开 %s (剩 %.0fs)', self.host, left)
             return left
         if until and br.get('fails'):
             self._record(fails=0)          # 半开放行试探
@@ -124,7 +124,7 @@ class Breaker:
                                          else '')
         fails = int(br.get('fails', 0)) + 1
         if fails >= threshold:
-            logger.debug('熔断打开 %s (%d 连败, 冷却 %ss)',
+            logger.debug('resilient | 熔断打开 %s (%d 连败, 冷却 %ss)',
                          self.host, fails, cool)
             self._record(fails=fails, open_until=time.time() + cool)
         else:
@@ -187,7 +187,7 @@ def parallel_map(items, fn, *, max_workers=None, desc=''):
                 out[i] = (f.result(), None)
             except Exception as e:
                 out[i] = (None, e)
-    logger.debug('parallel_map %s: %d 项 / %d 线程 / %.1fs',
+    logger.debug('resilient | parallel_map %s: %d 项 / %d 线程 / %.1fs',
                  desc or '', len(items), workers, time.time() - t0)
     return out
 

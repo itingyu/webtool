@@ -235,7 +235,7 @@ class Router:
             if isinstance(m, dict) and self._match(m, host, port, scheme,
                                                    ip_ref):
                 p = {k: v for k, v in r.items() if k not in ('match', 'kind')}
-                logger.debug('rule[%s] 命中 %s: %s', kind, host, p)
+                logger.debug('rules | rule[%s] 命中 %s: %s', kind, host, p)
                 return p
         return {}
 

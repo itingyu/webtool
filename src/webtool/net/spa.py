@@ -277,8 +277,8 @@ def _fmt_time(v):
             ts //= 1000
         if 1e9 < ts < 4e9:
             return datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M')
-    except Exception:
-        logger.debug('忽略异常 (容忍路径)', exc_info=True)
+    except Exception as e:
+        logger.debug('spa | 时间戳解析失败 v=%r: %s', v, e)
     return None
 
 

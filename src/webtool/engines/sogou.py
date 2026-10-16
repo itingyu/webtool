@@ -54,7 +54,7 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None,
         if out:
             intercept.note_ok(intercept.Ctx(engine='sogou', url=ENDPOINT))
             return out
-        logger.debug('sogou PC 页有内容但解析 0 条 (%d 字节), 判为壳页, '
+        logger.debug('sogou | PC 页有内容但解析 0 条 (%d 字节), 判为壳页, '
                      '转移动通道', len(html))
 
     # 4) PC 全拦 → 移动端 (两轮会话, 中途 PC 冷却不影响移动通道)

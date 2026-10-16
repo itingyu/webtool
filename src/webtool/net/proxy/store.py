@@ -6,11 +6,17 @@
 **任何输出与报错一律脱敏** (secrets_store.redact)。
 """
 import json
+import logging
 import os
 import re
 from urllib.parse import unquote
 
 from webtool.core.config_data import USER_DIR
+
+logger = logging.getLogger(__name__)
+
+# 白名单丢键只吵一次: load_config 每进程会被调很多次 (tls/pacing/命令入口)
+_WARNED_KEYS = set()
 from webtool.core.secrets_store import redact, store_password
 
 
@@ -155,9 +161,27 @@ def load_config():
         try:
             with open(CONFIG_PATH, encoding='utf-8') as f:
                 user = json.load(f)
+        except Exception as e:
+            # 曾经是 except: pass —— 配置文件写坏了会当"没配"静默跑下去,
+            # 用户看到的是"我明明配了却不生效", 却没有一行日志指向这里
+            logger.warning('config | 读取失败, 本次全用默认值: %s (%s: %s)',
+                           CONFIG_PATH, type(e).__name__, e)
+            user = None
+        if isinstance(user, dict):
+            dropped = sorted(k for k in user if k not in _KNOWN)
             cfg.update({k: v for k, v in user.items() if k in _KNOWN})
-        except Exception:
-            pass
+            # 键在文件里、却不在 DEFAULTS 白名单 → 被静默过滤。config set
+            # 能写进去 (它走自己那份键表), 业务侧却读不到, 是"配了没反应"的
+            # 头号成因。见 tests/test_smoke.py §15 的键表对齐守卫。
+            fresh = [k for k in dropped if k not in _WARNED_KEYS]
+            if fresh:
+                _WARNED_KEYS.update(fresh)
+                logger.warning('config | 键不在白名单, 已忽略: %s —— 键名拼错? '
+                               '还是新键忘了加进 net/proxy/store.DEFAULTS',
+                               ','.join(fresh))
+        elif user is not None:
+            logger.warning('config | 顶层不是对象而是 %s, 已忽略: %s',
+                           type(user).__name__, CONFIG_PATH)
     return cfg
 
 

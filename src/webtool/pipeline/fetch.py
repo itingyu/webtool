@@ -186,8 +186,9 @@ def _read_capped(resp, cap):
             buf += c
             if len(buf) >= cap:
                 break
-    except Exception:
-        logger.debug('忽略异常 (容忍路径)', exc_info=True)
+    except Exception as e:
+        logger.debug('fetch | 响应体读取中断 (已收 %d 字节 / 上限 %d): %s',
+                     len(buf), cap, e, exc_info=True)
     finally:
         try:
             resp.close()
@@ -297,6 +298,10 @@ def do_fetch(args, cfg):
               f'{",".join(extractors.MODES)}', file=sys.stderr)
         return 2
     extract_mode = extractors.resolve_mode(cli_extract or cfg.get('extract'))
+    # 提取档位是"内容不对"类问题的第一个嫌疑: 用户传了 --extract? 配置是什么?
+    # 最终生效哪个? 三者不一致时看这行就能定位
+    logger.debug('fetch | 提取档位 mode=%s (--extract=%s config=%s)',
+                 extract_mode, cli_extract, cfg.get('extract'))
 
     def work(u):
         # 显式指定远程通道时直接走 reader, 不试本地链 (用户已表明意图)
@@ -505,21 +510,32 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
             thin = len(html or '') < 6000 or not _spa_marker(html)
             if thin:
                 try:
+                    _old_len = len(html or '')
+                    logger.debug('fetch | 桌面版过薄 (%d 字节), 试移动指纹 url=%s',
+                                 _old_len, url)
                     r2, s2, v2, h2 = open_stream(url, proxy=proxy, timeout=timeout,
                                                  profile='chrome131_android')
                     p2 = _decode(_read_capped(r2, _HTML_MAX_BYTES), h2)
                     if len(p2) > len(html) * 1.5:
                         html, status, via = p2, s2, f'{v2}+mobile-fallback'
-                except Exception:
-                    pass
-    except Exception:
-        logger.debug('忽略异常 (容忍路径)', exc_info=True)
+                        logger.debug('fetch | 移动指纹降级生效 url=%s 桌面=%d 移动=%d via=%s',
+                                     url, _old_len, len(p2), via)
+                except Exception as e:
+                    logger.debug('fetch | 移动指纹降级未果 (沿用桌面结果) url=%s: %s',
+                                 url, e)
+    except Exception as e:
+        logger.debug('fetch | 抓取路径异常, 沿用已有内容 url=%s via=%s html=%d: %s',
+                     url, via, len(html or ''), e, exc_info=True)
     if args.raw:
         return {'url': url, 'status': status, 'html': html, 'via': via,
                 'took_ms': int((time.time() - t0) * 1000)}
     content, meta = _extract(html, url, extract_mode)
     js_shell = meta.pop('_js_shell', None)
     extract_via = meta.pop('_via', '')
+    # 出来了多少字、用的是哪个提取器 —— 与上面"提取档位"对照看降级链走到哪步
+    logger.debug('fetch | 提取完成 chars=%d extractor=%s html=%d js壳=%s url=%s',
+                 len(content or ''), extract_via or extract_mode, len(html or ''),
+                 bool(js_shell), url)
     _warn_missing(meta.pop('_missing', None))
     thin = not content or len(content) < 150 or _is_nav_shell(content)
     if js_shell or thin or _looks_spa(html):

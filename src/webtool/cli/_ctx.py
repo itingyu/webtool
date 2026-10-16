@@ -10,8 +10,11 @@ from contextlib import redirect_stdout
 import typer
 from typer._click.exceptions import UsageError as _UsageError
 
+from webtool.core.logging import get_logger
 from webtool.net import proxy as _proxy
 from webtool.render.output import FORMATS, emit
+
+logger = get_logger(__name__)
 
 
 __all__ = ['Fmt', 'Output', 'NoProxy', 'NoCache', '_norm_fmt', '_THINK_OFF',
@@ -68,6 +71,25 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='text'):
     data_cmd 为空 = 管理命令, 内部 print 原样输出, 这里按 -f 转格式后再 emit。
     """
     cfg = _proxy.load_config()
+    # 命令入口全景: 排查先确认"到底是哪个命令、参数解析成了什么、配置从哪来"
+    # —— 参数被吃/配置没加载到, 后面所有日志都会看着莫名其妙
+    # 命令名取 argv 里第一个非选项参数 —— 得跳过带值的全局选项的值
+    # (--log-file /tmp/x.jsonl 的 /tmp/x.jsonl 不是命令名)
+    _argv = sys.argv[1:]
+    _cmd, _skip = '?', False
+    for _a in _argv:
+        if _skip:
+            _skip = False
+            continue
+        if _a in ('--log-file', '--output', '-o'):
+            _skip = True
+            continue
+        if not _a.startswith('-'):
+            _cmd = _a
+            break
+    logger.debug('cli | 入口 cmd=%s fmt=%s out=%s no_cache=%s no_proxy=%s '
+                 'cfg=%d 键 argv=%s', _cmd, fmt or '(默认)', output,
+                 no_cache, no_proxy, len(cfg), ' '.join(_argv[:4]))
     gproxy = _CTX.get('proxy')
     if gproxy:
         cfg['proxy'] = gproxy

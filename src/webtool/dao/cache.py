@@ -45,19 +45,19 @@ def _path(cfg, bucket, key):
 
 def get(cfg, bucket, key):
     if not enabled(cfg):
-        logger.debug('cache 已关 (config cache=off), 跳过读取')
+        logger.debug('cache | 已关 (config cache=off), 跳过读取')
         return None
     p = _path(cfg, bucket, key)
     try:
         with open(p, encoding='utf-8') as f:
             obj = json.load(f)
         if time.time() - obj['t'] < _ttl(cfg, bucket):
-            logger.debug('cache hit %s/%s', bucket, key[:40])
+            logger.debug('cache | hit %s/%s', bucket, key[:40])
             return obj['v']
         os.unlink(p)
     except (OSError, KeyError, ValueError):
         pass
-    logger.debug('cache miss %s/%s', bucket, key[:40])
+    logger.debug('cache | miss %s/%s', bucket, key[:40])
     return None
 
 def put(cfg, bucket, key, value):

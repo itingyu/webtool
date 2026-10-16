@@ -12,6 +12,7 @@ from webtool.net.rules.router import Router
 from webtool.net.rules.spec import RuleError
 
 logger = logging.getLogger(__name__)
+_ROUTE_SEEN = set()
 
 
 def load_router(cfg):
@@ -104,7 +105,16 @@ def resolve_route(url, cfg=None, engine=None):
     try:
         p = r.proxy_for(url)
         act = r.rule(url)[0]
-        logger.debug('路由 %s -> %s', url, act)
+        # 同 (url, 动作) 只记一次: resolve_proxy 在一次请求里会被多调一轮
+        # (会话一次、请求一次), 不去重的话同一行结论会成对刷屏, 把真正的
+        # 异常淹没掉。去重后既保留"这个 URL 走了哪条线", 又能一眼扫完。
+        _key = (url, act)
+        if _key not in _ROUTE_SEEN:
+            _ROUTE_SEEN.add(_key)
+            if len(_ROUTE_SEEN) > 5000:
+                _ROUTE_SEEN.clear()
+            from webtool.core.logging import redact_url
+            logger.debug('rules | 路由 %s -> %s', redact_url(url), act)
         return p
     except RuleError:
         raise

@@ -1,5 +1,6 @@
 """多引擎搜索调度"""
 import concurrent.futures
+import logging
 import sys
 import time
 
@@ -7,6 +8,8 @@ from webtool.dao import cache
 from webtool.core import config_data
 from webtool.core.plugins import table as _plugin_table
 from webtool.filters.blocklist import filter_blocklist, is_blocked
+
+logger = logging.getLogger(__name__)
 
 
 def _engines():
@@ -164,13 +167,19 @@ def _do_search(args, cfg, filter_ad=True):
         不写共享状态 —— 共享的累加与回填全在主线程做。
         """
         ckey = f'{eng}|{qmap[eng]}|{_pull}|{market}'
+        _t0 = time.monotonic()
         if not args.no_cache:
             cached = cache.get(cfg, 'search', ckey)
             if cached is not None:
+                logger.debug('search | 引擎 %s 缓存命中 条数=%d key=%s',
+                             eng, len(cached), ckey)
                 return cached, 'cache', 0
+        # 引擎自己的失败不在这里吞: 抛出去由调用方记 err_of, 保留原始异常串
         rs = _engines()[eng]['fn'](qmap[eng], max_results=_pull, proxy=proxy,
                                    timeout=cfg.get('timeout', 15), market=market)
         n_ad = sum(1 for r in rs if r.get('is_ad'))
+        logger.debug('search | 引擎 %s 抓取完成 条数=%d 广告=%d 耗时=%dms',
+                     eng, len(rs), n_ad, int((time.monotonic() - _t0) * 1000))
         if filter_ad:
             rs = [r for r in rs if not r.get('is_ad')]
         else:
@@ -181,6 +190,12 @@ def _do_search(args, cfg, filter_ad=True):
 
     got = {}
     jobs = _jobs(args, cfg, len(live))
+    # 一次搜索的"输入侧全景": 排查先看这行 —— 引擎集合/并发度/单引擎拉取量/
+    # 市场/线路/cache 开关任一不对, 后面的结果都不用看了
+    logger.debug('search | 调度 q=%r engines=%s jobs=%d pull=%d market=%s '
+                 'proxy=%s cache=%s',
+                 args.query, ','.join(engines), jobs, _pull, market, proxy,
+                 'off' if args.no_cache else 'on')
     if jobs > 1 and len(live) > 1:
         with concurrent.futures.ThreadPoolExecutor(jobs) as ex:
             futs = {ex.submit(fetch, e): e for e in live}
@@ -190,12 +205,14 @@ def _do_search(args, cfg, filter_ad=True):
                     got[eng] = fu.result()
                 except Exception as e:
                     err_of[eng] = str(e)[:200]
+                    logger.debug('search | 引擎 %s 失败: %s', eng, err_of[eng])
     else:                                       # 单引擎 / --jobs 1: 不绕线程
         for eng in live:
             try:
                 got[eng] = fetch(eng)
             except Exception as e:
                 err_of[eng] = str(e)[:200]
+                logger.debug('search | 引擎 %s 失败: %s', eng, err_of[eng])
 
     for eng in engines:
         if eng not in got:
@@ -235,6 +252,7 @@ def _do_search(args, cfg, filter_ad=True):
                 results = kept
         else:
             results = spec['fn'](results, {'args': args, 'cfg': cfg})
+    _n_in_pool = len(results)        # 去重前的入池条数 (汇总日志用)
     stats = {'blocked': n_blocked}
     results = _merge(results, args.query,
                      use_semantic=True, dedupe=True,
@@ -285,6 +303,12 @@ def _do_search(args, cfg, filter_ad=True):
 
     n_blocked = stats.get('blocked', 0)
     n_floor = stats.get('floor_dropped', 0)
+    # 输出侧全景: 进来多少条、被去重/黑名单/权重地板各砍掉多少 ——
+    # "怎么少了这么多" 一眼能定位到是哪一层砍的
+    logger.debug('search | 汇总 入池=%d 输出=%d 去重=%d 黑名单=%d '
+                 '低权重=%d 广告=%d 权重地板=%s 失败引擎=%d',
+                 _n_in_pool, len(results), dedup_removed, n_blocked,
+                 n_floor, ad_filtered, stats.get('weight_floor'), len(errors))
 
     # 最终截断: 排序后取质量最高的 n 条 (多引擎大池 → top n, 硬上限语义)
     if len(results) > args.max:

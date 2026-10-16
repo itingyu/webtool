@@ -57,6 +57,7 @@ def resolve_proxy(proxy, url=None):
     这是**唯一**该碰代理的地方: 其他模块拿到的 proxy 一律是已归一、可直接
     交给底层库的值, 不再各自去 resolve_auth / 判断 auto。
     """
+    via_rules = proxy is None or proxy == 'auto'
     if proxy is None or proxy == 'auto':
         if not url:
             # 没有目标 URL 就拿不到域名, 只能退默认动作 (本轮仍由规则表说了算)
@@ -65,8 +66,11 @@ def resolve_proxy(proxy, url=None):
         else:
             from webtool.net import rules as _rules
             proxy = _rules.resolve_route(url)
+    # 走规则表的结论由 rules 日志统一报 (带命中的动作, 信息更全), 这里只补
+    # "调用方显式指定了线路"的情况, 避免同一次请求两条日志说同一件事
     if not proxy or proxy == 'direct':
-        logger.debug('线路: 直连 (%s)', url or '')
+        if not via_rules and proxy == 'direct':
+            logger.debug('netx | 线路=直连 (显式direct) (%s)', url or '')
         return None
     # 缺密码要立刻说清楚, 不能拿空密码去撞 407 (那报错完全指不到原因)
     p = resolve_auth(proxy)
@@ -83,7 +87,8 @@ def resolve_proxy(proxy, url=None):
         where = '%s:%s' % (host, port) if port else host
     except Exception:
         where = '<unparsed>'
-    logger.debug('线路: 代理 %s (%s)', where, url or '')
+    if not via_rules:
+        logger.debug('netx | 线路=代理 %s (显式) (%s)', where, url or '')
     return p
 
 

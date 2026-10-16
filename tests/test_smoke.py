@@ -1193,6 +1193,37 @@ for _k in sorted(_DEF):
 check(not _dead_cfg, 'config.json 每个键都有人读 (死键 = 用户配了没反应): '
       + (', '.join(_dead_cfg) or 'ok'))
 
+print('\n=== 16. 日志文案必须能一眼定位来源 (格式守卫) ===')
+# 排查时要在几十上百行里扫线索, 无主语的"忽略异常 (容忍路径)"等于没写 ——
+# 你只知道"某处吞了异常", 不知道哪一层、为什么。统一成
+# `<模块> | 动作 对象 key=value`, 便于 grep、便于肉眼扫、便于 JSONL 归类。
+_LOGRE = _re2.compile(r"logger\.(debug|info|warning|error)\(\s*(?:f)?"
+                      r"(?:'((?:[^'\\]|\\.)*)'|\"((?:[^\"\\]|\\.)*)\")")
+_bad_log = []
+for _f in _SRCW.rglob('*.py'):
+    for _m in _LOGRE.finditer(_f.read_text(encoding='utf-8')):
+        _msg = _m.group(2) or _m.group(3)
+        if not _re2.match(r'^[a-z][a-z0-9_]* \| ', _msg):
+            _bad_log.append(f'{_f.relative_to(_SRCW)}: {_msg[:40]}')
+check(not _bad_log, '日志文案统一成 "<模块> | ..." (否则排查时无从定位): '
+      + (str(_bad_log[:3]) if _bad_log else 'ok'))
+
+print('\n=== 17. 日志行必须能对齐时间/定位文件/分辨线程 (格式守卫) ===')
+# 光有消息体不够: 并发抓引擎时两行会串成一件事 (缺线程名), 事后翻盘又分不清
+# 先后 (缺毫秒), 定位还得再搜一遍代码 (缺文件:行号)。三样必须都在格式里。
+import webtool.core.logging as _logmod
+import logging as _logging2
+_fmt_fields = ('%(asctime)s', '%(msecs)', '%(threadName)s',
+               '%(filename)s', '%(lineno)d')
+check(all(f in _logmod._FMT for f in _fmt_fields),
+      '终端日志格式含 时间/毫秒/线程/文件/行号: ' + str(_logmod._FMT))
+check(all(f in _logmod._FILE_FMT for f in _fmt_fields),
+      '文件日志格式含 时间/毫秒/线程/文件/行号: ' + str(_logmod._FILE_FMT))
+_ev = _logmod._JsonFmt().format(_logging2.LogRecord(
+    'webtool.x', _logging2.WARNING, 'x.py', 9, 'x | 事件', None, None))
+check(all(k in _ev for k in ('"thread"', '"file"', '"ts"', '"msg"')),
+      'JSONL 事件含 ts/thread/file/msg: ' + _ev)
+
 if fails:
     sys.exit(1)
 print('ALL PASS')

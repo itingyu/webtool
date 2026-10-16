@@ -312,5 +312,5 @@ def _finish_progress(pr, path, got, total, resumed, aborted=False):
 def _close(resp):
     try:
         resp.close()
-    except Exception:
-        logger.debug('忽略异常 (容忍路径)', exc_info=True)
+    except Exception as e:
+        logger.debug('download | 关闭响应失败 (已落盘内容不受影响): %s', e)

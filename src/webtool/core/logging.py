@@ -15,17 +15,31 @@
   --log-file P → 额外把 DEBUG 全量写进文件 (纯文本无颜色), 便于事后定位
 
 handler 只装一次, 重复调用 (每命令的 callback 都会进来) 直接改级别/换文件即可。
+
+输出格式 (终端, 无颜色时同样):
+  `12:34:56.789 D [MainThread] netx.py:70 <消息>`
+即 "时间(毫秒) 级别 线程 文件:行号", 消息体自带 `<模块> | 动作` 前缀。
+文件 (.log) 额外带完整日期与 logger 名; .jsonl 每行一个事件 (含 thread/file)。
 """
 import contextlib
 import json
 import logging
 import os
+import re
 import sys
 import time
 
-_FMT = '%(asctime)s %(levelname).1s %(name)s: %(message)s'
-_DATEFMT = '%H:%M:%S'
-_FILE_FMT = '%(asctime)s %(levelname)s %(name)s: %(message)s'
+# 排查要能在几百行里①按时间对齐 (含毫秒, 并发下不带毫秒分不清先后);
+# ②按来源定位到"哪个文件哪一行" (光有 logger 名还得再去搜一遍);
+# ③按线程分辨交错输出 (搜索是多线程抓引擎, 少了线程名两行日志就串成一件事)。
+# 三样缺一样, 日志就只是"一段文本"。
+# 终端省掉 logger 名 (消息本身已带 `<模块> |` 前缀) 换宽度; 文件另带全量信息。
+_FMT = ('%(asctime)s.%(msecs)03d %(levelname).1s [%(threadName)s] '
+        '%(filename)s:%(lineno)d %(message)s')
+_DATEFMT = '%H:%M:%S'                    # 终端看当下, 日期看会话上下文即可
+_FILE_FMT = ('%(asctime)s.%(msecs)03d %(levelname)-5s [%(threadName)s] '
+             '%(filename)s:%(lineno)d %(name)s: %(message)s')
+_FILE_DATEFMT = '%Y-%m-%d %H:%M:%S'      # 文件是事后翻的, 必须带日期
 
 # 级别 → ANSI 色; 去色时由 _color 化整为零直接不拼
 _COLOR = {'D': '\033[90m', 'I': '\033[32m', 'W': '\033[33m', 'E': '\033[31m'}
@@ -82,7 +96,21 @@ def setup(debug=0, log_file=None):
             logging.DEBUG if debug >= 2 else logging.WARNING)
 
     _bind_file(root, path)
+    _log_setup(root, debug, path, level)
     return root
+
+
+def _log_setup(root, debug, path, level):
+    """把"日志这一层到底怎么配的"记一笔。
+
+    排查第一件事就是确认日志本身有没有被配歪: 级别是不是 DEBUG、文件挂上没、
+    用户目录在哪 (配置/规则/缓存全在那)。这条只在 -d 下可见, 不干扰正常输出。
+    """
+    from webtool.core.config_data import USER_DIR
+    root.debug('logging | 装配完成 debug=%d stderr=%s file=%s 三方库=%s dir=%s',
+               debug, logging.getLevelName(level), path or '-',
+               'DEBUG' if debug >= 2 else 'WARNING',
+               os.environ.get('WEBTOOL_DIR') or str(USER_DIR))
 
 
 def _bind_file(root, path):
@@ -105,7 +133,8 @@ def _bind_file(root, path):
         _fh = logging.FileHandler(path, encoding='utf-8')
     except OSError:
         return                      # 路径不可写: 静默降级, 别把命令弄挂
-    _fh.setFormatter(_JsonFmt() if _is_jsonl(path) else logging.Formatter(_FILE_FMT))
+    _fh.setFormatter(_JsonFmt() if _is_jsonl(path)
+                     else logging.Formatter(_FILE_FMT, datefmt=_FILE_DATEFMT))
     _fh.setLevel(logging.DEBUG)
     root.addHandler(_fh)
 
@@ -122,6 +151,8 @@ class _JsonFmt(logging.Formatter):
             'ts': round(record.created, 3),
             'level': record.levelname,
             'module': record.name,
+            'thread': record.threadName,
+            'file': '%s:%d' % (record.filename, record.lineno),
             'msg': record.getMessage(),
         }
         for k in ('url', 'rule', 'elapsed_ms', 'kind'):
@@ -139,6 +170,29 @@ def env_debug():
     return 1 if v in ('1', 'debug', 'true', 'yes') else 0
 
 
+_SENSITIVE_Q = re.compile(r'^(token|key|password|passwd|pwd|secret|sign|signature|'
+                         r'sig|auth|access_key|apikey|api_key|session|sid)$', re.I)
+
+
+def redact_url(url):
+    """URL 进日志前先打码: query 里 token/key/password 一类的值换成 ***。
+
+    日志会被贴进 issue、发给别人看, 带令牌的 URL 是最常见的泄漏口; 而这种
+    泄漏往往就发生在"为了排查方便把 URL 打全"的时候。只留参数名, 够定位。
+    """
+    if not isinstance(url, str) or '?' not in url:
+        return url
+    try:
+        head, _, q = url.partition('?')
+        out = []
+        for kv in q.split('&'):
+            k, eq, _v = kv.partition('=')
+            out.append(f'{k}=***' if (eq and _SENSITIVE_Q.match(k)) else kv)
+        return head + '?' + '&'.join(out)
+    except Exception:
+        return url
+
+
 @contextlib.contextmanager
 def timed(logger, label, **fields):
     """耗时埋点: `with timed(logger, 'fetch', url=u): ...` → debug 一行
@@ -146,6 +200,8 @@ def timed(logger, label, **fields):
     只在 debug 下才有价值; 用 perf_counter, 异常也照记 (finally)。
     fields 里别塞敏感值 (密码/令牌)。
     """
+    if 'url' in fields:
+        fields['url'] = redact_url(fields['url'])
     t0 = time.perf_counter()
     err = None
     try:
@@ -161,7 +217,7 @@ def timed(logger, label, **fields):
             extra['error'] = '%s: %s' % (type(err).__name__, str(err)[:120])
         plain = ' '.join('%s=%s' % kv for kv in fields.items())
         try:
-            logger.debug('耗时 %.0fms %s%s', ms, label,
+            logger.debug('timed | 耗时 %.0fms %s%s', ms, label,
                          (' ' + plain) if plain else '', extra=extra)
         except Exception:
             pass

@@ -55,9 +55,9 @@ def resolve_ip(host, timeout=3.0):
         infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
         ip = infos[0][4][0]
     except (socket.gaierror, OSError, IndexError) as e:
-        logger.debug('DNS 解析失败 %s: %s', host, e)
+        logger.debug('dns | 解析失败 %s: %s', host, e)
         ip = None
-    logger.debug('DNS %s -> %s (ttl=%ss)', host, ip, ttl)
+    logger.debug('dns | %s -> %s (ttl=%ss)', host, ip, ttl)
     _CACHE[host] = (ip, now)
     return ip
 

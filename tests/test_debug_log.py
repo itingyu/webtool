@@ -9,6 +9,7 @@
 import io
 import logging
 import os
+import re as _re3
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -46,7 +47,11 @@ rec = logging.LogRecord('webtool.test', logging.DEBUG, 'x.py', 1,
                         'hello %s', ('world',), None)
 msg = L._h.format(rec)
 check('非 tty 去色', '\033[' not in msg)
-check('格式含级别缩写与消息', 'D webtool.test: hello world' in msg)
+check('格式含级别缩写与消息', 'D ' in msg and msg.endswith('hello world'))
+# 时间/线程/文件行号是排查三要素, 缺任一项这行日志都不及格 (见 test_smoke §17)
+check('格式含时间(带毫秒)', _re3.match(r'\d\d:\d\d:\d\d\.\d{3} ', msg) is not None)
+check('格式含线程名', '[MainThread] ' in msg)
+check('格式含文件:行号', ' x.py:1 ' in msg)
 
 check('-d → DEBUG', root.level == logging.DEBUG and L._h.level == logging.DEBUG)
 

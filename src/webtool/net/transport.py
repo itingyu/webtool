@@ -85,8 +85,9 @@ def _export_cookies(session):
             out.append({'name': c.name, 'value': c.value or '',
                         'domain': c.domain, 'path': c.path,
                         'expires': c.expires, 'secure': bool(c.secure)})
-    except Exception:
-        logger.debug('忽略异常 (容忍路径)', exc_info=True)
+    except Exception as e:
+        logger.debug('transport | 导出会话 cookies 失败 (返回已收 %d 条): %s',
+                     len(out), e, exc_info=True)
     return out
 
 
@@ -214,7 +215,7 @@ def _get_ladder(url, *, kind, referer, proxy, timeout, engine, rate_engine=None,
                                   engine=engine, headers=headers, lang=lang,
                                   max_bytes=max_bytes, profile=profile,
                                   session=session, verify=verify)
-    logger.debug('GET %s -> %s via %s (timeout=%s)', url, status, via, timeout)
+    logger.debug('transport | GET %s -> %s via %s (timeout=%s)', url, status, via, timeout)
     # 拦截检测 + 降级梯 (只对挂了引擎名的通道做, fetch/resolve 不折腾)
     # transport 不认识"验证码": 谁挡的、凭什么、要不要冷却、有没有绕法, 全问
     # net.intercept 的拦截器插件 (captcha 只是其中一个实现)。
@@ -649,6 +650,10 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
         raise TlsError(_tls_msg(url, verify, e)) from e
     except Exception as e:
         last_cffi_err = f'{type(e).__name__}: {str(e)[:150]}'
+        # cffi 崩了才轮到 urllib。成功结果里只有 via=urllib, 不带原因 ——
+        # 这条是"为什么这次换了通道/为什么慢/为什么特征变了"的唯一线索
+        logger.debug('transport | cffi 通道失败, 降级 urllib url=%s kind=%s: %s',
+                     url, kind, last_cffi_err)
     # 通道2: urllib (仅 cffi 自身崩溃时)
     from webtool.net.http import http_get
     h = headers_for(kind, url, referer=referer, lang=lang, full=True,
@@ -721,8 +726,9 @@ def resolve_redirect(url, *, referer=None, proxy=None, timeout=None,
         # 证书失败不静默返回 None —— 那会被上层当成"此 URL 无跳转",
         # 变成一个查不出原因的错误结果
         raise TlsError(_tls_msg(url, verify, e)) from e
-    except Exception:
-        logger.debug('忽略异常 (容忍路径)', exc_info=True)
+    except Exception as e:
+        logger.debug('transport | 跳转解析失败 url=%s: %s', url, e,
+                     exc_info=True)
     return None
 
 
