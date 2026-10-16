@@ -47,9 +47,9 @@ c.em_f10_balance('600519.SH')      # 方法名与拆包前逐字一致
 | `np.py` | 东财公告老域 | 2 | 统一 requests 会话 + 固定 UA |
 | `ef.py` | efinance | 3 | 本地库, 无网络栈直控 |
 
-合计 157 个方法: 与重构前那份 `api_client.py` 的公开方法一一对应, 另加 `_provenance`
-记录的 3 个与从 stock-master 技能并进来的 2 个 (`gtimg_quote_flat` / `em_zt_pool`)、
-(`test_smoke.py` 有断言)。
+合计 157 个方法: 由重构前那份 `api_client.py` 的公开方法切分而来, 另加各源补齐的
+若干 (`gtimg_quote_flat` / `em_zt_pool` 等)。清单以 `webtool stock data list api`
+的输出为准 —— 数字会变, 别把具体值当契约。
 
 ### 按域名归属, 不按方法名前缀
 
@@ -85,13 +85,13 @@ engine 层不出网: 它的 HTTP 全部经 sources, 早先引擎自带的那两�
 
 ## 换版本
 
-数据源池的切分基线（原单体 `api_client.py`）随仓放在
-`tests/fixtures/api_client_original.py`。本仓这份是**按源重新拆分**的产物
-(方法体逐字保留, 只改了 import 与注解), 所以:
+本仓 `sources/` 是按源重新拆分 `api_client.py` 的产物 (方法体逐字保留, 只改了
+import 与注解), 拆完那份原单体就不再随仓 —— 它是**一次性迁移**的输入, 不是
+长期依赖, 留着只会让"守卫"去比对一份永不变的历史文件。
 
-- 上游更新 → 用新版本覆盖基线，再重新切分，不要直接覆盖本仓 sources/
-- 对账: `python3 scripts/check_sources_split.py`（逐方法比对，丢一个就报出来）；
-  `test_smoke.py` 的「切分完整性」段跑同一份基线，基线不在直接 FAIL
+- 上游更新 → 拿新版 `api_client.py` 当参考，按源改本仓对应模块，别整文件覆盖
+- 完整性靠当下能验的东西: `sources/selftest.py` 真打接口, `test_smoke.py` 检
+  `self.X(` 悬空 (漏拆的私有辅助当场暴露) + `test_sources.py` 查契约
 - 无外部覆盖路径: 覆盖加载出的模块与包内那份是两个对象, 会导致两份
   `APIClient` 各带一份 token/session 缓存
 

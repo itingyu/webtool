@@ -264,8 +264,10 @@ def op3(url):
     return opener
 
 
-r = dl.download(base3 + '/big.bin', big, op3(base3 + '/big.bin'), jobs=4, progress=False)
-check(r.get('jobs') == 4 and 'file' in r, '--jobs 4: 走分片下载')
+# 故意要 9 条连接: 启用分片 + 顺带验上限真的夹住了 (夹紧在 download_parallel 里,
+# 上限来自 core.resilient.MAX_WORKERS, 全仓唯一来源)
+r = dl.download(base3 + '/big.bin', big, op3(base3 + '/big.bin'), jobs=9, progress=False)
+check(r.get('jobs') == 4 and 'file' in r, '--jobs 9: 分片下载并夹到上限 4')
 check(open(big, 'rb').read() == BIG, '4 段并发下载后内容一致 (没有拼错位)')
 check(not os.path.exists(big + '.part'), '分片下完不留 .part')
 
@@ -351,7 +353,6 @@ srv5.shutdown()
 
 check(dl._segments(10, 3) == [[0, 2], [3, 5], [6, 9]], '分段: 均匀切且不重不漏')
 check(dl._segments(1000001, 4)[-1][1] == 1000000, '最后一段吃到文件末尾')
-check(dl.JOBS_MAX == 4, '连接数封顶 4 (再多收益被站点限速吃掉)')
 srv3.shutdown()
 srv4.shutdown()
 

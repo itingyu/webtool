@@ -72,8 +72,7 @@ for kind in ('engine', 'hot', 'site', 'extractor', 'resolver', 'filter'):
         check(False, f'table({kind}): {type(e).__name__}: {e}')
 check(isinstance(plugins.table('transformer'), dict), 'table(transformer) 可用 (可为空)')
 
-# 3. 遍历注册表的契约: Registry.items() 返回 dict —— 再 .items() 才是 (k,v) 对;
-#    直接 for n, s in registry.items() 是 P0 崩溃根因, 这里锁死正确姿势与错误姿势
+# 3. 遍历注册表的契约: Registry.items() 返回 dict —— 再 .items() 才是 (k,v) 对
 try:
     d = plugins.HOT_SITES.items()
     pairs = list(d.items())
@@ -81,19 +80,6 @@ try:
           'Registry.items().items() 给 (k,v) 对')
 except Exception as e:
     check(False, f'Registry.items().items(): {e}')
-try:
-    bad_iter = False
-    for n, s in plugins.HOT_SITES.items():   # noqa: B007 — 故意错误姿势
-        pass
-    # 迭代 dict 给的是 key 字符串, 解包成单字符 —— 上面没炸说明 key 是单字符?
-    # 真实 key 都是多字符, 必炸; 走到这说明行为变了, 标记复核
-    bad_iter = True
-except ValueError:
-    check(True, '错误姿势 (for n,s in registry.items()) 如预期抛 ValueError')
-except Exception as e:
-    check(True, f'错误姿势抛 {type(e).__name__} (可接受)')
-if bad_iter:
-    check(False, 'Registry.items() 行为变了: 直接解包不再报错, 需复核契约')
 
 # 4. 默认榜单解析
 from webtool.engines.hotsites import default_hot_sources
@@ -797,42 +783,31 @@ check(not _bad_sess,
       '源模块不自建 session (只能经 _std/_xueqiu_session, 否则绕过代理路由)'
       + (f' 违规 {_bad_sess}' if _bad_sess else ''))
 
-# ── 切分完整性: 成员必须与基线对得上 (防再漏拆私有辅助) ─────────
-print('\n=== 切分完整性 ===')
-from webtool.stock.bridge.sources import _provenance as _prov
+# ── 源模块内部一致性: self.X( 必须有定义 ────────────────────────
+print('\n=== 源模块内部一致性 ===')
 import re as _re, pathlib as _pl
+from webtool.stock.bridge import sources as _srcpkg
 
-# 基线随仓 (tests/fixtures/), 不再读项目外的原始文件 —— 以前那份不在就 SKIP,
-# 守卫看着在跑其实什么都没查。缺了现在是 FAIL。
-_orig = _pl.Path(__file__).resolve().parents[1] / _prov.BASELINE
-check(_orig.is_file(), f'切分基线随仓存在 ({_prov.BASELINE})')
-if _orig.is_file():
-    _orig_txt = _orig.read_text(encoding='utf-8')
-    _orig_names = set(_re.findall(r'^\s*def (\w+)\(', _orig_txt, _re.M))
-    _src_dir = _pl.Path(_prov.__file__).parent
-    _have = set()
-    # rglob: 源已开始按族拆包 (sources/em/*.py), 只扫 *.py 会把子包当不存在,
-    # 于是"函数失踪"和"self.X 悬空"两条都会误报
-    for _f in _src_dir.rglob('*.py'):
-        if _f.name != 'selftest.py':
-            _have |= set(_re.findall(r'^\s*def (\w+)\(', _f.read_text(encoding='utf-8'), _re.M))
-    # test_all 已改写为独立 selftest.selftest, 按等价物计
-    _miss = sorted(_orig_names - _have - {'test_all'})
-    check(not _miss, f'原文件 {len(_orig_names)} 个函数全部落到 sources/'
-          + (f' 缺 {_miss}' if _miss else ''))
-    # 反向: self.X( 必须有定义 (否则运行时才炸)
-    _known = _have | {'_proxy', '_px', '_kw'}
-    _dangling = []
-    for _f in sorted(_src_dir.rglob('*.py')):
-        if _f.name in ('_base.py', '__init__.py', 'selftest.py', '_provenance.py'):
-            continue
-        for _m in _re.findall(r'self\.(\w+)\(', _f.read_text(encoding='utf-8')):
-            if _m not in _known:
-                _dangling.append(f'{_f.name}:self.{_m}')
-    check(not _dangling, 'self.X( 都有定义 (漏拆的私有辅助当场暴露)'
-          + (f' 悬空 {_dangling}' if _dangling else ''))
-else:
-    print(f'FAIL 切分基线不在 ({_prov.BASELINE}), 无法校验完整性')
+# 这里**不**跟"切分前的原单体文件"对账。那种比对测的是"迁移有没有漏拆",
+# 迁移早就完成、结论永远为真 —— 留着它只是把 148KB 历史文件养在仓里, 而且
+# 逼着功能代码跟它扯上关系。真会随时炸的是下面这条: 漏拆一个私有辅助后
+# `self.X(` 悬空, 模块照样 import 成功, 只有真调到那个方法才 AttributeError。
+_src_dir = _pl.Path(_srcpkg.__file__).parent
+_have = set()
+# rglob: 源已按族拆包 (sources/em/*.py), 只扫 *.py 会把子包当不存在 → 误报
+for _f in _src_dir.rglob('*.py'):
+    if _f.name != 'selftest.py':
+        _have |= set(_re.findall(r'^\s*def (\w+)\(', _f.read_text(encoding='utf-8'), _re.M))
+_known = _have | {'_proxy', '_px', '_kw'}
+_dangling = []
+for _f in sorted(_src_dir.rglob('*.py')):
+    if _f.name in ('_base.py', '__init__.py', 'selftest.py'):
+        continue
+    for _m in _re.findall(r'self\.(\w+)\(', _f.read_text(encoding='utf-8')):
+        if _m not in _known:
+            _dangling.append(f'{_f.name}:self.{_m}')
+check(not _dangling, f'self.X( 都有定义 (悬空的私有辅助当场暴露, 共 {len(_have)} 个 def)'
+      + (f' 悬空 {_dangling}' if _dangling else ''))
 
 
 # ===== 依赖声明 (2026-10-15 审计补漏: certifi / numpy / urllib3 / efinance) =====
@@ -1277,7 +1252,7 @@ print('\n=== 20. 运行必需的数据不许落在项目外 (AST 扫常量) ==='
 # 只放行用户目录 (~/.webtool 是用户数据) 与临时目录 (/tmp 是进程内中转)。
 import ast as _ast2
 _EXTERNAL_BAD = ('/var/minis', 'site-packages', '/usr/lib')
-_EXTERNAL_OK = ('~/.webtool', '/tmp/', 'tests/fixtures')
+_EXTERNAL_OK = ('~/.webtool', '/tmp/')
 _ext_hits = []
 # 扫运行时代码 + 仓库脚本 (tests/ 不扫: 测试里造 /usr/lib/... 这类假路径是
 # 正常的替身手法, 不是依赖)

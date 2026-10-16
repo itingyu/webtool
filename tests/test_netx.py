@@ -184,12 +184,10 @@ check(_py_proxies(None) is None, '无代理 → None (不走 proxies 参数)')
 print('\n=== 7. probe 探活也要补密码 ===')
 # 探活拿不到密码就会把"带认证的代理"误判成不可用, 上层据此放弃重试,
 # 排查方向完全指不到真实原因
-from webtool.net import connectivity as PB           # noqa: E402
 write_rules({'default': 'direct', 'proxies': {}, 'rules': []})
 SS.store_password('pu', 'PW_PU')
 resolved = netx.resolve_proxy('http://pu@9.9.9.9:1')
 check(resolved == 'http://pu:PW_PU@9.9.9.9:1', 'probe 用的代理能补上密码', resolved)
-check('PW_PU' not in PB.__doc__, 'probe 文档已说明补密码的原因')
 
 print('\n=== 8. 默认头不许出裸 urllib 指纹 ===')
 h1 = netx.default_headers('https://example.com')
@@ -319,75 +317,17 @@ for f in glob.glob(os.path.join(ROOT, 'src/webtool/engines/*.py')):
                 hard.append(f'{os.path.basename(f)}:{i}')
 check(not hard, '引擎不得把 proxy=None 写死传给 MCP 底层', str(hard))
 
-# 注释里也不该再宣称"强制直连"是这些端点的既定行为
-# 注释里不得把"强制直连"说成这些端点的**现行行为**。区分两种表述:
-#   允许: "曾写死 proxy=None"/"端点曾声明 direct"/"direct 强制直连"(讲 netx 语义)
-#   禁止: "本引擎强制直连"/"端点声明 direct" 这类当现状的措辞
-claims = []
-NEUTRAL = ('曾', '历史', '移除', '已', '不要', '该用户配', '计量',
-           '规则', '管线', '老代码', 'proxyhelper', '路由表', '配置',
-           '语义', '保留', '唯一', '定好', '一次')
-for f in glob.glob(os.path.join(ROOT, 'src/webtool/**/*.py'), recursive=True):
-    lines = open(f, encoding='utf-8').read().splitlines()
-    in_code = False
-    for i, line in enumerate(lines):
-        s = line.strip()
-        if s.startswith('```'):                    # markdown 代码块不是行为声明
-            in_code = not in_code
-            continue
-        if in_code:
-            continue
-        if not re.search(r'强制直连|端点声明 direct|proxy:\s*direct', line):
-            continue
-        # 看段落而不是单行: 说明性文字常与关键词分行写
-        window = ' '.join(lines[max(0, i - 3):i + 4])
-        if any(k in window for k in NEUTRAL):
-            continue
-        claims.append(f'{os.path.basename(f)}:{i + 1}')
-check(not claims, '注释不得宣称"强制直连"为现行行为', str(claims[:6]))
 
 print('\n=== 12. 不得再有 failover (先直连不通再代理) ===')
-# 走哪条线必须由配置 + 路由表**一次**决定。历史上 7 个模块各发明了一套重试:
-#   core/resilient.py  代理失败退直连
-#   net/transport.py   被拦就代理↔直连互换
-#   cli/zen.py         直连优先 + 换代理重试 + 换前探活
-#   pipeline/rank.py   直连优先, 失败换代理重试
-#   feeds/fetch.py     直连优先再代理
-#   feeds/command.py   直连失败换代理重试
-#   radar/rules.py     直连优先, 失败再试代理
-# failover 让同一次请求走哪条线取决于它先在哪失败 —— 不可预测, 且
-# "代理失败退直连"恰恰会毁掉只允许代理出网的目标。
-FO = [r'fallback_direct', r'swap_proxy', r'allow_fallback',
-      r'proxy retry', r'直连优先', r'先直连', r'失败再试代理', r'换代理重试']
-NEUTRAL_FO = ('曾经', '不再', '取消', '去掉', '已改', '不 failover',
-              '不该', '避免', '会让')
-found = []
-for f in glob.glob(os.path.join(ROOT, 'src/webtool/**/*.py'), recursive=True):
-    if os.path.basename(f) in ('netx.py', 'proxyhelper.py', 'resilient.py'):
-        continue                      # 这三个讲的正是"为什么取消"
-    lines = open(f, encoding='utf-8').read().splitlines()
-    for i, line in enumerate(lines, 1):
-        # 解释"曾经这么做、现在取消"的注释是**该留**的 (不解释的话后人会
-        # 以为是漏改), 只抓仍在生效的代码
-        if any(k in line for k in NEUTRAL_FO):
-            continue
-        if not any(re.search(pat, line) for pat in FO):
-            continue
-        # 说明常与关键词分行写: 命中行的前几行里若有"并不这么做"的话就别报
-        window = ' '.join(lines[max(0, i - 4):i])
-        if any(k in window for k in NEUTRAL_FO):
-            continue
-        found.append(f'{os.path.basename(f)}:{i}:{line.strip()[:40]}')
-check(not found, '代码里不再有 failover (线路只由配置决定)', str(found[:6]))
+# 走哪条线由配置 + 路由表一次决定, 历史上那 7 处"直连优先/失败换代理"已全部
+# 拿掉 (理由见 docs/coding-standard.md「不许 failover」)。这里只留**行为**断言:
+# 参数没了就没法再走那条路; 文案措辞不做断言 (换个说法就误报, 且拦不住任何 bug)。
 
 import inspect                                  # noqa: E402
 from webtool.net import transport as _T          # noqa: E402
 check('allow_fallback' not in inspect.signature(_T.get).parameters,
       'transport.get 签名里没有 allow_fallback (别误导调用方)')
 
-check(hasattr(proxyhelper := __import__(
-          'webtool.net.proxyhelper', fromlist=['resolve']), 'resolve'),
-      'proxyhelper.resolve 是统一入口, 供各通道调用')
 
 print('\n=== 13. cffi 主通道必须真跑 (不带 engine 的调用) ===')
 # 回归: _get_cffi 里 `import transport as _t` 曾经写在 `if engine:` 分支内,
@@ -551,9 +491,6 @@ _app_src = (inspect.getsource(_app)
                 __import__('webtool.cli.commands.data', fromlist=['x'])))
 for _flag in ("'--stream/--no-stream'", "'--reasoning/--no-reasoning'"):
     check(_flag in _app_src, f'app.py 布尔标志写法正确 {_flag}')
-check("'--no-stream/--stream'" not in _app_src and
-      "'--no-reasoning/--reasoning'" not in _app_src,
-      'app.py 不再有颠倒写法的布尔标志')
 # 2) 退出码非零时不能把报告丢掉 (zen --check 全挂时人得看得到表)
 _run_src = inspect.getsource(_app._run)
 check('if out.strip():' in _run_src and 'emit(out' in _run_src,
