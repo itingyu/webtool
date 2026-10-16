@@ -36,7 +36,7 @@ from __future__ import annotations
 
 
 from webtool.net import netx
-from webtool.core import tls
+from webtool.net import tls
 
 # 进程内缓存: 同一域名反复查表会重复读配置 + 解析规则
 _PROXY_CACHE: dict[str, str | None] = {}

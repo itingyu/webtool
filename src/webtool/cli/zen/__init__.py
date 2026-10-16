@@ -232,7 +232,7 @@ def do_zen(args, cfg):
         cfg = dict(cfg)
         # 必须写 'direct' 这个字符串 —— 下游 proxyhelper 把 None 解释成 "auto"
         # (跟配置/规则表走), 于是 --no-proxy 会绕一圈又走回代理; 'direct' 才是
-        # 强制直连的约定值 (netx / transport / core.http 三处都认)。
+        # 强制直连的约定值 (netx / transport / net.http 三处都认)。
         cfg['proxy'] = 'direct'
     return _do_zen(args, cfg)
 

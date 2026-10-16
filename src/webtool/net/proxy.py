@@ -31,7 +31,7 @@ DEFAULTS = {
     'ua': 'auto',
     'extract': 'auto',           # 正文提取器: auto=内容层择优 / 具名=只用那一个
     'cache_dir': str(USER_DIR / 'cache'),
-    # TLS (实际决策在 webtool.core.tls, 这里只负责存)
+    # TLS (实际决策在 webtool.net.tls, 这里只负责存)
     'ssl_verify': True,          # 证书校验总开关
     'ca_bundle': None,           # 自定义 CA 包路径 (替代系统 CA)
     'verify_hosts': [],          # 关校验的域名单 (自签/过期证书的交易所站)
@@ -388,7 +388,7 @@ def _test(args, cfg):
       - 通的这条线, 与目标 URL 按规则表实际会走的线, 是不是同一条
       - 这条代理有没有被任何规则/default 引用 (没被引用 = 测通也没流量走它)
 
-    探活本身走 `core.http.build_opener`, 与真实取数同一条通道 —— 早前这里是
+    探活本身走 `net.http.build_opener`, 与真实取数同一条通道 —— 早前这里是
     裸 `urllib` 装 `ProxyHandler`, 环境里 `no_proxy='*'`/`.host` 会让它静默直连
     并把死代理报成 OK; 现在显式指定的代理不再被环境绕过, 假 OK 不复现。
     """
@@ -423,7 +423,7 @@ def _test(args, cfg):
               file=sys.stderr)
 
     import urllib.request
-    from webtool.core import http as _http
+    from webtool.net import http as _http
     try:
         # 出网前补上保险库里的密码; 缺失要明确报错而不是拿空密码去撞 407
         val = resolve_auth(val)

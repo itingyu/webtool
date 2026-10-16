@@ -49,17 +49,26 @@ def imports_of(path):
     return out
 
 UPPER = {
-    'core':    {'net', 'engines', 'pipeline', 'render', 'feeds', 'stock',
-                'radar', 'cli', 'filters', 'data'},
-    'net':     {'engines', 'pipeline', 'render', 'feeds', 'stock', 'radar',
-                'cli', 'filters'},
-    'engines': {'pipeline', 'feeds', 'stock', 'radar', 'cli'},
-    'render':  {'net', 'engines', 'pipeline', 'stock', 'feeds', 'radar', 'cli'},
+    'core':    {'webtool.net', 'webtool.engines', 'webtool.pipeline',
+                'webtool.render', 'webtool.feeds', 'webtool.stock',
+                'webtool.radar', 'webtool.cli', 'webtool.filters'},
+    'net':     {'webtool.engines', 'webtool.pipeline', 'webtool.render',
+                'webtool.feeds', 'webtool.stock', 'webtool.radar',
+                'webtool.cli', 'webtool.filters'},
+    'engines': {'webtool.pipeline', 'webtool.feeds', 'webtool.stock',
+                'webtool.radar', 'webtool.cli'},
+    'render':  {'webtool.net', 'webtool.engines', 'webtool.pipeline',
+                'webtool.stock', 'webtool.feeds', 'webtool.radar', 'webtool.cli'},
 }
 
-# 显式白名单: (包, 文件, 允许的上层包) — 必须写原因
+# 显式白名单: (文件相对路径子串, 允许的上层包) — 必须写原因, 并标注清理批次
 WHITELIST = {
-    # (无) —— 目前没有已登记的例外; 加例外先在这里写原因, 测试会替你追问
+    # 弹性层 fetch() 直接包 net.transport/proxyhelper; 待 P4 把纯弹性
+    # (parallel_map/retry/breaker/checkpoint) 与 net 取数包装拆开
+    ('core/resilient.py', 'webtool.net'),
+    # net/fetch 的判型分派调 engines.extractors; 待 P4 把提取分派上移,
+    # 让 net/fetch 只留裸流式获取
+    ('net/fetch.py', 'webtool.engines'),
 }
 
 for pkg, forbidden in UPPER.items():

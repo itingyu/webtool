@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 TMP = tempfile.mkdtemp(prefix='webtool-certs-')
 os.environ['WEBTOOL_DIR'] = TMP
-from webtool.core import tls                                    # noqa: E402
+from webtool.net import tls                                    # noqa: E402
 
 PASS = FAIL = 0
 

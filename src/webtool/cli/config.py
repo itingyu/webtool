@@ -147,7 +147,7 @@ def handle(args):
         # 没 CA 包时实际是 off, 只显示字面值会误导排查方向
         tls_view = {}
         try:
-            from webtool.core import tls as _tls
+            from webtool.net import tls as _tls
             tls_view = _tls.describe()
         except Exception:
             pass

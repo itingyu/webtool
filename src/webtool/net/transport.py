@@ -4,7 +4,7 @@ UA 与 impersonate 版本严格对齐, header 按 kind 分型 (nav 页面导航 
 JS 请求 / api 公开 REST), sec-fetch-site 按可注册域判定; cookie 经 state
 持久化; 被拦走 冷却→退避换指纹→代理直连互换 降级梯; 每引擎限速+抖动。
 
-证书校验统一走 core.tls (ssl_verify / ca_bundle / verify_hosts), 每请求
+证书校验统一走 net.tls (ssl_verify / ca_bundle / verify_hosts), 每请求
 按 URL 现算 verify 后传给 curl_cffi; 证书失败抛 TlsError 直接上抛, 不进
 降级梯 —— 换指纹换代理对证书问题一点用没有, 只是把 1 次失败放大成 4 次。
 """
@@ -42,12 +42,12 @@ def _rule_timeout(url, timeout=None):
 
 from webtool.core import state
 from webtool.core import secrets_store
-from webtool.core import tls
+from webtool.net import tls
 from webtool.core import urls
-from webtool.core.tls import TlsError
+from webtool.net.tls import TlsError
 from webtool.net import intercept
 
-# 证书类异常的判定统一交给 core.tls.is_tls_error —— urllib 把 SSLError 裹在
+# 证书类异常的判定统一交给 net.tls.is_tls_error —— urllib 把 SSLError 裹在
 # URLError.reason 里, requests.SSLError 又不是 ssl.SSLError 的子类,
 # 任何类型元组都盖不全, 漏网的后果是证书失败被降级梯当成普通抖动重试 4 次
 
@@ -308,7 +308,7 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=None,
     - engine: 反爬冷却/验证码检测/cookie 持久化都挂在这个名字上 (baidu/sogou/...)
     - rate_engine: 节奏控制的桶 (一般与 engine 相同, resolve 类可单列)
     - session: 外部管理的会话 (引擎自带预热流程时传入), 此时指纹档案取 profile
-    - verify: 证书校验覆盖 (None=按 core.tls 全局策略; True/False 定点决定)
+    - verify: 证书校验覆盖 (None=按 net.tls 全局策略; True/False 定点决定)
     - timeout: None 时由 http 规则 (kind:http) 填补, 仍无则通用默认 15s
     """
     timeout = _rule_timeout(url, timeout)
@@ -488,7 +488,7 @@ def open_stream(url, *, kind='nav', referer=None, proxy=None, timeout=None,
     except Exception:
         # cffi 崩了 (缺 so/证书栈异常) 才走 urllib 全指纹兜底, 跟 _get_once 同策略
         pass
-    from webtool.core.http import http_open
+    from webtool.net.http import http_open
     h = headers_for(kind, url, referer=referer, lang=lang, full=True, extra=headers)
     r = http_open(url, proxy=proxy_arg, timeout=timeout, headers=h, verify=verify)
     return _UrllibStream(r), r.status, 'urllib', _lower_keys(r.headers)
@@ -538,7 +538,7 @@ class Resp:
         if 'charset=' in ct:
             cs = ct.split('charset=')[-1].split(';')[0].strip()
         if not cs:
-            from webtool.core.http import _sniff_charset
+            from webtool.net.http import _sniff_charset
             cs = _sniff_charset(data) or 'utf-8'
         try:
             return data.decode(cs, errors='replace')
@@ -715,7 +715,7 @@ def _request_once(method, url, *, kind='api', referer=None, proxy=None, timeout=
     if params:
         sep = '&' if '?' in url else '?'
         url = url + sep + urllib.parse.urlencode(params)
-    from webtool.core.http import http_open
+    from webtool.net.http import http_open
     try:
         r = http_open(url, proxy=proxy_arg, timeout=timeout, headers=h_urllib,
                       verify=verify, method=method, data=body,
@@ -968,7 +968,7 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
     except Exception as e:
         last_cffi_err = f'{type(e).__name__}: {str(e)[:150]}'
     # 通道2: urllib (仅 cffi 自身崩溃时)
-    from webtool.core.http import http_get
+    from webtool.net.http import http_get
     h = headers_for(kind, url, referer=referer, lang=lang, full=True,
                     extra=headers)
     try:

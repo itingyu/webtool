@@ -13,7 +13,7 @@
 出网实现本身也收口到了 `net/transport.py` —— 本仓自己的代码都经它 (搜索引擎、
 抓取、feeds、股票源、MCP、LLM、探活)。仅存的例外:
 
-- `core/http.py` — urllib 通道本体: transport 的备胎 (cffi 崩了才走)
+- `net/http.py` — urllib 通道本体: transport 的备胎 (cffi 崩了才走)
 - `cli/zenproto.py` — LLM 流式直连 (http.client, 要拿裸流)
 - `stock/bridge/_eco_net.py` — 生态库 (akshare/tushare) 自建 session, 改不动
 - `pip` / `git` 子进程 (pkg / upgrade) — 环境变量代理, 判定在 upgrade 那边
@@ -30,7 +30,7 @@ import io
 import urllib.error
 import urllib.request
 
-from webtool.core import tls
+from webtool.net import tls
 from webtool.core.logging import get_logger
 from webtool.core.secrets_store import resolve_auth
 
@@ -192,7 +192,7 @@ def _get_cffi(url, *, proxy, timeout, headers, ver, engine, max_bytes,
 
 def _get_urllib(url, *, proxy, timeout, headers, ver, max_bytes, kind,
                 referer, opener=None):
-    from webtool.core import http as _http
+    from webtool.net import http as _http
     h = default_headers(url, headers, kind, referer)
     req = urllib.request.Request(url, headers=h)
     op = opener or _http.build_opener(proxy, url=url, verify=verify_arg(ver))

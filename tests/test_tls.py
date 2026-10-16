@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """TLS 证书策略回归测试 (纯离线, 不出网)
 
-覆盖 core.tls 的三件事:
+覆盖 net.tls 的三件事:
 1. 开关语义 —— ssl_verify 总开关 / ca_bundle / verify_hosts 点名豁免
 2. 域名解析 —— host_of / hit_insecure (子域、端口、凭据、大小写)
 3. 异常分类 —— is_tls_error 必须认出三条通道各自包装的证书错误
@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import requests
 
-from webtool.core import tls
+from webtool.net import tls
 
 fails = []
 

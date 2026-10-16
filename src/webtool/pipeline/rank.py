@@ -33,7 +33,7 @@ def _proxy_ok(proxy, timeout=6):
         return _proxy_alive[proxy]
     ok = False
     try:
-        from webtool.core.probe import head_probe
+        from webtool.net.connectivity import head_probe
         ok = bool(head_probe(proxy, timeout))
     except Exception:
         ok = False

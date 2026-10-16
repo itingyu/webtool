@@ -13,11 +13,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 import importlib
 
 MODULES = [
-    'webtool.core.plugins', 'webtool.core.config_data', 'webtool.core.cache', 'webtool.core.state', 'webtool.core.http', 'webtool.core.probe', 'webtool.core.resilient', 'webtool.core.text', 'webtool.core.urls', 'webtool.core.jsonfmt', 'webtool.core.tls',
+    'webtool.core.plugins', 'webtool.core.config_data', 'webtool.core.cache', 'webtool.core.state', 'webtool.core.resilient', 'webtool.core.text', 'webtool.core.urls', 'webtool.core.jsonfmt',
     'webtool.cli.app', 'webtool.cli.config', 'webtool.cli.plugins',
     'webtool.pipeline.search', 'webtool.pipeline.rank', 'webtool.pipeline.merge',
     'webtool.pipeline.topup',
     'webtool.net.transport', 'webtool.net.proxy', 'webtool.net.captcha', 'webtool.net.spa',
+    'webtool.net.tls', 'webtool.net.http', 'webtool.net.connectivity',
     'webtool.render.render', 'webtool.render.hotrender', 'webtool.render.output', 'webtool.render.kline_svg',
     'webtool.feeds.command', 'webtool.feeds.sources', 'webtool.feeds.parse', 'webtool.feeds.fetch', 'webtool.feeds.cards', 'webtool.radar', 'webtool.radar.race', 'webtool.radar.template',
     'webtool.radar.routes', 'webtool.radar.instances',
@@ -693,7 +694,7 @@ try:
     for _k in _env_bak:
         os.environ[_k] = 'http://127.0.0.1:9'
     import urllib.request as _urlreq
-    from webtool.core import http as _core_http
+    from webtool.net import http as _core_http
     from webtool.net import transport as _transport
     _op = _core_http.build_opener(None, url='https://example.com/')
     check(not any(isinstance(h, _urlreq.ProxyHandler) and h.proxies

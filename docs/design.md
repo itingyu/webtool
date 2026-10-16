@@ -13,12 +13,13 @@ src/webtool/
 ├── pipeline/            # search 调度 / rank 榜单 / merge 排序去重 / topup 补量 / qhint 质量诊断 / query_ops
 ├── render/              # render 正文渲染 / hotrender 榜单分节 / output 落盘
 ├── filters/             # blocklist 站点黑名单 / adfilter 广告识别 (纯规则, 不出网)
-├── net/                 # transport 指纹传输 / proxy 线路决策 / intercept 拦截绕过 / captcha 人机验证 / spa 数据提取 / fetch 抓取
+├── net/                 # L0 网络底座按 OSI 归位: transport 指纹传输 / proxy 线路 / tls 证书策略 /
+│                        #   http urllib 通道 / connectivity 探活 / dns / intercept 拦截绕过 / captcha / spa / fetch
 ├── engines/             # 各站适配器 (由 plugins.json 的 module 指向) + extractors / customsites
 ├── core/                # L0 底座
 │   ├── plugins.py       # Registry: 七类插件统一注册表 (懒解析 + 三层来源)
 │   ├── config_data.py   # 配置合并: 包内 data/*.json + ~/.webtool/ 同名文件 (深合并, 列表替换, 指纹判失效)
-│   ├── cache.py state.py http.py probe.py resilient.py
+│   ├── cache.py state.py resilient.py
 │   └── text.py urls.py jsonfmt.py
 ├── stock/               # 股票: command (动作) / bridge (数据源层) / data/reverse (逆向文档)
 └── data/                # plugins.json / filters.json / instances.json / zen.json / feeds.seed.json

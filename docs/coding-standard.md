@@ -20,13 +20,14 @@ webtool/
   pipeline/     L2 合并输出   search / rank / merge / topup / qhint / query_ops
   render/       L2 合并输出   render / hotrender / output
   filters/      L2 结果过滤   blocklist / adfilter        —— 纯规则, 不出网
-  net/          L1 采集实现   transport / proxy / intercept / captcha / spa /
-                               fetch / mcpclient / dns / netx(门面) / rules
+  net/          L1 采集实现   transport / tls / http / connectivity / proxy /
+                               intercept / captcha / spa / fetch / download /
+                               mcpclient / dns / netx(门面) / rules
   engines/      L1 采集实现   baidu / bing / google / sites / hotsites
                                exa / parallel / firecrawl (MCP 语义引擎)
                                extractors / customsites ...
-  core/         L0 基础设施   plugins / config_data / cache / state / http
-                                              probe / resilient / logging / stdin
+  core/         L0 基础设施   plugins / config_data / cache / state
+                                              resilient / logging / stdin
                 通用工具类     text / urls / jsonfmt
 ```
 
@@ -49,9 +50,11 @@ template(模板语法)/race(并发) 六块，每块对应一个独立的数据�
 
 ```
 net/
-├── dns 相关       DNS 解析/DoH/缓存（散在 proxy/geodata 的归拢过来，有多少拆多少）
+├── connectivity   连通性探测：TCP 握手探活 / 可达性缓存（net.connectivity 已并入）
+├── dns            域名 → IP：系统 resolver + 进程内缓存（负缓存也缓存）
 ├── proxy          代理池、proxyhelper、按域名的 proxy 规则（不动）
-├── tls            证书校验、CA、TLS/JA3 指纹（不动）
+├── tls.py         证书校验、CA、verify_hosts、TLS 策略唯一决策点（原 net/tls 归位）
+├── http.py        urllib 兜底通道（transport 的备胎本体，非第二条策略）
 ├── transport.py   会话编排（DNS+代理+TLS+HTTP 组装，工厂产出）
 ├── fetch/download L7 通道：HTTP、流式（SSE/WebSocket 按需再加）
 ├── intercept.py   拦截与绕过（captcha/spa 并入，不动）
@@ -61,7 +64,12 @@ net/
 
 归位原则：**一块职责一个文件，文件承载两种职责才拆**（如 transport 混了 DNS 就拆出去）；
 现有层间无环的不动。判定规则：子包之间不互相 import（组装只发生在 transport.py）；
-ip/ping 等连通性探测归 `core.probe`，不单开网络层，ICMP 受限环境自动降级 tcp 探测。
+ip/ping 等连通性探测归 `net.connectivity`，不单开网络层，ICMP 受限环境自动降级 tcp 探测。
+
+**归位已完成（P1）**：`tls` / `http` / `connectivity` 三个模块 2026-10 从 `core/` 迁入 `net/`，
+调用点全量改为 `webtool.net.*`（不留 `core/` 薄壳 —— 那会让 `core → net` 反向依赖，
+与本节"core 不 import 上层"冲突）。分层守卫 `tests/test_layering.py` 已修复：此前
+`top_module` 返回 `webtool.net` 而禁用集写的是 `net`，两边永不相交，断言全部空转（形同虚设）。
 
 ### 数据流向分层
 
@@ -70,7 +78,7 @@ ip/ping 等连通性探测归 `core.probe`，不单开网络层，ICMP 受限环
 
 `core/` 内部分两类，别混：
 
-- **底座模块**（plugins/config_data/cache/state/http/probe/resilient）：运行期状态与 I/O 机制
+- **底座模块**（plugins/config_data/cache/state/resilient）：运行期状态与 I/O 机制
 - **通用工具类**（`core.text` / `core.urls` / `core.jsonfmt`）：纯函数，无状态、无业务概念
   - `core.text`：`clean_markup` / `plain` / `unescape` / `truncate` —— HTML 转纯文本，按语义分函数而不是给一个 `mode` 参数
   - `core.urls`：`norm_key`（去重键）/ `host_of` / `registrable` / `section_of` / `same_site` —— 命名即用途，杜绝"归一化"的五种变体
@@ -218,7 +226,7 @@ ip/ping 等连通性探测归 `core.probe`，不单开网络层，ICMP 受限环
 ## 6. 已知取舍（防止"好心办坏事"）
 
 - `Registry.items()` 返回 dict——遍历要 `.items().items()`；直接 `for k, v in reg.items()` 会把 key 字符串解包报错（smoke 有契约测试锁死）
-- 探活统一走 `core.probe.proxy_ok`；`pipeline/rank.py` 的 `_proxy_ok` 是它上面加了进程内缓存的薄包装
+- 探活统一走 `net.connectivity.proxy_ok`；`pipeline/rank.py` 的 `_proxy_ok` 是它上面加了进程内缓存的薄包装
 - 引擎/端点都不自报线路：没有 `engine_proxy` 覆盖，没有 `proxy_hint`，没有 `_proxy_alive`。
   一条请求走直连还是代理，只由规则表（`netx`）判一次
 - **MCP 端点既可以只是 `mcp` 的调用目标，也可以直接充当搜索引擎或 fetch 兜底通道**。
@@ -255,7 +263,7 @@ ip/ping 等连通性探测归 `core.probe`，不单开网络层，ICMP 受限环
   那等于无视管线传入的代理
 - **环境变量不是线路决策源**。`http_proxy`/`https_proxy` 在容器里很常见，各库默认都会读它
   （urllib 的默认 `ProxyHandler`、requests 与 curl_cffi 的 `trust_env=True`）—— 于是规则表
-  判定"直连"的主机被悄悄送去代理，用户改配置文件改不动。已经在三处堵死：`core.http.build_opener`
+  判定"直连"的主机被悄悄送去代理，用户改配置文件改不动。已经在三处堵死：`net.http.build_opener`
   直连时也传一个空 `ProxyHandler`（它顶掉默认那个，自身没有 `*_open` 方法，装代理和读环境变量
   都不发生）、`transport._new_session` 与 `netx._get_cffi` 传 `trust_env=False`、数据源层
   requests/curl_cffi 会话 `trust_env=False`。新写通道照此办理
@@ -368,7 +376,7 @@ ip/ping 等连通性探测归 `core.probe`，不单开网络层，ICMP 受限环
 `ProxyHandler` —— 它装代理前先问 `proxy_bypass(host)`，于是 `no_proxy='*'`
 能让走代理的请求**静默直连**，还把死代理报成 OK，把错误退化成"直连超时"
 （查半天也想不到是环境变量）。所以装显式代理一律走
-`core.http._NoBypassProxyHandler`；`direct` 用空 ProxyHandler 反遮环境代理。
+`net.http._NoBypassProxyHandler`；`direct` 用空 ProxyHandler 反遮环境代理。
 
 ## 测试不许碰真实 HOME
 
@@ -447,11 +455,11 @@ config.json，而遗留键迁移顺手把该值写进了 `rules.json` 的 `proxi
 
 **本仓自己的代码只有一条出网通道：`net/transport.py`。** 搜索引擎、抓取、
 feeds、股票源（`stock/bridge/**`）、MCP（`net/mcpclient`）、LLM（`cli/zen`）、
-探活（`core/probe`）都经它出网 —— 线路（`netx`）、证书（`tls.policy`）、
+探活（`net/connectivity`）都经它出网 —— 线路（`netx`）、证书（`tls.policy`）、
 指纹（`headers_for`）、cookie、流式读法全在那一层，别处不再各建一套。
-`core/http.py` 的 urllib 通道是 transport 的备胎本体（cffi 崩了才走），不是第二条策略。清单钉在 `tests/test_netx.py`「出网原语必须登记」一节：新开一个
+`net/http.py` 的 urllib 通道是 transport 的备胎本体（cffi 崩了才走），不是第二条策略。清单钉在 `tests/test_netx.py`「出网原语必须登记」一节：新开一个
 `requests.` / `_cr.Session` / `urlopen` 出口会被测试拦下，逼你来这里签字。
-（`core/http.py` 曾被列入"与 net 层重叠待合并"——评估结论：不合并。它是
+（`net/http.py` 曾被列入"与 net 层重叠待合并"——评估结论：不合并。它是
 net 之下的原语，net/proxy、net/netx、net/transport 三处依赖它，按"谁被
 依赖更广住更低"恰好住对了；真正重叠的通道组装已由 transport 统一。）
 

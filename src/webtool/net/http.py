@@ -3,7 +3,7 @@
 http_get 未显式给 UA 时自动套 transport 指纹档案的浏览器 UA,
 禁止裸 Python-urllib 指纹出网。
 
-证书校验走 core.tls 的全局策略 (ssl_verify / ca_bundle / verify_hosts),
+证书校验走 net.tls 的全局策略 (ssl_verify / ca_bundle / verify_hosts),
 本模块不自建 SSLContext, 三条通道同源。
 """
 import gzip
@@ -12,7 +12,7 @@ import threading
 import urllib.request
 import urllib.error
 
-from webtool.core import tls
+from webtool.net import tls
 from webtool.core.secrets_store import resolve_auth
 
 

@@ -45,7 +45,7 @@ h.rows()          # DataFrame 化, 带列序映射
 import json
 import re
 
-from webtool.core import tls
+from webtool.net import tls
 from webtool.net import netx, transport
 from webtool.stock.error import HttpError
 
@@ -189,7 +189,7 @@ class Http:
         """发一次请求。返回解码后的文本 (或 bytes 当 raw=True)。
 
         verify=None 用实例级设置 (再往上是全局 TLS 策略); 传 True/False 覆盖。
-        解析出 False 时走 core.tls 的白名单判断, 所以 verify_hosts 名单里的
+        解析出 False 时走 net.tls 的白名单判断, 所以 verify_hosts 名单里的
         交易所站点不用每次调用都手填 verify=False。
 
         proxy=None 用实例级 (默认 'auto' 问路由表); 传 URL/None 覆盖。

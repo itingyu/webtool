@@ -69,7 +69,7 @@ def write_rules(spec):
 
 
 from webtool.net import netx           # noqa: E402
-from webtool.core import tls           # noqa: E402
+from webtool.net import tls           # noqa: E402
 
 
 print('\n=== 1. resolve_proxy: 各通道共享的归一语义 ===')
@@ -175,7 +175,7 @@ check(_py_proxies(None) is None, '无代理 → None (不走 proxies 参数)')
 print('\n=== 7. probe 探活也要补密码 ===')
 # 探活拿不到密码就会把"带认证的代理"误判成不可用, 上层据此放弃重试,
 # 排查方向完全指不到真实原因
-from webtool.core import probe as PB           # noqa: E402
+from webtool.net import connectivity as PB           # noqa: E402
 write_rules({'default': 'direct', 'proxies': {}, 'rules': []})
 SS.store_password('pu', 'PW_PU')
 resolved = netx.resolve_proxy('http://pu@9.9.9.9:1')
@@ -197,13 +197,13 @@ import subprocess
 out = subprocess.run(
     ['rg', '-n', "-l", r"proxy == 'auto'|resolve_route\(", 'src'],
     cwd=ROOT, capture_output=True, text=True).stdout.strip().splitlines()
-AUTO_OK = {'src/webtool/net/netx.py', 'src/webtool/core/http.py',
+AUTO_OK = {'src/webtool/net/netx.py', 'src/webtool/net/http.py',
            'src/webtool/net/rules.py'}   # rules.py 是路由表实现本身
 stray = [f for f in out if f.endswith('.py') and f not in AUTO_OK]
 check(not stray,
       '没有通道自己判断 auto/调 resolve_route (只能经 netx 或 build_opener)',
       str(stray))
-check('resolve_proxy' in open(os.path.join(ROOT, 'src/webtool/core/http.py'),
+check('resolve_proxy' in open(os.path.join(ROOT, 'src/webtool/net/http.py'),
                                encoding='utf-8').read(),
       'build_opener 的 auto 分支确实转给 netx')
 
@@ -213,12 +213,12 @@ out2 = subprocess.run(
 # resolve_auth 允许出现在这几处, 各有明确理由:
 #   secrets_store.py — 定义处
 #   netx.py          — 统一层的归一入口
-#   core/http.py     — build_opener 是 urllib 侧的公共出口, zen/mcpclient/
+#   net/http.py     — build_opener 是 urllib 侧的公共出口, zen/mcpclient/
 #                      sogou/gnews 都直接调它, 补密码必须发生在这里
 #   net/transport.py — _get_once 是预热/降级梯的深层出口, 保留兜底
 #   net/proxy.py     — proxy set/test 的 CLI 路径, 要在报错前先补全
 ALLOWED_AUTH = {'src/webtool/core/secrets_store.py', 'src/webtool/net/netx.py',
-                'src/webtool/core/http.py', 'src/webtool/net/transport.py',
+                'src/webtool/net/http.py', 'src/webtool/net/transport.py',
                 'src/webtool/net/proxy.py'}
 stray2 = [f for f in out2 if f.endswith('.py') and f not in ALLOWED_AUTH]
 check(not stray2, 'resolve_auth 没扩散到未经审计的模块', str(stray2))
@@ -231,7 +231,7 @@ out3 = subprocess.run(
 # 例外 = 合法传 proxies 的通道: netx 自己、三条 webtool HTTP 通道, 以及
 # stock 的路由层 (sources/_adapter/_routing/_base: 那里是按 URL 现算代理的
 # 实现, 正是本测试想确保的"唯一的合法出处")
-_ok_exc = ('netx.py', 'transport.py', 'core/http.py',
+_ok_exc = ('netx.py', 'transport.py', 'net/http.py',
            'bridge/http.py', 'bridge/_eco_net.py',
            'bridge/sources/_adapter.py', 'bridge/sources/_routing.py',
            'bridge/sources/_base.py')
@@ -872,7 +872,7 @@ print('\n=== 13. 出网原语必须登记 (新出口不许悄悄开) ===')
 # 反爬判定、走不走路由表)。
 _NET_CHANNELS = {
     'cli/zenproto.py': 'LLM 流式直连 (http.client, 要拿裸流)',
-    'core/http.py': 'urllib 通道本体 (transport 备胎/探活)',
+    'net/http.py': 'urllib 通道本体 (transport 备胎/探活)',
     'engines/sogou.py': 'PC cffi / urllib / 移动端 三通道',
     'net/netx.py': '决策层 + 参考通道 netx.get (当前无生产调用者)',
     'net/transport.py': '主通道: 指纹会话 + 降级梯 + 拦截判定',

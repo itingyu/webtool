@@ -175,7 +175,7 @@ def download(url, path, opener, *, progress=None, t0=None, chunk=CHUNK,
     挂了还一遍遍拉几百 MB 最浪费; 证书错不计入 (配置问题, 见 resilient.count_failure)。
     """
     from webtool.core.resilient import count_failure, guard
-    from webtool.core.tls import TlsError
+    from webtool.net.tls import TlsError
     br = guard(url)
     try:
         if jobs > 1 or _seg_meta(path, url) is not None:

@@ -32,7 +32,7 @@ with open(os.path.join(TMP, 'rules.json'), 'w', encoding='utf-8') as f:
                            'ghost': 'http://127.0.0.1:2080'},
                'rules': [{'match': {'domain': ['*.cn']}, 'action': 'direct'}]}, f)
 
-from webtool.core import http as whttp
+from webtool.net import http as whttp
 from webtool.net import proxy as wproxy
 
 fails = []
