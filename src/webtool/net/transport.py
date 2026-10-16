@@ -21,24 +21,18 @@ HAS_CFFI = True
 
 logger = logging.getLogger(__name__)
 
+# 指纹/档案层已拆到 net/fingerprints (P4); 这里再导出, 老引用 (transport.PROFILES 等) 不用改
+from webtool.net.fingerprints import (  # noqa: E402,F401
+    ACCEPT_XHR, LANG_EN, LANG_ZH, PROFILES, _ACCEPT_NAV, _ROTATION, _UA131,
+    _sec_fetch_site, headers_for, profile_for_impersonate,
+)
 
-def _rule_timeout(url, timeout=None):
-    """timeout 空缺时由 http 规则 (rules.json 的 kind:http 条目) 填补
+# 节奏/超时层已拆到 net/pacing (P4); 这里再导出旧名, 老引用 (transport._pace 等) 不用改
+from webtool.net.pacing import (  # noqa: E402,F401
+    DEFAULT_RATE as _DEFAULT_RATE, pace as _pace, rate_of as _rate_of,
+    rule_timeout as _rule_timeout,
+)
 
-    调用方显式传的 timeout 优先 —— 规则只接管"没指定"的场合 (特殊走规则,
-    否则走通用 15s)。规则查询走已缓存的 Router, 每请求一次字典匹配, 开销可忽略。
-    """
-    if timeout is not None:
-        return timeout
-    try:
-        from webtool.net import rules as _rules
-        v = _rules.router().params_for('http', url).get('timeout')
-        if v:
-            logger.debug('http 规则 timeout=%s (%s)', v, url)
-            return float(v)
-    except Exception as e:
-        logger.debug('http 规则查询失败, 用通用默认: %s', e)
-    return 15
 
 from webtool.core import state
 from webtool.core import secrets_store
@@ -53,58 +47,9 @@ from webtool.net import intercept
 
 # 浏览器指纹档案 (UA 与 impersonate 版本严格对齐)
 
-_UA131 = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-          '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
-_SCU131 = ('"Microsoft Edge";v="131", "Chromium";v="131", '
-           '"Not_A Brand";v="24", "Google Chrome";v="131"')
-_ACCEPT_NAV = ('text/html,application/xhtml+xml,application/xml;q=0.9,'
-               'image/avif,image/webp,image/apng,*/*;q=0.8,'
-               'application/signed-exchange;v=b3;q=0.7')
 
-PROFILES = {
-    'chrome131_win': {
-        'impersonate': 'chrome131', 'ua': _UA131, 'sec_ch_ua': _SCU131,
-        'platform': '"Windows"', 'mobile': '?0', 'accept_nav': _ACCEPT_NAV,
-    },
-    'chrome131_mac': {
-        'impersonate': 'chrome131',
-        'ua': _UA131.replace('Windows NT 10.0; Win64; x64',
-                             'Macintosh; Intel Mac OS X 10_15_7'),
-        'sec_ch_ua': _SCU131, 'platform': '"macOS"', 'mobile': '?0',
-        'accept_nav': _ACCEPT_NAV,
-    },
-    'chrome131_linux': {
-        'impersonate': 'chrome131',
-        'ua': _UA131.replace('Windows NT 10.0; Win64; x64', 'X11; Linux x86_64'),
-        'sec_ch_ua': _SCU131, 'platform': '"Linux"', 'mobile': '?0',
-        'accept_nav': _ACCEPT_NAV,
-    },
-    # 移动端档案 (m.sogou 等移动站): UA 与 platform/mobile 全套对齐
-    'chrome131_android': {
-        'impersonate': 'chrome131_android',   # 真移动指纹 (TLS 层面)
-        'ua': ('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 '
-               '(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36'),
-        'sec_ch_ua': _SCU131, 'platform': '"Android"', 'mobile': '?1',
-        'accept_nav': _ACCEPT_NAV,
-    },
-    # iOS Safari 档案: Safari 不发 sec-ch-ua client hints (Chromium 专属),
-    # headers_for(full=True) 按空值跳过
-    'safari18_4_ios': {
-        'impersonate': 'safari184_ios',
-        'ua': ('Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) '
-               'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 '
-               'Mobile/15E148 Safari/604.1'),
-        'sec_ch_ua': '', 'platform': '', 'mobile': '',
-        'accept_nav': _ACCEPT_NAV,
-    },
-}
 
-_ROTATION = ['chrome131_win', 'chrome131_win', 'chrome131_mac',
-             'chrome131_linux', 'safari18_4_ios']
 
-ACCEPT_XHR = 'application/json, text/plain, */*'
-LANG_ZH = 'zh-CN,zh;q=0.9,en;q=0.8'
-LANG_EN = 'en-US,en;q=0.9'
 
 
 _registrable = urls.registrable   # 可注册域判定 (含 com.cn/co.uk 等二级后缀)
@@ -123,108 +68,12 @@ _ENGINE_URL = {
 }
 
 
-# 节奏控制 (每引擎最小间隔 + 抖动)
-
-_DEFAULT_RATE = 0.4
-_last_hit = {}
-_rate_lock = threading.Lock()
-
-
-def _rate_of(engine):
-    """每引擎最小请求间隔秒数; engine.<name>.params.rate, 未声明用默认"""
-    if not engine:
-        return _DEFAULT_RATE
-    from webtool.core.plugins import table as _plugin_table
-    spec = _plugin_table('engine').get(engine) or {}
-    return (spec.get('params') or {}).get('rate', _DEFAULT_RATE)
-
-
-def _pace(engine):
-    """请求前节奏控制: 距上次请求不足 min_interval 时随机补足"""
-    if not engine:
-        return
-    gap = _rate_of(engine)
-    with _rate_lock:
-        last = _last_hit.get(engine, 0.0)
-        wait = gap - (time.time() - last) + random.uniform(0.05, 0.4)
-        _last_hit[engine] = time.time() + max(0.0, wait)
-    if wait > 0:
-        time.sleep(wait)
-
+# 节奏控制 (每引擎最小间隔 + 抖动) 已迁到 net/pacing
 
 # header 构造
 
-def _sec_fetch_site(target_url, referer):
-    if not referer:
-        return 'none'
-    t, r = urllib.parse.urlparse(target_url), urllib.parse.urlparse(referer)
-    if t.netloc.lower() == r.netloc.lower():
-        return 'same-origin'
-    if _registrable(t.netloc) == _registrable(r.netloc):
-        return 'same-site'
-    return 'cross-site'
 
 
-def headers_for(kind, url, referer=None, lang=LANG_ZH, profile=None,
-                extra=None, full=False):
-    """按请求类型构造与真人一致的 header 集
-
-    full=False (curl_cffi): 只补 impersonate 不会发的头 (sec-fetch-*/priority/
-    upgrade-insecure-requests/referer/origin)。UA/sec-ch-ua/accept-encoding 交给
-    impersonate 保证与 TLS 指纹同版本 — 手动传反而可能错位。
-    full=True  (urllib 兜底): 显式全套, 包括 UA/sec-ch-ua/accept-encoding(gzip)。
-
-    注意: curl_cffi 的 impersonate 自带 UA/指纹头 (与 impersonate 版本对齐,
-    如 chrome131_android 自带 Android UA), 本函数 full=False 时**不会**设置
-    UA — 传给 cffi 会话的 header 集不该含 User-Agent (传了反而把 impersonate
-    的对齐 UA 覆盖成档案字符串, 出现 "UA 与 TLS 指纹不同源" 的自曝组合)。
-    """
-    p = profile or PROFILES['chrome131_win']
-    h = {}
-    if full:
-        if p.get('ua'):
-            h['User-Agent'] = p['ua']
-        h['Accept-Encoding'] = 'gzip, deflate'
-        if p.get('sec_ch_ua'):
-            h['sec-ch-ua'] = p['sec_ch_ua']
-        if p.get('mobile'):
-            h['sec-ch-ua-mobile'] = p['mobile']
-        if p.get('platform'):
-            h['sec-ch-ua-platform'] = p['platform']
-    if kind == 'nav':
-        h.update({
-            'Accept': p['accept_nav'],
-            'Accept-Language': lang,
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-User': '?1',
-            'Sec-Fetch-Site': _sec_fetch_site(url, referer),
-            'priority': 'u=0, i',
-        })
-    elif kind in ('xhr', 'xhr_cross'):
-        h.update({
-            'Accept': ACCEPT_XHR,
-            'Accept-Language': lang,
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': _sec_fetch_site(url, referer),
-            'priority': 'u=1, i',
-        })
-        if referer:
-            rp = urllib.parse.urlparse(referer)
-            h.setdefault('Origin', f'{rp.scheme}://{rp.netloc}')
-    elif kind == 'plain':
-        h.update({'Accept': '*/*', 'Accept-Language': lang})
-    if referer:
-        h['Referer'] = referer
-    if extra:
-        for k, v in extra.items():
-            if v is None:
-                h.pop(k, None)
-            else:
-                h[k] = v
-    return h
 
 
 # 会话 (UA/cookie 固定, 持久化)
@@ -729,27 +578,8 @@ def _request_once(method, url, *, kind='api', referer=None, proxy=None, timeout=
 
 # 适配器里的方法参数就叫 request (requests 的签名), 会遮住本模块的 request()
 # —— 别名一个名字给它, 免得"看起来在调自己"
-_send_via_transport = request
 
 
-def profile_for_impersonate(name, ua=None):
-    """按 curl_cffi 的 impersonate 名取一个指纹档案
-
-    同名档案直接复用 (UA/客户端提示一套); 没有就借默认档案, 只换 impersonate
-    —— UA 与 TLS 版本本来就是 impersonate 自己保证的, 这里只是给 headers_for
-    一个"该报哪个 UA"的依据 (stock 各源给的就是这个名, 别再各建一张 UA 表)。
-    """
-    if name in PROFILES:                   # 档案名 (chrome131_win 等) 优先
-        return PROFILES[name]
-    for p in PROFILES.values():
-        if p.get('impersonate') == name:   # 只有 impersonate 名 (chrome131)
-            return p
-    d = dict(PROFILES['chrome131_win'])
-    d['name'] = f'imp-{name}'
-    d['impersonate'] = name
-    if ua:
-        d['ua'] = ua
-    return d
 
 
 def _proxy_choice(proxies, override):
@@ -767,161 +597,8 @@ def _proxy_choice(proxies, override):
     return override
 
 
-_ADAPTER = {}
-
-
-def requests_session(*, proxy='auto', kind='api', profile=None, timeout=None,
-                     retries=2):
-    """stock/data 源用的 requests.Session: 每个请求都回到本层出网
-
-    调用点不必改 (仍是 `s.get` / `s.post` / …), 但请求由 transport 发出:
-
-    - 线路按目标 URL 现算 (逐域名问规则表, 不绑在 session 上)
-    - 证书走 `tls.policy`, 头走指纹档案 (裸 python-requests 指纹会被反爬站 403)
-    - 连接按 (线路, 主机) 复用 —— 一次调用打十余个域名也不会每请求重开 TLS
-    - 幂等请求带收敛重试 (RemoteDisconnected/5xx 换连接重试)
-
-    也就是说 stock 与搜索引擎共用同一条通道, 不再是"抓网页走代理、取行情直连"。
-    """
-    import requests
-    ad = _transport_adapter()(proxy=proxy, kind=kind, profile=profile,
-                              timeout=timeout, retries=retries)
-    s = requests.Session()
-    s.trust_env = False                    # 空 proxies 不够: 环境变量还会漏进来
-    s.proxies = {}
-    s.mount('http://', ad)
-    s.mount('https://', ad)
-    return s
-
-
-def _transport_adapter():
-    """懒建适配器类: requests 只有真用这条通道时才需要 (懒导入依赖)"""
-    if 'cls' in _ADAPTER:
-        return _ADAPTER['cls']
-    import requests
-
-    class TransportAdapter(requests.adapters.BaseAdapter):
-        """requests → transport 的桥
-
-        stock 有 61 处 `self._std.get(url, …)`, 逐个改成 transport.request 既
-        费事又会漏。真正出网的是本层, 调用点写什么都不影响线路与证书的判断。
-        """
-
-        def __init__(self, *, proxy='auto', kind='api', profile=None,
-                     timeout=None, retries=2):
-            self.proxy = proxy
-            self.kind = kind
-            self.profile = profile
-            self.timeout = timeout
-            self.retries = int(retries or 0)
-            self._pool = {}
-            self._lock = threading.Lock()
-
-        # ── 会话复用: 连接池按 (线路, 主机) 分家, 主机不同不复用连接 ──
-        def _sess(self, url, proxy):
-            host = urllib.parse.urlsplit(url).netloc
-            with self._lock:
-                key = (proxy, host)
-                s = self._pool.get(key)
-                if s is None:
-                    s, _p = new_session(self.profile, proxy, None, url)
-                    self._pool[key] = s
-                return s
-
-        def send(self, request, stream=False, timeout=None, verify=True,
-                 cert=None, proxies=None):
-            px = _proxy_choice(proxies, self.proxy)
-            h = dict(request.headers)
-            # 长度/编码交给底层按实际体算 (我们可能改过 body)
-            for k in ('Content-Length', 'Content-Encoding', 'Transfer-Encoding'):
-                h.pop(k, None)
-            if request.body is not None and not h.get('Content-Type'):
-                h['Content-Type'] = 'application/x-www-form-urlencoded'
-            # 默认头在这里补: 调用点大多只给 Referer, 裸 python-requests 指纹会被
-            # 反爬站直接 403 (同花顺 data 子域就是)。调用点自己设了 UA 就不动。
-            _kind = 'plain' if self.kind == 'api' else self.kind
-            for k, v in (headers_for(_kind, request.url, full=True) or {}).items():
-                if k == 'User-Agent':
-                    ua = h.get('User-Agent') or ''
-                    if not ua or ua.startswith(('python-requests',
-                                                'python-urllib')):
-                        h[k] = v
-                elif not h.get(k):
-                    h[k] = v
-            to = timeout if timeout is not None else (self.timeout or 15)
-            last = None
-            for attempt in range(max(1, self.retries + 1)):
-                try:
-                    r = _send_via_transport(
-                        request.method, request.url, kind=self.kind,
-                        headers=h, data=request.body, timeout=to,
-                        verify=verify, proxy=px, stream=stream,
-                        session=self._sess(request.url, px),
-                        allow_redirects=False)
-                except Exception as e:              # noqa: BLE001
-                    last = e
-                    if attempt < self.retries:
-                        time.sleep(0.3 * (attempt + 1))   # 换连接/换指纹再试
-                        continue
-                    _raise_as_requests(e, request.url)
-                # 5xx 收敛重试 (与旧 urllib3 Retry 的 status_forcelist 对齐)
-                if (r.status_code in (500, 502, 503, 504) and attempt < self.retries
-                        and request.method.upper() in ('GET', 'HEAD')):
-                    last = None
-                    _safe_close(r)
-                    time.sleep(0.3 * (attempt + 1))
-                    continue
-                return _as_requests_response(r, request)
-            raise requests.exceptions.ConnectionError(str(last))
-
-        def close(self):
-            with self._lock:
-                for s in self._pool.values():
-                    try:
-                        s.close()
-                    except Exception:               # noqa: BLE001
-                        pass
-                self._pool.clear()
-
-    _ADAPTER['cls'] = TransportAdapter
-    return TransportAdapter
-
-
-def _safe_close(r):
-    try:
-        r.close()
-    except Exception:                          # noqa: BLE001
-        pass
-
-
-def _raise_as_requests(e, url):
-    """把本层的错误翻成 requests 的异常类型
-
-    stock 里有 `except requests.exceptions.*` 与 tls 的判定, 拿错类型会让
-    "证书问题"被当成"网络问题"重试到底。
-    """
-    import requests
-    if isinstance(e, TlsError):
-        raise requests.exceptions.SSLError(str(e)) from e
-    if isinstance(e, requests.exceptions.RequestException):
-        raise
-    raise requests.exceptions.ConnectionError(f'{url}: {e}') from e
-
-
-def _as_requests_response(r, request):
-    """Resp → requests.Response (stock 的调用点要的就是 requests 那个壳)"""
-    import requests
-    resp = requests.models.Response()
-    resp.status_code = r.status_code
-    resp.url = r.url or request.url
-    resp.request = request
-    resp.reason = ''
-    resp.headers.update({k: v for k, v in (r.headers or {}).items()})
-    resp._content = r.content
-    ct = str((r.headers or {}).get('content-type', ''))
-    if 'charset=' in ct:
-        resp.encoding = ct.split('charset=')[-1].split(';')[0].strip()
-    return resp
+# requests 兼容适配器已拆到 net/adapters (P4); 再导出保兼容
+from webtool.net.adapters import requests_session  # noqa: E402,F401
 
 
 def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,

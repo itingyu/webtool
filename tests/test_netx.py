@@ -231,7 +231,7 @@ out3 = subprocess.run(
 # 例外 = 合法传 proxies 的通道: netx 自己、三条 webtool HTTP 通道, 以及
 # stock 的路由层 (sources/_adapter/_routing/_base: 那里是按 URL 现算代理的
 # 实现, 正是本测试想确保的"唯一的合法出处")
-_ok_exc = ('netx.py', 'transport.py', 'net/http.py',
+_ok_exc = ('netx.py', 'transport.py', 'net/http.py', 'adapters.py',
            'bridge/http.py', 'bridge/_eco_net.py',
            'bridge/sources/_adapter.py', 'bridge/sources/_routing.py',
            'bridge/sources/_base.py')
@@ -878,6 +878,7 @@ _NET_CHANNELS = {
     'engines/sogou.py': 'PC cffi / urllib / 移动端 三通道',
     'net/netx.py': '决策层 + 参考通道 netx.get (当前无生产调用者)',
     'net/transport.py': '主通道: 指纹会话 + 降级梯 + 拦截判定',
+    'net/adapters.py': 'requests 兼容适配器: 桥到 transport.request (转发, 不自己出网)',
     'stock/bridge/_eco_net.py': '生态库 (akshare/tushare) 的 requests 打补丁, 改不动',
     'stock/bridge/sources/_routing.py': '股票源路由: cffi 会话 (少见参数路径) + 逐请求线路',
     'stock/tools/extract_recipes.py': '离线工具 (抓一次配方, 不在运行链路)',

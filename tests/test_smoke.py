@@ -19,6 +19,8 @@ MODULES = [
     'webtool.pipeline.topup',
     'webtool.net.transport', 'webtool.net.proxy', 'webtool.net.captcha', 'webtool.net.spa',
     'webtool.net.tls', 'webtool.net.http', 'webtool.net.connectivity', 'webtool.net.stream',
+    'webtool.net.fingerprints', 'webtool.net.pacing', 'webtool.net.adapters',
+    'webtool.net.rules', 'webtool.net.rules.router', 'webtool.net.rules.loader',
     'webtool.render.render', 'webtool.render.hotrender', 'webtool.render.output', 'webtool.render.kline_svg',
     'webtool.feeds.command', 'webtool.feeds.sources', 'webtool.feeds.parse', 'webtool.feeds.fetch', 'webtool.feeds.cards', 'webtool.radar', 'webtool.radar.race', 'webtool.radar.template',
     'webtool.radar.routes', 'webtool.radar.instances',
