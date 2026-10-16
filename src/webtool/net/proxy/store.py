@@ -35,10 +35,11 @@ DEFAULTS = {
     'jobs': None,                # 搜索并发引擎数; None=按源数(上限 4)
     'blocklist': None,           # 域名黑名单覆盖; None=用内置表
     'cache_ttl': {},             # 分桶 TTL 覆盖 {"search": 30, ...}
-    # 合并排序权重 (pipeline/merge 读, 手写 config.json 生效)
-    'low_prior': None,           # 低优先域名单
-    'low_prior_value': 0.4,      # 命中低优先域时权重削到多少
-    'ref_hosts': None,           # 英文 query 才启用的参考站点
+    # 合并排序权重 (low_prior / low_prior_value / ref_hosts) **不在这里**:
+    # 唯一的消费方 pipeline/merge.py 读的是 data/filters.json 的 merge 段, 而
+    # 不是 config.json。白收这三个键的后果是用户写进 config.json 时 load_config
+    # 原样返回 (看着像配上了)、实际零效果且无任何提示 —— tests/test_smoke.py
+    # §15 会把这类键从白名单里挑出来
     # TLS (实际决策在 webtool.net.tls, 这里只负责存)
     'ssl_verify': True,          # 证书校验总开关
     'ca_bundle': None,           # 自定义 CA 包路径 (替代系统 CA)

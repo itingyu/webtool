@@ -1149,6 +1149,7 @@ print('\n=== 15. 配置键两个键表必须对齐 (config set 写了要真生�
 # 用户配了没反应, 排查时还以为是代码 bug。
 # 三道检查: ①读得到的键都收进白名单 ②CLI 能写的键都读得回来 ③每个键都有人读
 import re as _re2
+import json as _json15
 from webtool.net.proxy.store import DEFAULTS as _DEF
 from webtool.cli.config import CONFIG_KEYS as _CKEYS
 _SRCW = _pl.Path(__file__).parent.parent / 'src'
@@ -1157,12 +1158,52 @@ _RUNTIME_ONLY = {'proxy'}          # cli/_ctx 运行时注入的, 不落盘
 _READPAT = _re2.compile(
     r"\b(?:cfg|config|_cfg|conf)\s*\.get\(\s*['\"]([a-z_][a-z_0-9.]*)['\"]"
     r"|\b(?:cfg|config|_cfg|conf)\s*\[\s*['\"]([a-z_][a-z_0-9.]*)['\"]\s*\]")
-_read_keys = set()
+# 这个扫描是纯文本的, 分不出一个 `cfg` 来自哪个配置文件。而 data/*.json 里的段
+# 也是经 load(段, 文件) 拿的, 长得跟 config.json 一模一样 —— 于是
+# pipeline/merge.py 从 **filters.json 的 merge 段** 读 low_prior/ref_hosts,
+# 被当成了 config.json 的键, 为了"对齐"把那三个键塞进了 store.DEFAULTS
+# (d8c341f)。后果是 config.json 白收三个没人读的键: 用户写进去 load_config
+# 原样返回, 而唯一的消费方读的是另一个文件 —— 零效果、零警告。
+#
+# 归属规则: 读它的文件加载了某个 data 段、且那个段声明了这个键, 同时该文件
+# 没碰 load_config() (碰了就不能断定那个 cfg 不是来自 config.json) → 归 data 文件。
+_LOADPAT = _re2.compile(r"load\(\s*'([a-z]+)'\s*,\s*'([\w.]+\.json)'")
+_HASCFG = _re2.compile(r"\bload_config\(\)")
+
+
+def _data_section(fn, sec):
+    """包内 data/<fn> 的 sec 段 (读不到/不是对象 → None, 归属失败)"""
+    _p = _SRCW / 'webtool' / 'data' / fn
+    try:
+        _d = _json15.loads(_p.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    return _d.get(sec) if isinstance(_d, dict) and isinstance(_d.get(sec), dict) else None
+
+
+_read_keys, _data_owned = set(), {}
 for _f in _SRCW.rglob('*.py'):
-    if str(_f.relative_to(_SRCW)).replace('\\', '/') in _SKIPCFG:
+    _rel = str(_f.relative_to(_SRCW)).replace('\\', '/')
+    if _rel in _SKIPCFG:
         continue
-    for _m in _READPAT.finditer(_f.read_text(encoding='utf-8')):
-        _read_keys.add(_m.group(1) or _m.group(2))
+    _txt = _f.read_text(encoding='utf-8')
+    _keys = {_m.group(1) or _m.group(2) for _m in _READPAT.finditer(_txt)}
+    if not _keys:
+        continue
+    _loads = {(_s, _fn) for _s, _fn in _LOADPAT.findall(_txt) if _fn != 'config.json'}
+    _may_cfg = bool(_HASCFG.search(_txt))
+    for _k in _keys:
+        _owner = next((('%s#%s' % (_fn, _s))
+                       for _s, _fn in sorted(_loads)
+                       if (_sec := _data_section(_fn, _s)) and _k in _sec), None)
+        if _owner and not _may_cfg:
+            _data_owned.setdefault(_owner, set()).add(_k)
+        else:
+            _read_keys.add(_k)
+check(all(k not in _DEF for ks in _data_owned.values() for k in ks),
+      '从 data 文件读的键不在 config.json 白名单里 (白收 = 配了没反应): '
+      + ('; '.join('%s: %s' % (o, ','.join(sorted(ks)))
+                   for o, ks in sorted(_data_owned.items())) or 'ok'))
 _unreadable = sorted(_read_keys - set(_DEF) - _RUNTIME_ONLY)
 check(not _unreadable,
       '业务读的配置键都在白名单里 (否则被 load_config 静默过滤): '
