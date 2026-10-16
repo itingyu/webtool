@@ -23,6 +23,25 @@ from webtool.feeds.cards import print_route_cards
 from webtool.core.resilient import MAX_WORKERS as _MAX_W
 
 
+def _print_feed_usage():
+    """feed 无参/`list` 时的用法段 (清单之后打, 与 rank 的无参行为对齐)"""
+    print('\n用法:')
+    print('  webtool feed sspai ithome        指定源 (预设名或任意 RSS/Atom URL)')
+    print('  webtool feed                     无参数 = 默认源(标 *), 按源分组原序')
+    print('  webtool feed sspai -q "汽车"     语义筛选 (BM25 + 按相关度重排)')
+    print('  webtool feed --add NAME --add URL [--add 描述]   添加自定义源 (存 ~/.webtool/feeds.json)')
+    print('  webtool feed --del NAME          删除自定义源 (预设源不可删)')
+    print('  webtool feed NAME --new-only     增量: 只出上次之后的新条目')
+    print('  webtool feed health              查看坏源登记表 (官网挂了的站)')
+    print('  webtool feed --retest KEY|all    复查坏源, 恢复即移除登记')
+    print('  webtool feed --mark KEY "备注"   人工登记坏源原因 (如改走 RSSHub)')
+    print('  webtool feed radar <关键词>      查 RSSHub 路由库 (2069 站 / 3947 路由, 带参数说明)')
+    print('  webtool feed instances             探活公共实例 (哪几个今天还活着)')
+    print('  webtool feed sspai --no-url      输出不带链接 (只要标题/摘要)')
+    print('  通用: -n 每源条数 -f json/text/markdown -o 文件 --no-cache --no-proxy')
+    print('\n* = 默认源; feed 与 rank 的分工: rank 看热度榜, feed 看时序新内容')
+
+
 def do_feed(args, cfg):
     t0 = time.time()
     # feed --add NAME URL [desc] / --del NAME
@@ -186,6 +205,10 @@ def do_feed(args, cfg):
             from webtool.render.hotrender import render_feed_list
             render_feed_list({'results': rows, 'seed_count': len(seed),
                               'user_count': len(user)}, args.format)
+            # 清单 + 用法是一套 (rank 无参也是两者都给); json 是给机器读的,
+            # 别往里掺人看的用法段
+            if args.format != 'json':
+                _print_feed_usage()
             return 0
         print(f'webtool feed 订阅源 ({len(seed)} 预设 + {len(user)} 自定义):\n')
         for k, v in seed.items():
@@ -195,20 +218,7 @@ def do_feed(args, cfg):
             if k in seed:
                 continue
             print(f'  {k:14s} {v.get("desc") or ""} (自定义) {v["url"]}')
-        print('\n用法:')
-        print('  webtool feed sspai ithome        指定源 (预设名或任意 RSS/Atom URL)')
-        print('  webtool feed                     无参数 = 默认源(标 *), 按源分组原序')
-        print('  webtool feed sspai -q "汽车"     语义筛选 (BM25 + 按相关度重排)')
-        print('  webtool feed --add NAME --add URL [--add 描述]   添加自定义源 (存 ~/.webtool/feeds.json)')
-        print('  webtool feed --del NAME          删除自定义源 (预设源不可删)')
-        print('  webtool feed NAME --new-only     增量: 只出上次之后的新条目')
-        print('  webtool feed health              查看坏源登记表 (官网挂了的站)')
-        print('  webtool feed --retest KEY|all    复查坏源, 恢复即移除登记')
-        print('  webtool feed --mark KEY "备注"   人工登记坏源原因 (如改走 RSSHub)')
-        print('  webtool feed radar <关键词>      查 RSSHub 路由库 (2069 站 / 3947 路由, 带参数说明)')
-        print('  webtool feed instances             探活公共实例 (哪几个今天还活着)')
-        print('  通用: -n 每源条数 -f json/text/markdown -o 文件 --no-cache --no-proxy')
-        print('\n* = 默认源; feed 与 rank 的分工: rank 看热度榜, feed 看时序新内容')
+        _print_feed_usage()
         return 0
     # 解析源名 → url (支持直接喂 URL)
     user = load_user_feeds()
@@ -330,6 +340,8 @@ def do_feed(args, cfg):
            'total': sum(len(v) for v in results.values())}
     if flat:
         out['results'] = flat
-    from webtool.render.hotrender import render_hot
+    from webtool.render.hotrender import render_hot, strip_urls
+    if getattr(args, 'no_url', False):
+        strip_urls(out)
     render_hot(out, args.format)
     return 0

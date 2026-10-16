@@ -1224,6 +1224,25 @@ _ev = _logmod._JsonFmt().format(_logging2.LogRecord(
 check(all(k in _ev for k in ('"thread"', '"file"', '"ts"', '"msg"')),
       'JSONL 事件含 ts/thread/file/msg: ' + _ev)
 
+print('\n=== 18. --no-url 去链接必须三格式同时生效 (rank/feed 共用) ===')
+# 链接藏在 url 字段里, 渲染层三处各写一遍"有 url 就出链接" —— 所以去掉
+# url 字段就等于三种格式一起生效 (json 无字段 / md 退化成纯标题 / text 少一行)。
+# 这里锁住这个前提: 谁哪天把 md 改成无条件读 url, 这条会红。
+from webtool.render.hotrender import strip_urls
+_out = {'cmd': 'rank', 'results': [{'title': 'a', 'url': 'u1', 'rank': 1}],
+        'sources_data': {'zhihu': [{'title': 'b', 'url': 'u2'}],
+                         'weibo': [{'title': 'c'}]},
+        'errors': {'x': 'boom'}}
+strip_urls(_out)
+check('url' not in _out['results'][0], 'results 里的 url 被摘掉')
+check('url' not in _out['sources_data']['zhihu'][0],
+      'sources_data 每个源都摘掉')
+check(_out['sources_data']['weibo'][0] == {'title': 'c'},
+      '本来就没 url 的条目不受影响')
+check(_out['errors'] == {'x': 'boom'}, '非条目字段 (errors) 不动')
+check(_out.get('no_url') is True,
+      '留 no_url 标记 (链接是被要求去掉的, 不是源里没有)')
+
 if fails:
     sys.exit(1)
 print('ALL PASS')

@@ -3,6 +3,33 @@ import json
 import sys
 
 
+def strip_urls(out):
+    """--no-url: 抹掉每条目的 url, 让输出只剩标题/摘要
+
+    只改"出门的副本", 缓存与增量状态都已在渲染前用完 url (feed --new-only
+    靠 url 去重), 到这里再删不影响下次抓取。
+    三种格式一次生效, 不用各写一遍: json 里没有 url 字段; markdown 的
+    [标题](链接) 退化成纯标题; text 少的正是那行链接 (见本文件各处
+    `if r.get('url')`)。out['no_url'] 留个标记, 消费者才知道链接是"被要求
+    去掉"而不是"源里就没有"。
+    """
+    for key in ('results', 'sources_data'):
+        v = out.get(key)
+        if isinstance(v, dict):
+            for items in v.values():
+                _drop_url(items)
+        elif isinstance(v, list):
+            _drop_url(v)
+    out['no_url'] = True
+    return out
+
+
+def _drop_url(items):
+    for r in items or []:
+        if isinstance(r, dict):
+            r.pop('url', None)
+
+
 def _meta_of(r):
     meta = []
     for k in ('hot', 'hot_value', 'score', 'stars', 'answers', 'comments', 'lang', 'sub'):

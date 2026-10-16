@@ -90,6 +90,7 @@ def _print_sources():
     print('  webtool rank -q "汽车"          语义筛选: 纯榜源本地筛 + 跨源按相关度重排')
     print('  webtool rank -q "汽车" -t 0     -t 0 = 只列清单不过滤不重排')
     print('  webtool rank github_trend -q rust   支持搜索的源直接站内查询')
+    print('  webtool rank zhihu --no-url     输出不带链接 (只要标题/热度, 链路清干净)')
     print('  通用: -n 每源条数 -f json/text/markdown --no-cache --no-proxy')
     print('\n* = 默认源; 带「支持-q站内」的源 -q 时透传站内过滤, 其余本地 BM25 筛选')
 
@@ -202,6 +203,8 @@ def do_rank(args, cfg):
         out['results'] = flat
         out['filtered_out'] = filtered_out
         out['total'] = len(flat)
-    from webtool.render.hotrender import render_rank
+    from webtool.render.hotrender import render_rank, strip_urls
+    if getattr(args, 'no_url', False):
+        strip_urls(out)
     render_rank(out, args.format, _fmt_filters(out))
     return 0

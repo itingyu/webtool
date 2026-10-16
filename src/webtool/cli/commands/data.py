@@ -176,12 +176,15 @@ def rank_cmd(sources: list[str] = typer.Argument(None, help='榜单源 key; 无�
              threshold: float = typer.Option(0.15, '-t', '--threshold',
                                              help='语义筛选阈值 0-1 (默认 0.15; 0=只列清单不过滤不重排)'),
              max: int = typer.Option(10, '-n', '--max', help='每源条数'),
+             no_url: bool = typer.Option(False, '--no-url',
+                                         help='输出不带链接: 去掉每条的 url 字段 (markdown/text 只留标题)'),
              fmt: str = Fmt, output: str = Output,
              no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """榜单聚合: 无参=榜单清单; 指定源=按源分组原序; -q 语义筛选"""
     a = _CTX['args']
     # 默认值不能是 []: click 8.1.x 的 nargs=-1 参数带非 None default 直接 TypeError (老 typer 上炸)
     a.sources, a.query, a.threshold, a.max = sources or [], query, threshold, max
+    a.no_url = no_url
     return _run('data', _entry_fn('rank'), fmt, output, no_cache, no_proxy)
 
 @app.command('feed')
@@ -213,11 +216,14 @@ def feed_cmd(sources: list[str] = typer.Argument(None, help='feed key 或任意 
                                             help='不与官网 feed 交叉校验 (默认校验并据此决定取数源)'),
              items: bool = typer.Option(False, '--items',
                                         help='校验后把选定源的条目完整输出; 默认只报校验结论与耗时'),
+             no_url: bool = typer.Option(False, '--no-url',
+                                         help='输出不带链接: 去掉每条的 url 字段 (markdown/text 只留标题)'),
              fmt: str = Fmt, output: str = Output,
              no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """RSS/Atom 订阅源抓取 (官方 feed + 任意 URL; 支持增量)"""
     a = _CTX['args']
     a.sources, a.max, a.query, a.threshold = sources or [], max, query, threshold
+    a.no_url = no_url
     a.new_only, a.add, a.del_src, a.mark, a.retest = new_only, add, del_src, mark, retest
     a.pick, a.param, a.example, a.top = pick, param, example, top
     a.from_url, a.instance, a.cat = from_url, instance, cat

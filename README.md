@@ -103,9 +103,12 @@ webtool fetch <pdf-url> --save /tmp/            # 二进制落盘
 webtool rank                        # 无参 = 清单 + 用法
 webtool rank zhihu weibo -q "汽车"    # 语义筛选 + 跨源重排
 webtool rank -t 0                    # 只列清单, 不筛选不重排
+webtool rank zhihu --no-url          # 输出不带链接 (只要标题/热度)
 ```
 
 `-q` 语义筛选词，`-t` 阈值（默认 0.15），`-n` 每源条数（默认 10）。
+`--no-url` 去掉每条目的 url：json 里没有该字段，markdown/text 退化成纯标题（要喂给
+模型做摘要时链路最干净）。
 
 ## feed
 
@@ -118,6 +121,7 @@ webtool feed --del myblog                 # 删自定义源 (预设不可删)
 webtool feed health                       # 坏源登记表
 webtool feed --retest all                 # 复查坏源, 恢复即移除
 webtool feed --mark <key> --mark "原因"    # 人工登记坏源
+webtool feed sspai --no-url               # 输出不带链接 (只要标题/摘要)
 ```
 
 - 111 个种子源随包分发，安装时并入（只增不覆盖，`WEBTOOL_NO_SEED=1` 关）；`--new-only` 状态存 `~/.webtool/feed_state.json`
