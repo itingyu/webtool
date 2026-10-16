@@ -58,7 +58,7 @@ net/
 ├── transport.py   会话编排（DNS+代理+TLS+HTTP 组装，工厂产出）
 ├── fetch/download L7 通道：HTTP、流式（SSE/WebSocket 按需再加）
 ├── intercept.py   拦截与绕过（captcha/spa 并入，不动）
-├── rules.py       规则引擎入口（proxy/dns/http/timeout/retry/breaker 统一加载）
+├── rules/         规则引擎子包: spec(契约/kind 注册) builtin matchers geodb router tidy migrate loader
 └── netx.py        唯一门面
 ```
 
@@ -140,20 +140,22 @@ ip/ping 等连通性探测归 `net.connectivity`，不单开网络层，ICMP 受
 ## 2.5 规则引擎：特殊走规则，否则走通用
 
 任何环节的特殊行为都必须以规则表达，**禁止在通用代码里写 `if domain == 'xxx'`**。
-规则模型全仓统一（`net/rules.py` / RuleSet），按环节分 kind，格式一致：
+规则模型全仓统一（`net/rules/spec.py` / RuleSpec 注册表），按环节分 kind，格式一致：
 
 ```jsonc
-// rules.json 各 kind 统一 {match, 动作字段, priority}
+// rules.json 各 kind 统一 {kind, match, 动作字段}
 {"kind": "http",  "match": {"domain": "xueqiu.com"}, "fingerprint": "chrome131", "timeout": 15}
 {"kind": "retry", "match": {"domain": "sina.com.cn"}, "retries": 5, "backoff": "exp"}
 {"kind": "breaker", "match": {"domain": "*"}, "fail_threshold": 5, "cool_seconds": 300}
 ```
 
 - 粒度随对象：proxy/dns/HTTP 指纹/熔断按**域名**；timeout/retry 按域名+路径；渲染按输出格式
-- 匹配：具体 > 通配，priority 显式可调；**无命中走通用默认值**，通用默认值集中在该层模块顶部常量，不散落调用点
+- 匹配：文件顺序 first-match-wins（`priority` 键已废弃）；**无命中走通用默认值**，通用默认值集中在该层模块顶部常量，不散落调用点
 - 新环节要特殊化时先问：默认路径能不能覆盖？能就不加 kind；加 kind 必须同时给通用默认 + 文档一条
+- **kind 元数据注册制**：新环节在自己的模块 `register(RuleSpec(kind, fields, match_keys, doc))` 即可，**不改 `net/rules/` 包**。内置三 kind 见 `net/rules/builtin.py`；`rules.specs()` 可枚举全量 kind
 - **kind 必须有消费方才立**：`http`/`retry`/`breaker` 已接线（transport/resilient）；
   `params_for()` 对任意 kind 都能查，但没有消费方的 kind 属预留位，不写进文档当能力
+- Router 会校验 kind 条目的 `match` 键拼写，把"`domian` 写错 → 静默死规则"报进 warnings
 
 ## 2.6 日志与 --debug
 

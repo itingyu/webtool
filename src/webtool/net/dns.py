@@ -1,7 +1,7 @@
 """DNS 解析层: 域名 → IP, 带进程内缓存 (负缓存也缓存)
 
 只做"域名怎么变成 IP"这一件事, 不知道规则、代理、GeoIP 的存在;
-rules.py 等需要 IP 的模块从这里取。
+rules 包等需要 IP 的模块从这里取。
 
 TTL 读 config 的 `proxy_dns_ttl` (默认 300s), 每次现取不缓存快照 ——
 这是配置热更新名实相符的前提 (见 docs/coding-standard.md §3)。

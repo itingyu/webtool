@@ -31,7 +31,7 @@
 **已具备（不是从零起步）：**
 
 - 分层骨架：`cli → pipeline/render/feeds/stock → net/engines → core` 单向依赖，有 `tests/test_layering.py` 守卫。
-- 规则引擎雏形：`net/rules.py` 的 `Router`，线路规则 + `params_for(kind)`；已接线 kind：`http / retry / breaker`。
+- 规则引擎雏形：`net/rules/` 包的 `Router`，线路规则 + `params_for(kind)`；已接线 kind：`http / retry / breaker`。
 - 全局 `--debug/-d`：`core/logging.py`，分级配色、stderr 输出、`WEBTOOL_DEBUG` 兜底，已接入 app 回调。
 - stdin：`core/stdin.py`（`read_input/parse_lines/parse_jsonl`），`-o -` 输出侧已有。
 - 弹性层：`core/resilient.py`（`parallel_map` / 重试退避 / 熔断 / checkpoint 雏形）。
@@ -43,9 +43,9 @@
 |---|---|---|
 | ~~G1 `net/` 内 OSI 归位不清~~ ✅P1 | `tls.py` 在 `core/`；ip/ping 探测在 `core/probe`；L4/L7 边界模糊 —— **已迁 `net/tls`·`net/http`·`net/connectivity`** | 已归位 |
 | G2 SSE / WebSocket 无独立通道 | LLM 流式散在 `cli/zenproto.py`（**用 http.client 直连，L4 层直接出网**）与 `net/mcpclient.py` | 违反分层；新流式协议各写一遍 |
-| G3 规则引擎不可扩展 | kind 与匹配器硬编码在 `Router`；新增环节要改 `rules.py` | 每加一个环节都要动核心文件 |
+| ~~G3 规则引擎不可扩展~~ ✅P2 | 已拆 `rules/` 子包 + `RuleSpec` 注册制；匹配器本就通用，补齐 kind 目录与 match 键校验 | 新增环节不改 rules 包 |
 | G4 无统一数据源接口 | 规范提 `sources/`(DataPacket) 但搜索/抓取侧没有抽象，只有 stock 有 | R3/R4 落不了地；新数据源各写一套 |
-| G5 大文件 | `transport.py 1093` / `proxy.py 989` / `rules.py 923` / `fetch.py 674` / `download.py 459` / `cli/app.py 870` / `zen/client.py 504` | 可读性/可维护性差 |
+| G5 大文件 | `transport.py 1093` / `proxy.py 989` / ~~`rules.py 923`~~ ✅P2 / `fetch.py 674` / `download.py 459` / `cli/app.py 870` / `zen/client.py 504` | 可读性/可维护性差 |
 | G6 埋点不统一 | 各模块自发 `logger.debug`，字段/耗时/规则命中格式不一 | `--debug` 有了但排障仍靠翻代码 |
 | G7 恢复能力窄 | checkpoint 只在 rank/feed/screen | 长任务（download/批量 fetch）无恢复 |
 | G8 stdin 覆盖面 | 部分命令未接，无 jsonl 输入契约文档 | 管道组合能力不完整 |
@@ -115,7 +115,7 @@ net/
 ├── stream.py         L7     SSE + WebSocket: open_sse() / open_ws() (R2/G2 新增)
 ├── download.py       L7     大文件: 分片 / 续传 / .part 原子改名
 ├── intercept.py      L7     拦截与绕过: captcha / spa 数据提取 / 反爬降级梯
-├── rules.py          —      规则引擎入口 (R7, 见第四节)
+├── rules/            —      规则引擎子包 (R7, 见第四节): spec/builtin/matchers/geodb/router/tidy/migrate/loader
 └── netx.py           —      唯一门面: resolve_proxy / tls.policy / default_headers
 ```
 
@@ -129,7 +129,7 @@ net/
 |---|---|---|
 | `net/transport.py` | 1093 | `transport/` 子包：`session.py`(指纹会话工厂) `request.py`(请求编排) `fallback.py`(cffi→urllib 降级梯) `__init__`(门面) |
 | `net/proxy.py` | 989 | `proxy/` 子包：`pool.py`(命名代理池) `helper.py`(proxyhelper) `store.py`(配置读写/密钥) `route.py`(域名规则适配) |
-| `net/rules.py` | 923 | `rules/` 子包：`model.py`(RuleSet/Rule) `matchers.py`(domain/cidr/geoip/asn/glob) `router.py`(Router) `tidy.py`(seed/tidy/migrate) `loader.py` |
+| ~~`net/rules.py`~~ ✅ | 923 | **已拆** `rules/` 子包: spec(契约/kind注册) · builtin · matchers · geodb · router · tidy · migrate · loader |
 | `net/fetch.py` | 674 | 请求侧并入 `net/http.py`；判型+落点分派留 `fetch.py`(or 直接归 `download.py` 调用) |
 | `cli/app.py` | 870 | `cli/commands/` 每命令一文件，`app.py` 只留 `main()` + 注册 |
 | `cli/zen/client.py` | 504 | `zen/`：`client.py`(编排) `stream.py`(改用 net/stream.open_sse) `parse.py` |
@@ -141,30 +141,37 @@ net/
 
 ## 四、规则引擎 2.0（R7/R8，可扩展是重点）
 
-### 4.1 现状
+### 4.1 现状 (P2 已落地)
 
-`Router.params_for(kind, url)` 已能查任意 kind，但 kind 的**默认值与匹配器写死在 rules.py**。新增环节要改核心文件 = 扩展性差。
+`Router.params_for(kind, url)` **本就通用** (任意 kind 都能查), 原 `rules.py` 也没有
+硬编码 kind 分支 —— 真正的缺口是"没有 kind 目录 / 没有 match 键校验 / 923 行单文件"。
+P2 已把 `rules.py` 拆成 `rules/` 子包, 并加 `RuleSpec` 元数据注册制。
 
-### 4.2 目标：kind 注册制
+### 4.2 目标：kind 注册制 (已实现)
 
-每个环节自带一张 `RuleSpec`，向规则引擎**注册**自己的默认值、匹配维度、说明；`rules.py` 不再认识任何具体 kind。
+每个环节在自己的模块里声明一张 `RuleSpec` (kind 名 / 允许的动作字段 / 允许的匹配键 /
+一句说明), 注册进 `rules.specs()`。`rules/` 包不认识任何具体环节的语义。
 
 ```python
-# 每个环节在自己的模块顶部声明 (示例)
+# 环节模块顶部声明 (示例)
 from webtool.net.rules import RuleSpec, register
 
 register(RuleSpec(
-    kind='retry',                    # kind 名
-    defaults={'retries': 2, 'backoff': 'exp'},   # 通用默认值 (特殊走规则, 否则走这里)
-    match_keys=('domain', 'path'),   # 该 kind 允许的匹配维度 (粒度随对象)
+    kind='retry',
+    fields=('retries', 'backoff'),          # 该 kind 的动作字段
+    match_keys=('domain', 'path'),          # 匹配维度 (粒度随对象)
     doc='按域名+路径的重试策略',
 ))
 ```
 
-引擎侧统一消费：
+**默认值不在这里** —— 通用默认值仍住在各环节模块的顶部常量 (transport 的 15s、
+resilient 的 retries/backoff/阈值), 那里是"无命中时"的唯一来源, 避免两处默认。
+
+消费侧不变：
 
 ```python
-params = rules.params_for('retry', url)   # → kind 规则命中 OR defaults
+params = rules.params_for('retry', url)   # 命中 → 该条目字段; 无命中 → {}
+                                          # 调用方以自身顶部常量兜底
 ```
 
 ```mermaid
@@ -172,10 +179,10 @@ flowchart LR
     REQ["请求 URL / 对象"] --> Q["router.params_for(kind, url)"]
     Q --> H{"命中该 kind 的规则?"}
     H -- 是 --> R["用规则里的字段<br/>(first-match-wins)"]
-    H -- 否 --> D["用 RuleSpec.defaults<br/>(该环节通用默认)"]
+    H -- 否 --> D["返回空 dict<br/>(调用方用顶部常量兜底)"]
     R --> OUT["返回参数 dict"]
     D --> OUT
-    REG["各环节 RuleSpec 注册表"] -.-> D
+    REG["各环节 RuleSpec 注册表<br/>(kind 目录 + match 键校验)"] -.-> H
 ```
 
 **收益**：新增环节（如 `dns` / `cache` / `render` / `engine` / `timeout`）只写一个 module 顶部声明 + 一个消费点，`rules.py` 零改动。
@@ -273,7 +280,7 @@ def open_ws(url, *, proxy='auto', headers=None): ...                  # 收发�
 |---|---|---|---|
 | **P0** | 冻结本方案 + 更新 `docs/coding-standard.md` 对齐 | 无 | 本文 + 规范修订 |
 | **P1** ✅ | `tls`/`http`/`connectivity` 从 `core` 迁 `net`（不留薄壳，调用点全量改）；**修复失效的分层守卫** | 低 | G1 归位 · 守卫生效 |
-| **P2** | `rules.py` → `rules/` 子包 + kind 注册制 `RuleSpec`；迁移 http/retry/breaker，补 `dns/cache/render/parse` | 中 | G3 可扩展 |
+| **P2** ✅ | `rules.py` → `rules/` 子包 + `RuleSpec` 元数据注册制；内置 http/retry/breaker，match 键拼错告警 | 中 | G3 可扩展 |
 | **P3** | 新增 `net/stream.py`，迁移 zenproto/zen/mcpclient 流式 | 中 | G2 SSE/WS |
 | **P4** | 拆 `transport/proxy/fetch/cli.app/zen.client` 大文件 | 中 | G5 文件粒度 |
 | **P5** | 抽 `sources/`(DataPacket+SourceBase) + `dao/` + `process/` 层；`sources` kind 登记 | 高 | G4 R3/R4 |

@@ -198,7 +198,7 @@ out = subprocess.run(
     ['rg', '-n', "-l", r"proxy == 'auto'|resolve_route\(", 'src'],
     cwd=ROOT, capture_output=True, text=True).stdout.strip().splitlines()
 AUTO_OK = {'src/webtool/net/netx.py', 'src/webtool/net/http.py',
-           'src/webtool/net/rules.py'}   # rules.py 是路由表实现本身
+           'src/webtool/net/rules/loader.py'}   # rules 包是路由表实现本身
 stray = [f for f in out if f.endswith('.py') and f not in AUTO_OK]
 check(not stray,
       '没有通道自己判断 auto/调 resolve_route (只能经 netx 或 build_opener)',

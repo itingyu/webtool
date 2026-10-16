@@ -121,6 +121,25 @@ try:
 finally:
     R.router = _orig_router
 
+# ── 4. kind 注册制 + match 键校验 ────────────────────────────────
+from webtool.net.rules import RuleSpec, register, specs
+
+check('内置 kind 已注册 (http/retry/breaker)',
+      {'http', 'retry', 'breaker'} <= set(specs()))
+
+# 模拟新环节注册 (不改 rules 包)
+register(RuleSpec('demo', fields=('x',), match_keys=('domain',)))
+check('新环节可注册', 'demo' in specs())
+
+_bad = R.Router({'default': 'direct', 'rules': [
+    {'kind': 'http', 'match': {'domian': 'x.com'}, 'timeout': 9}]})
+check('kind 条目 match 键拼错会告警', any('domian' in w for w in _bad.warnings))
+
+_ok = R.Router({'default': 'direct', 'rules': [
+    {'kind': 'http', 'match': {'domain': 'x.com'}, 'timeout': 9}]})
+check('kind 条目 match 键正确不告警',
+      not any('无法识别' in w for w in _ok.warnings))
+
 print()
 if fails:
     print('FAILED: %d 项 -> %s' % (len(fails), ', '.join(fails)))
