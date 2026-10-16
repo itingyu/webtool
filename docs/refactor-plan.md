@@ -241,13 +241,13 @@ class SourceBase(ABC):                # 数据源接口: 不知道给谁用
 - **熔断**：按域名滑动窗口失败计数，打开即短路 + debug 日志；状态持久化。
 - **恢复**：抽通用 `Checkpoint`（`dao/checkpoint.py`），key=任务指纹，value=已完成条目；`rank/feed/screen/download/批量fetch` 统一接入，重跑跳过已完成。
 
-### 6.2 `--debug` 与日志 2.0（R9）
+### 6.2 `--debug` 与日志 2.0（R9, P6 已落地）
 
-已有基础，**补强三点**：
-
-1. **分级叠加**：`-d`(DEBUG) / `-dd`(更细，打请求头/体摘要) / `WEBTOOL_DEBUG` 兜底（已支持部分，补齐 `-dd`）。
-2. **配色分级**：DEBUG 灰 / INFO 绿 / WARN 黄 / ERROR 红（已有），**新增 `-dd` 的 TRACE 青**；非 tty / `NO_COLOR` 自动去色（已有）。
-3. **落文件**：新增 `--log-file <path>`，JSON Lines 结构化日志（字段：`ts/level/module/event/url/rule/elapsed_ms`），进程/Agent 可消费。
+1. **分级叠加** ✅ `-d`(本仓 DEBUG) / `-dd`(连三方库 urllib3/curl_cffi 也 DEBUG) / `WEBTOOL_DEBUG=1` 等效 `-d`。
+2. **配色分级** ✅ DEBUG 灰 / INFO 绿 / WARN 黄 / ERROR 红；非 tty / `NO_COLOR` 自动去色。
+3. **落文件** ✅ `--log-file PATH`（`WEBTOOL_LOG_FILE` 等效）：后缀 `.jsonl`/`.ndjson` → **JSON Lines**
+   （`ts/level/module/msg/url/elapsed_ms/exc`）；否则纯文本。文件恒为 DEBUG 全量，stderr 可见度不受影响。
+4. **耗时埋点** ✅ `core.logging.timed(logger, label, **fields)`，异常也记（finally），字段进 JSONL。
 
 **标准埋点（强制）**：请求 URL · 规则命中(kind+action+rule index) · 重试次数 · 熔断状态 · 缓存命中 · 耗时。捕宽异常处必须 `logger.debug(..., exc_info=True)`，禁止 `except Exception: pass`。
 
@@ -288,7 +288,7 @@ S.ws_key() / ws_accept()  # WebSocket 握手; encode_frame()/FrameReader 帧编�
 | **P3** ✅ | 新增 `net/stream.py`: iter_sse + 解压器 + WS 帧编解码; zen 改调 iter_sse; 修 2 个压缩流真 bug | 中 | G2 通道 |
 | **P4** | 拆大文件: `proxy` ✅P4a / `fetch` / `transport` / `cli/app` / `zen.client` / `download` | 中 | G5 文件粒度 |
 | **P5** | 抽 `sources/`(DataPacket+SourceBase) + `dao/` + `process/` 层；`sources` kind 登记 | 高 | G4 R3/R4 |
-| **P6** | `--log-file` JSON 日志 + 标准埋点补齐 + `-dd` | 低 | G6 R9 |
+| **P6** ✅ | 日志 2.0: `-dd` 放开三方库 · `--log-file`(JSONL) · `timed` 耗时埋点 | 低 | R9 可观测 |
 | **P7** | 通用 `Checkpoint` 铺到 download/批量 fetch；stdin 覆盖补齐 | 中 | G7/G8 R10 |
 | **P8** | 统一错误类型 + 退出码规范 + 文档收尾 | 低 | G9 友好性 |
 

@@ -629,13 +629,15 @@ def request(method, url, **kw):
     重试只对幂等方法 (GET/HEAD), 次数/退避走 kind:retry 规则。非幂等
     (POST/PUT) 不重试也不套重试循环 —— 重复提交不是弹性是事故。
     """
+    from webtool.core import logging as _log
     from webtool.core.resilient import retry_call
     br = _breaker_guard(url)
     m = (method or 'GET').upper()
-    if m in ('GET', 'HEAD'):
-        return _guarded(br, lambda: retry_call(
-            lambda: _request_once(method, url, **kw), url=url))
-    return _guarded(br, lambda: _request_once(method, url, **kw))
+    with _log.timed(logger, 'HTTP %s' % m, url=url):
+        if m in ('GET', 'HEAD'):
+            return _guarded(br, lambda: retry_call(
+                lambda: _request_once(method, url, **kw), url=url))
+        return _guarded(br, lambda: _request_once(method, url, **kw))
 
 
 def _guarded(br, fn):

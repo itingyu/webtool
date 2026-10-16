@@ -170,6 +170,10 @@ ip/ping 等连通性探测归 `net.connectivity`，不单开网络层，ICMP 受
 
 - 每模块 `logger = logging.getLogger(__name__)`；打印给人看的用 print，定位问题用的**必须**走 logger
 - `--debug/-d` 是 app.py 全局回调注入的通用参数，全命令零改动生效；级别 DEBUG(灰)/INFO(绿)/WARN(黄)/ERROR(红)，非 tty / NO_COLOR 自动去色
+- 叠加：`-d` 放开本仓 DEBUG；`-dd` 连三方库（urllib3/curl_cffi…）也放开。`WEBTOOL_DEBUG=1` 等效 `-d`
+- `--log-file PATH`（`WEBTOOL_LOG_FILE` 等效）把**全量 DEBUG** 写进文件，stderr 可见度不受影响 ——
+  跑批/复现问题时抓日志用，不用把终端刷满。文件 handler 存在时 logger 本体放 DEBUG，stderr handler 单独卡级别
+- 耗时埋点用 `core.logging.timed(logger, label, **fields)`（如 transport 的 `HTTP GET`），异常也照记（finally）
 - 必埋点：请求 URL、规则命中结果、重试次数、熔断状态、缓存命中、耗时
 - 捕宽异常处必须 `logger.debug(..., exc_info=True)`——`except Exception: pass` 是排障黑洞，禁止
 - `--debug` 时被吞的异常打印完整 traceback

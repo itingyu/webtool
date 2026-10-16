@@ -195,11 +195,13 @@ _CTX = {}
 def _main(ctx: typer.Context,
           proxy: str = typer.Option(None, '--proxy', help='临时代理, 覆盖配置文件'),
           no_cache: bool = typer.Option(False, '--no-cache', help='跳过缓存'),
+          log_file: str = typer.Option(None, '--log-file',
+                                       help='把 DEBUG 全量日志写进文件 (纯文本; WEBTOOL_LOG_FILE 等效)'),
           debug: int = typer.Option(0, '--debug', '-d', count=True,
-                                    help='调试日志到 stderr (可叠加; WEBTOOL_DEBUG=1 等效)')):
+                                    help='调试日志到 stderr, 可叠加: -d 本仓, -dd 连三方库 (WEBTOOL_DEBUG=1 等效)')):
     # --version / -V 不在 click 层, 由 main() 预扫 (子命令后面也能用), 见 main
     from webtool.core import logging as _log
-    _log.setup(debug + _log.env_debug())
+    _log.setup(debug + _log.env_debug(), log_file=log_file)
     _CTX.clear()
     _CTX.update(proxy=proxy, no_cache=no_cache, args=SimpleNamespace())
 

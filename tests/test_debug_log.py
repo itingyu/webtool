@@ -104,6 +104,27 @@ os.environ.pop('WEBTOOL_DEBUG', None)
 # 日志确实路由到 stderr 而非 stdout: propagate 必须关
 check('propagate 关闭 (不污染上游 root)', root.propagate is False)
 
+# --log-file / WEBTOOL_LOG_FILE: 文件拿全量 DEBUG, stderr 不冒
+import tempfile  # noqa: E402
+_tmpf = os.path.join(tempfile.mkdtemp(), 'wt.log')
+for h in list(root.handlers):
+    root.removeHandler(h)
+L.setup(0, log_file=_tmpf)
+logging.getLogger('webtool.core.cache').debug('trace-me')
+check('log-file 捕获 DEBUG (即使没开 -d)',
+      os.path.exists(_tmpf) and 'trace-me' in open(_tmpf, encoding='utf-8').read())
+check('log-file 时 logger 本体放到 DEBUG',
+      logging.getLogger('webtool').level == logging.DEBUG)
+check('stderr handler 仍按 debug 卡在 WARNING', L._h.level == logging.WARNING)
+
+for h in list(root.handlers):
+    root.removeHandler(h)
+L.setup(2)
+check('-dd 放开三方库 DEBUG',
+      logging.getLogger('urllib3').level == logging.DEBUG)
+for h in list(root.handlers):
+    root.removeHandler(h)
+
 print()
 if fails:
     print('FAILED: %d 项 -> %s' % (len(fails), ', '.join(fails)))
