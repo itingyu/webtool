@@ -3,6 +3,9 @@
 #      重定义 F811、字符串插值 F5xx、比较 F632)
 line-length = 100
 target-version = "py312"
+# tests/fixtures/ 是迁移基线 (切分前的原单体文件), 只作文本比对不 import,
+# 也不是本仓的代码风格样本 —— 不纳 lint
+extend-exclude = ["tests/fixtures"]
 
 [lint]
 select = ["E9", "F"]

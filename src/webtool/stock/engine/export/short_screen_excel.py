@@ -7,7 +7,7 @@
 调用方式：
     from webtool.stock.engine.export.short_screen_excel import build_workbook
     build_workbook(
-        output_path="/var/minis/shared/股票/短线选股/短线选股_20260810.xlsx",
+        output_path="短线选股_20260810.xlsx",   # 落点自己给 (CLI: --excel 路径)
         picks=[...], candidates=[...], sectors=[...], events=[...],
         meta={"base_date":"2026-08-07", ...},
     )

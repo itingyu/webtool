@@ -184,7 +184,8 @@ def calendar(date=None, n=3):
         "是否交易日": is_trading_day(base),
         "上一交易日": prev[0], "下一交易日": nxt[0],
         "近期": {"上": prev, "下": nxt},
-        "节假日表": "已加载" if _holidays(base.year) else "缺失（需补 holidays-%d.json）" % base.year,
+        "节假日表": ("已加载" if _holidays(base.year)
+                     else f"缺失（需补 {C.holidays_path(base.year)}）"),
     }
 
 

@@ -13,11 +13,19 @@
 import argparse
 import ast
 import glob
+import importlib.util
 import json
 import os
 import sys
 
-AKSHARE = '/usr/lib/python3.12/site-packages/akshare'
+def _akshare_dir():
+    """akshare 安装目录 —— 不写死 site-packages 路径 (换 python 版本就失效)"""
+    spec = importlib.util.find_spec('akshare')
+    if not spec or not spec.origin:
+        raise SystemExit('未安装 akshare: pip install akshare 后再跑本脚本')
+    return os.path.dirname(spec.origin)
+
+AKSHARE = _akshare_dir()
 OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                    'data', 'reverse', 'em_recipes.json')
 MARK = 'datacenter-web.eastmoney.com'

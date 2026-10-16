@@ -15,6 +15,7 @@
 全部按这些键取值，改英文等于让十几个调用点跟着改，收益为零。
 """
 import json
+import os
 import subprocess
 from datetime import datetime, timedelta
 
@@ -156,14 +157,39 @@ def _client():
 
 # ============ 交易日历 ============
 
+# 交易日历随包分发 (stock/data/trading_calendar/holidays-<年>.json)。
+# 曾经读项目外的 /var/minis/shared/短线复盘/holidays-YYYY.json —— 换台机器、
+# 换个用户目录就没有, 而"节假日被当成交易日"的后果是把 10-01 之类的日期
+# 交给接口, 涨跌停池对这种日期**静默回旧数据**, 报出来的错完全指不到日历。
+_CAL_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "data", "trading_calendar")
+_HOLIDAYS = {}
+
+
+def holidays_path(year):
+    """内置节假日表路径 —— "数据在哪"的唯一答案 (测试与排错都问这里)"""
+    return os.path.join(_CAL_DIR, f"holidays-{year}.json")
+
+
 def _holidays(year):
-    p = f"/var/minis/shared/短线复盘/holidays-{year}.json"
+    """该年的非交易日集合 (含法定假日与调休); 表缺失时返回空集并告警
+
+    进程内缓存: 一次筛选会反复问"这天是不是交易日", 表却不会变。
+    """
+    if year in _HOLIDAYS:
+        return _HOLIDAYS[year]
+    p = holidays_path(year)
     try:
         with open(p, encoding="utf-8") as fh:
-            return {x["date"] for x in json.load(fh).get("non_trading", [])}
-    except Exception:                                       # noqa: BLE001
-        log(f"节假日表缺失 {p}，仅按周末判断", level="WARN")
-        return set()
+            days = {x["date"] for x in json.load(fh).get("non_trading", [])}
+    except Exception as e:                                  # noqa: BLE001
+        log(f"内置节假日表读不到 {p} ({type(e).__name__}: {e}), 仅按周末判断; "
+            f"补该年日历后重试 (节假日当交易日会让涨停池静默回旧数据)",
+            level="WARN")
+        days = set()
+    _HOLIDAYS[year] = days
+    return days
 
 
 def is_trading_day(d):

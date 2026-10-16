@@ -85,11 +85,13 @@ engine 层不出网: 它的 HTTP 全部经 sources, 早先引擎自带的那两�
 
 ## 换版本
 
-数据源池原始代码在 `shared/股票/API调研/api_client.py`。本仓这份是
-**按源重新拆分**的产物 (方法体逐字保留, 只改了 import 与注解), 所以:
+数据源池的切分基线（原单体 `api_client.py`）随仓放在
+`tests/fixtures/api_client_original.py`。本仓这份是**按源重新拆分**的产物
+(方法体逐字保留, 只改了 import 与注解), 所以:
 
-- 上游更新 → 重新切分, 不要直接覆盖本仓文件
-- 切分脚本: `shared/股票/API调研/split_sources.py` (+ `split_sources_fiximp.py` 补 import)
+- 上游更新 → 用新版本覆盖基线，再重新切分，不要直接覆盖本仓 sources/
+- 对账: `python3 scripts/check_sources_split.py`（逐方法比对，丢一个就报出来）；
+  `test_smoke.py` 的「切分完整性」段跑同一份基线，基线不在直接 FAIL
 - 无外部覆盖路径: 覆盖加载出的模块与包内那份是两个对象, 会导致两份
   `APIClient` 各带一份 token/session 缓存
 

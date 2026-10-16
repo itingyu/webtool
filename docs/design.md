@@ -26,6 +26,8 @@ src/webtool/
 │   ├── resilient.py     # 弹性: parallel_map / retry / breaker / fetch 包装
 │   └── text.py urls.py jsonfmt.py errors.py logging.py stdin.py
 ├── stock/               # 股票: command (动作) / bridge (数据源层) / data/reverse (逆向文档)
+│                        #   data/trading_calendar/holidays-<年>.json = 交易日历 (运行必需,
+│                        #   随包分发; 曾经读项目外的 shared/短线复盘/, 换机就静默降级)
 └── data/                # plugins.json / filters.json / instances.json / zen.json / feeds.seed.json
                          # 注: 在包根, core.config_data.DATA_DIR 指向它
 ```

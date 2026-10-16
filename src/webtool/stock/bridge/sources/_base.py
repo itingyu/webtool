@@ -20,6 +20,7 @@
 import warnings
 warnings.filterwarnings('ignore')
 
+import importlib.util
 import subprocess
 from functools import lru_cache
 from pathlib import Path
@@ -39,7 +40,25 @@ def _err(error: str, status: int = 0) -> dict:
 
 
 # ── 同花顺 v token (qjs 子进程, 进程内只算一次) ──────────────────────
-_THS_JS_PATH = '/usr/lib/python3.12/site-packages/akshare/data/ths.js'
+@lru_cache(maxsize=1)
+def _ths_js_path() -> Path:
+    """定位 akshare 自带的 `data/ths.js`
+
+    不写死 site-packages 路径: 那是"python3.12 + 某种装法"的快照, 换解释器
+    版本或换种装法就失效, 而失效的样子是"同花顺源全挂", 看不出跟路径有关。
+    find_spec 只解析包位置, 不 import akshare (那要几百毫秒)。
+    """
+    try:
+        spec = importlib.util.find_spec('akshare')
+        origin = getattr(spec, 'origin', None) if spec else None
+    except (ImportError, ValueError):        # 父包不存在 / __spec__ 为 None
+        origin = None
+    if origin:
+        p = Path(origin).parent / 'data' / 'ths.js'
+        if p.is_file():
+            return p
+    raise RuntimeError('同花顺 v token 需要 akshare 的 data/ths.js, 未找到: '
+                       '装 akshare (pip install akshare) 或换用其他数据源')
 
 
 @lru_cache(maxsize=1)
@@ -49,7 +68,7 @@ def _ths_v_token() -> str:
     token 由 akshare 自带的 ths.js 生成, 是公开的反爬参数不是凭证。
     qjs 缺失时抛错让上层换源, 不静默发无 token 的请求 (会被 ban)。
     """
-    js = Path(_THS_JS_PATH).read_text(encoding='utf-8')
+    js = _ths_js_path().read_text(encoding='utf-8')
     code = js + '\nconsole.log(v());\n'
     r = subprocess.run(['sh', '-c', f"echo '{code}' | qjs"],
                        capture_output=True, text=True, timeout=10)
@@ -62,7 +81,7 @@ def _ths_v_token() -> str:
     # 不用 assert: python -O 下断言被剥离, token 异常时会静默把垃圾 cookie 发出去
     if len(token) < 50:
         raise RuntimeError(f'同花顺 v token 异常 (len={len(token)}): {token[:80]!r}; '
-                           f'检查 qjs 与 {_THS_JS_PATH}')
+                           f'检查 qjs 与 {_ths_js_path()}')
     return token
 
 

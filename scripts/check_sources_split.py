@@ -10,7 +10,10 @@ import pathlib
 import re
 import sys
 
-ORIG = pathlib.Path('/var/minis/shared/股票/API调研/api_client.py')
+# 基线随仓 (tests/fixtures/): 曾经读项目外的 shared/股票/API调研/api_client.py,
+# 那份文件不在时脚本没法跑 —— 对账基准必须跟代码在同一个仓里
+ORIG = (pathlib.Path(__file__).resolve().parents[1]
+        / 'tests' / 'fixtures' / 'api_client_original.py')
 SOURCES = pathlib.Path(__file__).resolve().parents[1] / 'src/webtool/stock/bridge/sources'
 
 def methods_of(path: pathlib.Path) -> dict:

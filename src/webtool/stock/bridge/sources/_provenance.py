@@ -1,11 +1,12 @@
 """切分来源记录
 
-`sources/` 下十个源模块由 `api_client.py` 按方法名前缀切分而来。
-原文件是切分时的唯一真值来源, 成员完整性校验以它为准。
+`sources/` 下十个源模块由单个 `api_client.py`（3251 行 / 169 个 def）按方法名前缀
+切分而来。那份原文件是切分时的唯一真值来源，成员完整性校验以它为准，现随仓存放在
+`tests/fixtures/api_client_original.py`。
+
+曾经写成项目外的绝对路径（`/var/minis/shared/股票/API调研/api_client.py`）——换台
+机器、换个用户目录就没有那份文件，守卫会静默 SKIP，看着在跑其实什么都没查。基线
+必须跟代码在同一个仓里，缺了就该 FAIL。
 """
-
-# 切分前的原始文件 (随仓, 由 shared/股票/API调研/ 提供)
-ORIGINAL = '/var/minis/shared/股票/API调研/api_client.py'
-
-# 拆出的文件 (拆完即删, 原件留在上面那份)
-SPLIT_FROM = ORIGINAL
+# 基线相对仓库根的位置 (测试自己拼路径并断言存在, 这里只留事实)
+BASELINE = 'tests/fixtures/api_client_original.py'

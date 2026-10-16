@@ -797,13 +797,17 @@ check(not _bad_sess,
       '源模块不自建 session (只能经 _std/_xueqiu_session, 否则绕过代理路由)'
       + (f' 违规 {_bad_sess}' if _bad_sess else ''))
 
-# ── 切分完整性: 成员必须与原文件对得上 (防再漏拆私有辅助) ─────────
+# ── 切分完整性: 成员必须与基线对得上 (防再漏拆私有辅助) ─────────
 print('\n=== 切分完整性 ===')
 from webtool.stock.bridge.sources import _provenance as _prov
 import re as _re, pathlib as _pl
 
-if _pl.Path(_prov.ORIGINAL).is_file():
-    _orig_txt = _pl.Path(_prov.ORIGINAL).read_text(encoding='utf-8')
+# 基线随仓 (tests/fixtures/), 不再读项目外的原始文件 —— 以前那份不在就 SKIP,
+# 守卫看着在跑其实什么都没查。缺了现在是 FAIL。
+_orig = _pl.Path(__file__).resolve().parents[1] / _prov.BASELINE
+check(_orig.is_file(), f'切分基线随仓存在 ({_prov.BASELINE})')
+if _orig.is_file():
+    _orig_txt = _orig.read_text(encoding='utf-8')
     _orig_names = set(_re.findall(r'^\s*def (\w+)\(', _orig_txt, _re.M))
     _src_dir = _pl.Path(_prov.__file__).parent
     _have = set()
@@ -828,7 +832,7 @@ if _pl.Path(_prov.ORIGINAL).is_file():
     check(not _dangling, 'self.X( 都有定义 (漏拆的私有辅助当场暴露)'
           + (f' 悬空 {_dangling}' if _dangling else ''))
 else:
-    print(f'SKIP 切分来源不在 ({_prov.ORIGINAL}), 无法校验完整性')
+    print(f'FAIL 切分基线不在 ({_prov.BASELINE}), 无法校验完整性')
 
 
 # ===== 依赖声明 (2026-10-15 审计补漏: certifi / numpy / urllib3 / efinance) =====
@@ -1242,6 +1246,71 @@ check(_out['sources_data']['weibo'][0] == {'title': 'c'},
 check(_out['errors'] == {'x': 'boom'}, '非条目字段 (errors) 不动')
 check(_out.get('no_url') is True,
       '留 no_url 标记 (链接是被要求去掉的, 不是源里没有)')
+
+print('\n=== 19. 交易日历随包分发, 不许读项目外文件 ===')
+# 曾经读 /var/minis/shared/短线复盘/holidays-YYYY.json —— 换台机器就没有, 而
+# "节假日被当成交易日"的后果是把 10-01 交给接口, 涨停池对无效日期静默回旧数据,
+# 报出来的错完全指不到日历。日历是运行必需数据, 必须跟代码在一起。
+import datetime as _dt2
+from webtool.stock.engine import clients as _cls
+_THIS_YEAR = _dt2.date.today().year
+_cpath = _cls.holidays_path(_THIS_YEAR)
+check(_pl.Path(_cpath).is_file(),
+      f'内置节假日表覆盖今年 {_THIS_YEAR} ({_cls.holidays_path(_THIS_YEAR)})')
+check('webtool/stock/data' in _cpath,
+      f'日历从包内读, 不指向项目外 ({_cpath})')
+_hol = sorted(_cls._holidays(_THIS_YEAR))
+_bad_fmt = [d for d in _hol if not _re.match(r'^\d{4}-\d{2}-\d{2}$', d)]
+_bad_year = [d for d in _hol if not d.startswith(str(_THIS_YEAR))]
+check(_hol and not _bad_fmt, f'日期格式都是 YYYY-MM-DD ({_bad_fmt[:3]})')
+check(not _bad_year, f'表里的日期都属于 {_THIS_YEAR} 年 ({_bad_year[:3]})')
+# 国庆/春节这类长假必须落在表里 —— 只按周末判会把它们当交易日
+check(any(d.startswith(f'{_THIS_YEAR}-10-0') for d in _hol),
+      f'{_THIS_YEAR} 国庆长假在非交易日表里 (缺了会把 10-01 当交易日)')
+check(not _cls.is_trading_day(f'{_THIS_YEAR}-01-01'),
+      '元旦判定为非交易日 (日历真的生效, 不是读了空表)')
+
+print('\n=== 20. 运行必需的数据不许落在项目外 (AST 扫常量) ===')
+# 出过一次: 交易日历读项目外的 shared/短线复盘/*.json, 本地跑得通, 换机器
+# 静默降级成"只按周末判交易日"。这类依赖的共同长相是"代码里写死的仓外路径",
+# 所以用 AST 扫字符串常量 (跳过 docstring —— 文档里提一句旧路径不算依赖),
+# 只放行用户目录 (~/.webtool 是用户数据) 与临时目录 (/tmp 是进程内中转)。
+import ast as _ast2
+_EXTERNAL_BAD = ('/var/minis', 'site-packages', '/usr/lib')
+_EXTERNAL_OK = ('~/.webtool', '/tmp/', 'tests/fixtures')
+_ext_hits = []
+# 扫运行时代码 + 仓库脚本 (tests/ 不扫: 测试里造 /usr/lib/... 这类假路径是
+# 正常的替身手法, 不是依赖)
+_ext_files = sorted(_SRCW.rglob('*.py'))
+_ext_files += sorted((_pl.Path(__file__).resolve().parents[1] / 'scripts').glob('*.py'))
+for _f in _ext_files:
+    try:
+        _tree = _ast2.parse(_f.read_text(encoding='utf-8'))
+    except SyntaxError:
+        continue
+    _docs = set()
+    for _n in _ast2.walk(_tree):
+        if isinstance(_n, (_ast2.Module, _ast2.ClassDef, _ast2.FunctionDef,
+                           _ast2.AsyncFunctionDef)):
+            _b = getattr(_n, 'body', None) or []
+            if _b and isinstance(_b[0], _ast2.Expr) and \
+                    isinstance(_b[0].value, _ast2.Constant) and \
+                    isinstance(_b[0].value.value, str):
+                _docs.add(id(_b[0].value))
+    for _n in _ast2.walk(_tree):
+        if not isinstance(_n, _ast2.Constant) or not isinstance(_n.value, str):
+            continue
+        if id(_n) in _docs:
+            continue
+        _v = _n.value
+        if any(b in _v for b in _EXTERNAL_BAD) and not any(o in _v for o in _EXTERNAL_OK):
+            try:
+                _rel = _f.relative_to(_SRCW)
+            except ValueError:                  # scripts/ 下的 (不在 src 内)
+                _rel = _f.name
+            _ext_hits.append(f'{_rel}:{_n.lineno} {_v[:60]}')
+check(not _ext_hits,
+      '代码常量里没有仓外路径 (有就换机器挂/静默降级): ' + str(_ext_hits[:3]))
 
 if fails:
     sys.exit(1)
