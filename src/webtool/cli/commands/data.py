@@ -129,6 +129,10 @@ def zen_cmd(prompt: list[str] = typer.Argument(None, help='要问的问题 (留�
             think: str = typer.Option(None, '--think', '--reasoning-effort',
                                       help='思考强度 (透传上游 reasoning_effort; 可选值随模型而异, 如 low/medium/high; 默认 medium, off 则不带该字段)'),
             retries: int = typer.Option(2, '--retries', help='瞬时故障 (连接错/408/429/5xx) 重试次数; 退避指数 2/4/8s'),
+            limits: bool = typer.Option(False, '--limits',
+                                        help='列出记住的模型输出上限 (上游在 400 里报过的; 不联网)'),
+            forget_limits: bool = typer.Option(False, '--forget-limits',
+                                               help='忘掉记住的上限; 配合 --model 只忘那一个, 否则全忘'),
             sticky: bool = typer.Option(True, '--sticky/--no-sticky',
                                         help='固定会话 id, 按整点轮换 (默认开); --no-sticky 每次运行换新'),
             fmt: str = Fmt, output: str = Output,
@@ -140,6 +144,8 @@ def zen_cmd(prompt: list[str] = typer.Argument(None, help='要问的问题 (留�
     dfl = _zp.defaults()
     a.prompt = ' '.join(prompt) if prompt else ''
     a.model = model or dfl['model']
+    a.model_explicit = bool(model)      # --forget-limits 只清点名那个才需要它
+    a.limits, a.forget_limits = limits, forget_limits
     a.system = system if system is not None else dfl['system']
     a.tool_choice = tool_choice or dfl['tool_choice']
     a.tools = 'all' if all_tools else (tools or dfl['tools'])

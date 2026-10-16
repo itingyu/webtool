@@ -166,6 +166,7 @@ webtool zen "问题" --system "只回 JSON" --tool-choice none
 webtool zen "问题" --tools all            # 工具集: min(默认 bash+read)/all/逗号清单
 webtool zen "问题" --think high           # 思考强度 (透传 reasoning_effort, 默认 medium)
 webtool zen "问题" --max-tokens 8000
+webtool zen --limits                      # 看记住的模型输出上限 (上游 400 里报过的)
 webtool zen "问题" --dry-run              # 打印将发出的请求, 不出网
 webtool zen "问题" --show headers         # request(默认)/headers/body/text
 webtool zen "问题" --no-sticky            # 会话 id 每次换新 (默认粘性, 按整点轮换)
@@ -176,6 +177,7 @@ webtool zen "问题" --no-sticky            # 会话 id 每次换新 (默认粘�
 - 终端里边收边打、思考与正文分开着色；管道/`-f json` 时一次性输出（`--no-reasoning` 只要答案）
 - 默认值写 `~/.webtool/zen.json` 的 `zen` 段（`model` / `max_tokens` / `reasoning_effort` / `system` / `tools` / `tool_choice` / `live` / `extra_body`），优先级 命令行 > zen.json > 内置；换端点改 `chat_url` / `models_url`
 - `extra_body` 原样并入请求体（同名字段以它为准），用来补上游扩展字段
+- **模型输出上限会被记住**：`max_tokens` 各家上限不同（8k ~ 131k），而真值只有上游在 400 里才报。报错里抠出上限就落盘（`~/.webtool/zen_limits.json`），下次运行**直接按上限发请求**，不再每次先撞一次墙；`webtool zen --limits` 看记住的值（`-f json` 给脚本），`--forget-limits [--model <名>]` 忘掉。抠不出数字不记也不重试——猜一个值静默沿用比每次撞墙更糟
 - `usage_available: false` 且 `ok: true` = 调用成功但端点不给用量统计；429 按指数退避重试（`--retries`）
 
 ## mcp

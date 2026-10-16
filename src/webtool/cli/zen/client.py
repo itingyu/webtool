@@ -11,7 +11,6 @@ tool_choice 存在 / stream=true。解析: 纯标准库 urllib + 逐行 SSE, rea
 """
 
 import json
-import re
 import random
 import sys
 import time
@@ -97,6 +96,7 @@ def _unzipper(encoding):
     return decompressor(encoding)
 
 # 思考标签切分已拆到 cli/zen/think.py (P4); 再导出保兼容
+from webtool.cli.zen import limits as _limits           # noqa: E402
 from webtool.cli.zen.think import (  # noqa: E402,F401
     _THINK_TAGS, _END_THINK_TAGS, _ThinkSplitter, _color_on, split_think,
 )
@@ -304,14 +304,13 @@ def _max_tokens_limit(res):
     131072 completion tokens`。各家模型上限不同 (131072 / 32768 ...), 默认值
     不可能对所有模型都对, 所以按上游自报的上限降档, 而不是把默认值调小到
     最保守的那个 —— 调小了能跑的模型也被白限制。
+
+    抠数字的活交给 limits.parse_limit (单一来源: 报文文案各家不同, 哪天真要
+    加一种写法只改一处)。这里只负责"这次 400 是不是这个锅"。
     """
     if not res or res.get('status') != 400:
         return None
-    body = res.get('error_body') or ''
-    if 'max_tokens' not in body.lower():
-        return None
-    m = re.search(r'at most\s+(\d+)', body, re.I)
-    return int(m.group(1)) if m else None
+    return _limits.parse_limit(res.get('error_body') or '')
 
 
 def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
@@ -329,6 +328,13 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
     """
     import sys
     last = None
+    # 上次上游报过的上限直接用上: 不这么做的话, 每次运行都要先撞一次墙
+    # (一次白跑的请求 + 一段报错) 才知道该降到多少。
+    max_tokens, _known = _limits.clamp(model, max_tokens)
+    if _known:
+        print('[zen] 模型 %s 上次报过上限 %d tokens, 本次直接按上限走 '
+              '(webtool zen --limits 看记住的值)' % (model, _known),
+              file=sys.stderr)
     route = _route(cfg, _endpoints()[0], verbose)
     for attempt in range(1, max(1, max_attempts) + 1):
         last = call_zen(model, prompt, system, session, on_delta, tool_choice,
@@ -353,20 +359,23 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
             if last.get('ok') or last.get('status') == 200:
                 return last
             status = last.get('status', 0)
-        if status == 400 and max_tokens and (lim := _max_tokens_limit(last)):
-            # 默认 200k 是给"上游不校验"时代的; 现在部分模型会硬拒。按它自报的
-            # 上限降档重打一次 (只降一次), 并明说实际用了多少, 免得用户以为
-            # 200k 生效了。
-            print('[zen] 模型 %s 上限 %d tokens, 本次按上限重试'
-                  % (model, lim), file=sys.stderr)
-            max_tokens = lim
-            last = call_zen(model, prompt, system, session, on_delta, tool_choice,
-                            tool_names, proxy=route, on_reason=on_reason,
-                            reasoning_effort=reasoning_effort,
-                            max_tokens=max_tokens)
-            if last.get('ok') or last.get('status') == 200:
-                return last
-            status = last.get('status', 0)
+        if status == 400 and (lim := _max_tokens_limit(last)):
+            # 上限是"上游告诉我们的一个事实", 先记下来 —— 下次运行直接就带上
+            # 这个值, 不必再撞一次墙。记完再决定这次要不要按它重打。
+            _limits.remember(model, lim)
+            if max_tokens and max_tokens > lim:
+                print('[zen] 模型 %s 上限 %d tokens, 本次按上限重试 '
+                      '(已记住, 下次直接用; --limits 查看)'
+                      % (model, lim), file=sys.stderr)
+                max_tokens = lim
+                last = call_zen(model, prompt, system, session, on_delta,
+                                tool_choice, tool_names, proxy=route,
+                                on_reason=on_reason,
+                                reasoning_effort=reasoning_effort,
+                                max_tokens=max_tokens)
+                if last.get('ok') or last.get('status') == 200:
+                    return last
+                status = last.get('status', 0)
         if 400 <= status < 500 and status not in (408, 429):
             return last
         if attempt < max_attempts:

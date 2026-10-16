@@ -54,6 +54,20 @@ def __getattr__(name):
         "module %r has no attribute %r" % (__name__, name))
 
 
+def _lim_clamp(args):
+    """预览用的 max_tokens: 记住的上限会降档, dry-run 也得照实显示
+
+    预览里装作没降档的话, `--show body` 就成了骗人的 —— 而它正是用来核对
+    "我发出去的到底是什么"的。
+    """
+    from webtool.cli.zen import limits as _lim
+    v, known = _lim.clamp(getattr(args, 'model', None),
+                          getattr(args, 'max_tokens', None))
+    if known:
+        print('zen: 模型 %s 上次报过上限 %d tokens, 这里按上限走 '
+              '(--limits 看记住的值)' % (args.model, known), file=sys.stderr)
+    return v
+
 def _do_zen(args, cfg):
     """zen 对话主体 (do_zen 是代理开关薄壳)"""
     # 命令行层 (cli/app.py) 已经把变长参数拼成了字符串; 这里只兜住直接传 list
@@ -67,6 +81,22 @@ def _do_zen(args, cfg):
     if tip:
         print('zen: %s' % tip, file=sys.stderr)
 
+    # 记住的模型输出上限: --limits 读出来, --forget-limits 清掉 (都不联网)
+    if getattr(args, 'limits', False) or getattr(args, 'forget_limits', False):
+        from webtool.cli.zen import limits as _lim
+        if getattr(args, 'forget_limits', False):
+            n = _lim.forget(args.model if getattr(args, 'model_explicit', False)
+                            else None)
+            print('已忘掉 %d 条记住的上限' % n)
+            return 0
+        lines = _lim.describe()
+        if args.format == 'json':
+            print(json.dumps(_lim.load(), indent=2, ensure_ascii=False))
+        else:
+            for ln in lines:
+                print(ln)
+        return 0
+
     # dry-run: 打印请求, 不联网
     view = _show_view(args)
     if view:
@@ -75,7 +105,7 @@ def _do_zen(args, cfg):
                                  args.tool_choice, _tool_names(args),
                                  ses_id=ses.ses_id if ses else None,
                                  reasoning_effort=getattr(args, 'think', None),
-                                 max_tokens=getattr(args, 'max_tokens', None))
+                                 max_tokens=_lim_clamp(args))
         if view == 'headers':
             out = pv['headers']
         elif view == 'body':
