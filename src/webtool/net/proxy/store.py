@@ -23,6 +23,16 @@ DEFAULTS = {
     'cache': None,               # 磁盘缓存总开关 on/off; None=开
     'extract': 'auto',           # 正文提取器: auto=内容层择优 / 具名=只用那一个
     'cache_dir': str(USER_DIR / 'cache'),
+    # 搜索行为 (cli 侧可写; 业务侧在 pipeline/search 读)
+    'market': None,              # 搜索市场 (bing mkt); None=zh-CN
+    'default_engines': None,     # 默认引擎组合; None=内置组合
+    'jobs': None,                # 搜索并发引擎数; None=按源数(上限 4)
+    'blocklist': None,           # 域名黑名单覆盖; None=用内置表
+    'cache_ttl': {},             # 分桶 TTL 覆盖 {"search": 30, ...}
+    # 合并排序权重 (pipeline/merge 读, 手写 config.json 生效)
+    'low_prior': None,           # 低优先域名单
+    'low_prior_value': 0.4,      # 命中低优先域时权重削到多少
+    'ref_hosts': None,           # 英文 query 才启用的参考站点
     # TLS (实际决策在 webtool.net.tls, 这里只负责存)
     'ssl_verify': True,          # 证书校验总开关
     'ca_bundle': None,           # 自定义 CA 包路径 (替代系统 CA)

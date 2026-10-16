@@ -37,6 +37,9 @@ CONFIG_KEYS = {
                           'inscriptis')),
     'geoip_db':        ('GeoIP 国家库', 'GeoLite2-Country.mmdb 路径; '
                          '不配则 geoip 规则不生效', None),
+    'geosite_db':      ('GeoSite 域名分类库', 'geosite.dat 路径; '
+                         '供规则表按域名分类命中', None),
+    'cache_dir':       ('缓存目录', '默认 ~/.webtool/cache; 换目录后旧缓存不迁移', None),
     'asn_db':          ('GeoIP ASN 库', 'GeoLite2-ASN.mmdb 路径', None),
     'proxy_dns_ttl':   ('代理解析 DNS 缓存秒数', '正整数, 默认 60', int),
     'ssl_verify':       ('证书校验总开关', 'on / off (off = 全站不校验证书, '

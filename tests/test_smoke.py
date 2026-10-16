@@ -1151,16 +1151,37 @@ check(_ft._save_body(_SN(save='/tmp/'), 'http://x/p', '文'.encode(), {}) == '/t
 check(_ft._save_body(_SN(save=_DEST), 'http://x/l.png', _LOGO, {}, status=404) == '',
       '404 不落盘 (存下来的会是那页错误信息)')
 
-print('\n=== 15. 配置键必须真有消费者 (死键守卫) ===')
-# 起因: `ua` 能写能存、DEFAULTS 里有, 但全仓没人读 —— 用户 config set 完毫无
-# 反应, 排查时还以为是代码里的 bug。`cache`/`default_format` 更隐蔽: 键在
-# cli/config.py 的键表里, 却在 net.proxy.store 的 _KNOWN 白名单之外, 被
-# load_config 静默过滤掉 —— 同样是死键, 而且连"读得到"都做不到。
-# 规则: DEFAULTS 的每个键, 除定义处与 CLI 键表外, 至少要被读一次。
+print('\n=== 15. 配置键两个键表必须对齐 (config set 写了要真生效) ===')
+# 起因: `ua` 能写能存没人读; `cache`/`default_format` 键在 cli/config.py 的键表
+# 里、却不在 net.proxy.store 的 _KNOWN 白名单里, 被 load_config 静默过滤;
+# `default_engines`/`market`/`cache_ttl.*` 同样是"set 得进、读不回来" ——
+# 用户配了没反应, 排查时还以为是代码 bug。
+# 三道检查: ①读得到的键都收进白名单 ②CLI 能写的键都读得回来 ③每个键都有人读
 import re as _re2
 from webtool.net.proxy.store import DEFAULTS as _DEF
+from webtool.cli.config import CONFIG_KEYS as _CKEYS
 _SRCW = _pl.Path(__file__).parent.parent / 'src'
 _SKIPCFG = {'net/proxy/store.py', 'cli/config.py'}
+_RUNTIME_ONLY = {'proxy'}          # cli/_ctx 运行时注入的, 不落盘
+_READPAT = _re2.compile(
+    r"\b(?:cfg|config|_cfg|conf)\s*\.get\(\s*['\"]([a-z_][a-z_0-9.]*)['\"]"
+    r"|\b(?:cfg|config|_cfg|conf)\s*\[\s*['\"]([a-z_][a-z_0-9.]*)['\"]\s*\]")
+_read_keys = set()
+for _f in _SRCW.rglob('*.py'):
+    if str(_f.relative_to(_SRCW)).replace('\\', '/') in _SKIPCFG:
+        continue
+    for _m in _READPAT.finditer(_f.read_text(encoding='utf-8')):
+        _read_keys.add(_m.group(1) or _m.group(2))
+_unreadable = sorted(_read_keys - set(_DEF) - _RUNTIME_ONLY)
+check(not _unreadable,
+      '业务读的配置键都在白名单里 (否则被 load_config 静默过滤): '
+      + (', '.join(_unreadable) or 'ok'))
+
+_unwritable = sorted({k.split('.')[0] for k in _CKEYS} - set(_DEF))
+check(not _unwritable,
+      'config set 能写的键都读得回来 (否则写了白写): '
+      + (', '.join(_unwritable) or 'ok'))
+
 _dead_cfg = []
 for _k in sorted(_DEF):
     _pat = _re2.compile(r"\[['\"]%s['\"]\]|get\(\s*['\"]%s['\"]" % (_k, _k))
