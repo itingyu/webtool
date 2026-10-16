@@ -389,7 +389,9 @@ def site_cmd(site: str = typer.Argument(None, help='站点 key, `webtool site li
              fmt: str = Fmt, output: str = Output,
              no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """站内搜索(知名站点官方接口, 与传统搜索引擎区分)"""
+    from webtool.core import stdin as _stdin
     a = _CTX['args']
+    query = _stdin.read_input(query, what='站内搜索词')
     a.site, a.query, a.max, a.lang = site, query, max, lang
     return _run('data', _entry_fn('site'), fmt, output, no_cache, no_proxy)
 

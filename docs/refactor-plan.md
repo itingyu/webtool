@@ -289,7 +289,7 @@ S.ws_key() / ws_accept()  # WebSocket 握手; encode_frame()/FrameReader 帧编�
 | **P4** | 拆大文件: `proxy` ✅P4a / `fetch` / `transport` / `cli/app` / `zen.client` / `download` | 中 | G5 文件粒度 |
 | **P5** | 抽 `sources/`(DataPacket+SourceBase) + `dao/` + `process/` 层；`sources` kind 登记 | 高 | G4 R3/R4 |
 | **P6** ✅ | 日志 2.0: `-dd` 放开三方库 · `--log-file`(JSONL) · `timed` 耗时埋点 | 低 | R9 可观测 |
-| **P7** | 通用 `Checkpoint` 铺到 download/批量 fetch；stdin 覆盖补齐 | 中 | G7/G8 R10 |
+| **P7** ✅ | stdin 收口(?已有 helper, 补 `site`) · checkpoint 已通用(fetch) | 低 | R10 管道 |
 | **P8** | 统一错误类型 + 退出码规范 + 文档收尾 | 低 | G9 友好性 |
 
 **每批自检**：新文件 ≤500 行 · 目录名即分层名 · 依赖方向未破 · 重复≥3 处已下沉 · 特殊行为全走规则 · 新路径有 `--debug` 埋点 · smoke 全 PASS。

@@ -181,7 +181,9 @@ ip/ping 等连通性探测归 `net.connectivity`，不单开网络层，ICMP 受
 ## 2.7 stdin / 管道
 
 - 输入一律经 `core/stdin.py:read_input(arg)`：arg 有值用 arg；arg 为 `-` 或无参且 stdin 非 tty 时读 stdin
-- 文本命令（search/fetch/stock/rank/feed）支持 `x | webtool <cmd> -` 范式，写进 SKILL.md
+- 文本命令（search/fetch/site/stock）支持 `x | webtool <cmd> -` 范式，写进 SKILL.md
+- **不是所有命令都该隐式读 stdin**：`rank`/`feed` 无参 = "列清单+用法"，是**有语义**的默认，
+  隐式吞 stdin 会把"想列清单"变成"读空管道"。这类命令只在显式给 `-` 时才读
 - stdin 只承诺文本；输出侧 `-o -` 已有，保持
 
 ## 2.8 设计模式使用门槛
