@@ -45,7 +45,7 @@
 | ~~G2 SSE / WebSocket 无独立通道~~ ✅P3 | 澄清: zen **并未** `http.client` 直连, 已走 `transport(stream=True)`; 真实缺口是 SSE 切帧+解压逻辑住在 CLI 层, 不可复用 | 已抽 `net/stream.py` |
 | ~~G3 规则引擎不可扩展~~ ✅P2 | 已拆 `rules/` 子包 + `RuleSpec` 注册制；匹配器本就通用，补齐 kind 目录与 match 键校验 | 新增环节不改 rules 包 |
 | G4 无统一数据源接口 | 规范提 `sources/`(DataPacket) 但搜索/抓取侧没有抽象，只有 stock 有 | R3/R4 落不了地；新数据源各写一套 |
-| G5 大文件 | `transport.py 1093` / ~~`proxy.py 989`~~ ✅P4a / ~~`rules.py 923`~~ ✅P2 / `fetch.py 674` / `download.py 459` / `cli/app.py 870` / `zen/client.py 504` | 可读性/可维护性差 |
+| G5 大文件 | `transport.py 1093` / ~~`proxy.py 989`~~ ✅P4a / ~~`rules.py 923`~~ ✅P2 / `fetch.py 674` / `download.py 459` / ~~`cli/app.py 886`~~ ✅P4d / `zen/client.py 504` | 可读性/可维护性差 |
 | G6 埋点不统一 | 各模块自发 `logger.debug`，字段/耗时/规则命中格式不一 | `--debug` 有了但排障仍靠翻代码 |
 | G7 恢复能力窄 | checkpoint 只在 rank/feed/screen | 长任务（download/批量 fetch）无恢复 |
 | G8 stdin 覆盖面 | 部分命令未接，无 jsonl 输入契约文档 | 管道组合能力不完整 |
@@ -286,7 +286,7 @@ S.ws_key() / ws_accept()  # WebSocket 握手; encode_frame()/FrameReader 帧编�
 | **P1** ✅ | `tls`/`http`/`connectivity` 从 `core` 迁 `net`（不留薄壳，调用点全量改）；**修复失效的分层守卫** | 低 | G1 归位 · 守卫生效 |
 | **P2** ✅ | `rules.py` → `rules/` 子包 + `RuleSpec` 元数据注册制；内置 http/retry/breaker，match 键拼错告警 | 中 | G3 可扩展 |
 | **P3** ✅ | 新增 `net/stream.py`: iter_sse + 解压器 + WS 帧编解码; zen 改调 iter_sse; 修 2 个压缩流真 bug | 中 | G2 通道 |
-| **P4** | 拆大文件: `proxy` ✅P4a / `fetch` / `transport` / `cli/app` / `zen.client` / `download` | 中 | G5 文件粒度 |
+| **P4** | 大文件拆分: `proxy` ✅P4a · `cli/app` ✅P4d · 余 `fetch`/`transport`/`zen.client`/`download` 待做 | 中 | G5 |
 | **P5** | 抽 `sources/`(DataPacket+SourceBase) + `dao/` + `process/` 层；`sources` kind 登记 | 高 | G4 R3/R4 |
 | **P6** ✅ | 日志 2.0: `-dd` 放开三方库 · `--log-file`(JSONL) · `timed` 耗时埋点 | 低 | R9 可观测 |
 | **P7** ✅ | stdin 收口(?已有 helper, 补 `site`) · checkpoint 已通用(fetch) | 低 | R10 管道 |

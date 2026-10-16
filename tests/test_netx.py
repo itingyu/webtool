@@ -537,7 +537,9 @@ check('def fetch_models(' in inspect.getsource(_zen.fetch_models) and
 # ── 三个改过的坑, 各留一条回归断言 ──────────────────────────────
 # 1) 布尔标志声明顺序: '--no-x/--x' 会让 --x 解析成 False (Typer 语义颠倒),
 #    实测确认过; 心跳开关必须"正名在前"。
-_app_src = inspect.getsource(_app)
+_app_src = (inspect.getsource(_app)
+            + inspect.getsource(
+                __import__('webtool.cli.commands.data', fromlist=['x'])))
 for _flag in ("'--stream/--no-stream'", "'--reasoning/--no-reasoning'"):
     check(_flag in _app_src, f'app.py 布尔标志写法正确 {_flag}')
 check("'--no-stream/--stream'" not in _app_src and

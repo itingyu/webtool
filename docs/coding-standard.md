@@ -8,7 +8,9 @@
 
 ```
 webtool/
-  cli/          L4 应用编排   app / config / plugins / sitesearch / zenproto
+  cli/          L4 应用编排   app(仅 app/callback/main) / _ctx(共享) /
+                               commands/{data,maintenance,stock} / config / plugins /
+                               sitesearch / zenproto / zen/
                                mcp (通用 MCP 客户端)
                                zen/  (__init__ 入口 + client + render)
   feeds/        L3 业务流程   command / sources / parse / fetch / cards / feedhealth
