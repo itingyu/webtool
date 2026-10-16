@@ -4,6 +4,7 @@
 保兼容。二者是"请求该以什么节律发出去"的同一件事, 与指纹/会话/降级梯无关。
 """
 import logging
+import os
 import random
 import threading
 import time
@@ -11,11 +12,49 @@ import time
 logger = logging.getLogger(__name__)
 
 
-def rule_timeout(url, timeout=None):
-    """timeout 空缺时由 http 规则 (rules.json 的 kind:http 条目) 填补
+_CFG_LOCK = threading.Lock()
+_CFG_CACHE = (None, None)        # (stamp, timeout) —— 同 tls._load 的 mtime 缓存做法
 
-    调用方显式传的 timeout 优先 —— 规则只接管"没指定"的场合 (特殊走规则,
-    否则走通用 15s)。规则查询走已缓存的 Router, 每请求一次字典匹配, 开销可忽略。
+
+def _cfg_timeout():
+    """config.json 里的通用请求超时 (`webtool config set timeout N`)。
+
+    带 mtime 缓存: 每请求都要问一次, 不能每请求读盘。配置改了就自动失效。
+    """
+    global _CFG_CACHE
+    from webtool.net.proxy.store import CONFIG_PATH
+    try:
+        st = os.stat(CONFIG_PATH)
+        stamp = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        stamp = None
+    with _CFG_LOCK:
+        if _CFG_CACHE[1] is not None and _CFG_CACHE[0] == stamp:
+            return _CFG_CACHE[1]
+        try:
+            from webtool.net.proxy import load_config
+            v = (load_config() or {}).get('timeout')
+            v = float(v) if v else None
+        except Exception as e:
+            logger.debug('config.json timeout 读取失败: %s', e)
+            v = None
+        _CFG_CACHE = (stamp, v)
+        return v
+
+
+def rule_timeout(url, timeout=None):
+    """timeout 空缺时按「http 规则 → config.json → 内置 15」补位
+
+    优先级: 调用方显式传的 > rules.json 的 kind:http 条目 (特殊站点特殊对待) >
+    `config.json` 的 `timeout` (用户设的通用值) > 内置 15。
+
+    中间那层曾经缺失 —— 兜底直接跳回内置 15, 于是 `webtool config set timeout 30`
+    对**不显式传 timeout 的调用方** (搜索引擎全都如此) 完全失效: 用户改了配置,
+    搜索还是 15s。与代理那次的 None/'auto' 是同一类毛病 —— 同一份配置在不同
+    入口给出不同结果。
+
+    **默认值必须是 None 而不是 15**: `timeout=15` 这种形参会短路整条链
+    (看着像"没指定", 实际是"显式指定 15"), 配置永远轮不到。
     """
     if timeout is not None:
         return timeout
@@ -27,6 +66,10 @@ def rule_timeout(url, timeout=None):
             return float(v)
     except Exception as e:
         logger.debug('http 规则查询失败, 用通用默认: %s', e)
+    v = _cfg_timeout()
+    if v:
+        logger.debug('config.json timeout=%s (%s)', v, url)
+        return v
     return 15
 
 

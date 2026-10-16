@@ -74,7 +74,10 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='text'):
     args = _CTX['args']
     args.no_cache = no_cache or _CTX['no_cache']
     args.no_proxy = no_proxy
-    args.format = _norm_fmt(fmt, fmt_default)
+    # 输出格式默认值收口在这里: CLI 显式 -f > config.json 的 default_format >
+    # 命令自带默认。default_format 曾经只有 search 读, 别的数据命令
+    # (fetch/feed/hot/site/rank) 配了不生效 —— 同一份配置在不同入口不同结果。
+    args.format = _norm_fmt(fmt, cfg.get('default_format') or fmt_default)
     args.output = output
     if data_cmd:
         buf = io.StringIO()

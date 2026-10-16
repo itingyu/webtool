@@ -111,8 +111,7 @@ def _do_search(args, cfg, filter_ad=True):
     market = cfg.get('market') or 'zh-CN'
     _eng_spec, _preset_used = resolve_engines(args, cfg)
     engines = [e.strip() for e in _eng_spec.split(',') if e.strip()]
-    if args.format is None and cfg.get('default_format'):
-        args.format = cfg['default_format']
+    # default_format 已在 cli._ctx 统一收口 (所有数据命令同源), 这里不再重复读
     if cfg.get('cache') == 'off':
         args.no_cache = True
     errors = []

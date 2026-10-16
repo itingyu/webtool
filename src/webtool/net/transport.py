@@ -503,7 +503,7 @@ def _guarded(br, fn):
     return r
 
 
-def _request_once(method, url, *, kind='api', referer=None, proxy=None, timeout=15,
+def _request_once(method, url, *, kind='api', referer=None, proxy=None, timeout=None,
             engine=None, rate_engine=None, headers=None, lang=LANG_ZH,
             profile=None, session=None, cookiejar=None, via='auto', verify=None,
             params=None, data=None, json_body=None, allow_redirects=True,
@@ -699,9 +699,10 @@ def _tls_msg(url, verify, e):
 
 # 便捷入口
 
-def resolve_redirect(url, *, referer=None, proxy=None, timeout=10,
+def resolve_redirect(url, *, referer=None, proxy=None, timeout=None,
                      profile=None, verify=None):
     """302/跳转链解析: 不跟随重定向, 返回 Location (非跳转返回 None)"""
+    timeout = _rule_timeout(url, timeout)
     _pace(None)
     proxy_arg = None if proxy == 'direct' else proxy
     try:
@@ -725,10 +726,15 @@ def resolve_redirect(url, *, referer=None, proxy=None, timeout=10,
     return None
 
 
-def session_get(url, session, *, kind='nav', referer=None, timeout=15,
+def session_get(url, session, *, kind='nav', referer=None, timeout=None,
                 headers=None, lang=LANG_ZH, profile=None, verify=None,
                 max_bytes=8 * 1024 * 1024):
-    """在外部管理的会话上请求 (引擎自带预热流程时用), 返回 (text, status)"""
+    """在外部管理的会话上请求 (引擎自带预热流程时用), 返回 (text, status)
+
+    timeout 默认 None = 走通用兜底链 (http 规则 → config.json → 15), 与
+    主通道同一个决定 —— 写死 15 会让 `config set timeout` 对这条路径失效。
+    """
+    timeout = _rule_timeout(url, timeout)
     p = profile or PROFILES['chrome131_win']
     h = headers_for(kind, url, referer=referer, lang=lang, profile=p,
                     extra=headers)
@@ -740,7 +746,7 @@ def session_get(url, session, *, kind='nav', referer=None, timeout=15,
     return r.text[:max_bytes], r.status_code
 
 
-def warm_session(session, home, *, kind='nav', referer=None, timeout=10,
+def warm_session(session, home, *, kind='nav', referer=None, timeout=None,
                  profile=None, verify=None, max_bytes=512 * 1024):
     """公共首页预热: 领会话 cookie + 一次落地导航。
 
@@ -749,6 +755,7 @@ def warm_session(session, home, *, kind='nav', referer=None, timeout=10,
     返回是否成功, 不抛异常: 预热尽力而为, 失败也要继续
     (证书失败除外 —— 那是配置/站点问题, 继续走只会得到一堆无意义的失败)。
     """
+    timeout = _rule_timeout(home, timeout)
     try:
         session_get(home, session, kind=kind, referer=referer,
                     timeout=timeout, profile=profile, verify=verify,

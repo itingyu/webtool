@@ -200,7 +200,7 @@ from webtool.net import transport
 from webtool.net import proxyhelper
 
 
-def fetch(url, proxy=None, timeout=15, headers=None, opener=None,
+def fetch(url, proxy=None, timeout=None, headers=None, opener=None,
           profile=None, raw=False, max_bytes=None):
     """返回 (text, status, via); raw=True 时返回 (bytes, status, via, headers)
 
@@ -211,6 +211,9 @@ def fetch(url, proxy=None, timeout=15, headers=None, opener=None,
     **单线路, 不 failover**。走哪条线由 proxyhelper 依据配置 + 路由表一次决定,
     请求失败就报错 —— 退直连重试会掩盖真实原因 (代理挂了 → 目标拒绝/超时, 报出来
     的是后者), 对"只允许代理出网"的目标也只是换一种错法。
+
+    timeout 默认 None = 交 transport 的通用兜底链 (http 规则 →
+    config.json 的 timeout → 内置 15), 写死 15 会让用户配的超时失效。
 
     - profile: 传输指纹档案名 (transport.PROFILES 键, 如 'chrome131_android'),
       None 时由 transport 自选桌面档案
@@ -227,7 +230,7 @@ def fetch(url, proxy=None, timeout=15, headers=None, opener=None,
     return text, status, via
 
 
-def open_stream(url, proxy=None, timeout=15, headers=None, profile=None):
+def open_stream(url, proxy=None, timeout=None, headers=None, profile=None):
     """流式打开 (不读 body), 返回 (resp, status, via, headers) —— 下载用
 
     代理与 fetch 同一处决定 (proxyhelper.resolve): 二进制下载也是出网请求,

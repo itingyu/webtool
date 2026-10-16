@@ -19,7 +19,8 @@ CONFIG_PATH = str(USER_DIR / 'config.json')
 
 DEFAULTS = {
     'timeout': 15,
-    'ua': 'auto',
+    'default_format': None,      # 数据命令的默认输出格式 (cli._ctx 收口读取)
+    'cache': None,               # 磁盘缓存总开关 on/off; None=开
     'extract': 'auto',           # 正文提取器: auto=内容层择优 / 具名=只用那一个
     'cache_dir': str(USER_DIR / 'cache'),
     # TLS (实际决策在 webtool.net.tls, 这里只负责存)

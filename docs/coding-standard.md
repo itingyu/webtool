@@ -290,6 +290,20 @@ ip/ping 等连通性探测归 `net.connectivity`，不单开网络层，ICMP 受
   再代理"这类回退会让同一次请求走哪条线取决于它先在哪失败，"代理失败退直连"更会毁掉只允许
   代理出网的目标。写通道别加 `allow_fallback` 参数，也别在适配器里写死 `proxy=None` ——
   那等于无视管线传入的代理
+- **配置键必须真有消费者，且默认值要表达"没指定"**：`config.json` 的每个键要么被读，
+  要么别放进去 —— 否则用户 `config set` 完毫无反应，排查时还以为是代码里的 bug。
+  已经出过三种死法：① 键存在但全仓没人读（`ua`）；② 键在 `cli/config.py` 键表里、
+  却不在 `net.proxy.store` 的 `_KNOWN` 白名单里，被 `load_config` 静默过滤
+  （`cache` / `default_format`）；③ 读是读了，但被上游形参默认值短路（`timeout=15`
+  这种看着像"没指定"、实际是"显式指定 15"，`config set timeout 30` 永远轮不到）。
+  规则：默认值一律写 `None` 表示"交兜底链"，兜底链写清优先级；`tests/test_smoke.py`
+  有死键守卫盯第①②种
+- **超时的兜底链**（`net.pacing.rule_timeout`）：调用方显式 > `rules.json` 的
+  `kind:http` 条目（特殊站点特殊对待）> `config.json` 的 `timeout` > 内置 15。
+  读 `config.json` 带 mtime 缓存（同 `net.tls._load`），每请求问一次也不读盘
+- **输出格式的兜底链**（`cli/_ctx._run`）：CLI 显式 `-f` > `config.json` 的
+  `default_format` > 命令自带默认。收口在一处，别让每个命令自己读一遍 ——
+  曾经只有 search 读，其余数据命令配了不生效
 - **`None` 与 `'auto'` 在代理语义上是同一个意思**：都是"调用方没表态，交规则表定"。
   `'direct'` 才是"强制直连"。这条曾经不一致（`netx.resolve_proxy` 把 None 当直连，
   `proxyhelper.resolve` 把 None 升成 auto，同一份 rules.json 在两条入口给出相反结果），

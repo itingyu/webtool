@@ -25,6 +25,18 @@ def _ttl(cfg, bucket):
             pass
     return TTL.get(bucket, 3600)
 
+def enabled(cfg):
+    """磁盘缓存总开关 (`config set cache on|off`); 没设 = 开。
+
+    曾经是死键: `cli/config.py` 的键表里有它, 但 `net.proxy.store` 的白名单
+    (_KNOWN) 里没有, 于是用户设了也读不到 —— 配置能写能存, 就是没人读。
+    """
+    v = (cfg or {}).get('cache')
+    if v is None or v == '':
+        return True
+    return str(v).strip().lower() in ('on', 'true', '1', 'yes', '开')
+
+
 def _path(cfg, bucket, key):
     d = os.path.join(cfg.get('cache_dir') or os.path.expanduser('~/.webtool/cache'), bucket)
     os.makedirs(d, exist_ok=True)
@@ -32,6 +44,9 @@ def _path(cfg, bucket, key):
     return os.path.join(d, h + '.json')
 
 def get(cfg, bucket, key):
+    if not enabled(cfg):
+        logger.debug('cache 已关 (config cache=off), 跳过读取')
+        return None
     p = _path(cfg, bucket, key)
     try:
         with open(p, encoding='utf-8') as f:
@@ -46,6 +61,8 @@ def get(cfg, bucket, key):
     return None
 
 def put(cfg, bucket, key, value):
+    if not enabled(cfg):
+        return
     p = _path(cfg, bucket, key)
     try:
         with open(p, 'w', encoding='utf-8') as f:

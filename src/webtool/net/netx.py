@@ -106,7 +106,7 @@ def default_headers(url, headers=None, kind='nav', referer=None):
     return h
 
 
-def get(url, *, proxy=None, timeout=15, headers=None, verify=None,
+def get(url, *, proxy=None, timeout=None, headers=None, verify=None,
         engine=None, opener=None, max_bytes=8 * 1024 * 1024, session=None,
         kind='nav', referer=None):
     """GET → (text, status)
@@ -116,7 +116,9 @@ def get(url, *, proxy=None, timeout=15, headers=None, verify=None,
 
     引擎名 (engine) 只影响上层反爬策略, 这里只用于挑选 UA 档案。
     """
+    from webtool.net.pacing import rule_timeout
     proxy = resolve_proxy(proxy, url)
+    timeout = rule_timeout(url, timeout)   # 规则 → config.json → 15
     ver = tls.policy(url, verify)
 
     if session is not None:

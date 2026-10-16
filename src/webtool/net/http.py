@@ -118,7 +118,7 @@ def _parse_auth(auth):
     return {'username': unquote(user), 'passwd': unquote(pwd)}
 
 
-def http_get(url, proxy=None, timeout=15, headers=None, opener=None,
+def http_get(url, proxy=None, timeout=None, headers=None, opener=None,
              max_bytes=8 * 1024 * 1024, verify=None, raw=False):
     """GET 页面, 返回 (text, status); raw=True 时返回 (bytes, status, headers).
 
@@ -134,7 +134,9 @@ def http_get(url, proxy=None, timeout=15, headers=None, opener=None,
     """
     # 代理归一与默认头都交给 netx —— 别处不各自判断 'auto'/补密码
     from webtool.net import netx as _netx
+    from webtool.net.pacing import rule_timeout
     proxy = _netx.resolve_proxy(proxy, url)
+    timeout = rule_timeout(url, timeout)   # 没指定就按 规则 → config.json → 15
     h = _netx.default_headers(url, headers)
     req = urllib.request.Request(url, headers=h)
     op = opener or build_opener(proxy, url=url, verify=verify)
@@ -172,7 +174,7 @@ def http_get(url, proxy=None, timeout=15, headers=None, opener=None,
     return text, r.status
 
 
-def http_open(url, proxy=None, timeout=15, headers=None, opener=None, verify=None,
+def http_open(url, proxy=None, timeout=None, headers=None, opener=None, verify=None,
               method=None, data=None, cookiejar=None, allow_redirects=True):
     """发起请求但不读 body, 返回原始响应对象 (给流式下载用)
 
@@ -182,6 +184,8 @@ def http_open(url, proxy=None, timeout=15, headers=None, opener=None, verify=Non
     method / data / cookiejar / allow_redirects: transport 的通用请求 (POST JSON,
     带 cookie 与不跟重定向的兜底路径) 借这条出网时用; 不给就是原来的无状态 GET。
     """
+    from webtool.net.pacing import rule_timeout
+    timeout = rule_timeout(url, timeout)
     op = opener or build_opener(proxy, cookiejar, url=url, verify=verify)
     if not allow_redirects:
         op.add_handler(_NoRedirect())
