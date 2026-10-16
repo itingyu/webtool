@@ -15,7 +15,7 @@ src/webtool/
 ├── filters/             # blocklist 站点黑名单 / adfilter 广告识别 (纯规则, 不出网)
 ├── net/                 # L0 网络底座按 OSI 归位: transport 指纹传输 / fingerprints 指纹档案 / pacing 节奏·超时 /
 │                        #   adapters requests 适配器 / proxy 线路 / tls 证书策略 / stream SSE+WS /
-│                        #   rules 规则引擎 / http urllib 通道 / connectivity 探活 / dns / intercept 拦截绕过 / captcha / spa / fetch
+│                        #   rules 规则引擎 / http urllib 通道 / download 分片下载 / connectivity 探活 / dns / intercept 拦截绕过 / captcha / spa
 ├── engines/             # 各站适配器 (由 plugins.json 的 module 指向) + extractors / customsites
 ├── core/                # L0 底座
 │   ├── plugins.py       # Registry: 七类插件统一注册表 (懒解析 + 三层来源)
@@ -42,7 +42,7 @@ fetch 的四步：
 3. **落点**：`--save <文件或目录>` 覆盖，否则当前目录；文件名按 URL 末段（`.tar.gz` 双后缀保留），URL 没末段才退到 `Content-Disposition` → MIME。续传要求发请求前就知道落点（`Range` 得随请求头发出），定不出名字时不续传。
 4. **三条守规矩**：4xx/5xx 错误页不落盘；超上限不留残件；二进制不进 stdout（类型/体积/落点走 stderr）。
 
-二进制下载（`net/download.py`）：边收边写、`.part` + `Range` + `If-Range` 续传、下完才改名；404 / 不认 Range / 响应被压缩时旧片段作废重下。`--jobs N` 多连接分片先探 `Range: bytes=0-0` 确认服务端认账与总大小，再把 `.part` 预分配成总大小，各段 seek 到自己的偏移写不相交区间；段数 `min(jobs, 4, 总大小/1MB)`，默认单连接（并发只在每条连接被限速时才有收益）。
+二进制下载（`net/download/`）：边收边写、`.part` + `Range` + `If-Range` 续传、下完才改名；404 / 不认 Range / 响应被压缩时旧片段作废重下。`--jobs N` 多连接分片先探 `Range: bytes=0-0` 确认服务端认账与总大小，再把 `.part` 预分配成总大小，各段 seek 到自己的偏移写不相交区间；段数 `min(jobs, 4, 总大小/1MB)`，默认单连接（并发只在每条连接被限速时才有收益）。
 
 ## 正文提取
 

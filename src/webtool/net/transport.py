@@ -10,7 +10,6 @@ JS 请求 / api 公开 REST), sec-fetch-site 按可注册域判定; cookie 经 s
 """
 import logging
 import random
-import threading
 import time
 import urllib.error
 import urllib.parse
@@ -24,7 +23,8 @@ logger = logging.getLogger(__name__)
 # 指纹/档案层已拆到 net/fingerprints (P4); 这里再导出, 老引用 (transport.PROFILES 等) 不用改
 from webtool.net.fingerprints import (  # noqa: E402,F401
     ACCEPT_XHR, LANG_EN, LANG_ZH, PROFILES, _ACCEPT_NAV, _ROTATION, _UA131,
-    _sec_fetch_site, headers_for, profile_for_impersonate,
+    _sec_fetch_site, headers_for, pick_profile as _pick_profile,
+    profile_for_impersonate,
 )
 
 # 节奏/超时层已拆到 net/pacing (P4); 这里再导出旧名, 老引用 (transport._pace 等) 不用改
@@ -692,19 +692,6 @@ def _tls_msg(url, verify, e):
                   '        代理 MITM    → 把代理 CA 并进去: '
                   'webtool config set ca_bundle <ca.pem>']
     return '\n'.join(lines)
-
-
-_fp_lock = threading.Lock()
-_fp_map = {}
-
-
-def _pick_profile(engine):
-    """同引擎同进程内固定一个指纹, 新进程轮换 (冷却后新会话自然换指纹)"""
-    key = engine or 'default'
-    with _fp_lock:
-        if key not in _fp_map:
-            _fp_map[key] = random.choice(_ROTATION)
-        return _fp_map[key]
 
 
 # 便捷入口

@@ -3,6 +3,8 @@
 从 net/transport.py 拆出 (P4): 纯数据 + 头构造, 不碰会话/线路/证书。
 transport 仍再导出这些名字, 老引用无需改。
 """
+import random
+import threading
 import urllib.parse
 
 from webtool.core import urls
@@ -165,3 +167,18 @@ def profile_for_impersonate(name, ua=None):
     if ua:
         d['ua'] = ua
     return d
+
+
+# 指纹轮换状态 (同引擎同进程内固定, 新进程/冷却后新会话自然换)
+
+_fp_lock = threading.Lock()
+_fp_map = {}
+
+
+def pick_profile(engine):
+    """同引擎同进程内固定一个指纹轮换档位 (传 engine=None 走 'default')"""
+    key = engine or 'default'
+    with _fp_lock:
+        if key not in _fp_map:
+            _fp_map[key] = random.choice(_ROTATION)
+        return _fp_map[key]
