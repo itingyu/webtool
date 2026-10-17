@@ -343,11 +343,18 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
     """
     import sys
     last = None
-    # 上次上游报过的上限直接用上: 不这么做的话, 每次运行都要先撞一次墙
+    # 先把目录拉到最新 (7 天 TTL, 命中缓存就不联网): 有了它就不用再靠 400 报文
+    # 反推 —— 否则每个新模型的第一次请求必定白跑一次才降档。抓取失败不阻断,
+    # 沿用旧值, 最差退回下面的 400 反推。
+    try:
+        _limits.refresh_from_catalog(only={model} if model else None)
+    except Exception:
+        pass
+    # 已知上限直接用上: 不这么做的话, 每次运行都要先撞一次墙
     # (一次白跑的请求 + 一段报错) 才知道该降到多少。
     max_tokens, _known = _limits.clamp(model, max_tokens)
     if _known:
-        print('[zen] 模型 %s 上次报过上限 %d tokens, 本次直接按上限走 '
+        print('[zen] 模型 %s 已知上限 %d tokens, 本次直接按上限走 '
               '(webtool zen --limits 看记住的值)' % (model, _known),
               file=sys.stderr)
     route = _route(cfg, _endpoints()[0], verbose)
