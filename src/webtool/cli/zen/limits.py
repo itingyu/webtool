@@ -400,7 +400,8 @@ def describe(rows=None):
     """人读摘要, 给 `webtool zen --limits` 用 → [str]"""
     d = load() if rows is None else rows
     if not d:
-        return ['还没有记住任何模型的上限 —— 上游在 400 里报了上限之后才会记下']
+        return ['还没有任何模型上限 —— 首次调用会从模型目录预取; '
+                '若目录抓不到, 上游在 400 里报了上限后也会记下']
     out = ['记住的模型输出上限 (来自模型目录或上游报错; 文件 %s)' % _path()]
     for m in sorted(d):
         r = d[m]

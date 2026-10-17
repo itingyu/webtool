@@ -36,15 +36,17 @@ from webtool.core.config_data import USER_DIR
 # values: 枚举键的合法值表 —— 校验与 CLI 展示的"合法值"同源, 不写两遍
 Key = namedtuple('Key', 'default desc hint kind values check cli',
                  defaults=(None, None, True))
+
+# 类型常量必须先于 _EMPTY 绑定 —— 模块级自上而下执行, 放在 _EMPTY 之后会
+# NameError: name 'TEXT' is not defined (整个包 import 即炸)。
+TEXT, INT, FLOAT, ENUM = 'text', 'int', 'float', 'enum'
+
 _EMPTY = Key(None, '', '', TEXT, None, None, True)
 
 
 def _enum_key(default, desc, hint, values, cli=True):
     """枚举键: 合法值只在这里写一次, 校验与展示都从它派生"""
     return Key(default, desc, hint, ENUM, tuple(values), _enum(values), cli)
-
-
-TEXT, INT, FLOAT, ENUM = 'text', 'int', 'float', 'enum'
 
 
 def _int_range(lo, hi, why):
