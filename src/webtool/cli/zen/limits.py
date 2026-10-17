@@ -70,6 +70,10 @@ CATALOG_FILE = 'model_catalog.json'
 # 没必要。抓取全程 best-effort: 失败沿用旧值, 绝不阻断请求。
 _CATALOG_TTL = 168 * 3600
 
+# 但失败后不能还按 7 天算 —— 那意味着接下来一周都不再尝试。给个短窗口, 让
+# 临时故障 (断网 / 代理抽风) 过去后能自动恢复, 又不至于每次调用都去重试。
+_CATALOG_RETRY = 15 * 60
+
 
 def parse_limit(body):
     """从 400 报文里抠出模型输出上限; 抠不出 → None
@@ -198,13 +202,31 @@ def _fetch_text(url):
 
 
 def _catalog_meta():
-    """(抓取时间戳, 是否新鲜)。文件坏了当不新鲜 → 触发重抓"""
+    """(上次尝试时间戳, 是否新鲜)。文件坏了当不新鲜 → 触发重抓
+
+    记的是**尝试**时间而不是成功时间: 抓失败时也要落盘, 否则网络一断, 每次
+    zen 调用都会重拉一遍 5.7MB (每次还带一轮超时), 请求根本发不出去。失败只
+    是把新鲜窗口缩到 _CATALOG_RETRY, 数据本身仍旧是上次的好值。
+    """
     try:
         with open(_catalog_path(), encoding='utf-8') as f:
             ts = int(json.load(f).get('ts') or 0)
     except (OSError, ValueError, TypeError):
         return 0, False
     return ts, bool(ts) and time.time() - ts < _CATALOG_TTL
+
+
+def _touch_catalog():
+    """落盘"上次尝试时间"。写不了就算了 —— 只是多抓一次, 不影响请求"""
+    try:
+        os.makedirs(os.path.dirname(_catalog_path()), exist_ok=True)
+        tmp = '%s.tmp%d' % (_catalog_path(), os.getpid())
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump({'ts': int(time.time()), 'source': CATALOG_URL},
+                      f, ensure_ascii=False)
+        os.replace(tmp, _catalog_path())
+    except OSError:
+        pass
 
 
 def refresh_from_catalog(force=False, only=None, fetch_text=None):
@@ -224,6 +246,9 @@ def refresh_from_catalog(force=False, only=None, fetch_text=None):
         return len(load())
     if fetch_text is None:
         fetch_text = _fetch_text
+    # 先看上次失败后是否已经过了重试窗口, 别在短时间内反复抓
+    if not force and ts and time.time() - ts < _CATALOG_RETRY:
+        return len(load())
     try:
         text = fetch_text(CATALOG_URL)
         prov = extract_provider(text, CATALOG_PROVIDER)
@@ -241,10 +266,13 @@ def refresh_from_catalog(force=False, only=None, fetch_text=None):
             lim = _sane((m.get('limit') or {}).get('output'))
             if lim is not None:
                 out[str(mid)] = lim
-        if not out:
+        # `only` 过滤后为空是**正常情况** (这个模型压根不在目录里), 不是故障 ——
+        # 不该当错误重试, 更不该因此清掉已有值。目录本身没抠出东西才算失败。
+        if not out and only is None:
             raise ValueError('目录里没抠出任何带上限的模型')
     except Exception:
         # 抓不到就用旧的: 宁可沿用上次的上限, 也不要清空成"什么都不知道"
+        _touch_catalog()
         return len(load())
 
     d = load()
@@ -257,16 +285,9 @@ def refresh_from_catalog(force=False, only=None, fetch_text=None):
                   'hits': int(rec.get('hits') or 0),
                   'at': stamp,
                   'source': CATALOG_URL}
-    _save(d)
-    try:
-        os.makedirs(os.path.dirname(_catalog_path()), exist_ok=True)
-        tmp = '%s.tmp%d' % (_catalog_path(), os.getpid())
-        with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump({'ts': int(time.time()), 'source': CATALOG_URL},
-                      f, ensure_ascii=False)
-        os.replace(tmp, _catalog_path())
-    except OSError:
-        pass
+    if out:
+        _save(d)
+    _touch_catalog()                      # 成功也落时间戳, 否则每次都重抓
     return len(out)
 
 
