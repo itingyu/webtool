@@ -6,7 +6,7 @@
 
 ```
 src/webtool/
-├── cli/                 # typer 声明式 CLI (app/config/plugins); 命令函数填 SimpleNamespace 复用 do_*(args, cfg)
+├── cli/                 # typer 声明式 CLI (app/config/plugins); 命令函数填 SimpleNamespace 复用 do_*(args, cfg); 帮助用普通 click 样式 (rich_markup_mode=None, 不用 rich 面板大框)
 │   └── sitesearch / zen / zenproto   # 站内搜索调度 / LLM 对话编排 / OpenAI 兼容协议
 ├── feeds/               # RSS/Atom 订阅聚合: command / sources / parse / fetch / cards / feedhealth
 ├── radar/               # RSSHub 路由查询与参数填充: routes / rules / instances / official / template / race

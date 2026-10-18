@@ -20,14 +20,11 @@ except ImportError:                        # typer <= 0.25: 异常来自顶层 c
 
 from webtool.core.errors import WebtoolError as _WebtoolError
 
-app = typer.Typer(add_completion=False, no_args_is_help=True,
-                  help='Agent 友好的网页搜索与内容获取工具',
-                  context_settings={'help_option_names': ['-h', '--help']})
-
 from types import SimpleNamespace  # noqa: E402
 from webtool.cli._ctx import _CTX, _argv_format  # noqa: E402
 
 app = typer.Typer(add_completion=False, no_args_is_help=True,
+                  rich_markup_mode=None,   # 关掉 rich 帮助面板 (不要大框框住)
                   help='Agent 友好的网页搜索与内容获取工具',
                   context_settings={'help_option_names': ['-h', '--help']})
 
