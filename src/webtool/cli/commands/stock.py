@@ -5,10 +5,35 @@ from webtool.cli._ctx import _CTX, _entry_fn, _run, Fmt, Output
 from webtool.cli.app import app
 
 
-@app.command('stock')
-def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar/flow/news/'
-                                                        'announcement/financials/analyze/'
-                                                        'kline/screen/risk/mcp/tools/health'),
+def _verbatim(text: str) -> str:
+    r"""每段加一个 \b 前缀行, 让 click 原样输出 (保住对齐)"""
+    paras = [p for p in text.strip('\n').split('\n\n') if p.strip()]
+    return '\n\n'.join('\b\n' + p for p in paras)
+
+
+_EPILOG = _verbatim("""常用动作
+  quote        实时行情 (可多股/指数别名)
+  kline        K 线 (--chart 出 SVG)
+  pool         涨停池
+  flow         资金流榜单
+  screen       选股池
+  analyze      单股深度
+  risk         风险核查
+  news         个股新闻
+  financials   核心财务
+  mcp          透传调用 24 工具
+  data         通用取数入口 (1300+ 接口)
+
+示例
+  webtool stock quote 600519 sh000001
+  webtool stock kline 600519 --chart
+  webtool stock screen --pool short --min-score 70
+
+全部动作 (60+): webtool stock""")
+
+
+@app.command('stock', epilog=_EPILOG)
+def stock_cmd(action: str = typer.Argument(None, help='动作名, 见下方常用动作; 缺省打印完整目录'),
               codes: list[str] = typer.Argument(None, help='股票代码 (位置参数: quote/check/risk 可多个, 其余单股动作取首个)'),
               date: str = typer.Option(None, '--date', help='数据日 (pool/calendar; last=上一交易日)'),
               only_buy: bool = typer.Option(False, '--only-buy', help='pool 只留可买板块'),
@@ -56,7 +81,7 @@ def stock_cmd(action: str = typer.Argument(None, help='quote/pool/check/calendar
               post: bool = typer.Option(False, '--post', help='data url 走 POST (表单用 --form)'),
               method_only: bool = typer.Option(False, '--method-only', help='data url 只回原始响应文本, 不转表格'),
               fmt: str = Fmt, output: str = Output):
-    """股票能力: engine 脚本层 + 编排 24 工具 + 生态库(~1300) + 底层 HTTP 直调(900+ 接口) + 逆向文档"""
+    """股票能力: 行情/涨停池/资金/新闻/财报/K线/选股/风险 + 生态库/底层直调/逆向文档"""
     a = _CTX['args']
     a.action, a.codes, a.date = action, list(codes or []), date
     a.only_buy, a.scope, a.pool, a.min_score = only_buy, scope, pool, min_score
