@@ -125,8 +125,10 @@ def video_cmd(src: str = typer.Argument(..., help='视频路径或 URL (http/htt
               invert: bool = typer.Option(False, '--invert', help='反转明暗'),
               start: float = typer.Option(0.0, '--start', help='从第几秒开始'),
               dur: float = typer.Option(0.0, '--dur', help='只放多少秒 (0=全部)'),
-              loop: bool = typer.Option(False, '--loop', help='放完再来一遍')):
-    """视频转字符画播放 (Bad Apple 效果; 需要 ffmpeg)"""
+              loop: bool = typer.Option(False, '--loop', help='放完再来一遍'),
+              mute: bool = typer.Option(False, '--mute', help='不放音轨 (默认有播放器时同步放)'),
+              player: str = typer.Option(None, '--player', help='指定播放器 (默认自动找)')):
+    """视频转字符画播放 (Bad Apple 效果; URL 先整段下载再播; 需要 ffmpeg)"""
     if len(chars) < 2:
         print('error: --chars 至少要 2 个字符', file=sys.stderr)
         return 2
@@ -142,6 +144,19 @@ def video_cmd(src: str = typer.Argument(..., help='视频路径或 URL (http/htt
         print(f'error: {e}', file=sys.stderr)
         return 2
     render = _mk_render(chars, invert, w)
+    proc = None
+    if not mute:
+        if start or dur:
+            print('提示: 带 --start/--dur 时不同步音轨, 只放画面', file=sys.stderr)
+        else:
+            cmd = _find_player(player)
+            if cmd:
+                try:
+                    proc = subprocess.Popen(cmd + [path])
+                except OSError:
+                    proc = None
+            else:
+                print('提示: 没找到播放器, 只有画面没有声音 (可用 --player 指定)', file=sys.stderr)
 
     def frames_txt():
         for buf in _frames(path, w, h, fps, start, dur):
@@ -151,6 +166,8 @@ def video_cmd(src: str = typer.Argument(..., help='视频路径或 URL (http/htt
     except KeyboardInterrupt:
         return 130
     finally:
+        if proc:
+            proc.terminate()
         if tmp:
             os.unlink(tmp)
     return 0
@@ -232,7 +249,7 @@ def music_cmd(src: str = typer.Argument(..., help='音频路径或 URL (http/htt
               dur: float = typer.Option(0.0, '--dur', help='只放多少秒 (0=全部)'),
               loop: bool = typer.Option(False, '--loop', help='放完再来一遍'),
               player: str = typer.Option(None, '--player', help='指定播放器 (默认自动找; 找不到只放画面)')):
-    """音乐转字符律动: 频谱柱动画 (需要 ffmpeg 解码, 出声要装播放器)"""
+    """音乐转字符律动: 频谱柱动画 (URL 先整段下载再播; 需要 ffmpeg 解码)"""
     if bands < 1 or rows < 1:
         print('error: --bands/--rows 要 >= 1', file=sys.stderr)
         return 2
