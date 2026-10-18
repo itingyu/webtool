@@ -333,14 +333,17 @@ webtool proxy rules [URL]                                   # 列规则 / 试算
 webtool proxy tidy [--apply]                                # 合并同动作规则 / 去冗余 (干跑默认, 落盘先备份)
 webtool proxy cert list                                     # 站点证书: 覆盖哪些域名 / 有没有规则 / 有效期
 webtool proxy cert sync                                     # 按证书自称的域名把证书规则写进规则表
-webtool proxy geosite /path/geosite.dat                     # 配域名库 (MaxMind .mmdb 或 v2ray/sing-box .dat)
-webtool proxy geoip /path/GeoLite2-Country.mmdb
+webtool proxy geosite [<geosite.dat>|update]                # 配域名库 (MaxMind .mmdb 或 v2ray/sing-box .dat) / 只更 geosite
+webtool proxy geoip [<GeoLite2-Country.mmdb>|update]        # 配国家库 / 只更 geoip
+webtool proxy geo update [geosite|geoip|all]                # 在线更新 (默认两个都更, 落 ~/.webtool/geo/)
+webtool proxy geo status                                    # 看当前生效的库: 显式配置 / 用户目录 / 包内自带
 ```
 
 - `proxy set` = 设命名代理 `default` 并补 `default: proxy:default`——未命中规则的流量走它；旧 config.json 的 `proxy`/`fetch_proxy`/`proxy_rules` 首次运行自动迁进 rules.json
 - 动作 `direct` / `block` / `proxy:<名字>`（裸 `proxy` 等价 `proxy:default`）；`--first` 插到最前、`--pos N` 插到第 N 位（默认追加到末尾）
 - **顺序即优先级**，第一个命中的生效；`match` 内多条件 AND、同条件内多值 OR；判不出来 = 不匹配（缺库则该条跳过并提示）
 - 分流优先用 `geosite` 而不是 `geoip`：按域名查库不解析 IP，不受 CDN 就近解析影响
+- **geo 库开箱即用**：包内自带 `geosite.dat` / `geoip.dat` 各一份，首次运行落到 `~/.webtool/geo/`，规则里 `{"geosite":["cn"]}` 不需先手动配库。`proxy geo update` 从上游（Loyalsoldier/v2ray-rules-dat release）拉最新写进用户目录，**下到的不是 geo 库就拒绝替换**（上游抽风回 HTML 错误页时不毁旧库）；国内拉 GitHub 一般要给规则表配代理，或用 `WEBTOOL_GEO_SOURCE_GEOSITE` / `WEBTOOL_GEO_SOURCE_GEOIP` 指镜像
 - 首次运行自动生成默认 `~/.webtool/rules.json`（**一条**合并规则：`*.cn` + 国内常见站 + `opencode.ai`/`exa.ai` 直连），已存在则永不覆盖
 - `proxy tidy` 做三件事，都只动语义等价或纯死重的部分：同动作规则合成一条、同一规则内被宽条目覆盖的去重、被前面规则完全覆盖或与默认动作同结果的规则删掉；**默认干跑**，`--apply` 落盘并先备份（规则表是分流总闸，不偷偷改）
 - `proxy test` 不只回 OK/FAIL，它还说清三件事：这条线通不通、**目标 URL 按规则表实际会走哪条线**（不一致时提示"本次结果不影响该目标的真实线路"）、这条代理**有没有被任何规则/default 引用**（没被引用 = 测通也没流量走它）。默认目标是 `https://www.google.com/generate_204`（实得非 204 会提示可能被门户劫持/需认证），参数也可写命名代理：`webtool proxy test default`

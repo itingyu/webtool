@@ -26,10 +26,16 @@ def load_router(cfg):
             '那会让直连该走的目标悄悄挂掉)']
         return r
     spec, _migrated = migrate_plaintext_proxies(spec, _rules_file_of(cfg))
+    from webtool.net import geodata as _gd
+    # geo 库路径三级回落: 规则文件里的值 → config.json → 用户目录副本/包内自带。
+    # 包内自带那份由 bootstrap 首次运行落到 ~/.webtool/geo/, 所以"装完即用",
+    # 不必先手动 `proxy geosite <path>`。
     return Router(spec or {},
-                  geoip_db=spec.get('geoip_db') or cfg.get('geoip_db'),
+                  geoip_db=_gd.resolve_geo_path(
+                      'geoip', spec.get('geoip_db') or cfg.get('geoip_db')),
                   asn_db=spec.get('asn_db') or cfg.get('asn_db'),
-                  geosite_db=spec.get('geosite_db') or cfg.get('geosite_db'))
+                  geosite_db=_gd.resolve_geo_path(
+                      'geosite', spec.get('geosite_db') or cfg.get('geosite_db')))
 
 
 def _load_spec(cfg):

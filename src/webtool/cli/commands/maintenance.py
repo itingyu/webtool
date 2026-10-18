@@ -74,7 +74,7 @@ def _upgrade_run(check_only, spec, fmt, output):
     return _run(None, fn, fmt, output, False, False)
 
 @app.command('proxy')
-def proxy_cmd(action: str = typer.Argument(..., help='get/set/unset/test/setpass/delpass/passwd/rules/tidy/rule/ruledel/geoip/asn/noproxy'),
+def proxy_cmd(action: str = typer.Argument(..., help='get/set/unset/test/setpass/delpass/passwd/rules/tidy/rule/ruledel/geoip/geosite/geo/asn/noproxy'),
               value: str = typer.Argument(None, help='代理地址; 或 rule/cert 的子命令; 或试算用的 URL'),
               user: str = typer.Argument(None, help='setpass/delpass 的用户名; rule add 的 match JSON; ruledel 的序号'),
               act: str = typer.Argument(None, help='rule add 的动作: direct/proxy/block/proxy:<名字>'),

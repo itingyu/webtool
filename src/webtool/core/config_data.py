@@ -19,6 +19,17 @@ DATA_DIR = Path(__file__).parent.parent / 'data'   # 打包数据统一在包根
 # WEBTOOL_DIR 可把整份用户状态隔离到别处 (测试、多实例并行)
 USER_DIR = Path(os.environ.get('WEBTOOL_DIR', '~/.webtool')).expanduser()
 
+# geo 数据 (geosite/geoip) 的**用户侧**落地目录。包内 data/geo/ 自带一份,
+# 首次运行由 bootstrap 复制过来; `webtool proxy geo update` 也只更新这里这份 ——
+# 包目录在 site-packages 里, pip 升级整棵替换, 不是放"会变的数据"的地方。
+USER_GEO_DIR = USER_DIR / 'geo'
+
+
+def user_geo_path(kind):
+    """用户目录下 geo 数据的默认路径。kind: 'geosite' | 'geoip'"""
+    return USER_GEO_DIR / f'{kind}.dat'
+
+
 _CACHE = {}          # (section, filename, user_file) -> (stamp, value)
 
 def _merge(base, over):

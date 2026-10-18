@@ -25,7 +25,18 @@ import re
 import struct
 
 __all__ = ['detect_format', 'country_of_ip', 'domain_in_category',
-           'has_category', 'categories', 'GeoDataError']
+           'has_category', 'categories', 'GeoDataError',
+           'GEO_SOURCES', 'bundled_path', 'user_path', 'resolve_geo_path']
+
+# 上游数据源 (Loyalsoldier/v2ray-rules-dat): 同时提供 geoip.dat 与 geosite.dat。
+# `webtool proxy geo update` 从这里拉最新版。可用环境变量覆盖 (镜像/自建源):
+#   WEBTOOL_GEO_SOURCE_GEOSITE / WEBTOOL_GEO_SOURCE_GEOIP
+GEO_SOURCES = {
+    'geosite': 'https://github.com/Loyalsoldier/v2ray-rules-dat/'
+               'releases/latest/download/geosite.dat',
+    'geoip': 'https://github.com/Loyalsoldier/v2ray-rules-dat/'
+             'releases/latest/download/geoip.dat',
+}
 
 # Domain_Type 枚举 → 判定方式
 _T_RE, _T_SUFFIX, _T_FULL, _T_KEYWORD = 1, 2, 3, 4
@@ -369,3 +380,40 @@ def _site_index(path, category):
 
 
 _SITE_IDX = {}
+
+
+def bundled_path(kind):
+    """包内自带的 geo 数据路径 (随 wheel 分发, 只读)"""
+    from webtool.core.config_data import DATA_DIR
+    return str(DATA_DIR / 'geo' / f'{kind}.dat')
+
+
+def user_path(kind):
+    """用户目录下的 geo 数据路径 (proxy geo update 的落点)"""
+    from webtool.core.config_data import user_geo_path
+    return str(user_geo_path(kind))
+
+
+def source_of(kind):
+    """kind → 上游下载地址 (环境变量可覆盖: WEBTOOL_GEO_SOURCE_<KIND 大写>)"""
+    env = os.environ.get('WEBTOOL_GEO_SOURCE_' + kind.upper())
+    return env or GEO_SOURCES.get(kind)
+
+
+def resolve_geo_path(kind, configured=None):
+    """geo 库路径三级回落: 显式配置 (存在才认) → 用户目录副本 → 包内自带。
+
+    全都找不到时返回 configured or None —— 调用方按"没配库"处理 (规则不生效),
+    而不是拿一个不存在的路径去炸。
+    """
+    if configured:
+        p = os.path.expanduser(str(configured))
+        if os.path.isfile(p):
+            return p
+    up = user_path(kind)
+    if os.path.isfile(up):
+        return up
+    bp = bundled_path(kind)
+    if os.path.isfile(bp):
+        return bp
+    return configured or None

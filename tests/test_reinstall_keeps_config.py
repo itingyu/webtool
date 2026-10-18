@@ -71,6 +71,9 @@ write('MY-NOTES.md', 'do not touch')
 # 证书目录: 首次运行会把包内那份落过来, 用户已经有的 (含自己改过的说明) 不许碰
 write('certs/README.md', 'my own cert notes')
 write('certs/ca-bundle.pem', 'my own bundle')
+# geo 数据: 首次运行也会落一份 (包内自带), 用户已有的 (可能自己 upd 过) 不许碰
+write('geo/geosite.dat', 'my own geosite')
+write('geo/geoip.dat', 'my own geoip')
 os.makedirs(os.path.join(TMP, 'certs', 'extra'), exist_ok=True)
 before = md5s(TMP)
 
@@ -117,6 +120,18 @@ check(created == [], '再跑一次: 已有的证书/目录一个都没重建', s
 check(open(os.path.join(TMP, 'certs', 'extra', 'mine.pem')).read() == 'my cert\n'
       and open(os.path.join(TMP, 'certs', 'ca-bundle.pem')).read() == 'my own bundle\n',
       '用户改过的证书与 CA 包不被包内那份覆盖')
+
+# ── 2.6 geo 数据: 包内自带一份, 首次运行落到用户目录; 已有的不覆盖 ──────
+shutil.rmtree(os.path.join(TMP, 'geo'))
+created = boot.ensure_user_files()
+check(os.path.getsize(os.path.join(TMP, 'geo', 'geosite.dat')) > 0
+      and os.path.getsize(os.path.join(TMP, 'geo', 'geoip.dat')) > 0,
+      '首次运行: geosite/geoip 落到用户 geo 目录 (规则装完即用)', str(created))
+with open(os.path.join(TMP, 'geo', 'geosite.dat'), 'wb') as f:
+    f.write(b'my updated geosite')
+boot.ensure_user_files()
+check(open(os.path.join(TMP, 'geo', 'geosite.dat'), 'rb').read() == b'my updated geosite',
+      '用户 upd 过的 geo 库不被包内那份覆盖')
 
 # ── 3. 种子文件清单只该有"整份落盘"的那几样 ─────────────────────────────
 check('config.json' not in boot.SEED_FILES

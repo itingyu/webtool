@@ -1,8 +1,9 @@
 """geodata / 路由规则测试
 
-样本用 tests/make_geodata_fixtures.py 现造 (几 KB 的 protobuf), 而不是把
-十几 MB 的真实 geoip.dat 提交进仓库。真库 (Loyalsoldier/v2ray-rules-dat)
-在联网环境下可以用 GEODATA_REAL_GEOIP / GEODATA_REAL_GEOSITE 指过去做对照。
+样本用 tests/make_geodata_fixtures.py 现造 (几 KB 的 protobuf): 解析逻辑的
+单元测试要的是快与可控, 拿十几 MB 真库跑一遍纯属浪费。真库随包分发
+(src/webtool/data/geo/, 首次运行落到 ~/.webtool/geo/), 这里也可以用
+GEODATA_REAL_GEOIP / GEODATA_REAL_GEOSITE 指过去做对照。
 """
 import os
 import sys

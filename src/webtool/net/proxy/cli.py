@@ -2,7 +2,7 @@
 import sys
 
 from webtool.net.proxy.auth import _delpass, _passwd, _setpass
-from webtool.net.proxy.geo import _asn, _geoip, _geosite
+from webtool.net.proxy.geo import _asn, _geo, _geoip, _geosite
 from webtool.net.proxy.pool import _get, _named, _noproxy, _set, _test, _unset
 from webtool.net.proxy.rules_cli import (
     _cert, _ruleadd, _ruledel, _rules, _tidy)
@@ -50,6 +50,7 @@ _ACTIONS = {
     'ruledel': _ruledel,
     'geoip': _geoip,
     'geosite': _geosite,
+    'geo': _geo,             # geo update|status [geosite|geoip|all]
     'asn': _asn,
     'noproxy': _noproxy,
 }

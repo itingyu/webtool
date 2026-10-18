@@ -27,6 +27,11 @@ SEED_FILES = ('rules.json',)
 SEED_CERT_FILES = ('ca-bundle.pem', 'README.md')
 SEED_CERT_DIRS = ('extra',)
 
+# geo 数据 (geosite/geoip): 包内 data/geo/ 自带一份, 首次运行落到用户 geo 目录。
+# 规则表里的 {"geosite":[...]} / {"geoip":[...]} 直接就能用, 不必先手动配库;
+# `webtool proxy geo update` 更新的是**用户目录**这份 (不动包内)。
+SEED_GEO_FILES = ('geosite.dat', 'geoip.dat')
+
 
 def _copy_missing(src, dst, created):
     """缺失才补 —— 已有的一律不碰 (父目录不在就先建出来)"""
@@ -54,6 +59,12 @@ def ensure_user_files():
         return created
     for name in SEED_FILES:
         _copy_missing(DATA_DIR / name, USER_DIR / name, created)
+
+    # geo 数据: 落到 ~/.webtool/geo/ (缺失才补)。整棵大文件, 但只在首次运行
+    # 复制一次; 之后 `proxy geo update` 刷新的是用户目录这份。
+    geo = USER_DIR / 'geo'
+    for name in SEED_GEO_FILES:
+        _copy_missing(DATA_DIR / 'geo' / name, geo / name, created)
 
     certs = USER_DIR / 'certs'
     for name in SEED_CERT_FILES:

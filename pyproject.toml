@@ -71,6 +71,9 @@ webtool = [
   "data/certs/*.pem",
   "data/certs/**/*.pem",
   "data/certs/**/*.md",
+  # geo 数据 (geosite/geoip): 随包分发一份基线, 首次运行由 bootstrap 落到
+  # ~/.webtool/geo/, 规则 {geosite/geoip} 装完即用; `proxy geo update` 刷新用户态
+  "data/geo/*.dat",
   "stock/data/*.json",
   "stock/data/**/*.json",
   "stock/data/**/*.md",

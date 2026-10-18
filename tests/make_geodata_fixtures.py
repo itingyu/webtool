@@ -1,9 +1,11 @@
 """生成 geodata 测试样本 (v2ray/sing-box .dat protobuf 格式)
 
-不把 16MB 的真实库塞进仓库: 这里按同样的 wire format 手写最小可解析样本,
-既能跑测试又能当"格式没变"的回归锁 —— 哪天解析逻辑写错了, 样本照样能测出来。
-真库 (Loyalsoldier/v2ray-rules-dat) 可以用环境变量
-GEODATA_REAL_GEOIP / GEODATA_REAL_GEOSITE 指给 tests/test_geodata.py 做对照。
+这里的样本是给**单元测试**用的: 按同样的 wire format 手写最小可解析样本,
+几 KB 就能把解析逻辑锁住 (格式哪天变了 / 哪个分支写错了, 样本照样测得出),
+不必拿十几 MB 真库拖慢每次跑测试。
+真库另有其路: 随包分发在 src/webtool/data/geo/ (geosite.dat / geoip.dat),
+首次运行由 bootstrap 落到 ~/.webtool/geo/, `webtool proxy geo update` 负责刷新;
+解析对照仍可用 GEODATA_REAL_GEOIP / GEODATA_REAL_GEOSITE 指过去。
 
 ## 为什么自己手写 protobuf 而不用 protobuf 库
 

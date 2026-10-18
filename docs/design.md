@@ -80,6 +80,8 @@ fetch 的四步：
 ```
 
 - `match` 内多条件 AND，同条件内多值 OR；判不出来 = 不匹配（缺库则跳过该条并提示）
+- geo 库（geosite/geoip）随包自带一份，首次运行落到 `~/.webtool/geo/`，无需手动配就能用 `{"geosite":["cn"]}`；
+  `webtool proxy geo update` 刷新用户态那份（下载内容不是 geo 库则拒绝替换）
 - 带 `kind` 的规则不吃线路，按环节生效（`http` / `retry` / `breaker` / `tls`），与线路规则同住一份 rules.json、互不干扰
 - 不支持按引擎名配代理；要单点覆盖就加一条规则（按域名/IP/端口/协议），或用 `--no-proxy` / `--proxy`
 - 环境变量 `http_proxy`/`https_proxy` 不作为决策源（opener 层已堵死）；socks5 走 pysocks
