@@ -944,8 +944,8 @@ check(_ex.MODES[0] == 'auto', 'MODES 第一个是 auto (默认值)')
 check(set(_ex.MODES) - {'auto'} <= set(_et), 'MODES 里的名字都在提取器注册表里')
 check('extract' in _prx.DEFAULTS,
       'extract 登记进 DEFAULTS (没登记会被 load_config 过滤掉, 配置等于没写)')
-check('extract' in _CK and 'auto' in _CK['extract'][2],
-      'config set extract 有白名单校验')
+check('extract' in _CK and 'auto' in _CK['extract'][1],
+      'config set extract 有白名单校验 (合法值写在提示里)')
 check(_ex.resolve_mode(None) == 'auto' and _ex.resolve_mode('') == 'auto',
       '空配置 = auto')
 check(_ex.resolve_mode('  READability ') == 'readability', '名字大小写/空格容忍')

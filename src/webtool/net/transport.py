@@ -152,6 +152,24 @@ __all__ = ['BlockedError', 'CooldownError', 'TlsError', 'Resp', 'get',
 
 # 主入口
 
+# 反爬降级梯最大步数: 被拦后换指纹/换头/按插件绕法重试几次。**默认 0 = 不降级**
+# (首次被拦即报 BlockedError) —— 梯子会把 1 次被拦放大成多次请求, 默认关掉,
+# 要的人 `webtool config set ladder_steps N` (或按站写规则)。仅作用于带引擎名的
+# 抓页通道 (get), fetch/resolve/request 本就不进梯子。
+DEFAULT_LADDER_STEPS = 0
+
+
+def _ladder_steps():
+    from webtool.core.resilient import config_snapshot
+    cfg = config_snapshot()
+    v = cfg.get('ladder_steps')
+    try:
+        v = int(v) if v is not None else DEFAULT_LADDER_STEPS
+    except (TypeError, ValueError):
+        v = DEFAULT_LADDER_STEPS
+    return max(0, v)
+
+
 def get(url, *, kind='nav', referer=None, proxy=None, timeout=None,
         engine=None, rate_engine=None, headers=None, lang=LANG_ZH, max_bytes=8 * 1024 * 1024, profile=None,
         session=None, verify=None, _depth=0, raw=False):
@@ -231,10 +249,11 @@ def _get_ladder(url, *, kind, referer, proxy, timeout, engine, rate_engine=None,
             _persist_cookies(session, engine)
         return text, status, via
 
-    # 被拦: 记账 → 退避 → 降级梯 (最多 3 步; note_hit 记的冷却不影响梯内重试,
-    # 冷却门只在 _depth==0 检查)
+    # 被拦: 记账 → 退避 → 降级梯 (最多 ladder_steps 步, 默认 0=不重试; note_hit
+    # 记的冷却不影响梯内重试, 冷却门只在 _depth==0 检查)
     intercept.note_hit(ctx, hit)
-    if _depth >= 3:
+    steps = _ladder_steps()
+    if _depth >= steps:
         raise BlockedError(
             f'{engine} {hit.why}({hit.sign}), 已重试{_depth}次仍被拦; '
             f'冷却{hit.left}s, 请换引擎')

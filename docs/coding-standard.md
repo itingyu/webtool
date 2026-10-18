@@ -200,9 +200,11 @@ ip/ping 等连通性探测归 `net.connectivity`，不单开网络层，ICMP 受
 统一走 `core/resilient.py`，业务模块不自己写线程池：
 
 - 并发：`parallel_map(tasks, policy)`，policy 来自规则（max_workers）；共享状态只在主线程写（见"多源抓取"节）
-- 重试：指数退避 + jitter，次数按 retry 规则；只重试幂等请求
-- 熔断：按域名滑动窗口失败计数，打开时直接短路并打 debug 日志；状态持久化到 state
+- 重试：指数退避 + jitter；**默认不重试**（`retries=0`），要开则 `config set retries N` 或按站写 `kind:retry` 规则；只重试幂等请求
+- 熔断：按域名失败计数，打开时直接短路并打 debug 日志；状态持久化到 state。**默认关闭**（`breaker_cool=0`），要开则 `config set breaker_cool N`（配合 `breaker_fails`）
+- 取值优先级：`kind` 规则 > `config.json` > 模块常量（`DEFAULT_RETRIES` / `DEFAULT_COOL_SECONDS` = 0）
 - 恢复：批任务（rank/feed/screen）写 checkpoint，重跑跳过已完成条目
+- 反爬降级梯：被拦后换指纹/换头/按插件绕法重试；**默认 0 步**（`ladder_steps=0`，首次被拦即报），要开则 `config set ladder_steps N`
 
 ## 2.10 交付自检（每个 PR 过一遍）
 

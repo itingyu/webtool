@@ -28,6 +28,15 @@ def check(cond, msg, detail=''):
 from webtool.dao import state
 state.PATH = os.path.join(_TMP, '.webtool', 'state.json')
 
+# 熔断默认关闭 (breaker_cool=0): 本组测的是"接线对不对", 所以显式打开它。
+# 默认关的行为另有 test_resilient.py 覆盖。
+import json as _json
+import pathlib as _pl
+_cfg = _pl.Path(_TMP) / '.webtool'
+_cfg.mkdir(parents=True, exist_ok=True)
+(_cfg / 'config.json').write_text(
+    _json.dumps({'breaker_fails': 5, 'breaker_cool': 300}), encoding='utf-8')
+
 from webtool.core.resilient import Breaker as _Breaker
 from webtool.net import transport as T
 

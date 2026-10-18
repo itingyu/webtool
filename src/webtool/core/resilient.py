@@ -3,10 +3,16 @@
 opener 参数保留兼容旧调用, 实际不再使用。
 
 本模块同时是**弹性层** (docs/coding-standard.md §2.9): 并发 / 重试 / 熔断 /
-断点恢复的统一出口, 业务模块不自己写线程池与重试循环。策略默认值住在
-这里的常量; 按域名特殊化走 rules.json 的 kind 条目 (`retry` / `breaker`,
-见 net.rules.Router.params_for)。
+断点恢复的统一出口, 业务模块不自己写线程池与重试循环。
+
+**重试与熔断默认都关** (retries=0 / breaker_cool=0): 失败当场报出来, 不静默
+重发、不把域名短路几分钟。要的人用 `webtool config set retries N` (或按站写
+rules.json 的 kind 条目) 自己开。取值优先级: kind 规则 > config.json > 常量。
+
+策略常量是"用户没配时的底": 重试默认 0 次, 熔断冷却默认 0 秒 (=关闭)。
 """
+import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -14,47 +20,109 @@ from webtool.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# ── 通用默认值 (特殊走规则, 否则走这里) ─────────────────────────────
-DEFAULT_RETRIES = 2
+# ── 通用默认值 (特殊走 kind 规则 > config.json > 这里) ──────────────
+DEFAULT_RETRIES = 0              # 默认不重试 (失败当场抛, 不放大请求)
 DEFAULT_BACKOFF = 'exp'          # exp=指数退避+jitter; flat=固定间隔
 RETRY_BASE = 0.5                 # 首次重试等待秒数
 RETRY_CAP = 8.0                  # 退避上限秒数
 DEFAULT_FAIL_THRESHOLD = 5       # 连续失败 N 次 → 熔断打开
-DEFAULT_COOL_SECONDS = 300       # 熔断冷却半开期
+DEFAULT_COOL_SECONDS = 0         # 熔断冷却 0 = 关闭 (不打开)
 MAX_WORKERS = 4                  # 并发上限 (全仓唯一来源): 出口是同一条代理/
 # 同一条网, 4 条已能把首轮墙钟压到接近最慢那个源; 再往上收益是零头, 风险是
 # 把自己这条线路打满导致超时。业务模块别自己写 6/8/16, 从这里取。
 
 
-def retry_policy(url):
-    """URL → (retries, backoff): kind:retry 规则 > 通用默认"""
+# config.json 读一次带 mtime 缓存 (每请求都要问一次, 不能每请求读盘);
+# 配置改了就自动失效。做法同 net/pacing._cfg_timeout。
+_CFG_LOCK = threading.Lock()
+_CFG_CACHE = (None, None)        # (stamp, cfg dict | None)
+
+
+def _config():
+    """config.json 全量 (mtime 缓存); 读不到返回 {}。"""
+    global _CFG_CACHE
+    from webtool.net.proxy.store import CONFIG_PATH
+    try:
+        st = os.stat(CONFIG_PATH)
+        stamp = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        stamp = None
+    with _CFG_LOCK:
+        if _CFG_CACHE[1] is not None and _CFG_CACHE[0] == stamp:
+            return _CFG_CACHE[1]
+        try:
+            from webtool.net.proxy import load_config
+            cfg = load_config() or {}
+        except Exception as e:             # 配置读不到不能连累重试/熔断
+            logger.debug('resilient | config 读取失败: %s', e)
+            cfg = {}
+        _CFG_CACHE = (stamp, cfg)
+        return cfg
+
+
+def config_snapshot():
+    """config.json 全量 (mtime 缓存) —— 给同层的 net 模块复用, 免得再抄一份缓存。
+
+    读不到返回 {}; 调用方用 `cfg.get('键', 默认)` 取。键名保持字面量: 键表守卫
+    (tests/test_smoke.py) 靠正则找 `cfg.get('键')`, 接收者变量名须为 cfg/config/
+    _cfg/conf, 否则新键会被当成"没人读的死键"。
+    """
+    return _config()
+
+
+def _rule_params(kind, url):
     try:
         from webtool.net import rules as _rules
-        p = _rules.router().params_for('retry', url or '')
-        return int(p.get('retries') or DEFAULT_RETRIES), \
-            str(p.get('backoff') or DEFAULT_BACKOFF)
-    except Exception as e:                 # 规则读不到不能连累重试
-        logger.debug('resilient | retry 规则查询失败, 用默认: %s', e)
-        return DEFAULT_RETRIES, DEFAULT_BACKOFF
+        return _rules.router().params_for(kind, url or '') or {}
+    except Exception as e:                 # 规则读不到不能连累重试/熔断
+        logger.debug('resilient | %s 规则查询失败, 用配置/默认: %s', kind, e)
+        return {}
+
+
+def retry_policy(url):
+    """URL → (retries, backoff): kind:retry 规则 > config.json > 通用默认
+
+    `retries` 用显式 None 判定而非 `or` —— 0 ("不重试") 是合法且有意义的取值,
+    `or` 会把它当假值跳过, 于是"配了 0"被悄悄改成默认, 与 jobs=0 是同一类坑。
+    """
+    p = _rule_params('retry', url)
+    cfg = _config()
+    r = p.get('retries')
+    if r is None:
+        r = cfg.get('retries')
+    if r is None:
+        r = DEFAULT_RETRIES
+    b = p.get('backoff') or cfg.get('retry_backoff') or DEFAULT_BACKOFF
+    return int(r), str(b)
 
 
 def breaker_policy(url):
-    """URL → (fail_threshold, cool_seconds): kind:breaker 规则 > 通用默认"""
-    try:
-        from webtool.net import rules as _rules
-        p = _rules.router().params_for('breaker', url or '')
-        return int(p.get('fail_threshold') or DEFAULT_FAIL_THRESHOLD), \
-            int(p.get('cool_seconds') or DEFAULT_COOL_SECONDS)
-    except Exception as e:
-        logger.debug('resilient | breaker 规则查询失败, 用默认: %s', e)
-        return DEFAULT_FAIL_THRESHOLD, DEFAULT_COOL_SECONDS
+    """URL → (fail_threshold, cool_seconds): kind:breaker 规则 > config.json > 默认
+
+    cool_seconds=0 表示关闭熔断 (不打开), 是默认值。
+    """
+    p = _rule_params('breaker', url)
+    cfg = _config()
+    thr = p.get('fail_threshold')
+    if thr is None:
+        thr = cfg.get('breaker_fails')
+    if thr is None:
+        thr = DEFAULT_FAIL_THRESHOLD
+    cool = p.get('cool_seconds')
+    if cool is None:
+        cool = cfg.get('breaker_cool')
+    if cool is None:
+        cool = DEFAULT_COOL_SECONDS
+    return int(thr), int(cool)
 
 
 def retry_call(fn, *, url=None, retries=None, backoff=None,
                exceptions=(Exception,), on_retry=None, sleep=time.sleep):
     """带退避的重试包装: 只重试幂等请求, 结果按原样返回 / 异常原样抛
 
-    retries/backoff 不给时按 retry 规则 (kind:retry) 或通用默认。
+    retries/backoff 不给时按 kind:retry 规则 > config.json > 通用默认。
+    **默认 retries=0 = 不重试** (失败当场抛, 不放大请求); 要重试用
+    `webtool config set retries N` 或按站写 kind:retry 规则。
     on_retry(attempt, err) 是观察钩子 (打日志/计数), 不控制流程。
     """
     r, b = retry_policy(url) if retries is None or backoff is None \
@@ -90,6 +158,9 @@ class Breaker:
     状态名 `resilient:<host>`, 与 gnews 等各自命名的 breaker 互不干扰。
     打开期调用方应直接短路 (不发请求); 冷却过半开: 计数清零放行试探,
     试探再失败会在 record 里立即重开。
+
+    **cool_seconds=0 表示关闭熔断** (默认): check 恒返回 None, record 不记账,
+    于是既不短路也不写状态 —— 域名不会再被"锁"几分钟。
     """
 
     def __init__(self, url):
@@ -97,12 +168,18 @@ class Breaker:
         self.host = urlsplit(url or '').hostname or ''
         self.name = 'resilient:' + self.host
 
+    def _policy(self):
+        return breaker_policy('https://' + self.host if self.host else '')
+
     def _load(self):
         from webtool.dao import state
         return state.get_breaker(self.name)
 
     def check(self):
         """熔断打开返回剩余冷却秒数 (调用方直接短路), 否则 None"""
+        _threshold, cool = self._policy()
+        if cool <= 0:                      # 关闭: 不短路, 也不碰状态
+            return None
         br = self._load()
         until = br.get('open_until', 0)
         left = until - time.time()
@@ -115,13 +192,14 @@ class Breaker:
 
     def record(self, ok):
         """记账: 失败累计到阈值则打开; 成功清零"""
+        threshold, cool = self._policy()
+        if cool <= 0 or threshold <= 0:    # 关闭: 不记账
+            return
         br = self._load()
         if ok:
             if br.get('fails'):
                 self._record(fails=0)
             return
-        threshold, cool = breaker_policy('https://' + self.host if self.host
-                                         else '')
         fails = int(br.get('fails', 0)) + 1
         if fails >= threshold:
             logger.debug('resilient | 熔断打开 %s (%d 连败, 冷却 %ss)',

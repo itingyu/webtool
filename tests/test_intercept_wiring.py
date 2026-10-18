@@ -14,6 +14,12 @@ TMP = tempfile.mkdtemp(prefix='webtool-tpwiring-')
 os.environ['WEBTOOL_DIR'] = TMP
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
+# 降级梯默认 0 步 (不重试): 本组测的正是"梯子接得对不对", 所以显式开 3 步。
+# 默认关的行为见 test_smoke / test_resilient。
+import json as _json
+with open(os.path.join(TMP, 'config.json'), 'w', encoding='utf-8') as _f:
+    _json.dump({'ladder_steps': 3}, _f)
+
 FAIL = []
 N = [0]
 

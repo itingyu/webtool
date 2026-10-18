@@ -76,10 +76,28 @@ check(seen == [1], 'on_retry 每次重试都回调')
 
 check(R.retry_policy('https://example.org/') == (R.DEFAULT_RETRIES,
                                                  R.DEFAULT_BACKOFF),
-      'retry_policy 无规则走默认')
+      'retry_policy 无规则走默认 (默认不重试)')
+check(R.DEFAULT_RETRIES == 0, '重试默认 0 次')
 check(R.breaker_policy('https://example.org/') == (R.DEFAULT_FAIL_THRESHOLD,
                                                    R.DEFAULT_COOL_SECONDS),
       'breaker_policy 无规则走默认')
+check(R.DEFAULT_COOL_SECONDS == 0, '熔断冷却默认 0 (=关闭)')
+
+# 熔断默认关闭: 不打开、不记账 —— 域名不会被"锁"几分钟
+_off = R.Breaker('https://off.example/x')
+for _ in range(R.DEFAULT_FAIL_THRESHOLD + 3):
+    _off.record(False)
+check(_off.check() is None and _off._load().get('fails') in (0, None),
+      '熔断关闭时不打开也不记账')
+
+# 打开熔断 (配置成可开启), 下面验证机制本身
+import json as _json
+_cfgp = os.path.join(_TMP, '.webtool', 'config.json')
+os.makedirs(os.path.dirname(_cfgp), exist_ok=True)
+with open(_cfgp, 'w', encoding='utf-8') as _f:
+    _json.dump({'breaker_fails': 5, 'breaker_cool': 300}, _f)
+check(R.breaker_policy('https://example.org/') == (5, 300),
+      '熔断冷却可配置 (config.json 生效)')
 
 # ── 2. Breaker ───────────────────────────────────────────────────
 b = R.Breaker('https://flaky.example/x')
