@@ -16,6 +16,9 @@ pipx install 'git+https://github.com/itingyu/webtool'
 pip install --user 'git+https://github.com/itingyu/webtool'    # --user 是开关, 不带值
 ```
 
+Python 依赖全装（Pillow 已随包，`pic` 与 `banner --font big` 用它栅格化图像/汉字）。
+唯一的系统工具依赖：`video` / `music` 解码要 **ffmpeg** 与 **ffprobe**，不是 Python 包、进不了 pyproject，缺了这两个命令会直接报错并提示装法（`apk add ffmpeg` / `apt install ffmpeg`）。
+
 Termux 上没有 PyPI 轮子（`cryptography`/`numpy`/`pandas`/`lxml` 要源码构建，rustup 不认 `android` target），先用包管理器装原生库再 pip：
 
 ```bash

@@ -106,7 +106,10 @@ def _find_font():
 
 def _render_big(text, cols=0, chars=_BIG_RAMP):
     """用真实字体把整串文字栅格化再映射成字符 (中英混排都能画)"""
-    from PIL import Image, ImageDraw, ImageFont
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        raise RuntimeError("需要 Pillow 渲染大字 (pyproject 已声明依赖; 重装 webtool 即可)") from None
     font = ImageFont.truetype(_find_font(), 96)
     asc, desc = font.getmetrics()
     w = int(sum(font.getlength(c) for c in text)) + 8

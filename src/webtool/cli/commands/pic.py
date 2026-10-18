@@ -1,6 +1,8 @@
 """pic: 图片转字符画 (本地图或 URL; 依赖可选, 见下方提示)"""
+import base64
 import io
 import os
+import re
 import sys
 
 import typer
@@ -11,23 +13,53 @@ from webtool.cli.app import app
 DEFAULT_CHARS = ' .:-=+*#%@'
 
 
+_MAGIC = (b'\x89PNG', b'\xff\xd8\xff', b'GIF8', b'BM', b'RIFF')
+
+
+def _maybe_bytes(raw):
+    """裸图片字节原样返回; 看着像 base64 就解码; 都不像返回 None"""
+    if any(raw.startswith(m) for m in _MAGIC):
+        return raw
+    txt = b''.join(raw.split())
+    if len(txt) < 32 or not re.fullmatch(rb'[A-Za-z0-9+/]+={0,2}', txt):
+        return None
+    try:
+        return base64.b64decode(txt, validate=True)
+    except Exception:
+        return None
+
+
 def _load_bytes(src):
-    """本地路径或 http(s) URL → 图片原始字节"""
+    """本地路径 / http(s) URL / data: URI / 裸 base64 / `-`(stdin) → 图片原始字节"""
     if src.startswith(('http://', 'https://')):
         from webtool.net import transport
         data, _status, _via, _hdrs = transport.get(src, kind='nav', raw=True)
         if not isinstance(data, (bytes, bytearray)):
             raise ValueError(f'取回的不是二进制 ({type(data).__name__}), 确认 URL 指向图片')
         return bytes(data)
-    with open(os.path.expanduser(src), 'rb') as f:
-        return f.read()
+    if src.startswith('data:'):                      # data:image/png;base64,xxxx
+        head, _, body = src.partition(',')
+        if ';base64' in head:
+            return base64.b64decode(body)
+        from urllib.parse import unquote_to_bytes
+        return unquote_to_bytes(body)
+    if src == '-':                                   # 从 stdin 读 base64 或裸二进制
+        return _maybe_bytes(sys.stdin.buffer.read())
+    path = os.path.expanduser(src)
+    if os.path.exists(path):
+        with open(path, 'rb') as f:
+            return f.read()
+    data = _maybe_bytes(src.encode())                # 命令行里直接塞 base64
+    if data is None:
+        raise OSError('既不是文件 / URL, 也不是 base64 (要喂 stdin 用 -)')
+    return data
 
 
 def _to_ascii(data, width, height, chars, invert):
     try:
         from PIL import Image
     except ImportError:
-        raise RuntimeError('需要 Pillow 解码图片, 装一个: pip install pillow') from None
+        raise RuntimeError('需要 Pillow 解码图片 (pyproject 已声明依赖; 缺了就是装包不全, 重装 webtool 即可)') from None
     resample = getattr(Image, 'Resampling', Image).LANCZOS
     im = Image.open(io.BytesIO(data)).convert('L')
     w, h = im.size
@@ -50,7 +82,7 @@ def _to_ascii(data, width, height, chars, invert):
 
 
 @app.command('pic')
-def pic_cmd(src: str = typer.Argument(..., help='图片路径或 URL (http/https 走代理规则)'),
+def pic_cmd(src: str = typer.Argument(..., help='图片源: 路径 / http(s) URL / data: URI / 裸 base64 / - 读 stdin'),
             width: int = typer.Option(80, '-w', '--width', help='输出列数'),
             height: int = typer.Option(0, '--height', help='输出行数 (默认按比例, 字高≈宽 2 倍)'),
             chars: str = typer.Option(DEFAULT_CHARS, '--chars', help='灰度字符梯 (从暗到亮)'),
@@ -65,7 +97,7 @@ def pic_cmd(src: str = typer.Argument(..., help='图片路径或 URL (http/https
         try:
             data = _load_bytes(src)
         except OSError as e:
-            print(f'error: 读不到 {src}: {e}', file=sys.stderr)
+            print(f'error: 读不到 {src[:48]}: {e}', file=sys.stderr)
             return 2
         except Exception as e:
             print(f'error: 下载失败: {e}', file=sys.stderr)

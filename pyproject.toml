@@ -48,7 +48,9 @@ dependencies = [
     "efinance>=0.5",
     "openpyxl>=3.1",
     # `stock data` / `stock eco` 的默认库 (体积最大的一件, 但也在全装之内)
-    "akshare>=1.12,<2",
+    "akshare>=1.12,<2",    # 终端图像渲染 (pic / banner --font big)。Pillow 只在函数内延迟 import,
+    # 但 scripts/audit_deps.py 的规矩是延迟 import 也要声明。
+    "pillow>=10",
 ]
 
 [project.scripts]
