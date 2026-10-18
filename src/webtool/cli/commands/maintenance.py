@@ -11,6 +11,7 @@ from webtool.net import proxy as _proxy
 from webtool.cli._ctx import (
     Fmt, NoProxy, Output, _CTX, _run,
 )
+from webtool.cli._help import verbatim as _verbatim
 from webtool.cli.app import app
 
 def _pip_route_note(spec, env):
@@ -73,8 +74,23 @@ def _upgrade_run(check_only, spec, fmt, output):
         return 0 if res['ok'] else 1
     return _run(None, fn, fmt, output, False, False)
 
-@app.command('proxy')
-def proxy_cmd(action: str = typer.Argument(..., help='get/set/unset/test/setpass/delpass/passwd/rules/tidy/rule/ruledel/geoip/geosite/geo/asn/noproxy'),
+_PROXY_EPILOG = _verbatim("""子命令
+  线路  get set unset test noproxy named
+  凭据  passwd setpass delpass cert
+  分流  rules tidy rule ruledel
+  数据  geoip geosite geo asn
+
+例
+  webtool proxy set http://127.0.0.1:2080
+  webtool proxy test
+  webtool proxy rules
+  webtool proxy named hk http://127.0.0.1:2081
+  webtool proxy rule add '{"domain":["example.com"]}' proxy:hk
+  webtool proxy geo""")
+
+
+@app.command('proxy', epilog=_PROXY_EPILOG)
+def proxy_cmd(action: str = typer.Argument(..., help='子命令, 完整清单见下方目录 (或直接跑 webtool proxy)'),
               value: str = typer.Argument(None, help='代理地址; 或 rule/cert 的子命令; 或试算用的 URL'),
               user: str = typer.Argument(None, help='setpass/delpass 的用户名; rule add 的 match JSON; ruledel 的序号'),
               act: str = typer.Argument(None, help='rule add 的动作: direct/proxy/block/proxy:<名字>'),
@@ -116,7 +132,7 @@ def engines_cmd(action: str = typer.Argument('list', help='list=清单+冷却状
                 check: bool = typer.Option(False, '--check', help='实发一次测试请求 (等价 engines test)'),
                 query: str = typer.Option('python', '--query', help='test 用的测试词'),
                 fmt: str = Fmt, output: str = Output):
-    """搜索引擎状态"""
+    """引擎状态与预设"""
     a = _CTX['args']
     a.action, a.name, a.check, a.query = action, name, check, query
 
@@ -251,7 +267,7 @@ def config_cmd(action: str = typer.Argument(..., help='list/get/set/unset'),
 
 @app.command('plugins')
 def plugins_cmd(action: str = typer.Argument('list', help='list/check/reload/enable/disable'),
-                kind: str = typer.Argument(None, help='engine/hot/site/extractor/resolver/filter/transformer/interceptor'),
+                kind: str = typer.Argument(None, help='engine, hot, site, source, extractor, resolver, filter, transformer, interceptor'),
                 plugin: str = typer.Argument(None, help='enable/disable 的插件名'),
                 all: bool = typer.Option(False, '--all', '-a', help='list 含 disabled 项'),
                 fmt: str = Fmt, output: str = Output):

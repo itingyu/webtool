@@ -14,7 +14,8 @@ from webtool.cli.app import app
 @app.command('search')
 def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 stdin 读一行, 如 echo 词 | webtool search -)'),
                engine: str = typer.Option(None, '-e', '--engine',
-                                          help='逗号分隔: bing,sogou,baidu,so360,google,marginalia'),
+                                          help='逗号分隔的引擎 key: bing, sogou, google, baidu, so360, marginalia, '
+                                                'exa, parallel, firecrawl (webtool engines 看状态)'),
                preset: str = typer.Option(None, '--preset',
                                           help='引擎组合预设 (webtool engines presets 查看); 优先级低于 --engine'),
                max: int = typer.Option(8, '-n', '--max', help='每引擎结果数'),
@@ -27,7 +28,7 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
                                             help='黑名单覆盖: 逗号分隔域名, 前缀 ! 表白名单例外, '
                                                  '传 off 关闭黑名单'),
                jobs: int = typer.Option(None, '-j', '--jobs',
-                                        help='并发抓取的源数 (默认 源数, 上限 4; 1=串行)')):
+                                        help='并发抓取的源数 (默认=源数, 自动最多 4; 显式最高 16; 1=串行)')):
     """多引擎网页搜索"""
     a = _CTX['args']
     a.update = None
@@ -78,7 +79,7 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
               via: str = typer.Option('local', '--via',
                                       help='取正文通道: local=本地提取链(默认, 免配额) / '
                                            'auto=本地失败时兜底远程 reader / '
-                                           'parallel|exa=直接走对应 MCP 的 web_fetch')):
+                                           'parallel|exa|firecrawl=直接走对应 MCP 的 web_fetch')):
     """抓取 URL 并提取正文"""
     a = _CTX['args']
     a.url, a.url_file = url, url_file
@@ -155,7 +156,7 @@ def zen_cmd(prompt: list[str] = typer.Argument(None, help='要问的问题 (留�
                                                help='删掉 --session 指的会话 (不给则删最近一条)'),
             fmt: str = Fmt, output: str = Output,
             no_proxy: bool = NoProxy, no_cache: bool = NoCache):
-    """OpenCode Zen 免费层对话 (OpenAI 兼容, 公开模式, 无需 key)"""
+    """OpenCode Zen 对话 (OpenAI 兼容, 公开模式, 无需 key)"""
     a = _CTX['args']
     # 默认值优先级: 命令行 > ~/.webtool/zen.json 的 zen 段 > 内置 (见 zenproto.DEFAULTS)
     from webtool.cli import zenproto as _zp
@@ -190,11 +191,11 @@ def zen_cmd(prompt: list[str] = typer.Argument(None, help='要问的问题 (留�
 @app.command('site')
 def site_cmd(site: str = typer.Argument(None, help='站点 key, `webtool site list` 查看全部'),
              query: str = typer.Argument(None, help='站内搜索词'),
-             max: int = typer.Option(10, '-n', '--max'),
+             max: int = typer.Option(10, '-n', '--max', help='返回条数'),
              lang: str = typer.Option('zh', '--lang', help='wikipedia 语言版本'),
              fmt: str = Fmt, output: str = Output,
              no_proxy: bool = NoProxy, no_cache: bool = NoCache):
-    """站内搜索(知名站点官方接口, 与传统搜索引擎区分)"""
+    """站内搜索: 各站官方接口 (站点清单 webtool site list)"""
     from webtool.core import stdin as _stdin
     a = _CTX['args']
     query = _stdin.read_input(query, what='站内搜索词')

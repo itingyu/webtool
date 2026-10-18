@@ -2,13 +2,8 @@
 import typer
 
 from webtool.cli._ctx import _CTX, _entry_fn, _run, Fmt, Output
+from webtool.cli._help import verbatim as _verbatim
 from webtool.cli.app import app
-
-
-def _verbatim(text: str) -> str:
-    r"""每段加一个 \b 前缀行, 让 click 原样输出 (保住对齐)"""
-    paras = [p for p in text.strip('\n').split('\n\n') if p.strip()]
-    return '\n\n'.join('\b\n' + p for p in paras)
 
 
 _EPILOG = _verbatim("""常用动作
