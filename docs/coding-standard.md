@@ -302,6 +302,11 @@ ip/ping 等连通性探测归 `net.connectivity`，不单开网络层，ICMP 受
   在 CLI 首次启动时把包内 `data/rules.json` 复制到 `~/.webtool/rules.json`（已存在则不动）。
   走"包内默认 + 用户覆盖"两层合并的 `config.json`/`plugins.json` 之类**不落地** —— 凭空生成
   一份会盖住以后升级带来的新默认值。pip 没有可靠的 post-install 钩子，所以入口只能是首次启动
+  - 种子表是**给"配了代理的人"用的**：`default` 写 `proxy:default`，并带 `geosite:cn` /
+    `geoip:cn` 的国内直连规则（比手写域名清单全，也省得漏站）。但刚装好的机器上还没有代理，
+    原样落地会让每条请求都撞"规则引用了未定义的代理: default"，所以落地时 `default` 指向的
+    命名代理不存在就落成 `direct`（`core.bootstrap._direct_if_proxy_missing`），等
+    `webtool proxy set` 那一刻再切回 `proxy:default`（`net.proxy.pool._set`）
 - **线路只由配置决定，不做隐式切换**（`netx.resolve_proxy` 是唯一归一点）。"先直连、失败
   再代理"这类回退会让同一次请求走哪条线取决于它先在哪失败，"代理失败退直连"更会毁掉只允许
   代理出网的目标。写通道别加 `allow_fallback` 参数，也别在适配器里写死 `proxy=None` ——

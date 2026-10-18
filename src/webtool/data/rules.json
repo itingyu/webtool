@@ -1,7 +1,23 @@
 {
-  "default": "direct",
+  "default": "proxy:default",
   "proxies": {},
   "rules": [
+    {
+      "match": {
+        "geosite": [
+          "cn"
+        ]
+      },
+      "action": "direct"
+    },
+    {
+      "match": {
+        "geoip": [
+          "cn"
+        ]
+      },
+      "action": "direct"
+    },
     {
       "match": {
         "domain": [

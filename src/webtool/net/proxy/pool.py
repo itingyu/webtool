@@ -85,6 +85,14 @@ def _set(args, cfg):
     if not spec.get('default'):
         spec['default'] = 'proxy:default'
         print("default 动作已设为 proxy:default (原来没写)")
+    elif not str(spec['default']).startswith('proxy'):
+        # 种子规则表落的是 default: direct (那时还没代理, 全直连是对的)。
+        # 现在用户明确来配代理了 —— 再留着 direct, 没命中规则的流量 (也就是
+        # 绝大多数境外站) 仍然直连, 这个命令等于只写了个没人用的 proxies.default。
+        was = spec['default']
+        spec['default'] = 'proxy:default'
+        print(f'default 动作 {was} → proxy:default (配了代理就走代理; '
+              f'真要改回直连: 编辑 {_rules_path(cfg)} 的 default)')
     from webtool.net import rules as _R
     if _R.seed_rules(spec):
         print('已补一份默认分流规则 (一条国内直连, 其余走默认代理); '

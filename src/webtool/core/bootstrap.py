@@ -15,6 +15,7 @@ pip 安装没有可靠的 post-install 钩子, 更没法在安装时确定用户
   ② `ca-bundle.pem` 落到用户目录后可以被增补 (把企业根 cat 进去), 缺了仍回落
      到包内那份。包目录在 site-packages 里, 升级整棵替换, 不是放东西的地方。
 """
+import json
 import os
 import shutil
 
@@ -34,16 +35,43 @@ SEED_GEO_FILES = ('geosite.dat', 'geoip.dat')
 
 
 def _copy_missing(src, dst, created):
-    """缺失才补 —— 已有的一律不碰 (父目录不在就先建出来)"""
+    """缺失才补 —— 已有的一律不碰 (父目录不在就先建出来)。补了返回 True。"""
     if dst.exists() or not src.is_file():
-        return
+        return False
     try:
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src, dst)
         os.chmod(dst, 0o600)
         created.append(str(dst))
+        return True
     except OSError:
-        pass
+        return False
+
+
+def _direct_if_proxy_missing(path):
+    """种子规则表的 default 是 proxy:default, 而刚装好的机器一个代理都没有 ——
+    原样落地的话每条请求都会撞 "规则引用了未定义的代理: default", 报错还完全
+    指不到"你还没配代理"。所以落地时把 default 落成 direct; 真配代理的那一刻
+    (`webtool proxy set`) 再切成 proxy:default。
+
+    只动刚补出来的种子副本: 已有文件的 default 一律不碰 (用户的选择优先)。
+    """
+    try:
+        spec = json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(spec, dict):
+            return False
+        act = str(spec.get('default') or '')
+        if not act.startswith('proxy'):
+            return False
+        name = (act.split(':', 1)[1].strip() or 'default') if ':' in act else 'default'
+        if name in (spec.get('proxies') or {}):
+            return False
+        spec['default'] = 'direct'
+        path.write_text(json.dumps(spec, ensure_ascii=False, indent=2) + '\n',
+                        encoding='utf-8')
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def ensure_user_files():
@@ -58,7 +86,9 @@ def ensure_user_files():
     except OSError:
         return created
     for name in SEED_FILES:
-        _copy_missing(DATA_DIR / name, USER_DIR / name, created)
+        if (_copy_missing(DATA_DIR / name, USER_DIR / name, created)
+                and name == 'rules.json'):
+            _direct_if_proxy_missing(USER_DIR / name)
 
     # geo 数据: 落到 ~/.webtool/geo/ (缺失才补)。整棵大文件, 但只在首次运行
     # 复制一次; 之后 `proxy geo update` 刷新的是用户目录这份。
