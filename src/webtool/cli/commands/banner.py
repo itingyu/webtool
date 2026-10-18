@@ -11,7 +11,7 @@ from webtool.cli.bannerfont import COL, DEFAULT_FONT, GLYPHS, ROW, _FONTS
 
 def _cells(ch, spec):
     """单个字符 → 若干行等宽字符串 (按字体上色 / 描边 / 投影 / 斜切)"""
-    rows = GLYPHS.get(ch)
+    rows = GLYPHS.get(ch) or GLYPHS.get(ch.upper())   # 字库只有大写, 小写归一
     if rows is None:                       # 非字库字符 (含中文) 原样排在中间行
         w = 2 if unicodedata.east_asian_width(ch) in ('W', 'F') else 1
         blank = ' ' * w
