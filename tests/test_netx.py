@@ -68,6 +68,27 @@ def write_rules(spec):
     return path
 
 
+def set_cfg(key, value):
+    """往 config.json 合并一个键 —— write_rules 只管规则, 别的配置项走这里"""
+    cfg_path = os.path.join(WEBTOOL_DIR, 'config.json')
+    cfg = {}
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, encoding='utf-8') as f:
+                cfg = json.load(f)
+        except ValueError:
+            cfg = {}
+    cfg[key] = value
+    with open(cfg_path, 'w', encoding='utf-8') as f:
+        json.dump(cfg, f)
+
+
+# 本文件测的是"通道/路由语义", 与代理活没活无关 —— 关掉可达性兜底
+# (proxy_fallback), 免得 9.9.9.9:8080 这类探不通的假代理被判成"没起来"而改走
+# 直连, 把断言悄悄变成"兜底在不在"的测试。兜底本身见 tests/test_proxy_reach.py。
+set_cfg('proxy_fallback', 'off')
+
+
 from webtool.net import netx           # noqa: E402
 from webtool.net import tls           # noqa: E402
 
@@ -828,13 +849,15 @@ _NET_CHANNELS = {
     'stock/bridge/_eco_net.py': '生态库 (akshare/tushare) 的 requests 打补丁, 改不动',
     'stock/bridge/sources/_routing.py': '股票源路由: cffi 会话 (少见参数路径) + 逐请求线路',
     'stock/tools/extract_recipes.py': '离线工具 (抓一次配方, 不在运行链路)',
+    'net/proxy/reach.py': '代理可达性探测: 一次 TCP 握手判"代理没起" (决定改不改走直连)',
 }
 _PRIMS = [r'^\s*import\s+requests\b', r'^\s*from\s+requests\b',
           r'^\s*import\s+http\.client\b', r'^\s*from\s+http\.client\b',
           r'^\s*import\s+socket\b',
           r'\brequests\.(get|post|request|Session)\b', r'\bcurl_requests\.',
           r'from curl_cffi', r'\b_cr\.[A-Z]', r'\bcr\.Session\(', r'urlopen\(',
-          r'\bhttp\.client\b', r'HTTPConnection\(', r'\bsocket\.socket\b']
+          r'\bhttp\.client\b', r'HTTPConnection\(', r'\bsocket\.socket\b',
+          r'\bsocket\.create_connection\b']
 _unregistered = []
 for _f in _SRC.rglob('*.py'):
     _rel = str(_f.relative_to(_SRC)).replace('\\', '/')

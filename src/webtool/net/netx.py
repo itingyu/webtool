@@ -89,6 +89,17 @@ def resolve_proxy(proxy, url=None):
         where = '<unparsed>'
     if not via_rules:
         logger.debug('netx | 线路=代理 %s (显式) (%s)', where, url or '')
+    # 代理没起来就改走直连: 本地代理没开是最常见的失败, 表现却是"每条请求都失败",
+    # 报错完全指不到"代理没启动"。只认"连不上" (拒绝/超时/DNS 不通), 代理自己返回
+    # 的错误不算; `webtool config set proxy_fallback off` 可关掉这条兜底。
+    #
+    # 只管**规则表/配置定下来的那条线** (via_rules): 调用方显式传进来的代理
+    # (`--proxy <url>`) 是当场的选择, 探不通就照旧报错 —— 否则"我明明让它走这条"
+    # 会被一次探测悄悄改成直连, 与"显式优先"直接冲突。
+    if via_rules:
+        from webtool.net.proxy import reach as _reach
+        if not _reach.usable(p, url or ''):
+            return None
     return p
 
 
