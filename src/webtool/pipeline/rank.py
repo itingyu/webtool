@@ -14,13 +14,13 @@
 """
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
 
 from webtool.dao import cache
 from webtool.core.secrets_store import redact as _mask
 from webtool.engines.hotsites import HOT_SITES, default_hot_sources
 
-from webtool.core.resilient import MAX_WORKERS as _MAX_W
+from webtool.core.resilient import MAX_WORKERS as _MAX_W, thread_pool
 
 _proxy_alive = {}
 
@@ -140,7 +140,7 @@ def do_rank(args, cfg):
         return items, None
 
     results, errors = {}, {}
-    with ThreadPoolExecutor(max_workers=min(len(names), _MAX_W) or 1) as ex:
+    with thread_pool(min(len(names), _MAX_W) or 1) as ex:
         futs = {ex.submit(pull, nm): nm for nm in names}
         for fu in as_completed(futs):
             nm = futs[fu]

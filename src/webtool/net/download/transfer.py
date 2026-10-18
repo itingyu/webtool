@@ -10,7 +10,7 @@ import threading
 import time
 
 from webtool.core.logging import get_logger
-from webtool.core.resilient import MAX_WORKERS as JOBS_MAX
+from webtool.core.resilient import MAX_WORKERS as JOBS_MAX, thread_pool
 from webtool.net.download.progress import Progress, human
 from webtool.net.download.resume import (
     _drop_meta, _meta_path, _save_meta, part_path, request_headers,
@@ -190,7 +190,6 @@ def _segments(total, jobs):
 def download_parallel(url, path, opener, *, jobs=4, progress=None, t0=None,
                       chunk=CHUNK):
     """多连接分片下载 (服务端不认 Range 就自动退回单连接)"""
-    import concurrent.futures as cf
     t0 = t0 or time.time()
     part = part_path(path)
     os.makedirs(os.path.dirname(os.path.abspath(path)) or '.', exist_ok=True)
@@ -270,7 +269,7 @@ def download_parallel(url, path, opener, *, jobs=4, progress=None, t0=None,
         with open(part, 'r+b' if os.path.exists(part) else 'wb') as f:
             f.truncate(total)
     err = None
-    with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
+    with thread_pool(jobs) as ex:
         for r in ex.map(worker, range(jobs)):
             if r and not err:
                 err = r

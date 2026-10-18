@@ -8,7 +8,7 @@ import re
 import sys
 import time
 import urllib.parse
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
 
 from webtool.dao import cache
 from webtool.core import jsonfmt
@@ -20,7 +20,7 @@ from webtool.net import proxyhelper
 from webtool.feeds.fetch import pull_one
 from webtool.feeds.cards import print_route_cards
 
-from webtool.core.resilient import MAX_WORKERS as _MAX_W
+from webtool.core.resilient import MAX_WORKERS as _MAX_W, thread_pool
 
 
 def _print_feed_usage():
@@ -105,7 +105,7 @@ def do_feed(args, cfg):
             except Exception as e1:
                 return k, feedhealth.classify_error(str(e1)[:120]), 0, None
 
-        with ThreadPoolExecutor(max_workers=min(len(targets), _MAX_W)) as ex:
+        with thread_pool(min(len(targets), _MAX_W)) as ex:
             futs = [ex.submit(_probe, k, v) for k, v in targets.items()]
             for fu in as_completed(futs):
                 k, st, cnt, _ = fu.result()
@@ -272,7 +272,7 @@ def do_feed(args, cfg):
         return name, items, None
 
     results, errors = {}, {}
-    with ThreadPoolExecutor(max_workers=min(len(names), _MAX_W)) as ex:
+    with thread_pool(min(len(names), _MAX_W)) as ex:
         futs = {ex.submit(pull, nm): nm for nm in names}
         for fu in as_completed(futs):
             nm, items, err = fu.result()

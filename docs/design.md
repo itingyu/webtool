@@ -23,7 +23,8 @@ src/webtool/
 ├── core/                # L0 底座
 │   ├── plugins.py       # Registry: 八类插件统一注册表 (engine/site/hot/extractor/resolver/filter/transformer/interceptor/source)
 │   ├── config_data.py   # 配置合并: 包内 data/*.json + ~/.webtool/ 同名文件 (深合并, 列表替换, 指纹判失效)
-│   ├── resilient.py     # 弹性: parallel_map / retry / breaker / fetch 包装
+│   ├── resilient.py     # 弹性: parallel_map / thread_pool(守护线程池) / retry / breaker / fetch 包装
+│   ├── shutdown.py      # 优雅关闭: Ctrl-C 一次协作退出 (rc 130)、两次强制 os._exit
 │   └── text.py urls.py jsonfmt.py errors.py logging.py stdin.py
 ├── stock/               # 股票: command (动作) / bridge (数据源层) / data/reverse (逆向文档)
 │                        #   data/trading_calendar/holidays-<年>.json = 交易日历 (运行必需,

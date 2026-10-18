@@ -52,6 +52,10 @@ def main(argv=None):
     这里统一转成 stderr 提示 + rc 2。
     """
     argv = list(sys.argv[1:] if argv is None else argv)
+    # 优雅关闭: 首次 Ctrl-C 抛 KeyboardInterrupt 走正常收尾, 再按一次强制 exit
+    # (真卡在 C 调用/线程 join 里时, 这是唯一能停下来的路)。见 core/shutdown。
+    from webtool.core import shutdown as _shutdown
+    _shutdown.install()
     # -v/-V/--version 在 click 解析前先扫: 放在子命令后面 (webtool zen --version)
     # click 会当作未知选项报错, 而用户想看的只是版本号。
     # pkg 透传除外 —— 它后面的 -v/--version 是子命令的参数, 不能截
@@ -93,6 +97,7 @@ def main(argv=None):
     except BrokenPipeError:                    # 管道给 head 之类截断
         return 0
     except KeyboardInterrupt:
+        print('webtool: 已中断 (再按一次 Ctrl-C 强制退出)', file=sys.stderr)
         return 130
     except _WebtoolError as e:                  # 本仓统一异常: 自带退出码
         print(f'webtool: {e}', file=sys.stderr)

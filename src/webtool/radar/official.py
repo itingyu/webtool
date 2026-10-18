@@ -168,8 +168,8 @@ def official_feeds(domains, proxy=None, refresh=False, max_sites=6):
         else:
             todo.append(d)
     if todo:
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=min(len(todo), _MAX_W)) as ex:
+        from webtool.core.resilient import thread_pool
+        with thread_pool(min(len(todo), _MAX_W)) as ex:
             for dom, res in zip(todo, ex.map(
                     lambda d: probe_official(d, proxy=proxy), todo)):
                 url, items, buckets = res

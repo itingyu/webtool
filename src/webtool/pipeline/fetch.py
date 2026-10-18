@@ -2,7 +2,6 @@
 提取链: trafilatura → readability-lxml → html2text → 保底全文; 桌面指纹
 拿到壳页/过薄页时自动切移动指纹重试一次。
 """
-import concurrent.futures as cf
 import json
 import mimetypes
 import os
@@ -323,8 +322,8 @@ def do_fetch(args, cfg):
     if single:
         results = [work(urls[0])]
     else:
-        from webtool.core.resilient import MAX_WORKERS
-        with cf.ThreadPoolExecutor(min(MAX_WORKERS, len(urls))) as ex:
+        from webtool.core.resilient import MAX_WORKERS, thread_pool
+        with thread_pool(min(MAX_WORKERS, len(urls))) as ex:
             results = list(ex.map(work, urls))
 
     if cp is not None:

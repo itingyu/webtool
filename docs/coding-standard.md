@@ -205,6 +205,7 @@ ip/ping 等连通性探测归 `net.connectivity`，不单开网络层，ICMP 受
 - 取值优先级：`kind` 规则 > `config.json` > 模块常量（`DEFAULT_RETRIES` / `DEFAULT_COOL_SECONDS` = 0）
 - 恢复：批任务（rank/feed/screen）写 checkpoint，重跑跳过已完成条目
 - 反爬降级梯：被拦后换指纹/换头/按插件绕法重试；**默认 0 步**（`ladder_steps=0`，首次被拦即报），要开则 `config set ladder_steps N`
+- 优雅关闭：并发一律走 `core.resilient.thread_pool()`（daemon 线程池 + 打断即取消未开始任务、不等待在飞请求）；CLI 入口装 `core.shutdown.install()` —— 一次 Ctrl-C 协作退出（rc 130），再按一次强制退出。**别再用裸 `ThreadPoolExecutor`**：它退出时 `shutdown(wait=True)` 会 join 在飞请求，让 Ctrl-C"停不下来"；也别给这个助手起名 `pool`（业务里 `pool=[]` 会把导入遮成局部变量 → UnboundLocalError）
 
 ## 2.10 交付自检（每个 PR 过一遍）
 

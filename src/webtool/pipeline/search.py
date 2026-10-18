@@ -6,6 +6,7 @@ import time
 
 from webtool.dao import cache
 from webtool.core import config_data
+from webtool.core.resilient import thread_pool
 from webtool.core.plugins import table as _plugin_table
 from webtool.filters.blocklist import filter_blocklist, is_blocked
 
@@ -197,7 +198,7 @@ def _do_search(args, cfg, filter_ad=True):
                  args.query, ','.join(engines), jobs, _pull, market, proxy,
                  'off' if args.no_cache else 'on')
     if jobs > 1 and len(live) > 1:
-        with concurrent.futures.ThreadPoolExecutor(jobs) as ex:
+        with thread_pool(jobs) as ex:
             futs = {ex.submit(fetch, e): e for e in live}
             for fu in concurrent.futures.as_completed(futs):
                 eng = futs[fu]
@@ -406,7 +407,7 @@ def _resolve_sogou_links(results, cfg, proxy='auto'):
                 cache.put(cfg, 'resolve', r['url'], real)
         return i, real
 
-    with concurrent.futures.ThreadPoolExecutor(5) as ex:
+    with thread_pool(5) as ex:
         for i, real in ex.map(work, todo):
             if real and real != results[i]['url']:
                 results[i]['url'] = real

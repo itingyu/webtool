@@ -96,7 +96,7 @@ def _is_real_url(u):
 
 
 def _resolve_links(results, proxy, timeout):
-    import concurrent.futures as cf
+    from webtool.core.resilient import thread_pool
     todo = [(i, r) for i, r in enumerate(results)
             if not r['resolved'] and 'baidu.com/link?' in r['url']]
 
@@ -104,7 +104,7 @@ def _resolve_links(results, proxy, timeout):
         i, r = item
         return i, _resolve_one(r['url'], proxy, timeout)
 
-    with cf.ThreadPoolExecutor(5) as ex:
+    with thread_pool(5) as ex:
         for i, real in ex.map(work, todo):
             if real:
                 results[i]['url'] = real

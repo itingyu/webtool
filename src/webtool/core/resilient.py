@@ -11,6 +11,7 @@ rules.json 的 kind 条目) 自己开。取值优先级: kind 规则 > config.js
 
 策略常量是"用户没配时的底": 重试默认 0 次, 熔断冷却默认 0 秒 (=关闭)。
 """
+import contextlib
 import os
 import threading
 import time
@@ -235,6 +236,66 @@ def count_failure(br, e, *, exempt=()):
 
 
 # ── 并发: 统一线程池入口 (共享状态只在主线程写, 见规范"多源抓取"节) ──
+# ── 并发: 统一线程池入口 (共享状态只在主线程写, 见规范"多源抓取"节) ──
+#
+# 为什么不用裸 ThreadPoolExecutor:
+#   `with ThreadPoolExecutor(...)` 退出是 shutdown(wait=True) —— 在飞的网络请求
+#   没回来就 join, Ctrl-C 于是"停不下来"; concurrent.futures 在解释器退出时还注册
+#   了 _python_exit, 把所有 worker 再 join 一遍, 连 sys.exit(130) 都被拖住。
+#   DaemonThreadPoolExecutor: worker 用 daemon 线程且**不登记 _threads_queues**,
+#   _python_exit 不会等它们; 配合 thread_pool() 的"打断即取消未开始任务、不等待", 主线程
+#   一抛 KeyboardInterrupt 就能退出(真卡在 C 调用里时由 core.shutdown 二次 Ctrl-C
+#   强制兜底)。daemon 与"不登记"二者缺一不可 —— 只 daemon 仍会被 _python_exit 等。
+try:
+    from concurrent.futures.thread import _worker as _cf_worker
+except Exception:                       # 未来版本移除私有名 → 退化为标准池
+    _cf_worker = None
+
+
+class DaemonThreadPoolExecutor(ThreadPoolExecutor):
+    """ThreadPoolExecutor, 但 worker 是 daemon 且不被解释器退出 join"""
+
+    def _adjust_thread_count(self):      # 与 stdlib 同形, 仅改 daemon + 不登记
+        if _cf_worker is None:
+            return super()._adjust_thread_count()
+        import weakref
+        if self._idle_semaphore.acquire(timeout=0):
+            return
+
+        def weakref_cb(_, q=self._work_queue):
+            q.put(None)
+
+        n = len(self._threads)
+        if n < self._max_workers:
+            name = '%s_%d' % (self._thread_name_prefix or self, n)
+            t = threading.Thread(
+                name=name, target=_cf_worker,
+                args=(weakref.ref(self, weakref_cb), self._work_queue,
+                      self._initializer, self._initargs),
+                daemon=True)
+            t.start()
+            self._threads.add(t)
+            # 故意不写 concurrent.futures.thread._threads_queues
+
+
+@contextlib.contextmanager
+def thread_pool(max_workers):
+    """守护线程池上下文 (名字带 thread_, 免与业务里"结果池 pool=[]"撞名)
+
+    正常路径仍需 shutdown(wait=True) —— 批任务要等结果收齐 (否则回填不完整)。
+    "优雅关闭"针对的是**异常路径**: 收 KeyboardInterrupt 时 cancel_futures 丢掉还没
+    排上的, 并且不等待在飞的请求, 让异常立刻往上走。
+    """
+    ex = DaemonThreadPoolExecutor(max_workers=max(1, int(max_workers)))
+    try:
+        yield ex
+    except BaseException:
+        ex.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        ex.shutdown(wait=True)
+
+
 def parallel_map(items, fn, *, max_workers=None, desc=''):
     """items 并发跑 fn, **按声明顺序**返回 (结果, 异常或 None) 列表
 
@@ -257,7 +318,7 @@ def parallel_map(items, fn, *, max_workers=None, desc=''):
                 out[i] = (None, e)
         return out
     t0 = time.time()
-    with ThreadPoolExecutor(max_workers=workers) as ex:
+    with thread_pool(workers) as ex:
         futs = {ex.submit(fn, it): i for i, it in enumerate(items)}
         for f in as_completed(futs):
             i = futs[f]
