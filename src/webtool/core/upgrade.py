@@ -121,6 +121,33 @@ def spec_url(spec=None):
     return 'https://pypi.org/simple/', 'index'
 
 
+_ERR_MARK = ('error', 'fatal', 'cannot', 'could not', 'no matching',
+             'permission denied', 'externally-managed', 'not found',
+             'timed out', 'ssl', 'certificate', 'proxy', 'denied',
+             'did not run successfully', 'exit code', 'unable to')
+# pip 的样板话术: 谁看都没用, 偏偏还带 "error" 字样, 最容易被截尾留下来
+_SKIP = ('note: this error originates from a subprocess',)
+
+
+def _pick(text, n=6):
+    """从 pip 输出里挑几行"说人话"的
+
+    pip 把真正的失败原因放在中间, 尾巴全是 "note: This error originates from a
+    subprocess..." 之类的样板 —— 直接截尾会让用户只看到"完了", 看不到"为什么"。
+    """
+    lines = [l.rstrip() for l in (text or '').splitlines() if l.strip()]
+    lines = [l for l in lines if not any(s in l.lower() for s in _SKIP)]
+    if not lines:
+        return []
+    picked = []
+    for l in lines:
+        if any(m in l.lower() for m in _ERR_MARK) and l not in picked:
+            picked.append(l)
+        if len(picked) >= n:
+            break
+    return picked or lines[-n:]
+
+
 def _hint(text):
     """把两个高频报错翻译成下一步动作 (用户不该去读 PEP 号)"""
     t = text or ''
@@ -195,7 +222,7 @@ def check(spec=None, env_extra=None, note=None):
     if rc != 0:
         info['state'] = 'unknown'
         info['error'] = (err or out).strip().splitlines()[-1:] and \
-            (err or out).strip().splitlines()[-1] or 'pip 返回 %s' % rc
+            ' | '.join(_pick(err or out, 3)) or 'pip 返回 %s' % rc
         info['hint'] = _hint((err or '') + (out or ''))
     elif new and cur and new != cur:
         info['state'] = 'behind'
@@ -261,15 +288,16 @@ def upgrade(spec=None, env_extra=None, note=None):
     if 'git+' in spec:
         args = ['install', '--force-reinstall', '--no-deps', spec]
     rc, out, err = _pip(args, env_extra=env_extra)
-    tail = [l for l in (out or '').strip().splitlines() if l.strip()][-6:]
+    tail = _pick(out, 4 if rc else 6)
+    if rc:                    # 真正的原因通常在 stderr, 别只盯 stdout
+        tail += [l for l in _pick(err, 5) if l not in tail]
     hint = _hint((err or '') + (out or '')) if rc else None
     if hint:
-        tail = tail[-2:] + ['怎么办: %s' % hint]
+        tail = tail + ['怎么办: %s' % hint]
     after = installed_version()
     res = {'ok': rc == 0, 'action': 'pip-upgrade' if rc == 0 else 'none',
            'version': after, 'route': _route_label(env_extra),
-           'log': ['pip: %s (%s)' % (spec, _route_label(env_extra))] + tail
-           + ([err.strip().splitlines()[-1]] if rc and err.strip() else [])}
+           'log': ['pip: %s (%s)' % (spec, _route_label(env_extra))] + tail}
     if note:
         res['route_note'] = note
         res['log'].insert(1, '注意: %s' % note)
@@ -298,7 +326,7 @@ def vcs_status(env_extra=None):
         return {'url': info['url'], 'installed': info.get('commit', ''),
                 'remote': None, 'behind': None,
                 'error': (r.stderr or '').strip().splitlines()[-1:] and
-                (r.stderr or '').strip().splitlines()[-1] or 'git ls-remote 失败'}
+                ' | '.join(_pick(r.stderr, 3)) or 'git ls-remote 失败'}
     remote = (r.stdout or '').strip().split('\t')[0].strip()
     got = info.get('commit', '')
     if not remote or not got:
