@@ -84,16 +84,18 @@ _PROXY_EPILOG = _verbatim("""子命令
   数据  geoip geosite geo asn
 
 例
-  webtool proxy set http://127.0.0.1:2080
+  webtool proxy set http://127.0.0.1:7890     # 端口换成你代理客户端监听的 (常见 7890/clash, 10809/v2rayN)
   webtool proxy test
   webtool proxy rules
   webtool proxy named hk http://127.0.0.1:2081
   webtool proxy rule add '{"domain":["example.com"]}' proxy:hk
-  webtool proxy geo""")
+  webtool proxy geo
+
+注: 上面都是举例地址, 没有任何一个是 webtool 的内置默认值 —— 没配就是直连。""")
 
 
 @app.command('proxy', epilog=_PROXY_EPILOG)
-def proxy_cmd(action: str = typer.Argument(..., help='子命令, 完整清单见下方目录 (或直接跑 webtool proxy)'),
+def proxy_cmd(action: str = typer.Argument(None, help='子命令, 完整清单见下方目录 (不填就打印目录)'),
               value: str = typer.Argument(None, help='代理地址; 或 rule/cert 的子命令; 或试算用的 URL'),
               user: str = typer.Argument(None, help='setpass/delpass 的用户名; rule add 的 match JSON; ruledel 的序号'),
               act: str = typer.Argument(None, help='rule add 的动作: direct/proxy/block/proxy:<名字>'),
@@ -102,6 +104,9 @@ def proxy_cmd(action: str = typer.Argument(..., help='子命令, 完整清单见
               apply: bool = typer.Option(False, '--apply', help='tidy: 落盘 (默认干跑, 落盘前自动备份)'),
               url: str = typer.Option(None, '--url', help='test: 探活目标 (默认 google generate_204)')):
     """代理配置: 选线路 / 存凭据(密文) / 按域名-IP-端口-协议-GeoIP 分流"""
+    if not action:
+        print(_PROXY_EPILOG)
+        return 0
     a = _CTX['args']
     a.action, a.value, a.user, a.act = action, value, user, act
     a.first, a.pos, a.apply, a.url = first, pos, apply, url
