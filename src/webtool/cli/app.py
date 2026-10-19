@@ -39,6 +39,8 @@ def _main(ctx: typer.Context,
     # --version / -V 不在 click 层, 由 main() 预扫 (子命令后面也能用), 见 main
     from webtool.core import logging as _log
     _log.setup(debug + _log.env_debug(), log_file=log_file)
+    from webtool.net import tls as _tls
+    _tls.broadcast_env()       # 信任根也广播给第三方库 (akshare/trafilatura/requests)
     _CTX.clear()
     _CTX.update(proxy=proxy, no_cache=no_cache, args=SimpleNamespace())
 

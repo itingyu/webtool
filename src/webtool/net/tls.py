@@ -69,7 +69,7 @@ import threading
 
 __all__ = ['TlsError', 'TlsConfigError', 'policy', 'ssl_context', 'describe',
            'insecure_hosts', 'host_of', 'hit_insecure', 'is_tls_error',
-           'ca_available', 'bundled_ca', 'ca_bundle_candidates', 'extra_certs',
+           'ca_available', 'broadcast_env', 'bundled_ca', 'ca_bundle_candidates', 'extra_certs',
            'extra_dirs', 'cert_advice', 'rule_params', 'tls_rules',
            'cert_sites', 'site_certs', 'cert_rules', 'cert_status',
            'resolve_cert_path']
@@ -214,6 +214,22 @@ def bundled_ca():
         except OSError:
             continue
     return None
+
+
+def broadcast_env():
+    """把选定的信任根广播给同进程的第三方库 (akshare / trafilatura / requests 等)
+
+    本模块自己不走环境变量 (见 policy 的说明: 免得三通道三套根), 但第三方库只会读
+    环境变量 —— 在"宿主没装 CA 包"或"企业代理 MITM"的机器上, 它们会各自报证书校验
+    失败, 而且报错指不到根因。这里把同一份信任根塞给它们, 让整条流水线口径一致。
+    用户自己设过的环境变量不覆盖 (那是他的选择)。
+    """
+    ca = bundled_ca()
+    if not ca:
+        return None
+    for k in ('SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE'):
+        os.environ.setdefault(k, ca)
+    return ca
 
 def extra_certs():
     """站点专有证书: 用户目录 `~/.webtool/certs/extra/` + 包内预置, 按名去重

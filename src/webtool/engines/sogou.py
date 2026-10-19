@@ -20,7 +20,7 @@ import re
 import time
 import urllib.parse
 
-from webtool.net import intercept, netx, transport
+from webtool.net import intercept, netx, tls, transport
 
 logger = get_logger(__name__)
 
@@ -137,7 +137,9 @@ def _mobile_search(q, max_results, proxy, timeout, _inner=False):
             # impersonate 与 UA 档案同源: Android UA 必须配 chrome131_android
             # TLS 指纹 (桌面 chrome131 TLS + Android UA 是自曝组合)
             s = transport._cr.Session(impersonate='chrome131_android',
-                                      proxy=px or None)
+                                      proxy=px or None,
+                                      # 证书策略跟其他通道同一份决定, 别让这条腿自己挑根
+                                      verify=tls.policy(M_ENDPOINT))
             transport.warm_session(s, M_HOME, timeout=timeout, profile=prof)
             if attempt:
                 time.sleep(1.2)          # 被拦后换会话稍微喘口气
