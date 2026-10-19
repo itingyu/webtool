@@ -148,7 +148,7 @@ check(os.path.isdir(TMP), '卸载后 ~/.webtool 仍在')
 
 # ── 5. upgrade 的 pip 参数里不该出现任何"清home"的动作 ──────────────────
 from webtool.core import upgrade as up            # noqa: E402
-_real = up._pip
+_real, _real_fetch = up._pip, up.fetch_git
 
 
 def _capture(args, timeout=None, env_extra=None):
@@ -156,13 +156,23 @@ def _capture(args, timeout=None, env_extra=None):
     return 0, '', ''
 
 
+# 三步走之后 upgrade 先 fetch_git (真 git clone, 要网络), 这里两步都喂成假的。
+# 断言只关心"pip 参数里没有卸载/删数据的动作" —— 主路与退路各验一次。
 up._pip = _capture
+up.fetch_git = lambda *a, **k: (TMP, [], None)      # ① 取到源码
 up.upgrade('webtool @ git+https://github.com/itingyu/webtool')
-check(_capture.args[:3] == ['install', '--force-reinstall', '--no-deps'] and
-      not any(a in _capture.args for a in ('uninstall', '--purge', 'clean')),
-      'upgrade 只跑 pip install --force-reinstall --no-deps (不卸载/不删数据)',
-      str(_capture.args))
+_args = getattr(_capture, 'args', [])
+check(_args[:3] == ['install', '--force-reinstall', '--no-deps'] and TMP in _args,
+      '取到源码: pip install --force-reinstall --no-deps <本地目录>', str(_args))
+_capture.args = []
+up.fetch_git = lambda *a, **k: (None, [], None)     # ② 取不到源码的退路
+up.upgrade('webtool @ git+https://github.com/itingyu/webtool')
+_args2 = getattr(_capture, 'args', [])
+check(_args2[:1] == ['install']
+      and not any(a in _args2 for a in ('uninstall', '--purge', 'clean')),
+      '退路: pip 装 VCS 源, 同样不卸载/不删数据', str(_args2))
 up._pip = _real
+up.fetch_git = _real_fetch
 
 print()
 if fails:
