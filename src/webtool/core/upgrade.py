@@ -301,13 +301,21 @@ def describe(info):
 
 
 def _route_label(env_extra):
-    """把代理变量翻成人话给输出看 (密码打码)"""
-    prox = (env_extra or {}).get('HTTPS_PROXY') or \
-        (env_extra or {}).get('https_proxy')
+    """把代理变量翻成人话给输出看 (密码打码)
+
+    `_pip_proxy_env` 把代理塞在 GIT_CONFIG_VALUE_0 里 (默认只给 git); 再只看
+    HTTPS_PROXY 就会一律显示"直连" —— 那是骗人。
+    """
+    env = env_extra or {}
+    prox = env.get('HTTPS_PROXY') or env.get('https_proxy')
+    if not prox and env.get('GIT_CONFIG_KEY_0') == 'http.proxy':
+        prox = env.get('GIT_CONFIG_VALUE_0')
     if prox:
         from webtool.core.secrets_store import redact
-        return '走代理 %s' % redact(prox)
-    if (env_extra or {}).get('NO_PROXY'):
+        who = 'pip+git' if env.get('HTTP_PROXY') or env.get('http_proxy') \
+            else '只给 git'
+        return '走代理 %s (%s)' % (redact(prox), who)
+    if env.get('NO_PROXY'):
         return '直连 (按规则表)'
     return '直连'
 
