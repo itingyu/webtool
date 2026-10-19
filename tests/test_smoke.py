@@ -756,9 +756,13 @@ _px_old_cfg, _px_old_dir = _px.store.CONFIG_PATH, _px.store.USER_DIR
 _px.store.CONFIG_PATH, _px.store.USER_DIR = str(_tmpdir / 'config.json'), _tmpdir
 try:
     _cd.USER_DIR = _tmpdir
+    # proxy_fallback 必须关: 兜底会去探 :9 (死端口) 然后"本次改走直连",
+    # 那是另一个功能 (net/proxy/reach.py, 默认 on); 这条断言要验的是
+    # "线路严格跟随配置", 不是"代理挂了怎么办"。
+    # proxies 是老键, 白名单已不认 (写进去只会刷告警), 别再往配置里塞。
     _json.dump({'proxy': 'http://127.0.0.1:9',
-                'rules_file': str(_tmpdir / 'rules.json'),
-                'proxies': {'default': 'http://127.0.0.1:2080'}},
+                'proxy_fallback': 'off',
+                'rules_file': str(_tmpdir / 'rules.json')},
                open(_tmpdir / 'config.json', 'w'), ensure_ascii=False)
     _routing.reset_cache()
     # push2/push2delay 的直连现在只由规则表决定, 没有硬编码名单抢在它前面;
@@ -953,7 +957,9 @@ check(_ex.resolve_mode('nosuch') == 'auto', '配置写错名字退回 auto, 不�
 
 _t2, _m2 = _ex.run_chain(_page, 'http://x.test/a', {}, mode='inscriptis')
 check(_m2.get('_via') == 'inscriptis', '指定提取器就用指定的那个')
-check(len(_t2) > len(_rt), '整页 dump 指定了也给 (比择优链长)')
+# 比正文长度, 不比整串: auto 那条带 YAML 元数据头, 直接比长度其实在比头
+check(len(_ex.strip_front_matter(_t2)) > len(_ex.strip_front_matter(_rt)),
+      '整页 dump 指定了也给 (比择优链长)')
 _t3, _m3 = _ex.run_chain(_page, 'http://x.test/a', {}, mode='boilerplate')
 check(_m3.get('_via') == 'boilerplate', '指定 boilerplate 生效')
 check('微信扫一扫' not in _t3, '指定的那个照样干净')
