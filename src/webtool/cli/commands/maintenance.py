@@ -2,6 +2,8 @@
 
 从 app.py 拆出, 注册到共享的 Typer app。共享 plumbing 见 webtool.cli._ctx。
 """
+import os
+import re
 import sys
 from typing import List
 
@@ -13,42 +15,110 @@ from webtool.cli._ctx import (
 )
 from webtool.cli._help import verbatim as _verbatim
 from webtool.cli.app import app
+from webtool.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 def _pip_route_note(spec, env):
-    """线路环境变量对**这个源**到底有没有用 —— 没用就得说出来
+    """线路对**这个源**到底有没有用 —— 没用就得说出来
 
-    ssh / git:// 源是子进程 ssh、git-daemon 出网, 它们眼里没有 HTTP(S)_PROXY,
-    规则表判了代理也是白判。不说清楚就会变成"线路: 走代理"却实际直连。
+    ssh / git:// 源是子进程 ssh、git-daemon 出网, 它们眼里没有 http.proxy,
+    规则表判了代理也是白判。判据要自己问规则表 (代理现在塞在 GIT_CONFIG_* 里,
+    从环境变量上看不出来), 否则就会变成"线路: 走代理"却实际直连。
     """
     from webtool.core import upgrade as _up
-    _url, transport = _up.spec_url(spec)
-    if transport in ('https', 'index', 'local'):
-        return None                      # local 压根不出网, 谈不上代理白判
-    if not (env or {}).get('HTTPS_PROXY'):
+    url, transport = _up.spec_url(spec)
+    if transport in ('https', 'local'):
+        return None                      # https 这条腿已经拿到代理; local 不出网
+    from webtool.net import netx
+    if not netx.resolve_proxy('auto', url):
         return None                      # 本来就是直连, 没骗人
-    return ('源 (%s) 的传输方式不认 HTTP(S)_PROXY —— 代理是给 http(s) 用的, '
+    return ('源 (%s) 的传输方式吃不到代理 —— 代理是给 http(s) 用的, '
             '这条实际直连。要真走代理, 换 https 源: '
             '`webtool upgrade --from git+https://…`' % transport)
 
-def _pip_proxy_env(spec=None):
-    """pip/git 是子进程, 代理只能靠环境变量给 —— 但如果拿我们自研的 httpx
-    专家库那套再包一层就等于给自己加坑, 所以直接问 netx, 它负责看 rules.json。
+def _pip_tls_env(spec=None):
+    """证书与"别卡死"的环境变量, 能给的都给子进程
 
-    判线路要用**源的地址**, 不是写死的 github.com: `--from` 换源 (镜像/内网 gitlab)
+    pip/git 读不到 webtool 的配置, 只能在环境变量这层对齐 —— 少给一项, 它就会
+    自己撞一次墙:
+      - 有信任根 → 指给它 (PIP_CERT / GIT_SSL_CAINFO / *_CA_BUNDLE), 校验照做
+      - `ssl_verify off` → 说清楚别校验 (git 有开关; pip 没有, 只能按主机放行)
+      - 不弹交互: 要凭据时立刻失败, 而不是挂在那儿等人输入 —— 脚本里最难查
+        的一种"卡住"就是它
+      - 超时与重试给死: 网络抖一下不该让整个升级失败
+    没关校验也没信任根时, 只留"别卡死"那几项, 不替用户把证书校验降级。
+    """
+    from webtool.core import upgrade as _up
+    from webtool.net import tls
+    env = {'GIT_TERMINAL_PROMPT': '0', 'PIP_NO_INPUT': '1',
+           'PIP_DEFAULT_TIMEOUT': '60', 'PIP_RETRIES': '3'}
+    for cand in tls.ca_bundle_candidates():
+        if cand and os.path.isfile(str(cand)):
+            bundle = str(cand)
+            env.update({'PIP_CERT': bundle, 'GIT_SSL_CAINFO': bundle,
+                        'REQUESTS_CA_BUNDLE': bundle, 'CURL_CA_BUNDLE': bundle})
+            break
+    url, transport = _up.spec_url(spec)
+    try:
+        if tls.policy(url) is not False:
+            return env
+    except Exception:
+        return env
+    env['GIT_SSL_NO_VERIFY'] = '1'
+    env['PYTHONHTTPSVERIFY'] = '0'
+    hosts = []
+    m = re.match(r'https?://([^/:]+)', url or '')
+    if m:
+        hosts.append(m.group(1))
+    if transport == 'index':                 # 还得放行托管包文件的那台
+        hosts += ['pypi.org', 'files.pythonhosted.org']
+    if hosts:
+        env['PIP_TRUSTED_HOST'] = ' '.join(dict.fromkeys(hosts))
+    return env
+
+
+def _pip_proxy_env(spec=None):
+    """子进程的环境: 证书策略见 _pip_tls_env, 代理**只给 git**, 不给 pip
+
+    判线路用**源的地址**, 不是写死的 github.com: `--from` 换源 (镜像/内网 gitlab)
     时, 那条源的线路跟 github 未必一样。
+
+    代理为什么不塞 HTTP_PROXY 系变量: 那会把 pip 自己的请求也一起带走。pip 要的是
+    PyPI (多半直连可达), 被代理带着反而容易卡死, 报出来还是"代理连不上" —— 跟真因
+    差着十万八千里。真正需要代理的只有 git 那条腿, 所以用 GIT_CONFIG_* 单独塞给它。
     """
     from webtool.core import upgrade as _up
     from webtool.net import netx
-    route = netx.resolve_proxy('auto', _up.spec_url(spec)[0])
-    if not route:
-        # 规则表判为直连时, 原本会给子进程塞 NO_PROXY=* —— 但那会把用户**显式**
-        # export 的代理一起压掉 (症状: "我明明挂了代理, 升级还是直连失败")。线路判断
-        # 不读环境变量是仓库规矩, 这里干脆什么都不声明: 环境里有什么, pip 和它拉起
-        # 的 git 就原样继承 —— 那是操作者自己的选择。
-        return None
-    return {'HTTP_PROXY': route, 'HTTPS_PROXY': route, 'ALL_PROXY': route,
-            'http_proxy': route, 'https_proxy': route, 'all_proxy': route,
-            'NO_PROXY': '', 'no_proxy': ''}
+    out = dict(_pip_tls_env(spec))
+    url, transport = _up.spec_url(spec)
+    route = netx.resolve_proxy('auto', url)
+    if not route or transport != 'https':
+        # 只有 git-over-https 这条腿要代理: ssh / git:// 吃不到 http.proxy, index
+        # 则是 pip 自己在拉包 —— pip 不该走代理 (它要的 PyPI 多半直连可达), 免得被
+        # 代理带着卡死, 报出来还成了"代理连不上"。
+        return out or None
+    # GIT_CONFIG_* 是 git 认的"用环境变量塞配置"写法 (2.31+), 只落在 git 身上
+    out.update({'GIT_CONFIG_COUNT': '1',
+                'GIT_CONFIG_KEY_0': 'http.proxy',
+                'GIT_CONFIG_VALUE_0': route})
+    try:
+        from webtool.net.proxy import load_config
+        _want = str((load_config() or {}).get('pip_proxy', 'off'))
+    except Exception:
+        _want = 'off'
+    if _want.strip().lower() in ('on', '1', 'true', 'yes'):
+        # pip_proxy on: 连 pip 自己的请求也交给代理。默认不给 —— pip 要的 PyPI 多半
+        # 直连可达, 带上代理反而容易卡死, 还报成"代理连不上"。企业网里 pip 只能靠
+        # 代理出网时才开这个。
+        out.update({'HTTP_PROXY': route, 'HTTPS_PROXY': route, 'ALL_PROXY': route,
+                    'http_proxy': route, 'https_proxy': route,
+                    'all_proxy': route,
+                    'NO_PROXY': 'localhost,127.0.0.1,::1',
+                    'no_proxy': 'localhost,127.0.0.1,::1'})
+    keys = ','.join(sorted(out))
+    logger.debug('upgrade | 给子进程的环境: %s (代理只给 git: %s)', keys, route)
+    return out
 
 def _upgrade_run(check_only, spec, fmt, output):
     """upgrade 与别名 update 共用 (实现只一处)"""
