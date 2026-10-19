@@ -2,7 +2,6 @@
 
 从 app.py 拆出, 注册到共享的 Typer app。共享 plumbing 见 webtool.cli._ctx。
 """
-import os
 import sys
 from typing import List
 
@@ -42,16 +41,11 @@ def _pip_proxy_env(spec=None):
     from webtool.net import netx
     route = netx.resolve_proxy('auto', _up.spec_url(spec)[0])
     if not route:
-        # 规则表判为直连: 清掉环境里可能存在的代理, 别让子进程偷偷走代理
-        # —— 但用户**显式**在环境里设了代理就不许动: 那是他的明确选择 (规则表没
-        # 覆盖到的网络, 比如只在 shell 里挂的代理), 我们再塞 NO_PROXY=* 等于把
-        # "我说的才算"盖到他头上 —— 症状就是"我明明 export 了代理还是直连".
-        mine = {k: os.environ[k] for k in
-                ('HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy',
-                 'ALL_PROXY', 'all_proxy') if os.environ.get(k)}
-        if mine:
-            return mine
-        return {'NO_PROXY': '*', 'no_proxy': '*'}
+        # 规则表判为直连时, 原本会给子进程塞 NO_PROXY=* —— 但那会把用户**显式**
+        # export 的代理一起压掉 (症状: "我明明挂了代理, 升级还是直连失败")。线路判断
+        # 不读环境变量是仓库规矩, 这里干脆什么都不声明: 环境里有什么, pip 和它拉起
+        # 的 git 就原样继承 —— 那是操作者自己的选择。
+        return None
     return {'HTTP_PROXY': route, 'HTTPS_PROXY': route, 'ALL_PROXY': route,
             'http_proxy': route, 'https_proxy': route, 'all_proxy': route,
             'NO_PROXY': '', 'no_proxy': ''}
