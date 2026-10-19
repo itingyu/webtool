@@ -501,7 +501,7 @@ python3 -m pytest tests -q             # 手写脚本以子进程方式逐个跑
 ruff check src tests                   # 门禁: E9 + F 全开 (含 F401)
 ```
 
-装了可编辑包时**新增模块必须重装**（`pip install -e .`）——否则 CLI 报"装包不完整"。
+新增模块后**必须重装**（`pip install --force-reinstall --no-deps .`，**不要 `-e`**）——源码目录只是开发时的临时视图，正式装要落成 site-packages 里的独立一份；否则 CLI 报"装包不完整"。
 分层守卫钉在 `tests/test_layering.py`（含函数内延迟 import 的 ast 扫描）：依赖反向、
 `sources/` 越层、注册表与实现漂移都会当场红。
 

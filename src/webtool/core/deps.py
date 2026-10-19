@@ -63,7 +63,7 @@ def termux_command(lib):
 
 
 def reinstall_command():
-    """按当前装法给出"重装 webtool (连依赖)"的确切命令"""
+    """按当前装法给出"重装 webtool"的确切命令"""
     from webtool.core import uninstall as _un
     try:
         mode = _un.install_mode()[0]
@@ -74,9 +74,11 @@ def reinstall_command():
         # pipx reinstall 会照原样重装并补齐依赖, 比 install --force 更少副作用
         return 'pipx reinstall webtool'
     if mode == 'editable':
-        # 源码/可编辑安装: 必须在仓库根目录重新解析依赖, 别去 PyPI 拉一份
-        # 同名包把可编辑链接顶掉
-        return f'{py} -m pip install -e .   (在 webtool 源码目录里跑)'
+        # 源码目录运行只是一时的, 正式装要落成 site-packages 里的独立一份 ——
+        # 一律不用 -e (可编辑本质是软链回源码, 源码一挪就断, 还和 upgrade 打架)。
+        # --no-deps 只换本体, 缺的依赖交给 upgrade_deps 那一步补
+        return (f'{py} -m pip install --force-reinstall --no-deps .   '
+                f'(在 webtool 源码目录里跑; 装成正式包, 不要 -e)')
     if mode == 'system':
         # 系统 Python 被 PEP 668 保护: 裸 pip 会报 externally-managed-environment
         return (f'pipx install --force webtool   (推荐) 或 '
