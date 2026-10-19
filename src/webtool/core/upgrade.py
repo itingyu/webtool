@@ -169,7 +169,17 @@ def _hint(text):
         return ('这次握手是 pip/git 在做, webtool 的 ssl_verify / ca_bundle 管不着 '
                 '它俩。把企业根证书喂给它们: `export GIT_SSL_CAINFO=/path/corp-root.pem` '
                 '(pip 同理用 PIP_CERT), 或临时 `export GIT_SSL_NO_VERIFY=1`; '
-                '也可绕开 git: `webtool upgrade --from webtool` 直接走 PyPI。')
+                '也可先把仓库弄到本地, 再 `webtool upgrade --from /本地/webtool`。')
+    if 'cannot find command' in low:
+        return ('pip 装 git 源必须调 git, 这台机器上没有: '
+                '`apt install git` / `apk add git` / Windows 装 Git for Windows 后重开终端; '
+                '或先把仓库弄到本地, 再 `webtool upgrade --from /本地/webtool`。')
+    if any(s in low for s in ('could not connect', 'failed to connect',
+                              'could not resolve', 'connection timed out',
+                              'network is unreachable', 'temporary failure')):
+        return ('连不上源码仓库 (本项目只从 git 分发, PyPI 上没有)。代理只认环境变量: '
+                '`HTTPS_PROXY=http://127.0.0.1:2080 webtool upgrade`; '
+                '或把仓库弄到本地, 再 `webtool upgrade --from /本地/webtool`。')
     return None
 
 
