@@ -349,6 +349,14 @@ webtool proxy cert sync        # 按证书自称的域名 (SAN/CN) 自动写好�
 
 证书失败会分**类别**报，并给出对应处置（`tls.cert_advice`）：域名不符 / 自签 / 过期 / 缺中间证书 / 需旧版 TLS 重协商 —— 各不相同，别一律去改 `ca_bundle`。
 
+### 出网只有一条通道
+
+`requests` 也收进来了：启动时 `adapters.patch_requests()` 把 transport 适配器挂成 `requests.Session` 的默认出口。**第三方库自己造的会话**（akshare、trafilatura 等）因此同样按目标域名现算线路、走 `tls.policy` 校验证书、补齐缺省头指纹、按 (线路, 主机) 复用连接。库若自己再 `mount` 适配器，仍以它为准。
+
+- `ssl_verify off` 时这层一并放行（`requests.Session.request` 注入 `verify=False`），所以总开关是"全站"，不是"只有 webtool 自己的通道"
+- 排查"是不是这层惹的"：`WEBTOOL_NO_PATCH_REQUESTS=1` 关掉整层
+- 管不到的三处：pip/git 是**子进程**（用 `GIT_SSL_CAINFO` / `PIP_CERT` 喂根证书）；sogou 的 Android TLS 指纹腿刻意保留原生会话（证书仍走策略）；`netx` 的 urllib 兜底通道是 net 层内部实现，策略与线路同源、传输栈不同
+
 ### 代理与分流
 
 ```bash

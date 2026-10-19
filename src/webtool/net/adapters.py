@@ -51,6 +51,38 @@ def requests_session(*, proxy='auto', kind='api', profile=None, timeout=None,
     return s
 
 
+def patch_requests(**kw):
+    """把 transport 适配器挂成**所有** requests.Session 的默认出口
+
+    第三方库 (akshare / trafilatura / 任何内部自建 Session 的代码) 不走我们的
+    工厂, 它们只认 python-requests —— 这一步让它们也回到统一通道: 线路按目标域名
+    现算、证书走 `tls.policy`、缺省头补指纹、连接按 (线路, 主机) 复用。
+
+    想自己挂适配器的库仍然优先: 它在 `__init__` 之后 mount, 覆盖我们这一次。
+    幂等; `WEBTOOL_NO_PATCH_REQUESTS=1` 可整体关掉 (排查"是不是这层惹的")。
+    """
+    import os
+    if os.environ.get('WEBTOOL_NO_PATCH_REQUESTS'):
+        return False
+    import requests
+    if getattr(requests.Session, '_webtool_unified', False):
+        return False
+    _orig_init = requests.Session.__init__
+
+    def _init(self, *a, **k):
+        _orig_init(self, *a, **k)
+        try:
+            ad = _transport_adapter()(**kw)
+            self.mount('http://', ad)
+            self.mount('https://', ad)
+        except Exception:                     # noqa: BLE001
+            pass                              # 挂不上就退回原生适配器, 不能连累调用方
+
+    requests.Session.__init__ = _init
+    requests.Session._webtool_unified = True
+    return True
+
+
 def _transport_adapter():
     """懒建适配器类: requests 只有真用这条通道时才需要 (懒导入依赖)"""
     if 'cls' in _ADAPTER:

@@ -193,13 +193,11 @@ def ths_industry_rows(limit=10):
         # q 站偶发回 401 验证页 (html 为空), 换 v cookie 重试一次
         # (带 Cookie: v=xxx 可过, 因为 sources 层会话缺这个头)
         import requests as _rq
-        from webtool.net import tls as _tls
         from webtool.stock.bridge.sources import _routing
         s = _rq.Session()
         s.trust_env = False               # 线路只由配置/规则表决定
-        # trust_env=False 同时挡掉了 CA 环境变量, 证书得自己按策略给
-        # (企业根/自签站在 ca_bundle 或站点规则里, verify_hosts 关闭也在这条链上)
-        s.verify = _tls.policy('https://q.10jqka.com.cn/')
+        # 证书不用自己管: 这个会话已被 adapters.patch_requests 挂上 transport 适配器,
+        # 每请求按 tls.policy 算 (钉死一份 CA 反而会盖掉站点级规则)
         s.proxies = _routing.proxies_for('https://q.10jqka.com.cn/') or {}
         s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                           'Referer': 'https://q.10jqka.com.cn/',

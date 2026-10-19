@@ -41,6 +41,8 @@ def _main(ctx: typer.Context,
     _log.setup(debug + _log.env_debug(), log_file=log_file)
     from webtool.net import tls as _tls
     _tls.broadcast_env()       # 信任根也广播给第三方库 (akshare/trafilatura/requests)
+    from webtool.net import adapters as _ad
+    _ad.patch_requests()       # 第三方库自建的 requests 会话也回到统一通道
     _CTX.clear()
     _CTX.update(proxy=proxy, no_cache=no_cache, args=SimpleNamespace())
 
