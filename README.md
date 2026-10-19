@@ -17,7 +17,7 @@ pip install --user 'git+https://github.com/itingyu/webtool'    # --user 是开�
 ```
 
 Python 依赖全装（Pillow 已随包，`pic` 与 `banner --font big` 用它栅格化图像/汉字）。
-唯一的系统工具依赖：`video` / `music` 解码要 **ffmpeg** 与 **ffprobe**，不是 Python 包、进不了 pyproject，缺了这两个命令会直接报错并提示装法（`apk add ffmpeg` / `apt install ffmpeg`）。
+唯一的系统工具依赖：`video` / `music` 解码要 **ffmpeg**（**ffprobe 可选** —— 没有它就用 ffmpeg 解一帧、问 Pillow 要尺寸）。它进不了 pyproject，所以运行时按三条路找，找到即用：① 环境变量 `WEBTOOL_FFMPEG` / `WEBTOOL_FFPROBE` 指路径；② PATH 里找（`apk add ffmpeg` / `apt install ffmpeg` / Windows、macOS 装官方便携包）；③ Python 包自带的静态二进制（`pip install imageio-ffmpeg` 带 ffmpeg，`pip install static-ffmpeg` 两个都带，装上就自动认出，不必再配）。三条都没有才报错，并把这三条路列出来。
 
 Termux 上没有 PyPI 轮子（`cryptography`/`numpy`/`pandas`/`lxml` 要源码构建，rustup 不认 `android` target），先用包管理器装原生库再 pip：
 
@@ -282,7 +282,7 @@ webtool stock docs-stats
 ## 字符渲染 (banner / pic / video / music)
 
 终端里把文字、图片、视频、音乐画成字符动画，渲染全在本地。Python 依赖已随包（Pillow）；
-`video` / `music` 另需系统的 **ffmpeg** 与 **ffprobe**。
+`video` / `music` 另需 **ffmpeg**（ffprobe 可选，来源见文首「依赖」段）。
 
 ```bash
 webtool banner "HELLO" --font slant        # 文字排大字符 (6 种点阵字体, --list 看全)

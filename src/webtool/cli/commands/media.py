@@ -3,6 +3,7 @@
 不走 _run: 动画要边算边刷 stdout, 被捕获住就成幻灯片了。
 解码一律交给 ffmpeg (缺了就直接报错, 不偷偷降级成"只出第一帧")。
 """
+import io
 import math
 import os
 import struct
@@ -96,21 +97,37 @@ class _Live:
         return bytes(out)
 
     def probe_size(self):
-        """头字节喂进 ffprobe 的管道 —— 跟 ffmpeg 一样不可 seek, 读得动才返回尺寸
+        """头字节喂进探针的管道 —— 跟 ffmpeg 一样不可 seek, 读得动才返回尺寸
 
         别写临时文件让 ffprobe 去 seek: 那样"索引在文件尾"的 mp4 也能探出尺寸,
         可 ffmpeg 从管道读同一个文件必然失败, 等于白探一场。
         """
         if not self.head:
             return None
+        if _exe('ffprobe'):
+            try:
+                r = subprocess.run([_exe('ffprobe'), '-v', 'error', '-select_streams', 'v:0',
+                                    '-show_entries', 'stream=width,height', '-of', 'csv=p=0',
+                                    '-i', 'pipe:0'],
+                                   input=self.head, capture_output=True, timeout=90)
+                out = r.stdout.decode().strip().splitlines()[0]
+                w, h = (int(x) for x in out.split(',')[:2])
+                return w, h
+            except Exception:
+                return None
+        return self._pipe_size()
+
+    def _pipe_size(self):
+        """没 ffprobe 时: 头字节喂 ffmpeg 解一帧, 交给 PIL 量 (同样是不可 seek 的处境)"""
         try:
-            r = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0',
-                                '-show_entries', 'stream=width,height', '-of', 'csv=p=0',
-                                '-i', 'pipe:0'],
-                               input=self.head, capture_output=True, timeout=60)
-            out = r.stdout.decode().strip().split('\n')[0]
-            w, h = (int(x) for x in out.split(',')[:2])
-            return w, h
+            r = subprocess.run([_exe('ffmpeg'), '-v', 'error', '-i', 'pipe:0', '-frames:v', '1',
+                                '-f', 'image2pipe', '-vcodec', 'png', '-'],
+                               input=self.head, capture_output=True, timeout=180)
+            if r.returncode != 0 or not r.stdout:
+                return None
+            from PIL import Image
+            with Image.open(io.BytesIO(r.stdout)) as im:
+                return im.size
         except Exception:
             return None
 
@@ -118,14 +135,19 @@ class _Live:
         """头字节能不能顺序解出来 (不可 seek, 跟 ffmpeg 同处境) → 不能就别走管道"""
         if not self.head:
             return False
-        try:
-            r = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', sel,
-                                '-show_entries', 'stream=codec_name', '-of', 'csv=p=0',
-                                '-i', 'pipe:0'],
-                               input=self.head, capture_output=True, timeout=60)
-            return r.returncode == 0 and bool(r.stdout.strip())
-        except Exception:
-            return False
+        if _exe('ffprobe'):
+            try:
+                r = subprocess.run([_exe('ffprobe'), '-v', 'error', '-select_streams', sel,
+                                    '-show_entries', 'stream=codec_name', '-of', 'csv=p=0',
+                                    '-i', 'pipe:0'],
+                                   input=self.head, capture_output=True, timeout=90)
+                return r.returncode == 0 and bool(r.stdout.strip())
+            except Exception:
+                return False
+        r = subprocess.run([_exe('ffmpeg'), '-v', 'info', '-i', 'pipe:0'], input=self.head,
+                           capture_output=True, timeout=90)
+        want = 'Audio:' if sel.startswith('a') else 'Video:'
+        return want in r.stderr.decode('utf-8', 'replace')
 
     def spill(self):
         """流式读不了 → 头 + 剩余字节落盘, 返回临时文件路径 (退路: 整段下载)"""
@@ -163,10 +185,45 @@ class _Live:
             pass
 
 
+_FF_CACHE = {}
+
+
+def _py_pkg_exe(name):
+    """Python 包自带的静态二进制 (省得装系统包): static-ffmpeg / imageio-ffmpeg
+
+    动态导入, 不写 import 语句: 这俩是可选的, 不进 pyproject —— musl 上没有轮子,
+    塞进核心依赖会把 Alpine 上的安装搞挂; 也不该被依赖审计当成“声明缺失”。
+    """
+    import importlib
+    try:
+        sf = importlib.import_module('static_ffmpeg.run')      # pip install static-ffmpeg
+        a, b = sf.get_or_fetch_platform_executables_else_raise()
+        return a if name == 'ffmpeg' else b
+    except Exception:
+        pass
+    if name == 'ffmpeg':
+        try:
+            iio = importlib.import_module('imageio_ffmpeg')    # pip install imageio-ffmpeg
+            return iio.get_ffmpeg_exe()
+        except Exception:
+            pass
+    return None
+
+
+def _exe(name):
+    """ffmpeg / ffprobe 的实际路径: 环境变量 → PATH → Python 包 (结果缓存)"""
+    if name not in _FF_CACHE:
+        env = os.environ.get('WEBTOOL_' + name.upper())
+        path = env if env and os.access(env, os.X_OK) else (_which(name) or _py_pkg_exe(name))
+        _FF_CACHE[name] = path if path and os.access(path, os.X_OK) else None
+    return _FF_CACHE[name]
+
+
 def _need(*tools):
-    miss = [t for t in tools if not _which(t)]
+    miss = [t for t in tools if not _exe(t)]
     if miss:
-        raise RuntimeError(f'需要 {", ".join(miss)} (装一个: apk add ffmpeg / apt install ffmpeg)')
+        raise RuntimeError('需要 ' + ', '.join(miss) + ' (三选一: apk add ffmpeg / apt install ffmpeg; '
+                           'pip install imageio-ffmpeg; WEBTOOL_' + miss[0].upper() + '=/path/to/binary)')
 
 
 def _which(tool):
@@ -197,29 +254,52 @@ def _child_env(src):
 
 
 def _probe_size(src, env=None):
-    """视频尺寸 (字符画要按比例算行数); src 是 URL 时 ffprobe 自己用 range 取头, 不整段下"""
-    r = subprocess.run(['ffprobe', '-v', 'error', *_probe_flags(src), '-select_streams', 'v:0',
-                        '-show_entries', 'stream=width,height', '-of', 'csv=p=0', src],
-                       capture_output=True, text=True, env=env)
-    out = r.stdout.strip().splitlines()[0].strip() if r.stdout.strip() else ''
-    if ',' not in out:
-        last = r.stderr.strip().splitlines()[-1][:70] if r.stderr.strip() else 'ffprobe 没输出'
-        raise OSError('读不出视频尺寸 (不是视频? 或文件不完整): ' + last)
-    w, h = (int(x) for x in out.split(',')[:2])
-    return w, h
+    """视频尺寸 (字符画要按比例算行数); 没装 ffprobe 就解一帧交给 PIL 量"""
+    if _exe('ffprobe'):
+        r = subprocess.run([_exe('ffprobe'), '-v', 'error', *_probe_flags(src),
+                            '-select_streams', 'v:0', '-show_entries', 'stream=width,height',
+                            '-of', 'csv=p=0', src], capture_output=True, text=True, env=env)
+        out = r.stdout.strip().splitlines()[0].strip() if r.stdout.strip() else ''
+        if ',' in out:
+            w, h = (int(x) for x in out.split(',')[:2])
+            return w, h
+    return _probe_size_by_frame(src, env)
+
+
+def _probe_size_by_frame(src, env=None):
+    """ffmpeg 解第一帧成 PNG, 交给 PIL 量 (Pillow 是硬依赖); 解不出来就是读不动"""
+    from PIL import Image
+    fd, png = tempfile.mkstemp(suffix='.png')
+    os.close(fd)
+    try:
+        r = subprocess.run([_exe('ffmpeg'), '-v', 'error', *_probe_flags(src), '-i', src,
+                            '-frames:v', '1', '-y', png], capture_output=True, env=env)
+        if r.returncode != 0 or not os.path.getsize(png):
+            tail = r.stderr.decode('utf-8', 'replace').strip().splitlines()
+            raise OSError('读不出视频尺寸 (不是视频? 或文件不完整): '
+                          + (tail[-1][:70] if tail else 'ffmpeg 没输出'))
+        with Image.open(png) as im:
+            return im.size
+    finally:
+        if os.path.exists(png):
+            os.unlink(png)
 
 
 def _can_read(src, env=None, sel='a:0'):
     """URL 能不能交给 ffmpeg 自己读 (只看能不能解出这条流, 不看尺寸)"""
-    r = subprocess.run(['ffprobe', '-v', 'error', *_probe_flags(src), '-select_streams', sel,
-                        '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', src],
+    if _exe('ffprobe'):
+        r = subprocess.run([_exe('ffprobe'), '-v', 'error', *_probe_flags(src),
+                            '-select_streams', sel, '-show_entries', 'stream=codec_name',
+                            '-of', 'csv=p=0', src], capture_output=True, text=True, env=env)
+        return r.returncode == 0 and bool(r.stdout.strip())
+    r = subprocess.run([_exe('ffmpeg'), '-v', 'info', *_probe_flags(src), '-i', src],
                        capture_output=True, text=True, env=env)
-    return r.returncode == 0 and bool(r.stdout.strip())
+    return ('Audio:' if sel.startswith('a') else 'Video:') in r.stderr
 
 
 def _frames(src, w, h, fps, start, dur, live=None, env=None):
     """ffmpeg 吐 rawvideo 灰度帧; 帧高固定 → 每次读满 w*h 字节"""
-    cmd = ['ffmpeg', '-v', 'error'] + _probe_flags(src)
+    cmd = [_exe('ffmpeg'), '-v', 'error'] + _probe_flags(src)
     if start and not live:          # 本地文件能 seek, 输入前定位最省事
         cmd += ['-ss', str(start)]
     cmd += ['-i', src]
@@ -294,7 +374,7 @@ def video_cmd(src: str = typer.Argument(..., help='视频路径或 URL (http/htt
     live = None
     env = _child_env(src)
     try:
-        _need('ffmpeg', 'ffprobe')
+        _need('ffmpeg')
         if src.startswith(('http://', 'https://')) and not download:
             try:                            # ① 交给 ffmpeg 自己读: 能 range/seek, HLS 也能放
                 size = _probe_size(src, env)
@@ -413,7 +493,7 @@ def _goertzel(samples, c):
 
 def _music_frames(path, freqs, costs, rate, fps, bands, rows, start, dur, title, live=None, env=None):
     win = max(64, int(rate / fps))
-    cmd = ['ffmpeg', '-v', 'error'] + _probe_flags(path)
+    cmd = [_exe('ffmpeg'), '-v', 'error'] + _probe_flags(path)
     if start and not live:            # 本地文件能 seek, 输入前定位最省事
         cmd += ['-ss', str(start)]
     cmd += ['-i', path]
