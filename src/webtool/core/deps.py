@@ -84,6 +84,24 @@ def reinstall_command():
     return f'{py} -m pip install --force-reinstall webtool'
 
 
+def _ours_path(name):
+    """缺的是不是我们自己的文件? 是就返回相对路径 (不是 → '')
+
+    裸名字 (adminfmt) 和全名 (webtool.cli.adminfmt) 都认 —— 报错里两种都出现过。
+    """
+    import pathlib
+    pkg = pathlib.Path(__file__).resolve().parent.parent   # …/site-packages/webtool
+    tail = (name or '').split('.')[-1].strip()
+    if not tail:
+        return ''
+    for hit in sorted(pkg.rglob(tail + '.py')):
+        try:
+            return str(hit.relative_to(pkg.parent))
+        except ValueError:
+            return str(hit)
+    return ''
+
+
 def install_hint(missing=''):
     """一行"怎么修": [缺了什么 →] 重装命令。直接拼进报错/状态行"""
     name = (missing or '').strip()
@@ -92,6 +110,14 @@ def install_hint(missing=''):
         if tcmd:
             return (f'缺 {name} (Android 上 PyPI 没有它的轮子, pip 装不了); '
                     f'装系统包: {tcmd}')
+    where = _ours_path(name)
+    if where:
+        # 自家文件: 不是"少装了个依赖", 是这份安装本身不完整 —— 多半是上次升级
+        # 只卸没装上 (pip 先卸后装), 或者机器上有两份 webtool, 跑的不是你以为的那份。
+        return (f'自家文件 {where} 缺了 —— 这份安装不完整 (上次升级只卸没装上, '
+                f'或机器上有两份 webtool)。先看跑的是哪一份: '
+                f'python3 -c "import webtool;print(webtool.__file__)"; 再重装: '
+                f'{reinstall_command()}')
     cmd = reinstall_command()
     if name:
         return f'缺 {name} (装包不完整); 重装: {cmd}'

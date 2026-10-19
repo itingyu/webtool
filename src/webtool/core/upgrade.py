@@ -375,6 +375,26 @@ def _route_label(env_extra):
     return '直连'
 
 
+def selfcheck():
+    """装完自查: 自家几个关键文件在不在 —— 缺了就是"装了个残的"
+
+    残包的症状是**下次**运行报 "No module named webtool.xxx", 而且连 upgrade
+    自己都跑不动 (命令的统一出口也 import 自家模块)。所以在装完这一刻就说清楚,
+    别留到下次。
+    """
+    import importlib.util
+    want = ('webtool.cli.app', 'webtool.cli._ctx', 'webtool.cli.adminfmt',
+            'webtool.core.upgrade', 'webtool.net.transport')
+    miss = []
+    for mod in want:
+        try:
+            if importlib.util.find_spec(mod) is None:
+                miss.append(mod)
+        except Exception:                   # 父包本身坏了, 也算缺
+            miss.append(mod)
+    return miss
+
+
 def _safe_rmtree(path):
     """只删**本次运行自己建的**临时源码目录 —— 有一条不满足就一个字节都不动
 
@@ -483,6 +503,13 @@ def upgrade(spec=None, env_extra=None, note=None):
         if rc == 0:
             plain = spec.split(' @ ')[-1].strip()
             remember_source(plain[4:] if plain.startswith('git+') else plain)
+    if rc == 0:
+        # 装完自查: 缺自家文件就是"装了个残的" —— 现在就说清楚, 别等下次运行才炸
+        broken = selfcheck()
+        if broken:
+            rc = 1
+            step_log = step_log + ['装完自查缺自家文件: %s —— 这份装得不完整, '
+                                   '别急着用, 用 pip 重装一遍' % ', '.join(broken)]
     logger.debug('upgrade | pip 退出码 %s; stdout %s 字节 / stderr %s 字节',
                  rc, len(out or ''), len(err or ''))
     tail = _pick(out, 4 if rc else 6)
