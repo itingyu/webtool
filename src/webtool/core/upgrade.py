@@ -35,6 +35,9 @@ _SCP_LIKE = re.compile(r'^(?:([^@/]+)@)?([^:/@]+):(?!//)(.+)$')
 DEFAULT_REPO = 'https://github.com/itingyu/webtool'
 PIP_TIMEOUT = 600
 GIT_TIMEOUT = 600
+# 临时源码目录的名字前缀, 以及"本次运行自己建的目录"台账 (清理只认这个, 不猜路径)
+SRC_PREFIX = 'webtool-src-'
+_OUR_TMP = set()
 
 
 def _vcs_info(raw):
@@ -373,31 +376,31 @@ def _route_label(env_extra):
 
 
 def _safe_rmtree(path):
-    """只删我们自己建的临时源码目录 —— 有一条不满足就一个字节都不动
+    """只删**本次运行自己建的**临时源码目录 —— 有一条不满足就一个字节都不动
 
-    判断依据 (全过才删): 路径存在、不是符号链接、是真目录、父目录正是系统临时目录、
-    目录名带 webtool-src- 前缀。宁可留残渣, 也不能删错东西。
+    认领靠台账 `_OUR_TMP`: fetch_git 建目录时登记, 这里只认登记过的。不靠
+    "父目录是不是 /tmp" 这类假设 —— 环境各不相同 (Termux / 容器 / Windows 各有各的
+    临时目录), 猜路径迟早出事。另加三重兜底: 存在、非符号链接、是真目录。
     """
     if not path:
         return '清理: 没有临时目录, 无需清理'
     real = os.path.realpath(path)
-    tmp = os.path.realpath(tempfile.gettempdir())
-    base = os.path.basename(real.rstrip(os.sep))
     why = ''
-    if not os.path.exists(real):
+    if real not in _OUR_TMP:
+        why = '不是本次运行建的目录, 不动'
+    elif not os.path.exists(real):
         why = '目录已经不在了'
     elif os.path.islink(path):
         why = '它是个符号链接'
     elif not os.path.isdir(real):
         why = '它不是目录'
-    elif os.path.dirname(real) != tmp:
-        why = '它不在临时目录里 (%s)' % os.path.dirname(real)
-    elif not base.startswith('webtool-src-'):
-        why = '它不是我们建的 (%s)' % base
+    elif not os.path.basename(real.rstrip(os.sep)).startswith(SRC_PREFIX):
+        why = '名字前缀不对 (%s)' % os.path.basename(real)
     if why:
         logger.debug('upgrade | 清理跳过 %s: %s', path, why)
         return '清理: 跳过 —— %s' % why
     shutil.rmtree(real, ignore_errors=True)
+    _OUR_TMP.discard(real)
     left = os.path.exists(real)
     logger.debug('upgrade | 清理 %s → %s', real, '没删掉' if left else '已删')
     return '清理: %s %s' % ('没删掉' if left else '已删', real)
@@ -419,7 +422,8 @@ def fetch_git(spec, env_extra=None, timeout=GIT_TIMEOUT):
         return None, [], ('没装 git —— 两步走的第一步就是它。'
                           '装一个 (apt install git / apk add git), '
                           '或换本地目录源: webtool upgrade --from /path/to/webtool')
-    dest = tempfile.mkdtemp(prefix='webtool-src-')
+    dest = tempfile.mkdtemp(prefix=SRC_PREFIX)   # 位置交给环境 (TMPDIR 等), 不写死
+    _OUR_TMP.add(os.path.realpath(dest))         # 登记在案: 清理时只认这个
     log = ['源码: git clone --depth 1 %s (%s)' % (url, _route_label(env_extra))]
     env = dict(os.environ, GIT_TERMINAL_PROMPT='0')
     env.update(env_extra or {})
