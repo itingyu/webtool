@@ -35,7 +35,7 @@ webtool uninstall                  # 只卸包, ~/.webtool 数据留着
 webtool uninstall --purge-data --yes   # 连配置/凭据/缓存一起删 (缺 --yes 则不动手)
 ```
 
-升级这条路是 pip 在干活（`pip install --force-reinstall --no-deps <源>`），代理、证书、依赖各有各的走法：
+升级分三步走（不再 `pip install git+…` 把 git 塞给 pip）：**① git 取源码** → **② pip 从本地目录装** → **③ 清理临时目录**（带守卫，只删自己建的）。代理、证书、依赖在三步里的分工：
 
 - **代理**：先按 rules.json 判一次源地址走哪条线，然后**只把代理交给 git**（用 `GIT_CONFIG_*`
   塞 `http.proxy`）。pip 自己的请求默认直连 —— 它要的 PyPI 多半直连可达，被代理带着反而

@@ -17,6 +17,7 @@ git、不判祖先关系, 那些都是开发者自己的事, 用户装的是包�
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -33,6 +34,7 @@ _SCP_LIKE = re.compile(r'^(?:([^@/]+)@)?([^:/@]+):(?!//)(.+)$')
 # 本项目从 git 装 (不是 PyPI), 读不到安装来源时按官方仓库升
 DEFAULT_REPO = 'https://github.com/itingyu/webtool'
 PIP_TIMEOUT = 600
+GIT_TIMEOUT = 600
 
 
 def _vcs_info(raw):
@@ -86,9 +88,41 @@ def _direct_url():
     return None
 
 
+_SRC_FILE = 'upgrade_source.txt'
+
+
+def _src_file():
+    from webtool.core.config_data import USER_DIR
+    return os.path.join(str(USER_DIR), _SRC_FILE)
+
+
+def saved_source():
+    """上次记下的上游 (没有就 None)
+
+    两步走之后代码是从**本地目录**装进去的, direct_url.json 记的就是那个临时目录;
+    不记一笔, 下次升级拿它当上游, 等于升个寂寞。
+    """
+    try:
+        with open(_src_file(), encoding='utf-8') as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
+def remember_source(url):
+    try:
+        with open(_src_file(), 'w', encoding='utf-8') as f:
+            f.write((url or '').strip() + '\n')
+    except OSError as e:
+        logger.debug('upgrade | 记上游失败: %s', e)
+
+
 def upgrade_target():
-    """pip 的升级 spec: 装哪个源就升哪个, 读不到用官方仓库"""
-    url = _vcs_url(_direct_url())
+    """pip 的升级 spec: 装哪个源就升哪个, 读不到用官方仓库
+
+    上次两步走过的话以记下的上游为准 (见 saved_source)。
+    """
+    url = _vcs_url(_direct_url()) or saved_source()
     return '%s @ git+%s' % (DIST_NAME, url or DEFAULT_REPO), (url or DEFAULT_REPO)
 
 
@@ -338,23 +372,113 @@ def _route_label(env_extra):
     return '直连'
 
 
+def _safe_rmtree(path):
+    """只删我们自己建的临时源码目录 —— 有一条不满足就一个字节都不动
+
+    判断依据 (全过才删): 路径存在、不是符号链接、是真目录、父目录正是系统临时目录、
+    目录名带 webtool-src- 前缀。宁可留残渣, 也不能删错东西。
+    """
+    if not path:
+        return '清理: 没有临时目录, 无需清理'
+    real = os.path.realpath(path)
+    tmp = os.path.realpath(tempfile.gettempdir())
+    base = os.path.basename(real.rstrip(os.sep))
+    why = ''
+    if not os.path.exists(real):
+        why = '目录已经不在了'
+    elif os.path.islink(path):
+        why = '它是个符号链接'
+    elif not os.path.isdir(real):
+        why = '它不是目录'
+    elif os.path.dirname(real) != tmp:
+        why = '它不在临时目录里 (%s)' % os.path.dirname(real)
+    elif not base.startswith('webtool-src-'):
+        why = '它不是我们建的 (%s)' % base
+    if why:
+        logger.debug('upgrade | 清理跳过 %s: %s', path, why)
+        return '清理: 跳过 —— %s' % why
+    shutil.rmtree(real, ignore_errors=True)
+    left = os.path.exists(real)
+    logger.debug('upgrade | 清理 %s → %s', real, '没删掉' if left else '已删')
+    return '清理: %s %s' % ('没删掉' if left else '已删', real)
+
+
+def fetch_git(spec, env_extra=None, timeout=GIT_TIMEOUT):
+    """第一步: 用 git 把源码取到临时目录 —— 不再让 pip 内嵌 git
+
+    返回 (目录, 日志行, 错误)。非 git 源 (本地目录 / PyPI) 直接 (None, [], None),
+    由调用方按老路装。
+
+    好处是把"取源码"和"装包"分成两条腿: 各自用各自的设置 (git 认 GIT_CONFIG_*
+    与 GIT_SSL_*, pip 认自己的), 出错也分得清是哪一步。
+    """
+    url, transport = spec_url(spec)
+    if transport not in ('https', 'ssh', 'git'):
+        return None, [], None
+    if shutil.which('git') is None:
+        return None, [], ('没装 git —— 两步走的第一步就是它。'
+                          '装一个 (apt install git / apk add git), '
+                          '或换本地目录源: webtool upgrade --from /path/to/webtool')
+    dest = tempfile.mkdtemp(prefix='webtool-src-')
+    log = ['源码: git clone --depth 1 %s (%s)' % (url, _route_label(env_extra))]
+    env = dict(os.environ, GIT_TERMINAL_PROMPT='0')
+    env.update(env_extra or {})
+    logger.debug('upgrade | git clone --depth 1 %s → %s', url, dest)
+    try:
+        r = subprocess.run(['git', 'clone', '--depth', '1', url, dest],
+                           capture_output=True, text=True, timeout=timeout,
+                           env=env)
+    except subprocess.TimeoutExpired:
+        return dest, log, 'git clone 超时 (%ss)' % timeout
+    except OSError as e:
+        return dest, log, 'git 起不来: %s' % e
+    if r.returncode:
+        tail = _pick((r.stderr or '') + '\n' + (r.stdout or ''), 3)
+        return dest, log, 'git clone 失败: %s' % ' | '.join(tail)
+    return dest, log + ['源码已取回: %s' % dest], None
+
+
 def upgrade(spec=None, env_extra=None, note=None):
     """真的升级; 返回 {ok, action, log}
 
-    git 源要 `--force-reinstall --no-deps`: pip 对"直接 URL 需求"只比**版本号**,
+    分三步走 (不再 `pip install git+…`, 把 git 塞给 pip):
+
+      1. git   —— 取源码到临时目录 (git 这条腿的代理/证书单独给, 见 fetch_git)
+      2. pip   —— 从**本地目录**装 (--force-reinstall --no-deps)
+      3. 清理  —— 删掉临时目录 (成败都删)
+
+    为什么 `--force-reinstall --no-deps`: pip 对"直接 URL 需求"只比**版本号**,
     同名同版本就报 "Requirement already satisfied" 然后什么都不干 —— 我们按 commit
-    发代码、版本号不跟着动, 不强制重装等于没升。`--no-deps` 是关键的另一半:
-    只换自己这份代码, 不去动依赖。
+    发代码、版本号不跟着动, 不强制重装等于没升; `--no-deps` 则只管自己这份代码,
+    依赖由调用方另走一步 (CLI 的 upgrade_deps)。
+
+    从本地目录装完, direct_url 记的是那个临时目录, 所以真上游要另记一笔
+    (upgrade_source.txt), 否则下次不知道升哪儿。
 
     note 同 check: 线路对本源失效时要说出来, 不能让"线路: 走代理"骗人。
     """
     spec = spec or upgrade_target()[0]
-    args = ['install', '--upgrade', spec]
-    if 'git+' in spec:
-        args = ['install', '--force-reinstall', '--no-deps', spec]
+    src_dir, step_log, err = fetch_git(spec, env_extra)
+    if err:
+        if src_dir:
+            # 取源码失败时那目录里可能只有半个 clone, 照样按守卫清掉
+            step_log = step_log + [_safe_rmtree(src_dir)]
+        return {'ok': False, 'action': 'none', 'route': _route_label(env_extra),
+                'log': step_log + [err]}
+    if src_dir:
+        # 本地目录: pip 这一步不再需要 git, 也不需要网络 (依赖另有一步)
+        args = ['install', '--force-reinstall', '--no-deps', src_dir]
+    else:
+        args = ['install', '--upgrade', spec]
     logger.debug('upgrade | pip %s (线路: %s)', ' '.join(args),
                  _route_label(env_extra))
     rc, out, err = _pip(args, env_extra=env_extra)
+    if src_dir:
+        # 第三步: 清理 —— 先验明正身再删 (见 _safe_rmtree), 成败都清
+        step_log = step_log + [_safe_rmtree(src_dir)]
+        if rc == 0:
+            plain = spec.split(' @ ')[-1].strip()
+            remember_source(plain[4:] if plain.startswith('git+') else plain)
     logger.debug('upgrade | pip 退出码 %s; stdout %s 字节 / stderr %s 字节',
                  rc, len(out or ''), len(err or ''))
     tail = _pick(out, 4 if rc else 6)
@@ -371,7 +495,8 @@ def upgrade(spec=None, env_extra=None, note=None):
     after = installed_version()
     res = {'ok': rc == 0, 'action': 'pip-upgrade' if rc == 0 else 'none',
            'version': after, 'route': _route_label(env_extra),
-           'log': ['pip: %s (%s)' % (spec, _route_label(env_extra))] + tail}
+           'log': step_log + ['pip: %s (%s)' % (spec, _route_label(env_extra))]
+                  + tail}
     if note:
         res['route_note'] = note
         res['log'].insert(1, '注意: %s' % note)
