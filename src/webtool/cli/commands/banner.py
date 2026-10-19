@@ -7,6 +7,7 @@ import typer
 from webtool.cli._ctx import _run, Fmt, Output
 from webtool.cli.app import app
 from webtool.cli.bannerfont import COL, DEFAULT_FONT, GLYPHS, ROW, _FONTS
+from webtool.core.config_data import DATA_DIR
 
 
 def _cells(ch, spec):
@@ -90,13 +91,19 @@ _BIG_RAMP = ' .:-=+*#%@'
 
 
 def _find_font():
-    """找一个能画汉字/emoji 的字体文件 (WEBTOOL_BANNER_FONT 可指定)"""
+    """能画汉字的字体: WEBTOOL_BANNER_FONT → 随包字体 → 系统字体 (Linux/macOS/Windows)"""
     import glob
     import os
     env = os.environ.get('WEBTOOL_BANNER_FONT')
-    if env:
+    if env and os.path.exists(env):
         return env
+    bundled = DATA_DIR / 'banner-cjk-sc.otf'      # 随包的 Noto Sans CJK SC 子集 (4736 字)
+    if bundled.exists():
+        return str(bundled)
     pats = ('/usr/share/fonts/**/*CJK*.tt[cf]', '/system/fonts/*CJK*.tt[cf]',
+            '/System/Library/Fonts/PingFang.ttc', '/System/Library/Fonts/*.tt[cf]',
+            '/Library/Fonts/*.tt[cf]', 'C:/Windows/Fonts/msyh.ttc',
+            'C:/Windows/Fonts/simhei.ttf', 'C:/Windows/Fonts/*.tt[cf]',
             '/usr/share/fonts/**/*.tt[cf]')
     for pat in pats:
         for p in sorted(glob.glob(pat, recursive=True)):

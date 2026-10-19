@@ -66,6 +66,10 @@ where = ["src"]
 # 装包后 `stock docs-*` / `em-*` 全废 (源码树里跑是好的, 所以本地测不出来)。
 webtool = [
   "data/*.json",
+  # banner --font big 的随包字体 (Noto Sans CJK SC 子集, 4736 字): 带上它,
+  # 装完就能画汉字, PC 上也不必另配字体。许可原文是同目录的 *-OFL.md, 已随
+  # data/**/*.md 打进去
+  "data/*.otf",
   "data/**/*.json",
   "data/**/*.md",
   # 自带的 CA 包与站点专有证书 (data/certs/): 不带上的话 wheel 装完等于
