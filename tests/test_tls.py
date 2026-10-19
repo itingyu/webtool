@@ -95,16 +95,16 @@ with tempfile.TemporaryDirectory() as _d:
             tls._CACHE = (None, None)
 
         _write()
-        check(tls.policy('https://a.com') != False,   # noqa: E712
-              f'默认严格校验 ({tls.policy("https://a.com")})')
-        check(tls.describe()['ssl_verify'] == 'on', 'describe 默认 on')
+        check(tls.policy('https://a.com') is False,
+              '没配就不校验 (ssl_verify 默认 off)')
+        check(tls.describe()['ssl_verify'] == 'off', 'describe 默认 off')
 
         # ssl_verify 总开关
-        _write(ssl_verify='off')
-        check(tls.policy('https://a.com') is False, 'ssl_verify=off 全站不校验')
         _write(ssl_verify='on')
         check(tls.policy('https://a.com') != False,   # noqa: E712
-              'ssl_verify=on 恢复校验')
+              'ssl_verify=on 严格校验')
+        _write(ssl_verify='off')
+        check(tls.policy('https://a.com') is False, 'ssl_verify=off 全站不校验')
 
         # verify_hosts 点名豁免: 只对该域开口, 其余流量不受影响
         _write(ssl_verify='on', verify_hosts=['expired.badssl.com'])

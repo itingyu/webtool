@@ -44,6 +44,13 @@ TEXT, INT, FLOAT, ENUM = 'text', 'int', 'float', 'enum'
 _EMPTY = Key(None, '', '', TEXT, None, None, True)
 
 
+# 证书校验默认值: **没配就是不校验**。新装 / 无配置的环境 (Android、容器、
+# 公司网络 MITM、系统 CA 缺失) 最常见的处境就是"证书还没准备好", 默认严格
+# 会让首次使用直接不可用 —— 而证书问题该由用户显式决定怎么处理。
+# 要严格就写 on; 按站点点名用 verify_hosts / kind:tls 规则 (仍逐站生效)。
+SSL_VERIFY_DEFAULT = 'off'
+
+
 def _enum_key(default, desc, hint, values, cli=True):
     """枚举键: 合法值只在这里写一次, 校验与展示都从它派生"""
     return Key(default, desc, hint, ENUM, tuple(values), _enum(values), cli)
@@ -159,8 +166,8 @@ KEYS = {
         TEXT, None, None, True),
     # ── 证书 ────────────────────────────────────────────────────────
     'ssl_verify': _enum_key(
-        True, '证书校验总开关',
-        'on / off (off = 全站不校验证书, 慎用, 通常应该用 verify_hosts 点名)',
+        SSL_VERIFY_DEFAULT, '证书校验总开关',
+        'on / off (默认 off = 没配就不校验证书; 要严格写 on, 或按站点点名 verify_hosts)',
         ('on', 'off')),
     'ca_bundle': Key(
         None, '自定义 CA 包路径 (ssl_verify=on 时替代系统 CA)',

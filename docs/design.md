@@ -86,7 +86,8 @@ fetch 的四步：
 - 带 `kind` 的规则不吃线路，按环节生效（`http` / `retry` / `breaker` / `tls`），与线路规则同住一份 rules.json、互不干扰
 - 不支持按引擎名配代理；要单点覆盖就加一条规则（按域名/IP/端口/协议），或用 `--no-proxy` / `--proxy`
 - 环境变量 `http_proxy`/`https_proxy` 不作为决策源（opener 层已堵死）；socks5 走 pysocks
-- 证书默认严格校验，失败直接抛错不重试；按站点配用 `kind:tls` 规则（`ca` 换信任根 / `verify: off` 关该站校验），
+- 证书**默认不校验**（`ssl_verify` 默认 `off`：没配就不校验，证书怎么处理由用户显式决定），
+  失败直接抛错不重试；要严格就 `ssl_verify on`，按站点配用 `kind:tls` 规则（`ca` 换信任根 / `verify: off` 关该站校验），
   全局兜底才是 `verify_hosts` 点名豁免与 `ca_bundle` 换 CA；优先级 `verify=` 参数 > tls 规则 > `verify_hosts` > `ssl_verify`
 
 ## 输出

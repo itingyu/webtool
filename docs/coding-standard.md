@@ -548,12 +548,13 @@ config.json，而遗留键迁移顺手把该值写进了 `rules.json` 的 `proxi
 反面教材：线程里回填 + 收集循环里再回填一次 —— 结果条数翻倍，而且因为
 去重/聚类会"看起来正常"，只有顺序断言能抓到。
 
-## 站点证书进仓库，不关校验
+## 站点证书进仓库，要严格时也验得动
 
 `src/webtool/data/certs/ca-bundle.pem` 是仓库自带的 CA 包（Mozilla 根证书集，
 随 wheel 分发，package-data 必须带上 `certs/*.pem` —— 漏了就等于"装完又回到
 宿主没 CA 的状态"）。探测链 环境变量 → 系统 CA → certifi → **自带**，自带那份
-是兜底：于是"宿主没装 ca-certificates"不再等于"全站不校验"。
+是兜底：于是"宿主没装 ca-certificates"不再等于"想开严格校验也开不起来"
+（校验默认 `off`，见 `ssl_verify`；但用户开了 `on` 的时候，必须真有根证书可用）。
 
 站点自签/内部 CA 用 `data/certs/extra/*.pem` 投放，**不要**用 `verify_hosts`
 或 `verify=False` —— 前者只是换信任根、仍然是验过才放行。有 extra 时才现拼

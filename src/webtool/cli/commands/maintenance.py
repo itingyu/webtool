@@ -43,7 +43,8 @@ def _pip_tls_env(spec=None):
     pip/git 读不到 webtool 的配置, 只能在环境变量这层对齐 —— 少给一项, 它就会
     自己撞一次墙:
       - 有信任根 → 指给它 (PIP_CERT / GIT_SSL_CAINFO / *_CA_BUNDLE), 校验照做
-      - `ssl_verify off` → 说清楚别校验 (git 有开关; pip 没有, 只能按主机放行)
+      - `ssl_verify off` (默认值 —— 没配就是它) → 说清楚别校验
+        (git 有开关 `GIT_SSL_NO_VERIFY`; pip 没有全局开关, 只能按主机放行)
       - 不弹交互: 要凭据时立刻失败, 而不是挂在那儿等人输入 —— 脚本里最难查
         的一种"卡住"就是它
       - 超时与重试给死: 网络抖一下不该让整个升级失败

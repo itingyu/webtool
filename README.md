@@ -332,15 +332,15 @@ webtool music song.mp3 --bands 24          # 音乐转频谱柱动画
 ### 证书校验
 
 ```bash
-webtool config set ssl_verify on|off                    # 总开关, 默认 on
+webtool config set ssl_verify on|off                    # 总开关, 默认 off (没配就不校验)
 webtool config set ca_bundle /path/to/ca.pem            # 自定义 CA, 替代系统 CA
-webtool config set verify_hosts czce.com.cn,gtjaqh.com  # 点名豁免, 其余域仍严格
+webtool config set verify_hosts czce.com.cn,gtjaqh.com  # on 之下点名豁免, 其余域仍严格
 webtool config list                                     # 看实际生效策略与 CA 来源
 ```
 
-默认严格校验（fail-closed）；`ca_bundle` 指向不存在的文件会当场报错。`verify_hosts` 优先于全局开关，用于自签/过期证书站（覆盖子域）。证书失败抛 `TlsError` 直接上抛，不重试、不降级。
+**默认不校验**：新装 / 无配置的环境（Android、容器、公司网络 MITM、系统 CA 缺失）最常见的处境就是"证书还没准备好"，默认严格会让首次使用直接不可用——证书该不该放过是用户的决定，不是工具的默认。要严格就显式 `ssl_verify on`：那时 `ca_bundle` 指向不存在的文件会当场报错，`verify_hosts` 用于点名豁免自签/过期证书站（覆盖子域）。证书失败抛 `TlsError` 直接上抛，不重试、不降级。
 
-CA 从哪来（按顺序）：环境变量 → 系统 CA → certifi → **仓库自带** `webtool/data/certs/ca-bundle.pem`（Mozilla 根证书集，随 wheel 分发）。所以宿主没装 `ca-certificates` 也照样严格校验，不会再出现"为了能用就把全站校验关掉"。
+CA 从哪来（按顺序）：环境变量 → 系统 CA → certifi → **仓库自带** `webtool/data/certs/ca-bundle.pem`（Mozilla 根证书集，随 wheel 分发）。所以宿主没装 `ca-certificates` 也能拿到完整根证书——显式开了 `ssl_verify on` 也校验得动，不必"为了能用就把全站校验关掉"。
 
 站点专有证书（自签/内部 CA）放 `~/.webtool/certs/extra/*.pem`，**再按站点配一条规则**——证书是哪个站的，信任根就只对那个站生效：
 

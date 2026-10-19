@@ -24,6 +24,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 TMP = tempfile.mkdtemp(prefix='webtool-tlsrules-')
 os.environ['WEBTOOL_DIR'] = TMP
+# 这些断言验的是**严格校验下**的 CA 分层与规则优先级 (规则 ca / 别域名照旧基础
+# CA / verify: off)。校验默认已改成 off (没配就不校验), 不显式打开的话所有域名
+# 都直接返回 False, 这几条就无从验起。
+with open(os.path.join(TMP, 'config.json'), 'w') as _f:
+    json.dump({'ssl_verify': 'on'}, _f)
 FIX = os.path.join(os.path.dirname(__file__), 'fixtures', 'tls')
 
 PASS = FAIL = 0

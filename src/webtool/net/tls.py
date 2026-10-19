@@ -8,13 +8,15 @@ curl_cffi / urllib / requests 三条通道都从这里取 CA, 不各自读环境
 
 | 键 | 值 | 含义 |
 |---|---|---|
-| `ssl_verify` | `on` / `off` | 总开关, 默认 `on` |
+| `ssl_verify` | `on` / `off` | 总开关, **默认 `off`** —— 没配就不校验 (证书怎么处理由用户显式决定) |
 | `ca_bundle` | 路径 | `on` 时用自定义 CA 包**替代**系统 CA (想追加就自己 cat 合并) |
-| `verify_hosts` | `a.com,b.cn` | 这些域名单独关校验, 其余域仍严格校验 |
+| `verify_hosts` | `a.com,b.cn` | `on` 之下点名单站豁免, 其余域仍严格校验 |
 
-`verify_hosts` 存在的理由: 郑商所 / 国泰君安 / 99期货 这类交易所站点用自签或
-过期证书, 但为了抓它们把全局校验关掉, 等于把代理 MITM 也一起放进来了。名单
-模式只对指定域开口, 其余流量照常 fail-closed。
+默认不校验的理由: 新装 / 无配置的环境 (Android、容器、公司网络 MITM、系统 CA
+缺失) 最常见的处境就是"证书还没准备好", 默认严格会让首次使用直接不可用 ——
+证书该不该放过, 是用户的决定, 不是工具的默认。要严格就显式
+`webtool config set ssl_verify on`; 那时 `verify_hosts` 用来给自签/过期证书站
+(郑商所 / 国泰君安 / 99期货) 开口子, 不必为几个站把全局关掉。
 
 ## 环境没有 CA 包时
 
@@ -128,7 +130,9 @@ def _load():
             return _CACHE[1]
         from webtool.net.proxy import load_config
         cfg = load_config()
-        on = _as_bool(cfg.get('ssl_verify'), True)
+        # 默认值只认 core/config_schema.py 里的那一处 (没配 = 不校验)
+        from webtool.core.config_schema import SSL_VERIFY_DEFAULT
+        on = _as_bool(cfg.get('ssl_verify'), SSL_VERIFY_DEFAULT == 'on')
         ca = cfg.get('ca_bundle') or None
         if ca:
             ca = os.path.expanduser(str(ca).strip())
@@ -230,7 +234,9 @@ def broadcast_env():
     """
     try:
         from webtool.net.proxy import load_config
-        off = not _as_bool(load_config().get('ssl_verify'), True)
+        from webtool.core.config_schema import SSL_VERIFY_DEFAULT
+        off = not _as_bool(load_config().get('ssl_verify'),
+                           SSL_VERIFY_DEFAULT == 'on')
     except Exception:
         off = False
     if off:
