@@ -139,6 +139,23 @@ def _upgrade_run(check_only, spec, fmt, output):
             # 退出码给脚本用: 0 已最新 / 1 有新版本 / 2 判不出来
             return {'up_to_date': 0, 'behind': 1}.get(info['state'], 2)
         res = _up.upgrade(spec, env_extra=env, note=note)
+        if res.get('ok') and str(cfg.get('upgrade_deps', 'on')).lower() not in (
+                'off', '0', 'false', 'no'):
+            # 升级只换了自己那份代码 (--no-deps), 依赖得有地方补: 按声明的清单走一趟。
+            # pip 只补缺的, 已满足的不动 —— 全齐时它连索引都不问, 离线也不会卡。
+            reqs = _up.dep_list()
+            if reqs:
+                import tempfile as _tf
+                fd, path = _tf.mkstemp(prefix='webtool-deps-', suffix='.txt')
+                os.close(fd)
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(reqs) + '\n')
+                rc, out, err = _up.pip(['install', '-r', path], env_extra=env)
+                if rc == 0:
+                    res['log'].append('依赖: 齐了 (缺的已补, 已有的没动)')
+                else:
+                    tail = [l for l in (err or out or '').splitlines() if l.strip()]
+                    res['log'].append('依赖没补齐: %s' % ' | '.join(tail[-3:]))
         if want_json:
             print(_json.dumps(res, ensure_ascii=False, indent=2))
         else:

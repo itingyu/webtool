@@ -219,6 +219,24 @@ def _pip(args, timeout=PIP_TIMEOUT, env_extra=None):
         return 1, '', 'pip 起不来: %s' % e
 
 
+def pip(args, env_extra=None):
+    """公开的 pip 入口 (给 CLI 补装依赖用)"""
+    return _pip(args, env_extra=env_extra)
+
+
+def dep_list():
+    """本包声明的依赖 (来自元数据, 即 pyproject 里那份, 含上下界)
+
+    装的时候 pip 只补**缺的** —— 已经在的它不碰, 所以不会因为一次升级顺手把
+    pandas 之类追到最新版。
+    """
+    try:
+        reqs = metadata.requires(DIST_NAME) or []
+    except metadata.PackageNotFoundError:
+        return []
+    return [r for r in reqs if '; extra' not in r.lower()]
+
+
 def _report_versions(path):
     """pip --report 的 JSON → {包名: 装了/将装的版本}"""
     try:

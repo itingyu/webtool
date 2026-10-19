@@ -35,10 +35,21 @@ webtool uninstall                  # 只卸包, ~/.webtool 数据留着
 webtool uninstall --purge-data --yes   # 连配置/凭据/缓存一起删 (缺 --yes 则不动手)
 ```
 
-升级这条路是 pip 在干活（`pip install --force-reinstall --no-deps <源>`），代理只能靠环境变量
-给：`webtool` 先按 rules.json 判一次源地址该走哪条线，再把 `HTTP(S)_PROXY` 交给 pip 和它拉起的 git。
-注意 **ssh 源（`git+ssh://` / `git@host:path`）不认这套** —— ssh 是拿自己的连接出网，判了代理也是直连；
-遇到这种源会直接提示，要真走代理就换 https 源：`webtool upgrade --from git+https://…`。
+升级这条路是 pip 在干活（`pip install --force-reinstall --no-deps <源>`），代理、证书、依赖各有各的走法：
+
+- **代理**：先按 rules.json 判一次源地址走哪条线，然后**只把代理交给 git**（用 `GIT_CONFIG_*`
+  塞 `http.proxy`）。pip 自己的请求默认直连 —— 它要的 PyPI 多半直连可达，被代理带着反而
+  容易卡死，报出来还成了"代理连不上"。企业网里 pip 只能靠代理出网时：
+  `webtool config set pip_proxy on`。
+- **证书**：`ssl_verify off` 也带给子进程（git 给 `GIT_SSL_NO_VERIFY`；pip 没有全局开关，
+  只能按主机 `PIP_TRUSTED_HOST` 放行）；有信任根就指给它们（`PIP_CERT` / `GIT_SSL_CAINFO`）。
+  另外固定给 `GIT_TERMINAL_PROMPT=0` / `PIP_NO_INPUT=1`（要凭据时立刻失败，不挂在那儿等人
+  输入）与 `PIP_DEFAULT_TIMEOUT` / `PIP_RETRIES`（网络抖一下不该让升级失败）。
+- **依赖**：`--no-deps` 只换自己那份代码，升级完再按声明的清单补一次依赖 —— pip 只补缺的，
+  已有的不动，全齐时连索引都不问。不想这步：`webtool config set upgrade_deps off`。
+
+注意 **ssh 源（`git+ssh://` / `git@host:path`）吃不到代理** —— ssh 拿自己的连接出网，
+判了代理也是直连；遇到这种源会直接提示，要真走代理就换 https 源：`webtool upgrade --from git+https://…`。
 
 `webtool -v -f json` 打印版本与运行环境（Python/平台/代码路径/依赖），报障带上它。
 
@@ -483,7 +494,8 @@ class MyWall(Interceptor):
 ## 开发
 
 ```bash
-python3 scripts/gen_requirements.py    # pyproject.toml 是依赖唯一权威, 改完重新生成 requirements.txt
+python3 scripts/gen_requirements.py    # pyproject.toml 是依赖唯一权威; 生成 requirements.txt (写下界)
+                                       # 与 requirements.lock (钉死当前已装版本, 复现: pip install -r requirements.lock)
 python3 scripts/audit_deps.py          # 查 import 了却没声明的依赖
 python3 -m pytest tests -q             # 手写脚本以子进程方式逐个跑 (tests/check_all_scripts.py)
 ruff check src tests                   # 门禁: E9 + F 全开 (含 F401)

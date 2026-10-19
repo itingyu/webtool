@@ -23,6 +23,38 @@ HEAD = """# 自动生成, 不要手改 —— 改 pyproject.toml 后跑:
 STALE = ('requirements-full.txt',)
 
 
+LOCK_HEAD = """# 自动生成, 不要手改 —— 跑 python3 scripts/gen_requirements.py 生成
+# 与 requirements.txt 的区别: 这份**钉死版本** (按生成时已装的版本), 用来复现一套
+# 确定的依赖:  python3 -m pip install -r requirements.lock
+# 换平台/换 Python 大版本时, 钉住的版本未必有轮子 —— 那种情况改用 requirements.txt。
+"""
+
+
+def installed_versions():
+    """{规范包名: 已装版本}"""
+    from importlib import metadata
+    out = {}
+    for dist in metadata.distributions():
+        try:
+            name = (dist.metadata['Name'] or '').strip().lower()
+            if name:
+                out[name.replace('_', '-')] = dist.version
+        except Exception:                      # 元数据坏掉的包, 跳过
+            continue
+    return out
+
+
+def pin(spec, have):
+    """'trafilatura>=2.0' → 'trafilatura==2.1.1'; 没装的留原样"""
+    import re as _re
+    m = _re.match(r'^[A-Za-z0-9_.\-]+', spec)
+    if not m:
+        return spec
+    name = m.group(0).lower().replace('_', '-')
+    ver = have.get(name)
+    return '%s==%s' % (m.group(0), ver) if ver else spec
+
+
 def specs():
     with open(ROOT / 'pyproject.toml', 'rb') as f:
         proj = tomllib.load(f)['project']
@@ -30,7 +62,10 @@ def specs():
     if proj.get('optional-dependencies'):
         raise SystemExit('pyproject 还有 optional-dependencies —— 本仓库只做全装, '
                          '请把依赖并进 dependencies')
-    return {'requirements.txt': HEAD + '\n'.join(core) + '\n'}
+    have = installed_versions()
+    lock = [pin(s, have) for s in core]
+    return {'requirements.txt': HEAD + '\n'.join(core) + '\n',
+            'requirements.lock': LOCK_HEAD + '\n'.join(lock) + '\n'}
 
 
 def main():
