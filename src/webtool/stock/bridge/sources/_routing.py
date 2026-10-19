@@ -112,6 +112,8 @@ class RoutedCffiSession:
         if a or kw:
             from curl_cffi import requests as cr
             kw.setdefault('trust_env', False)
+            # 自己造会话这条腿也得过证书策略, 否则它会自己挑信任根
+            kw.setdefault('verify', tls.policy())
             self._s = cr.Session(*a, **kw)     # 带自定义参数的少见路径: 原样
         else:
             self._s, _p = transport.new_session(
@@ -121,10 +123,12 @@ class RoutedCffiSession:
 
     def get(self, url, **kw):
         kw.setdefault('proxies', _routing_proxies(url, self._override))
+        kw.setdefault('verify', tls.policy(url))   # 每请求现算 (站点规则优先)
         return self._s.get(url, **kw)
 
     def post(self, url, **kw):
         kw.setdefault('proxies', _routing_proxies(url, self._override))
+        kw.setdefault('verify', tls.policy(url))
         return self._s.post(url, **kw)
 
     def __getattr__(self, name):

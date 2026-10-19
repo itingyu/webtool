@@ -217,13 +217,41 @@ def bundled_ca():
 
 
 def broadcast_env():
-    """把选定的信任根广播给同进程的第三方库 (akshare / trafilatura / requests 等)
+    """把选定的信任根 (或"关校验"这个决定) 广播给同进程的第三方库
 
     本模块自己不走环境变量 (见 policy 的说明: 免得三通道三套根), 但第三方库只会读
     环境变量 —— 在"宿主没装 CA 包"或"企业代理 MITM"的机器上, 它们会各自报证书校验
-    失败, 而且报错指不到根因。这里把同一份信任根塞给它们, 让整条流水线口径一致。
+    失败, 而且报错指不到根因。这里把同一份决定塞给它们, 让整条流水线口径一致。
     用户自己设过的环境变量不覆盖 (那是他的选择)。
+
+    全局 `ssl_verify off` 时还要替 requests 系拔掉默认校验: 环境变量层面根本没有
+    "别校验"的写法, 不做这一步, "全站不校验证书"就只对 webtool 自己的通道生效,
+    akshare 这类走裸 requests 的数据源照旧报证书错 —— 用户会以为开关失灵。
     """
+    try:
+        from webtool.net.proxy import load_config
+        off = not _as_bool(load_config().get('ssl_verify'), True)
+    except Exception:
+        off = False
+    if off:
+        os.environ.setdefault('PYTHONHTTPSVERIFY', '0')      # urllib / http.client
+        try:
+            import requests
+            # 注意: 改 `Session.verify` 没用 —— requests 在 __init__ 里把它设成
+            # **实例**属性, 类属性会被盖掉。只能在 request 这一层注入默认值,
+            # 且用 setdefault: 调用方显式传的 verify 仍然优先。
+            if not getattr(requests.Session, '_webtool_no_verify', False):
+                _orig = requests.Session.request
+
+                def _request(self, method, url, **kw):
+                    kw.setdefault('verify', False)
+                    return _orig(self, method, url, **kw)
+
+                requests.Session.request = _request
+                requests.Session._webtool_no_verify = True
+        except Exception:
+            pass
+        return None
     ca = bundled_ca()
     if not ca:
         return None
