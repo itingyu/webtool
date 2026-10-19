@@ -293,6 +293,8 @@ webtool video clip.mp4 --dur 10            # 视频转字符动画 (Bad Apple �
 webtool music song.mp3 --bands 24          # 音乐转频谱柱动画
 ```
 
+**尺寸**（`pic` / `video` / `music`）：默认按终端自动适配 —— 列数取终端宽度，行数按原始宽高比换算，装不下就自动收窄。想固定就写 `--size 120x40`（也认 `120*40`、`120,40`，只给一个数就是宽度），或用 `-w/--width`、`--height` 单独指定。`music` 另有 `--bands`（柱数，上限 64）与 `--rows`（柱高）。
+
 **网络素材怎么取**（`video` / `music`）：三级阶梯，流量逐级变大。
 
 1. **默认直读** — URL 直接交给 ffmpeg（HTTP Range 可 seek，HLS 也能放；探测深度限到 1MB）。

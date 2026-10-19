@@ -14,6 +14,7 @@ import time
 
 import typer
 
+from webtool.cli import _size
 from webtool.cli.app import app
 
 RAMP = ' .:-=+*#%@'
@@ -272,8 +273,9 @@ def _play(make_frames, fps, loop):
 
 @app.command('video')
 def video_cmd(src: str = typer.Argument(..., help='视频路径或 URL (http/https 走代理规则)'),
-              width: int = typer.Option(80, '-w', '--width', help='输出列数'),
-              height: int = typer.Option(0, '--height', help='输出行数 (默认按比例, 字高≈宽 2 倍)'),
+              width: int = typer.Option(0, '-w', '--width', help='输出列数 (默认跟着终端宽度)'),
+              height: int = typer.Option(0, '--height', help='输出行数 (默认按比例, 装不下自动收窄)'),
+              size: str = typer.Option('', '--size', help='尺寸, 如 120x40 (= -w 120 --height 40)'),
               fps: float = typer.Option(12.0, '--fps', help='播放帧率 (终端刷不过来就调小)'),
               chars: str = typer.Option(RAMP, '--chars', help='灰度字符梯 (从暗到亮)'),
               invert: bool = typer.Option(False, '--invert', help='反转明暗'),
@@ -315,8 +317,15 @@ def video_cmd(src: str = typer.Argument(..., help='视频路径或 URL (http/htt
             path, is_tmp = _local(src)
             tmp = path if is_tmp else None
             vw, vh = _probe_size(path)
-        w = max(1, width)
-        h = height if height > 0 else max(1, round(vh / vw * w * 0.5))
+        sw, sh = _size.parse_size(size)
+        auto = not (sw or width or sh or height)
+        w = max(1, sw or width or _size.auto_cols())
+        if sh or height:
+            h = max(1, sh or height)
+        elif auto:
+            w, h = _size.fit_box(vw, vh, w, _size.auto_rows())
+        else:
+            h = max(1, round(vh / vw * w * 0.5))
     except Exception as e:
         print(f'error: {e}', file=sys.stderr)
         return 2
@@ -448,8 +457,9 @@ def _music_frames(path, freqs, costs, rate, fps, bands, rows, start, dur, title,
 
 @app.command('music')
 def music_cmd(src: str = typer.Argument(..., help='音频路径或 URL (http/https 走代理规则)'),
-              bands: int = typer.Option(16, '--bands', help='频谱柱数 (列数)'),
-              rows: int = typer.Option(12, '--rows', help='柱子最高多少行'),
+              bands: int = typer.Option(0, '--bands', help='频谱柱数 (列数; 默认跟终端宽度, 上限 64)'),
+              rows: int = typer.Option(0, '--rows', help='柱子最高多少行 (默认跟终端高度)'),
+              size: str = typer.Option('', '--size', help='尺寸, 如 100x16 (= --bands 100 --rows 16)'),
               fps: float = typer.Option(20.0, '--fps', help='刷新率 (每帧按它算采样窗口)'),
               rate: int = typer.Option(8000, '--rate', help='分析采样率 (越大越吃 CPU)'),
               start: float = typer.Option(0.0, '--start', help='从第几秒开始'),
@@ -459,9 +469,13 @@ def music_cmd(src: str = typer.Argument(..., help='音频路径或 URL (http/htt
                                             help='URL 整段下到临时文件 (默认边收边放)'),
               player: str = typer.Option(None, '--player', help='指定播放器 (默认自动找; 找不到只放画面)')):
     """音乐转字符律动: 频谱柱动画 (URL 边收边放, 不全量下载; 需要 ffmpeg 解码)"""
-    if bands < 1 or rows < 1:
-        print('error: --bands/--rows 要 >= 1', file=sys.stderr)
+    try:
+        sw, sh = _size.parse_size(size)
+    except ValueError as e:
+        print(f'error: {e}', file=sys.stderr)
         return 2
+    bands = max(1, sw or bands or min(_size.auto_cols(), 64))
+    rows = max(1, sh or rows or _size.auto_rows(24))
     tmp = None
     live = None
     env = _child_env(src)

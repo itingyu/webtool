@@ -8,6 +8,7 @@ import sys
 import typer
 
 from webtool.cli._ctx import _run, Fmt, Output
+from webtool.cli import _size
 from webtool.cli.app import app
 
 DEFAULT_CHARS = ' .:-=+*#%@'
@@ -85,6 +86,7 @@ def _to_ascii(data, width, height, chars, invert):
 def pic_cmd(src: str = typer.Argument(..., help='图片源: 路径 / http(s) URL / data: URI / 裸 base64 / - 读 stdin'),
             width: int = typer.Option(80, '-w', '--width', help='输出列数'),
             height: int = typer.Option(0, '--height', help='输出行数 (默认按比例, 字高≈宽 2 倍)'),
+            size: str = typer.Option('', '--size', help='尺寸, 如 120x40 (= -w 120 --height 40)'),
             chars: str = typer.Option(DEFAULT_CHARS, '--chars', help='灰度字符梯 (从暗到亮)'),
             invert: bool = typer.Option(False, '--invert', help='反转明暗 (浅色终端/负片)'),
             fmt: str = Fmt, output: str = Output):
@@ -103,7 +105,12 @@ def pic_cmd(src: str = typer.Argument(..., help='图片源: 路径 / http(s) URL
             print(f'error: 下载失败: {e}', file=sys.stderr)
             return 2
         try:
-            art = _to_ascii(data, width, height, chars, invert)
+            try:
+                sw, sh = _size.parse_size(size)
+            except ValueError as e:
+                print(f'error: {e}', file=sys.stderr)
+                return 2
+            art = _to_ascii(data, sw or width, sh or height, chars, invert)
         except Exception as e:
             print(f'error: 转字符画失败: {e}', file=sys.stderr)
             return 2
