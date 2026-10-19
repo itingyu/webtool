@@ -158,6 +158,13 @@ def _hint(text):
                 '`--break-system-packages` 能硬闯但会搅乱系统 Python, 不建议。')
     if 'does not take a value' in t:
         return 'pip 的 --user 是开关, 不带值: 写 `--user`, 不是 `--user=你的用户名`'
+    low = t.lower()
+    if ('certificate' in low or 'unable to get local issuer' in low
+            or 'certificate_verify_failed' in low):
+        return ('这次握手是 pip/git 在做, webtool 的 ssl_verify / ca_bundle 管不着 '
+                '它俩。把企业根证书喂给它们: `export GIT_SSL_CAINFO=/path/corp-root.pem` '
+                '(pip 同理用 PIP_CERT), 或临时 `export GIT_SSL_NO_VERIFY=1`; '
+                '也可绕开 git: `webtool upgrade --from webtool` 直接走 PyPI。')
     return None
 
 
