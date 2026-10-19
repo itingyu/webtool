@@ -77,8 +77,8 @@ webtool search "查询词" --preset zh               # 引擎组合预设
 webtool search "query" -e exa,parallel           # 语义引擎
 ```
 
-- 引擎：`bing` / `sogou` / `baidu` / `so360` / `marginalia`（境内直连）· `google`（被墙，需代理；代理不可用时静默跳过，429 降级 news RSS，结果标 `channel: news`）· `exa` / `parallel` / `firecrawl`（语义搜索，匿名免 key，默认关）
-- 默认引擎集 `bing,sogou,baidu`；`--preset zh|en|direct` 用预设组合（`webtool engines presets` 列），优先级 `-e` > `--preset` > `config.default_engines` > 内置默认
+- 引擎：`bing` / `sogou` / `baidu` / `so360`（境内直连）· `marginalia`（境内直连，独立索引的小站/老网页长尾；**默认关**，要就用 `-e marginalia`）· `google`（被墙，需代理；代理不可用时静默跳过，429 降级 news RSS，结果标 `channel: news`）· `exa` / `parallel` / `firecrawl`（语义搜索，匿名免 key，默认关）
+- 默认引擎集 `bing,sogou,baidu,so360`；`--preset zh|en|direct` 用预设组合（`webtool engines presets` 列），优先级 `-e` > `--preset` > `config.default_engines` > 内置默认
 - 语义引擎按需加：`exa` 召回条数常最多 / `parallel` 最快且返回带日期 / `firecrawl` 能过 JS（search 免费 500 次/月），与关键词引擎重叠少
 - `--operators passthrough|strip|strict` 控制高级操作符（支持 `site:` `intitle:` `inurl:` `-词`）；`--blocklist a.com,b.com` 覆盖黑名单（前缀 `!` 表例外，`off` 关闭）
 - **多引擎并发抓取**：一次搜索同时打所有引擎（不同站点、互不排队），墙钟≈最慢那个引擎而不是各家之和。默认并发=源数（上限 4，`core.resilient.MAX_WORKERS` 常量），`-j/--jobs N` 调（`1` = 串行，`config set jobs N` 持久化）。结果与报错一律按 `-e` 声明顺序回填，同一 query 的输出稳定可复现

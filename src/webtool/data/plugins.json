@@ -289,7 +289,7 @@
    "desc": "Marginalia 独立索引, 小站/老网页长尾, 免key直连, sst挑战自动解",
    "params": {
     "ops": [],
-    "enabled_by_default": true
+    "enabled_by_default": false
    }
   },
   "exa": {
