@@ -63,6 +63,10 @@ webtool uninstall --purge-data --yes   # 连配置/凭据/缓存一起删 (缺 -
 | `config` / `plugins` / `cache` / `blocklist` | 配置、插件、缓存、黑名单 |
 | `engines` | 引擎清单与体检 |
 | `upgrade` / `uninstall` | 升级、卸载 |
+| `banner` | 文字排大字符（6 种点阵字体 + 汉字栅格化） |
+| `pic` | 图片转字符画（路径/URL/data URI/base64/stdin） |
+| `video` | 视频转字符动画（URL 直读，不整段下载） |
+| `music` | 音乐转频谱柱动画（同上） |
 
 ## search
 
@@ -274,6 +278,31 @@ webtool stock docs-stats
 - `report` / `diagram` / `excel` 原样透传（markdown、mermaid 源码、落盘确认）；`screen` 输出含剔除清单与闸门原因
 - 口径：涨停池输出必带真实数据日；北向等数据缺位标 ⚠「未取得」，不当 0；上游未解析出条目时显式标注
 - 退出码：0 成功 / 1 数据动作失败 / 2 用法错误
+
+## 字符渲染 (banner / pic / video / music)
+
+终端里把文字、图片、视频、音乐画成字符动画，渲染全在本地。Python 依赖已随包（Pillow）；
+`video` / `music` 另需系统的 **ffmpeg** 与 **ffprobe**。
+
+```bash
+webtool banner "HELLO" --font slant        # 文字排大字符 (6 种点阵字体, --list 看全)
+webtool banner 你好                        # 汉字/emoji 自动走字体栅格化
+webtool pic photo.jpg -w 90                # 图片转字符画
+webtool pic "data:image/png;base64,...."   # 也吃 data URI / 裸 base64 / - (读 stdin)
+webtool video clip.mp4 --dur 10            # 视频转字符动画 (Bad Apple 效果)
+webtool music song.mp3 --bands 24          # 音乐转频谱柱动画
+```
+
+**网络素材怎么取**（`video` / `music`）：三级阶梯，流量逐级变大。
+
+1. **默认直读** — URL 直接交给 ffmpeg（HTTP Range 可 seek，HLS 也能放；探测深度限到 1MB）。
+   实测 17MB 片源放 2 秒只传约 4.2MB。
+2. **webtool 通道** — ffmpeg 直读失败（防盗链等）时，走本工具自己的取字节通道边收边喂 ffmpeg，
+   仍然不整段下载；容器索引在文件尾的流没法顺读，自动落到第三级。
+3. **整段下载** — `--download` 强制走这条，下到临时文件、放完即删。要音轨同步也得用它：
+   流式模式没有本地文件可交给播放器。
+
+取源会带上规则表给该 URL 定的代理（以 `http_proxy` 环境变量传给 ffmpeg/ffprobe/播放器）。
 
 ## 通用约定
 
