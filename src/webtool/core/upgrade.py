@@ -20,7 +20,12 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from importlib import metadata
+
+from webtool.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 DIST_NAME = 'webtool'
 # scp 式地址 (git@github.com:owner/repo.git) —— 冒号后不跟 // 才算
@@ -168,6 +173,23 @@ def _hint(text):
     return None
 
 
+def _dump_log(text, tag='upgrade'):
+    """把子进程的完整输出落盘 —— 失败时用户总得有东西可查
+
+    终端只挑几行给他看 (见 `_pick`), 全文塞进 `<用户目录>/logs/`, 路径随结果打出来。
+    """
+    from webtool.core.config_data import USER_DIR
+    try:
+        d = os.path.join(str(USER_DIR), 'logs')
+        os.makedirs(d, exist_ok=True)
+        p = os.path.join(d, '%s-%s.log' % (tag, time.strftime('%Y%m%d-%H%M%S')))
+        with open(p, 'w', encoding='utf-8') as f:
+            f.write(text)
+        return p
+    except OSError:
+        return None
+
+
 def _pip(args, timeout=PIP_TIMEOUT, env_extra=None):
     """跑 pip, 返回 (rc, stdout, stderr)
 
@@ -294,13 +316,22 @@ def upgrade(spec=None, env_extra=None, note=None):
     args = ['install', '--upgrade', spec]
     if 'git+' in spec:
         args = ['install', '--force-reinstall', '--no-deps', spec]
+    logger.debug('upgrade | pip %s (线路: %s)', ' '.join(args),
+                 _route_label(env_extra))
     rc, out, err = _pip(args, env_extra=env_extra)
+    logger.debug('upgrade | pip 退出码 %s; stdout %s 字节 / stderr %s 字节',
+                 rc, len(out or ''), len(err or ''))
     tail = _pick(out, 4 if rc else 6)
     if rc:                    # 真正的原因通常在 stderr, 别只盯 stdout
         tail += [l for l in _pick(err, 5) if l not in tail]
     hint = _hint((err or '') + (out or '')) if rc else None
     if hint:
         tail = tail + ['怎么办: %s' % hint]
+    if rc:
+        _logp = _dump_log('$ pip %s\n\n--- stdout ---\n%s\n--- stderr ---\n%s'
+                          % (' '.join(args), out or '', err or ''))
+        if _logp:
+            tail.append('完整输出: %s' % _logp)
     after = installed_version()
     res = {'ok': rc == 0, 'action': 'pip-upgrade' if rc == 0 else 'none',
            'version': after, 'route': _route_label(env_extra),
