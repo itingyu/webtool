@@ -39,6 +39,13 @@ FIRST_PARTY = {'webtool'}
 DYN_IMPORT_FUNCS = {'_try_import'}
 
 
+# 故意不声明的可选依赖 (运行时探测, 有就用): 一级模块名 → 为什么可选
+OPTIONAL = {
+    'imageio_ffmpeg': '没系统 ffmpeg 时的兜底 (pip 装上就被认出, 自带二进制)',
+    'static_ffmpeg': '同上, 另带 ffprobe',
+}
+
+
 def imports_of(path):
     """{一级模块名: 行号} —— 能拿到 AST 就行, 语法错的跳过"""
     try:
@@ -119,11 +126,19 @@ def main():
     print('=== import 了但没声明 (缺失) ===')
     missing = []
     for dist in sorted(used):
+        if dist.lower() in OPTIONAL:         # 可选依赖: 故意不声明, 见文件头 OPTIONAL
+            continue
         if dist.lower() not in declared_all:
             missing.append(dist)
             print('  %-20s ← %s' % (dist, ', '.join(sorted(used[dist]))[:120]))
     if not missing:
         print('  (无)')
+
+    print()
+    print('=== 可选依赖 (故意不声明, 运行时探测) ===')
+    for dist in sorted(used):
+        if dist.lower() in OPTIONAL:
+            print('  %-20s %s' % (dist, OPTIONAL[dist.lower()]))
 
     print('\n=== 声明了但 src 没用 (可能是脚本/测试依赖, 或已废弃) ===')
     for dist, where in sorted(declared_all.items()):
