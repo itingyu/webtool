@@ -454,16 +454,20 @@ def _fetch_via_mcp(url, args, cfg, channel, timeout, prior=None, proxy=None):
 
 
 
-def _verify_bypass(url, html, status, via, *, proxy=None, timeout=None, profile=None):
+def _verify_bypass(url, html, status, via, *, proxy=None, timeout=None, profile=None,
+                   headers=None):
     """被拦截页挡住时按插件绕法重取一次 → (html, status, via, replaced)
 
     fetch 走 open_stream (流式/二进制共用), 不进 transport 的拦截判定; 但网页
     目标读完正文后仍该让拦截器过一遍, 否则新插件对 fetch 这条路永远不生效。
+
+    headers: 响应头 (判断 Cloudflare 质询要看 cf-mitigated 头)。
     """
     if not html:
         return html, status, via, False
     from webtool.net import intercept, transport
-    ctx = intercept.Ctx(url=url, status=status, text=html, via=via)
+    ctx = intercept.Ctx(url=url, status=status, text=html, via=via,
+                         headers=headers or {})
     site = ctx.site or url
     hit = intercept.inspect(ctx)
     if hit is None:
@@ -545,7 +549,8 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
         return _text_result(url, payload, status, via, headers, kind, mime, args, t0)
     html = _decode(payload, headers)
     html, status, via, replaced = _verify_bypass(
-        url, html, status, via, proxy=proxy, timeout=timeout, profile=profile)
+        url, html, status, via, proxy=proxy, timeout=timeout, profile=profile,
+        headers=headers)
     if replaced:
         payload = html.encode('utf-8')
     saved = _save_body(args, url, payload, headers, status)

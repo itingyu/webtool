@@ -119,11 +119,16 @@ def _parse_auth(auth):
 
 
 def http_get(url, proxy=None, timeout=None, headers=None, opener=None,
-             max_bytes=8 * 1024 * 1024, verify=None, raw=False):
-    """GET 页面, 返回 (text, status); raw=True 时返回 (bytes, status, headers).
+             max_bytes=8 * 1024 * 1024, verify=None, raw=False,
+             with_headers=False):
+    """GET 页面, 返回 (text, status); raw=True 时返回 (bytes, status, headers);
+    with_headers=True 时返回 (text, status, headers)。
 
     二进制目标 (图片/视频/压缩包) 要的是原始字节和响应头, 解码成文本就毁了 ——
     raw 走的就是这条路, 不做 charset 猜测、不 decode.
+
+    with_headers 是给"要按响应头判定"的调用方用的 (如 Cloudflare 质询头
+    cf-mitigated): 正文照旧解码, 只是把头一起带回来。
 
     默认头反探测: UA/Accept-Language 自动取 transport 指纹档案 (调用方
     未给时), 与 curl_cffi 通道同源 — 裸 Python-urllib 指纹一律不出网。
@@ -149,7 +154,9 @@ def http_get(url, proxy=None, timeout=None, headers=None, opener=None,
             text = data.decode('utf-8', errors='replace')
         except Exception:
             data, text = b'', ''
-        return (data, e.code, dict(e.headers)) if raw else (text, e.code)
+        return ((data, e.code, dict(e.headers)) if raw
+                else ((text, e.code, dict(e.headers)) if with_headers
+                      else (text, e.code)))
     data = r.read(max_bytes)
     if r.headers.get('Content-Encoding') == 'gzip':
         try:
@@ -171,7 +178,7 @@ def http_get(url, proxy=None, timeout=None, headers=None, opener=None,
         text = data.decode(charset, errors='replace')
     except LookupError:
         text = data.decode('utf-8', errors='replace')
-    return text, r.status
+    return (text, r.status, dict(r.headers)) if with_headers else (text, r.status)
 
 
 def http_open(url, proxy=None, timeout=None, headers=None, opener=None, verify=None,

@@ -231,11 +231,11 @@ def _get_ladder(url, *, kind, referer, proxy, timeout, engine, rate_engine=None,
                          lang=lang, max_bytes=max_bytes, profile=profile,
                          session=session, verify=verify, raw=True)
 
-    text, status, via = _get_once(url, kind=kind, referer=referer,
-                                  proxy=proxy, timeout=timeout,
-                                  engine=engine, headers=headers, lang=lang,
-                                  max_bytes=max_bytes, profile=profile,
-                                  session=session, verify=verify)
+    text, status, via, rhdrs = _get_once(url, kind=kind, referer=referer,
+                                         proxy=proxy, timeout=timeout,
+                                         engine=engine, headers=headers, lang=lang,
+                                         max_bytes=max_bytes, profile=profile,
+                                         session=session, verify=verify)
     logger.debug('transport | GET %s -> %s via %s (timeout=%s)', url, status, via, timeout)
     # 拦截检测 + 降级梯: 拿到正文就判, 不看通道类型和引擎名
     # transport 不认识"验证码": 谁挡的、凭什么、要不要冷却、有没有绕法, 全问
@@ -245,7 +245,7 @@ def _get_ladder(url, *, kind, referer, proxy, timeout, engine, rate_engine=None,
 
     # 没挂引擎名的页面通道也要判 (fetch/resolve/radar 都从这儿过)。冷却/日志
     # 一律按站点分桶, 不按引擎 —— 谁挡的、挡的是哪个站, 与走哪条代码路径无关。
-    ctx = intercept.Ctx(url=url, status=status, text=text,
+    ctx = intercept.Ctx(url=url, status=status, text=text, headers=rhdrs or {},
                         profile=profile or '', attempt=_depth, via=via)
     label = ctx.site
     hit = intercept.inspect(ctx)
@@ -271,7 +271,8 @@ def _get_ladder(url, *, kind, referer, proxy, timeout, engine, rate_engine=None,
                       detail=f'重试{_depth}次仍被拦' + (f', 绕法: {bp.how}' if bp else ''))
         raise BlockedError(
             f'{label} {hit.why}({hit.sign}), 已重试{_depth}次仍被拦; '
-            f'冷却{hit.left}s, 请换引擎')
+            f'冷却{hit.left}s, 请换引擎'
+            + (f'; {hit.hint}' if hit.hint else ''))
     delay = min(2 ** _depth, 4) + random.uniform(0, 0.8)
     if bp is not None:
         intercept.log(ctx, hit, 'bypass', detail=bp.how)
@@ -683,7 +684,7 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
             _persist_cookies(s, engine)
         if raw:
             return payload, r.status_code, 'cffi', _lower_keys(r.headers)
-        return payload, r.status_code, 'cffi'
+        return payload, r.status_code, 'cffi', _lower_keys(r.headers)
     except CertificateVerifyError as e:
         # 硬失败: 证书不对就是不对, 换指纹/换代理/换 urllib 全都救不了,
         # 直接上抛, 别让降级梯把 1 次失败放大成 4 次
@@ -704,9 +705,10 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
                                           headers=h, max_bytes=max_bytes,
                                           verify=verify, raw=True)
             return body, status, 'urllib', _lower_keys(hdrs)
-        text, status = http_get(url, proxy=proxy_arg, timeout=timeout,
-                                headers=h, max_bytes=max_bytes, verify=verify)
-        return text, status, 'urllib'
+        text, status, hdrs = http_get(url, proxy=proxy_arg, timeout=timeout,
+                                      headers=h, max_bytes=max_bytes,
+                                      verify=verify, with_headers=True)
+        return text, status, 'urllib', _lower_keys(hdrs)
     except Exception as e:
         # urllib 把证书错误裹在 URLError.reason 里, 类型元组盖不住, 走分类器
         if tls.is_tls_error(e):

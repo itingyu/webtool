@@ -96,6 +96,7 @@ class Hit:
     sign: str = ''                  # 判定依据 (正文/状态里命中的特征, 进日志)
     why: str = '拦截'               # 人话, 用于报错: "xxx 验证页拦截(百度)"
     left: int = 0                   # 冷却剩余秒数 (preflight 用)
+    hint: str = ''                  # 处置建议 (报错里附一句"该怎么办")
 
 
 @dataclasses.dataclass

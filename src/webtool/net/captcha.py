@@ -21,6 +21,29 @@ _GENERIC_SIGNS = [
 ]
 _DEFAULT_COOLDOWN = 30
 
+# ── Cloudflare 质询 (非交互式 JS 质询: 浏览器里等几秒就自动放行那种) ──────
+# 这类拦截纯 HTTP 过不了 —— 服务端要的是浏览器算出来的 token, 没有 JS 引擎
+# 就拿不到。所以它单列一档: 冷却更久 (5 分钟起, 翻倍上限 4×), 报错里带处置
+# 建议 (换线路/换引擎/接真浏览器求解), 免得用户以为是"多试几次就好"。
+#
+# 特征只取**质询页专有**的: cf-ray/turnstile/cf-mitigated 之外的泛用串不能进
+# —— 正常文章页挂个 Turnstile 挂件、CF 站点带 cf-ray 页脚, 全站套用会把
+# 正常页判成被拦, 而误判要付冷却代价 (指数加长, 很贵)。
+_CF_COOLDOWN = 300
+_CF_SIGNS = [
+    ('title_contains', 'just a moment'),      # 质询页标题 (CF 签名)
+    ('contains', 'cf-challenge-running'),
+    ('contains', 'challenge-spinner'),
+    ('contains', 'cf-please-wait'),
+    ('contains', 'trk_jschal_js'),
+    ('contains', '_cf_chl_opt'),
+    ('contains', 'orchestrate/chl_page'),     # 质询编排接口路径
+    ('contains', '/cdn-cgi/challenge-platform/h/'),
+]
+_CF_HINT = ('CF 质询(等几秒自动放行那种)纯 HTTP 过不了: 换出口线路/换引擎, '
+            '或接真浏览器求解(远端 FlareSolverr/Byparr)取 cf_clearance 复用; '
+            '求解与抓取须同一出口 IP 且 UA 一致')
+
 
 _SIGNS, _SIGNS_AT, _SIGNS_TTL = [], 0.0, 5.0
 
@@ -54,6 +77,37 @@ def _all_signs():
     return out
 
 
+def cf_detect(html, low=None, headers=None):
+    """这是 Cloudflare 质询吗? → 特征串 (None = 不是)
+
+    头优先: 官方给"这次被质询了"的标记是响应头 `cf-mitigated: challenge`,
+    比正文特征可靠得多 —— 质询页正文随版本变, 这个头没变。
+
+    正文特征只认质询页专有标记, 见 _CF_SIGNS 的注释 (泛用串会误伤正常页)。
+    """
+    if headers:
+        try:
+            v = str(headers.get('cf-mitigated') or '').strip().lower()
+        except AttributeError:
+            v = ''
+        if v == 'challenge':
+            return 'cf-mitigated: challenge'
+    if not html:
+        return None
+    low = low if low is not None else html.lower()
+    for kind, val in _CF_SIGNS:
+        if kind == 'title_contains':
+            tl = low.find('<title')
+            if tl >= 0:
+                te = low.find('</title>', tl)
+                title = low[tl:te] if te > 0 else low[tl:tl + 200]
+                if val.lower() in title:
+                    return f'cf:{val}'
+        elif kind == 'contains' and str(val).lower() in low:
+            return f'cf:{val}'
+    return None
+
+
 def detect(html, low=None):
     """判定是否验证页. 返回 (blocked, hit_sign)
 
@@ -83,12 +137,17 @@ def detect(html, low=None):
     return False, None
 
 
-def mark_blocked(site):
-    """记录某站点触发验证页, 进入冷却 (持久化, 指数加长跨进程生效)"""
+def mark_blocked(site, base=None, kind=''):
+    """记录某站点触发验证页, 进入冷却 (持久化, 指数加长跨进程生效)
+
+    base: 冷却基数秒。CF 质询用 300 (5 分钟起) —— 那种拦截重试再快也没用,
+    短冷却只会把 1 次拦截放大成连续请求, 反而把站点信誉打得更差。
+    """
     st = state.get_captcha(site)
     st['hits'] += 1
-    cd = _DEFAULT_COOLDOWN
-    state.set_captcha(site, time.time() + cd * min(st['hits'], 4), st['hits'])
+    cd = base or _DEFAULT_COOLDOWN
+    state.set_captcha(site, time.time() + cd * min(st['hits'], 4), st['hits'],
+                      kind=kind)
 
 
 def mark_ok(site):
@@ -134,10 +193,23 @@ class CaptchaInterceptor(Interceptor):
         key = ctx.site
         if not key or not suspended(key):
             return None
-        return Hit(kind='captcha', by=self.name, sign='冷却中',
-                   why='验证页拦截', left=cooldown_left(key))
+        st = state.get_captcha(key)
+        kind = st.get('kind') or 'captcha'
+        return Hit(kind=kind, by=self.name, sign='冷却中',
+                   why=('Cloudflare 质询拦截' if kind == 'cf_challenge'
+                        else '验证页拦截'),
+                   left=cooldown_left(key), hint=(_CF_HINT if kind == 'cf_challenge'
+                                                  else ''))
 
     def inspect(self, ctx):
+        # CF 质询先判: 它的正文也会命中通用特征 (标题 "Just a moment..."),
+        # 但处置完全不同 —— 单独一档 kind, 冷却更久, 报错带建议
+        sign = cf_detect(ctx.text, low=ctx.lower(), headers=ctx.headers)
+        if sign:
+            key = ctx.site
+            return Hit(kind='cf_challenge', by=self.name, sign=sign,
+                       why='Cloudflare 质询拦截',
+                       left=cooldown_left(key) if key else 0, hint=_CF_HINT)
         if not ctx.text:
             return None
         blocked, sign = detect(ctx.text, low=ctx.lower())
@@ -156,7 +228,8 @@ class CaptchaInterceptor(Interceptor):
     def note_hit(self, ctx, hit):
         key = ctx.site
         if key:
-            mark_blocked(key)
+            base = _CF_COOLDOWN if hit.kind == 'cf_challenge' else None
+            mark_blocked(key, base=base, kind=hit.kind)
             hit.left = cooldown_left(key)          # 报错信息要用 (见接口契约)
 
 

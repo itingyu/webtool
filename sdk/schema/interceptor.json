@@ -11,7 +11,8 @@
         "status": {"type": "integer"},
         "via": {"type": "string"},
         "text": {"type": "string"},
-        "truncated": {"type": "boolean"}
+        "truncated": {"type": "boolean"},
+        "headers": {"type": "object", "additionalProperties": {"type": "string"}}
       }
     },
     "hit": {
@@ -20,7 +21,8 @@
         "kind": {"type": "string"},
         "sign": {"type": "string"},
         "why": {"type": "string"},
-        "left": {"type": "integer", "minimum": 0}
+        "left": {"type": "integer", "minimum": 0},
+        "hint": {"type": "string"}
       }
     },
     "bypass": {

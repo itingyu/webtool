@@ -21,9 +21,14 @@ import traceback
 PROTOCOL = 1
 
 
-def hit(kind="custom", sign="", why="", left=0):
-    """构造一条命中（返回给 webtool 的 hit 对象）"""
-    return {"hit": {"kind": kind, "sign": sign, "why": why, "left": int(left)}}
+def hit(kind="custom", sign="", why="", left=0, hint=""):
+    """构造一条命中（返回给 webtool 的 hit 对象）
+
+    hint: 处置建议（可选）。命中后 webtool 会把它附在 BlockedError 消息末尾，
+    告诉人下一步该干什么（换线路、换引擎、还是必须上浏览器求解器）。
+    """
+    return {"hit": {"kind": kind, "sign": sign, "why": why, "left": int(left),
+                    "hint": str(hint or "")}}
 
 
 def bypass(how="", url="", headers=None, profile="", delay=0.0, retry=True):

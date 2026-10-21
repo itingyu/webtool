@@ -81,22 +81,23 @@ def _save_locked():
 def get_captcha(engine):
     st = load().get('captcha', {}).get(engine)
     if not st:
-        return {'until': 0.0, 'hits': 0}
+        return {'until': 0.0, 'hits': 0, 'kind': ''}
     # 冷却自然过期后保留 hits 计数 (指数加长仍生效), until 清零
     if time.time() >= st.get('until', 0):
         st['until'] = 0.0
     return st
 
 
-def set_captcha(engine, until, hits):
+def set_captcha(engine, until, hits, kind=''):
     with _lock:
-        load()['captcha'][engine] = {'until': float(until), 'hits': int(hits)}
+        load()['captcha'][engine] = {'until': float(until), 'hits': int(hits),
+                                     'kind': kind or ''}
         _save_locked()
 
 
 def reset_captcha(engine):
     with _lock:
-        load()['captcha'][engine] = {'until': 0.0, 'hits': 0}
+        load()['captcha'][engine] = {'until': 0.0, 'hits': 0, 'kind': ''}
         _save_locked()
 
 
@@ -164,7 +165,8 @@ def info():
     return {
         'path': _path(),
         'captcha': {e: {'cooldown_left': max(0, int(s.get('until', 0) - now)),
-                        'hits': s.get('hits', 0)}
+                        'hits': s.get('hits', 0),
+                        'kind': s.get('kind', '')}
                     for e, s in m.get('captcha', {}).items() if s.get('until', 0) > now or s.get('hits')},
         'cookies': {e: len(b.get('items', [])) for e, b in m.get('cookies', {}).items() if b.get('items')},
         'breakers': {k: v for k, v in m.get('breakers', {}).items()},

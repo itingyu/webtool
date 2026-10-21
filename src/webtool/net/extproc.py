@@ -54,6 +54,11 @@ class ExternalInterceptor(Interceptor):
                'via': ctx.via, 'text': text[:self.max_text]}
         if len(text) > self.max_text:
             out['truncated'] = True
+        # 响应头带上: 外部插件要判 Cloudflare 质询得看 cf-mitigated 头,
+        # 只给正文它就认不出来 (正文特征随版本变, 那个头没变)
+        hdrs = {str(k).lower(): str(v) for k, v in dict(ctx.headers or {}).items()}
+        if hdrs:
+            out['headers'] = hdrs
         return out
 
     # ── 拦截器接口 ────────────────────────────────────────────────────
@@ -64,7 +69,8 @@ class ExternalInterceptor(Interceptor):
         return Hit(kind=str(h.get('kind') or 'external'), by=self.name,
                    sign=str(h.get('sign') or ''),
                    why=str(h.get('why') or '外部插件拦截'),
-                   left=int(h.get('left') or 0))
+                   left=int(h.get('left') or 0),
+                   hint=str(h.get('hint') or ''))
 
     def inspect(self, ctx):
         h = (self._ask('inspect', ctx=self._ctx(ctx)) or {}).get('hit')
@@ -73,7 +79,8 @@ class ExternalInterceptor(Interceptor):
         return Hit(kind=str(h.get('kind') or 'external'), by=self.name,
                    sign=str(h.get('sign') or ''),
                    why=str(h.get('why') or '外部插件判定'),
-                   left=int(h.get('left') or 0))
+                   left=int(h.get('left') or 0),
+                   hint=str(h.get('hint') or ''))
 
     def bypass(self, ctx, hit):
         b = (self._ask('bypass', ctx=self._ctx(ctx),
