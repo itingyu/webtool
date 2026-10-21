@@ -220,8 +220,9 @@ def call_py(qual: str, js_args=None, *, lib: str = 'akshare',
     install(timeout=timeout, pace_ms=pace_ms)
     import importlib
     t0 = time.monotonic()
-    if lib and not qual.startswith(lib + '.'):
-        qual = f'{lib}.{qual}'
+    first = qual.split('.', 1)[0]
+    if lib and first != lib and '.' not in qual:
+        qual = f'{lib}.{qual}'          # 只帮 "stock_zh_a_hist" 这种裸函数补包名
     modname, fname = qual.rsplit('.', 1)
     mod = importlib.import_module(modname)
     fn = getattr(mod, fname)
