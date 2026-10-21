@@ -453,11 +453,6 @@ def _fetch_via_mcp(url, args, cfg, channel, timeout, prior=None, proxy=None):
     return out
 
 
-def _site_engine(url):
-    """抓取通道的引擎名: 现在只有微信 /s 链接需要拦截器介入"""
-    host = (urlparse(url).hostname or '').lower()
-    return 'wechat' if host == 'mp.weixin.qq.com' else ''
-
 
 def _verify_bypass(url, html, status, via, *, proxy=None, timeout=None, profile=None):
     """被拦截页挡住时按插件绕法重取一次 → (html, status, via, replaced)
@@ -465,28 +460,38 @@ def _verify_bypass(url, html, status, via, *, proxy=None, timeout=None, profile=
     fetch 走 open_stream (流式/二进制共用), 不进 transport 的拦截判定; 但网页
     目标读完正文后仍该让拦截器过一遍, 否则新插件对 fetch 这条路永远不生效。
     """
-    engine = _site_engine(url)
-    if not engine or not html:
+    if not html:
         return html, status, via, False
     from webtool.net import intercept, transport
-    ctx = intercept.Ctx(engine=engine, url=url, status=status, text=html, via=via)
+    ctx = intercept.Ctx(url=url, status=status, text=html, via=via)
+    site = ctx.site or url
     hit = intercept.inspect(ctx)
     if hit is None:
+        intercept.note_ok(ctx)
         return html, status, via, False
+    intercept.log(ctx, hit, 'blocked', detail='fetch')
     bp = intercept.bypass(ctx, hit)
     if bp is None or not bp.url:
-        logger.debug('fetch | %s 被拦 (%s) 且无绕法 url=%s', engine, hit.sign, url)
+        logger.debug('fetch | %s 被拦 (%s) 且无绕法 url=%s', site, hit.sign, url)
+        intercept.note_hit(ctx, hit)
+        intercept.log(ctx, hit, 'failed', detail='fetch 无可用绕法')
         return html, status, via, False
-    logger.debug('fetch | %s 被拦 (%s), 采用绕法: %s', engine, hit.sign, bp.how)
+    logger.debug('fetch | %s 被拦 (%s), 采用绕法: %s', site, hit.sign, bp.how)
+    intercept.log(ctx, hit, 'bypass', detail=f'{bp.how}(fetch)')
     try:
         text, status2, via2 = transport.get(
-            bp.url, kind='nav', proxy=proxy, timeout=timeout, engine=engine,
+            bp.url, kind='nav', proxy=proxy, timeout=timeout,
             profile=bp.profile or profile, headers=bp.headers or None)
     except Exception as e:
         logger.debug('fetch | 绕法重取失败, 沿用原响应 url=%s: %s', url, e)
+        intercept.note_hit(ctx, hit)
+        intercept.log(ctx, hit, 'failed', detail=f'fetch 绕法失败: {str(e)[:120]}')
         return html, status, via, False
     if not text:
+        intercept.note_hit(ctx, hit)
+        intercept.log(ctx, hit, 'failed', detail='fetch 绕法拿到空响应')
         return html, status, via, False
+    intercept.log(ctx, hit, 'passed', detail=f'fetch 绕法成功({bp.how})')
     return text, status2, f'{via2}+bypass', True
 
 

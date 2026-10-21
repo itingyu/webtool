@@ -115,6 +115,7 @@ def main(argv=None):
 
 from webtool.cli.commands import banner as _banner_cmd   # noqa: F401,E402
 from webtool.cli.commands import data as _data_cmds       # noqa: F401,E402
+from webtool.cli.commands import intercept as _ic_cmds    # noqa: F401,E402
 from webtool.cli.commands import maintenance as _mnt_cmds  # noqa: F401,E402
 from webtool.cli.commands import media as _media_cmd    # noqa: F401,E402
 from webtool.cli.commands import pic as _pic_cmd         # noqa: F401,E402

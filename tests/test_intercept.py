@@ -29,7 +29,8 @@ from webtool.core import config_data                 # noqa: E402
 from webtool.net import intercept                     # noqa: E402
 from webtool.net.intercept import Bypass, Ctx, Hit, Interceptor   # noqa: E402
 
-CAPTCHA_PAGE = '请完成验证后继续访问' * 40
+CAPTCHA_PAGE = ('<html><head><title>安全验证</title></head><body>'
+                + '请完成验证后继续访问' * 40 + '</body></html>')
 
 # ── 内置注册 ─────────────────────────────────────────────────────────────
 names = [p.name for p in intercept.interceptors()]
@@ -42,30 +43,32 @@ check(intercept.describe()[0]['name'] == 'captcha'
       'describe 能报出插件与来源')
 
 # ── 判定 ─────────────────────────────────────────────────────────────────
-hit = intercept.inspect(Ctx(engine='baidu', status=200, text=CAPTCHA_PAGE))
+hit = intercept.inspect(Ctx(engine='baidu', url='https://www.baidu.com/s?wd=x',
+                            status=200, text=CAPTCHA_PAGE))
 check(hit is not None and hit.kind == 'captcha', '验证页被判出来', str(hit))
 check(hit and hit.by == 'captcha', '命中者记在 hit.by 上')
 check(hit and hit.sign != '', '判定依据带在 hit.sign 上 (报错要用)')
 # baidu 的判定里有一条"正文短得可疑", 所以正常页要造够长 (2400 字)
 check(intercept.inspect(Ctx(engine='baidu', text='正常结果 ' * 400)) is None,
       '正常页不误报')
-check(intercept.inspect(Ctx(engine='', text=CAPTCHA_PAGE)) is None,
-      '没有引擎名的通道不判 (fetch/resolve 不折腾)')
+check(intercept.inspect(Ctx(url='https://example.com/a', text=CAPTCHA_PAGE)) is not None,
+      '不带引擎名的请求也判 (只看响应是否被拦)')
 check(intercept.blocked_by('baidu', CAPTCHA_PAGE) is not None,
       '引擎侧便捷入口同样走全部拦截器')
 
 # ── 记账与冷却门 ─────────────────────────────────────────────────────────
-pre = intercept.preflight(Ctx(engine='baidu'))
+pre = intercept.preflight(Ctx(url='https://www.baidu.com/'))
 check(pre is None, '没被拦过的引擎不封门')
-ctx2 = Ctx(engine='baidu', status=200, text=CAPTCHA_PAGE)
+ctx2 = Ctx(engine='baidu', url='https://www.baidu.com/s?wd=x',
+           status=200, text=CAPTCHA_PAGE)
 h2 = intercept.inspect(ctx2)
 intercept.note_hit(ctx2, h2)
 check(h2.left > 0, 'note_hit 把冷却剩余写回 hit.left', str(h2.left))
-pre2 = intercept.preflight(Ctx(engine='baidu'))
+pre2 = intercept.preflight(Ctx(url='https://www.baidu.com/'))
 check(pre2 is not None and pre2.left > 0, '冷却期内 preflight 拦下', str(pre2))
-check(pre2 and pre2.why == '人机验证', 'preflight 用的人话是"人机验证"')
+check(pre2 and pre2.why == '验证页拦截', 'preflight 用的人话是"验证页拦截"')
 intercept.note_ok(ctx2)
-check(intercept.preflight(Ctx(engine='baidu')) is None,
+check(intercept.preflight(Ctx(url='https://www.baidu.com/')) is None,
       'note_ok 复位后门就开了')
 
 # ── 插件: 顺序 / 报错隔离 / 绕过 ──────────────────────────────────────────

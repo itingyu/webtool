@@ -156,8 +156,10 @@ __all__ = ['BlockedError', 'CooldownError', 'TlsError', 'Resp', 'get',
 # (首次被拦即报 BlockedError) —— 梯子会把 1 次被拦放大成多次请求, 默认关掉,
 # 要的人 `webtool config set ladder_steps N` (或按站写规则)。例外: 插件明确
 # 给出绕法时, 默认也放行一次 (只这一次, 见 _get_ladder), 否则 bypass 契约空转。
-# 仅作用于带引擎名的抓页通道 (get), fetch/resolve/request 本就不进梯子。
+# 检测与冷却按站点算, 与请求挂不挂引擎名无关。
 DEFAULT_LADDER_STEPS = 0
+
+
 
 
 def _ladder_steps():
@@ -177,21 +179,21 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=None,
     """浏览器指纹 GET → (text, status, via)
 
     via: 'cffi' | 'urllib'
-    - engine: 反爬冷却/验证码检测/cookie 持久化都挂在这个名字上 (baidu/sogou/...)
+    - engine: 仅用于限速/cookie 分桶等调度, 拦截判定不看它 (baidu/sogou/...)
     - rate_engine: 节奏控制的桶 (一般与 engine 相同, resolve 类可单列)
     - session: 外部管理的会话 (引擎自带预热流程时传入), 此时指纹档案取 profile
     - verify: 证书校验覆盖 (None=按 net.tls 全局策略; True/False 定点决定)
     - timeout: None 时由 http 规则 (kind:http) 填补, 仍无则通用默认 15s
     """
     timeout = _rule_timeout(url, timeout)
-    if engine and _depth == 0:
+    if _depth == 0:
         # 冷却门只在顶层检查: 降级梯内部重试不受影响 (否则会撞上自己刚记的冷却)
         # 具体封多久、为什么封, 是拦截器自己的事 —— transport 只认结论。
-        _hit = intercept.preflight(intercept.Ctx(engine=engine, url=url))
+        _hit = intercept.preflight(intercept.Ctx(url=url))
         if _hit is not None:
             raise CooldownError(
-                f'{engine} 冷却中({_hit.left}s, 此前触发{_hit.why}), '
-                f'请换引擎或 webtool engines 查看')
+                f'{intercept.Ctx(url=url).site} 冷却中({_hit.left}s, '
+                f'此前触发{_hit.why}), 请换站点或稍后再试')
     _pace(rate_engine or engine)
 
     # 代理归一交给 netx (唯一该碰代理的地方): 'auto' → 问路由表, 'user@host' →
@@ -235,14 +237,17 @@ def _get_ladder(url, *, kind, referer, proxy, timeout, engine, rate_engine=None,
                                   max_bytes=max_bytes, profile=profile,
                                   session=session, verify=verify)
     logger.debug('transport | GET %s -> %s via %s (timeout=%s)', url, status, via, timeout)
-    # 拦截检测 + 降级梯 (只对挂了引擎名的通道做, fetch/resolve 不折腾)
+    # 拦截检测 + 降级梯: 拿到正文就判, 不看通道类型和引擎名
     # transport 不认识"验证码": 谁挡的、凭什么、要不要冷却、有没有绕法, 全问
     # net.intercept 的拦截器插件 (captcha 只是其中一个实现)。
-    if not (engine and text):
+    if not text:
         return text, status, via
 
-    ctx = intercept.Ctx(engine=engine, url=url, status=status, text=text,
+    # 没挂引擎名的页面通道也要判 (fetch/resolve/radar 都从这儿过)。冷却/日志
+    # 一律按站点分桶, 不按引擎 —— 谁挡的、挡的是哪个站, 与走哪条代码路径无关。
+    ctx = intercept.Ctx(url=url, status=status, text=text,
                         profile=profile or '', attempt=_depth, via=via)
+    label = ctx.site
     hit = intercept.inspect(ctx)
     if hit is None:
         intercept.note_ok(ctx)
@@ -253,19 +258,23 @@ def _get_ladder(url, *, kind, referer, proxy, timeout, engine, rate_engine=None,
     # 被拦: 记账 → 问绕法 → 退避 → 降级梯 (最多 ladder_steps 步; note_hit 记的
     # 冷却不影响梯内重试, 冷却门只在 _depth==0 检查)
     intercept.note_hit(ctx, hit)
+    intercept.log(ctx, hit, 'blocked', detail=f'depth={_depth}')
     steps = _ladder_steps()
     bp = intercept.bypass(ctx, hit)
     if bp is not None and steps == 0 and _depth == 0:
         # 插件明确给了绕法: 默认也要试一次 —— 否则梯子关着时 bypass 成了摆设。
         # 只放一次: 失败即报错, 不把 1 次被拦放大成多次请求 (梯子的本意)。
         steps = 1
-        logger.debug('transport | %s 被拦, 采用插件绕法: %s', engine, bp.how)
+        logger.debug('transport | %s 被拦, 采用插件绕法: %s', label, bp.how)
     if _depth >= steps:
+        intercept.log(ctx, hit, 'failed',
+                      detail=f'重试{_depth}次仍被拦' + (f', 绕法: {bp.how}' if bp else ''))
         raise BlockedError(
-            f'{engine} {hit.why}({hit.sign}), 已重试{_depth}次仍被拦; '
+            f'{label} {hit.why}({hit.sign}), 已重试{_depth}次仍被拦; '
             f'冷却{hit.left}s, 请换引擎')
     delay = min(2 ** _depth, 4) + random.uniform(0, 0.8)
     if bp is not None:
+        intercept.log(ctx, hit, 'bypass', detail=bp.how)
         # 插件给的绕法: 只改这一次重试的形状 (换地址/加头/换指纹/先等一会儿)。
         # 注意梯子本身只换**指纹会话**、线路不变 —— 被拦就偷偷退直连会让
         # "这条规则为什么对某些请求不生效"无法排查。
@@ -279,20 +288,22 @@ def _get_ladder(url, *, kind, referer, proxy, timeout, engine, rate_engine=None,
             profile = bp.profile
     time.sleep(delay)
     try:
-        return get(url, kind=kind, referer=referer, proxy=proxy,
-                   timeout=timeout, engine=engine, rate_engine=rate_engine,
-                   headers=headers, lang=lang,
-                   max_bytes=max_bytes, profile=profile, session=None,
-                   verify=verify, _depth=_depth + 1)
+        result = get(url, kind=kind, referer=referer, proxy=proxy,
+                     timeout=timeout, engine=engine, rate_engine=rate_engine,
+                     headers=headers, lang=lang,
+                     max_bytes=max_bytes, profile=profile, session=None,
+                     verify=verify, _depth=_depth + 1)
     except (CooldownError, TlsError):
         raise
     except BlockedError:
         # 梯内递归已把最终 BlockedError 组装好, 直接上抛 (google 等上层按此降级 news)
         raise
     except Exception as e:
-        raise BlockedError(f'{engine} {hit.why}({hit.sign}), 降级梯失败: '
+        raise BlockedError(f'{label} {hit.why}({hit.sign}), 降级梯失败: '
                            f'{str(e)[:150]}; '
                            f'冷却{hit.left}s, 请换引擎')
+    intercept.log(ctx, hit, 'passed', detail=f'重试{_depth + 1}次后通过')
+    return result
 
 
 def _lower_keys(headers):

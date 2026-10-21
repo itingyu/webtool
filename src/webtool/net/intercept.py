@@ -42,6 +42,9 @@ transport 不该知道"验证码"是什么 —— 它只该问两句:
 """
 import abc
 import dataclasses
+import datetime
+import json
+import os
 import threading
 
 
@@ -64,6 +67,18 @@ class Ctx:
     def host(self):
         u = self.url
         return u.split('/')[2] if '://' in u else u
+
+    @property
+    def site(self):
+        """站点键 (主机名, 去端口): 冷却/日志按它分桶, 与引擎名无关
+
+        一概而论: 不管这次请求挂的是搜索引擎还是 fetch, 被拦就是同一个站被拦,
+        冷却记账不该因为走哪条代码路径而分裂。
+        """
+        h = self.host().split('@')[-1].lower()
+        if h.startswith('['):
+            return h.split(']')[0] + ']'
+        return h.rsplit(':', 1)[0] if ':' in h else h
 
     def lower(self):
         """小写正文 (只算一次): 每个请求几 MB 的正文, 各插件各自 lower 一遍太亏"""
@@ -381,6 +396,54 @@ def describe():
 def problems():
     """有问题的拦截器 (加载/运行报错的), 给 config list 之类的地方显示"""
     return dict(_ERR)
+
+
+# ── 拦截日志 ─────────────────────────────────────────────────────────────
+# 只记"判定过"的事件 (被拦/绕行/绕后成功/绕后仍败), 不记正常请求 —— 否则日志
+# 被每条成功请求淹没, 真正要看的那几行反而找不到。
+_LOG_LOCK = threading.Lock()
+_LOG_MAX = 2 * 1024 * 1024          # 单文件上限, 超了轮转成 .1 (只留一份)
+
+
+def log_path():
+    """拦截日志位置: 跟 WEBTOOL_DIR 走, 与 state/config 同源"""
+    base = os.environ.get('WEBTOOL_DIR') or '~/.webtool'
+    return os.path.join(os.path.expanduser(base), 'intercept.log')
+
+
+def log(ctx, hit=None, action='blocked', detail=''):
+    """追加一条拦截记录 (JSONL)。日志失败不许影响请求。"""
+    rec = {
+        'ts': datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
+        'action': action,
+        'site': ctx.site,
+        'url': (ctx.url or '')[:300],
+        'status': ctx.status,
+        'via': ctx.via,
+    }
+    if hit is not None:
+        rec.update({'kind': hit.kind, 'sign': hit.sign, 'why': hit.why,
+                    'by': hit.by})
+        if hit.left:
+            rec['left'] = hit.left
+    if detail:
+        rec['detail'] = str(detail)[:300]
+    try:
+        line = json.dumps(rec, ensure_ascii=False) + '\n'
+        p = log_path()
+        with _LOG_LOCK:
+            d = os.path.dirname(p)
+            if d:
+                os.makedirs(d, exist_ok=True)
+            try:
+                if os.path.getsize(p) > _LOG_MAX:
+                    os.replace(p, p + '.1')
+            except OSError:
+                pass
+            with open(p, 'a', encoding='utf-8') as f:
+                f.write(line)
+    except Exception:                      # noqa: BLE001
+        pass
 
 
 def reset():

@@ -105,7 +105,7 @@ class Bypasser(Interceptor):
 
 
 # ── 1. 无绕法: 首次被拦即报错, 只打一次 ────────────────────────────────
-captcha.mark_ok('eng1')
+captcha.mark_ok('127.0.0.1')
 before = HITS['blocked']
 err = None
 try:
@@ -119,7 +119,7 @@ check(HITS['blocked'] == before + 1,
 
 # ── 2. 有绕法: 试一次并拿到正常页 ──────────────────────────────────────
 intercept.register(Bypasser)
-captcha.mark_ok('eng2')
+captcha.mark_ok('127.0.0.1')
 before_b, before_ok = HITS['blocked'], HITS['ok']
 txt, err2 = '', None
 try:
@@ -148,7 +148,7 @@ class BadBypass(Interceptor):
 
 
 intercept.register(BadBypass)
-captcha.mark_ok('eng3')
+captcha.mark_ok('127.0.0.1')
 b1, b2 = HITS['blocked'], HITS['blocked2']
 err3 = None
 try:

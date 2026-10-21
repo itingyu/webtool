@@ -109,12 +109,12 @@ for _ in range(3):
 check(not os.path.exists(p), 'hits=0 时成功请求不落盘', p)
 
 from webtool.net import captcha as _cap     # noqa: E402
-_cap.mark_blocked('baidu')
+_cap.mark_blocked('www.baidu.com')
 stamp = os.stat(p).st_mtime_ns
 time.sleep(0.05)
 intercept.note_ok(Ctx(engine='baidu', url='https://www.baidu.com/s?wd=x'))
 check(os.stat(p).st_mtime_ns != stamp, 'hits>0 时成功请求才复位并落盘')
-check(_cap.suspended('baidu') is False, '复位后冷却解除')
+check(_cap.suspended('www.baidu.com') is False, '复位后冷却解除')
 
 # ── 停用: 配置说了算 ───────────────────────────────────────────────────
 cfg['interceptor']['captcha'] = {'enabled': False}

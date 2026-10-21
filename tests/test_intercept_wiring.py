@@ -100,7 +100,7 @@ check(err is not None and '验证页拦截' in str(err),
       '验证页在 transport 里被判成"拦截"并报错', repr(err))
 check(err is not None and '(' in str(err) and '冷却' in str(err),
       '报错带上判定依据与冷却剩余', repr(err))
-check(captcha.suspended('baidu'), '被拦后引擎进冷却 (note_hit 真的记了账)')
+check(captcha.suspended('127.0.0.1'), '被拦后引擎进冷却 (note_hit 真的记了账)')
 check(len(SLEPT) > t0, '降级梯里做了退避 (没白重试)', str(SLEPT[t0:]))
 check(HITS['captcha'] >= 2,
       '梯子重试了多次 (每次都撞上验证页)', str(HITS))
@@ -113,12 +113,12 @@ except Exception as e:                      # noqa: BLE001
     err2 = e
 check(err2 is not None and type(err2).__name__ == 'CooldownError',
       '冷却期内直接挡回 (CooldownError)', repr(err2))
-check(err2 is not None and '人机验证' in str(err2),
+check(err2 is not None and '验证页拦截' in str(err2),
       '挡回的人话来自插件 (transport 不认识"验证码")', repr(err2))
 check(HITS['captcha'] == 4, '挡住时不发请求', str(HITS))
 
 # ── 3. 复位后能正常拿到正文 ──────────────────────────────────────────────
-captcha.mark_ok('baidu')
+captcha.mark_ok('127.0.0.1')
 try:
     txt, status, via = transport.get(BASE + '/ok', engine='baidu',
                                      proxy='direct', timeout=5)
