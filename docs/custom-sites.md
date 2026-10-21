@@ -1,113 +1,49 @@
-# 自定义站点搜索配置
+# 自定义站点
 
-`webtool site` 支持用 JSON 配置扩展站点搜索，无需写代码。
+内置站点在 `data/plugins.json` 的 `site` 段。想加自己的站，不用改代码：
+在 `~/.webtool/sites/` 放一个 JSON，启动时自动并入（`webtool site list` 可见）。
 
-实现见 `src/webtool/engines/customsites.py`，调度入口 `src/webtool/cli/sitesearch.py`。
-
-## 配置位置
-
-- `~/.webtool/sites/*.json`（用户级，按文件名排序加载，可放多个文件）
-- **同名 key 覆盖内置站点**：自定义配置优先于内置（`sitesearch.py` 中先查 `customs`，命中即用）
-- 配置不会自动生成，需自行创建该目录和文件
-
-## 格式
+## 文件格式
 
 ```json
 {
-  "站点key": {
-    "desc": "人类可读描述",
-    "url": "https://api.example.com/search?q={query}&limit={limit}",
-    "proxy": "direct",
-    "method": "GET",
-    "headers": {"X-Custom": "value"},
-    "body": "POST 时的模板, 同样支持 {query}/{limit} 变量",
-    "results_path": "data.items",
-    "fields": {
-      "title": "title",
-      "url": "https://example.com/p/{slug}",
-      "snippet": "content|strip_html|trunc200",
-      "score": "relevance",
-      "date": "created_at|date_iso"
-    }
-  }
+  "name": "example",
+  "url": "https://example.com/search?q={query}&page={page}",
+  "headers": {"Accept-Language": "zh-CN"},
+  "encoding": "utf-8",
+  "list": "div.result",
+  "item": {
+    "title": "h3 a",
+    "url": "h3 a@href",
+    "snippet": "p.desc"
+  },
+  "page_start": 1,
+  "page_step": 1,
+  "pipeline": ["strip_html", "trunc200"]
 }
 ```
 
-## 校验规则
+- `url` 必填，支持 `{query}`、`{page}` 占位；其余键可选。
+- `item` 的取值支持 `选择器@属性`（`@href`/`@src`/`@text`）；不写 `@` 取文本。
+- `pipeline` 可选算子：`strip_html`、`trunc200`、`date_ts`、`date_iso`。
+- 解析用 CSS 选择器；分页从 `page_start` 起，按 `page_step` 递增。
 
-`load_custom_sites()` 只做一次轻量校验（`_validate`），三个字段缺一即判定无效：
+## 使用与调试
 
-| 字段 | 要求 |
-|---|---|
-| `url` | 必须非空 |
-| `results_path` | **必须存在**，可为空串 `""`（表示响应本身就是数组） |
-| `fields` | 必须非空 |
-
-无效时不会崩溃，该站点在列表里标记为 `custom(BROKEN)`，desc 显示
-`invalid spec: need url+results_path+fields`。JSON 语法错误按文件名注册，标记
-`load fail: <原因>`。
-
-## 说明
-
-| 项 | 说明 |
-|---|---|
-| `{query}` / `{limit}` | URL/body 模板变量，请求前替换（`query` 会做 URL 编码） |
-| `proxy` | `direct`=直连，`proxy`=走默认代理（rules.json 的 `proxies.default`），`auto`=问路由表（默认）。**仅自定义站点有效**：内置站点一律 `auto`，线路只由规则表决定（内置清单里不再有 `proxy` 字段）。命令行 `--no-proxy` 优先级更高 |
-| `headers` | 追加请求头 |
-| `results_path` | 响应 JSON 里结果数组的点分路径，如 `data.hits` |
-| `fields` | 输出字段映射；值支持 `源字段\|管道函数` 链式 |
-
-**管道函数**（`_pipe` 实际支持的，**仅这 5 个**）：
-
-| 名称 | 作用 |
-|---|---|
-| `strip_html` | 去标签并压缩空白 |
-| `trunc200` | 截断到 200 字符（硬编码，改长度需改代码） |
-| `date_ts` | Unix 时间戳 → `YYYY-MM-DD`，解析失败原样返回 |
-| `date_iso` | 已是 ISO 串时取前 10 位 |
-| `prefix:XXX` | 在值前拼接固定串 |
-
-> 未实现的（网上流传的其他写法）：`prepend:` / `append:` / `int` 均**不生效**，
-> 会原样返回入参值。
-
-**取值规则**：
-- 所有字段值都以「单条结果 JSON」为根做点分路径取值
-- `url` 可以是模板 `https://example.com/p/{slug}`，变量从结果项取
-- 路径不存在时返回空值，不抛异常
-
-## 实例
-
-`~/.webtool/sites/custom.json`（用户自建）：
-
-```json
-{
-  "v2ex": {
-    "desc": "V2EX 主题搜索",
-    "url": "https://www.sov2ex.com/api/search?q={query}&size={limit}&from=0",
-    "proxy": "direct",
-    "results_path": "data",
-    "fields": {
-      "title": "title|strip_html",
-      "url": "https://www.v2ex.com/t/{id}",
-      "snippet": "content|strip_html|trunc200",
-      "score": "score",
-      "replies": "replies",
-      "date": "created|date_iso"
-    }
-  }
-}
+```bash
+webtool site list
+webtool site example "关键词" -n 5
+webtool site example "关键词" --proxy none -v
 ```
 
-> 注意：内置已有 `sov2ex` 走同一套 sov2ex 索引，自定义 `v2ex` 属于功能重复。
-> 保留仅当你想改字段映射或 `proxy` 时；否则建议删掉自定义项避免混淆。
+- 先确认 `list` 选择器能选中 ≥1 个节点，再看 `item` 的相对选择器；写错不会
+  报解析错，只会得到空结果。
+- 站点目录按 mtime 重读，改完不用重启；新文件当场生效。
+- 自定义站点同样走 `net/transport`：代理、TLS、拦截与冷却全部继承，不需要在
+  配置里再写一遍。
 
-## 验证
+## 限制
 
-```sh
-webtool site list             # 输出 JSON 数组, 看 source 字段区分 builtin/custom
-webtool site v2ex python -n 2 -f json
-```
-
-- `site list` 输出的是 **JSON 数组**（不是表格），字段：
-  `site` / `desc` / `proxy` / `source`（`builtin`、`custom(~/.webtool/sites)`、`custom(BROKEN)`）
-- 配置错误时直接搜索会 stderr 报错并 `exit 2`，不会静默降级
+- 只解析静态 HTML；前端渲染的站点请用 `fetch`（可执行 JS）或专用 `engine`。
+- 需要登录/签名的接口不适合这里，写独立 `engine` 插件更合适。
+- 站点结构变更时，先更新选择器，别在 `pipeline` 里堆正则补救。

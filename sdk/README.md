@@ -1,17 +1,9 @@
 # webtool 插件 SDK
 
-所有类别插件（engine / filter / extractor / resolver / site / transformer /
-interceptor）的最小开发套件。两条路：
+单文件、零依赖：`python/webtool_plugin_sdk.py`。拦截器、engine、filter 等所有
+类别共用这一套。
 
-| 形态 | 入口 | 适合 |
-|---|---|---|
-| Python 进程内 | 继承 `webtool.net.intercept.Interceptor` | 能装 webtool、追求零额外开销 |
-| 外部进程（任意语言） | 本目录 SDK / 示例 + `type: external` | 不想绑 Python、要隔离、已有服务 |
-
-协议规范见 [`docs/external-plugins.md`](../docs/external-plugins.md)，
-机读 schema 见 [`schema/interceptor.json`](schema/interceptor.json)。
-
-## Python（无依赖，可单独拷走）
+## 拦截器
 
 ```python
 from webtool_plugin_sdk import Plugin, hit, serve
@@ -27,17 +19,18 @@ if __name__ == "__main__":
     serve(Waf())
 ```
 
-接入：把 SDK 文件放到插件旁边，`plugins.json` 写
-
 ```json
 {"interceptor": {"waf": {"type": "external",
   "command": ["python3", "/path/to/plugin.py"],
   "timeout": 0.2, "hosts": ["example.com"]}}}
 ```
 
-## 非拦截器类别（engine / filter / extractor ...）
+可选方法：`preflight / inspect / bypass / note_ok / note_hit`；`hit()` 与
+`bypass()` 负责拼协议字段。
 
-实现 `call(kind, args, kwargs)`，原样接住调用方参数、返回可 JSON 化的结果：
+## 其它类别（engine / filter / extractor ...）
+
+实现 `call(kind, args, kwargs)`，原样接住调用方参数：
 
 ```python
 class OnlyDocs(Plugin):
@@ -51,27 +44,26 @@ class OnlyDocs(Plugin):
   "command": ["python3", "/path/to/plugin.py"]}}}
 ```
 
-注册表会把它包成普通 callable，`filter(...)` / `engine(...)` 的调用方无感；
-不可用时调用返回 `None`，按“无结果”处理。
+注册表会把它包成普通 callable，调用方无感；不可用时返回 `null`。
 
-## 其它语言
+## 协议要点
 
-- [`examples/node/plugin.js`](examples/node/plugin.js)：`readline` 逐行处理
-- [`examples/go/main.go`](examples/go/main.go)：`bufio.Scanner` 逐行处理
+- stdin/stdout 一行一个 JSON；stdout 只放协议，日志走 stderr。
+- 握手：`{"op":"ping"}` → `{"ok":true}`。
+- 拦截器：`preflight / inspect / bypass / note_ok / note_hit`。
+- 其它类别：`{"op":"call","kind":"filter","args":[...],"kwargs":{}}` →
+  `{"result": ...}`。
+- 正文默认截断 1MB（配置 `max_text`），超时按 `timeout` 杀进程。
 
-共同要求：**stdout 只写协议行、逐行 flush**；日志走 stderr；单次处理不超过 `timeout`。
+## 目录
 
-## 自测
+- `python/webtool_plugin_sdk.py`：SDK 本体，可直接拷走。
+- `examples/python|node|go/`：三种语言的最小实现。
+- `schema/interceptor.json`：协议 schema，可用于 CI 校验。
+
+自测：
 
 ```bash
-# 直接手工发一行
-echo '{"op":"ping"}' | python3 sdk/examples/python/plugin.py
-# 让 webtool 体检（会真的起进程 ping）
+echo '{"op":"ping"}' | python3 examples/python/plugin.py
 webtool plugins check
 ```
-
-## 打包发布
-
-- Python：`.py` / `.pyc`（`compileall -b`）/ zip 包 / `.so` 均可，`module` 指向
-  `pkg.mod:Class`；外部形态直接给 `command`。
-- 其它语言：编成单文件二进制，`command` 用绝对路径；跨平台就按平台各编一份。

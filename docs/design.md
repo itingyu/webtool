@@ -1,108 +1,119 @@
-# webtool 架构
+# 架构
 
-给 Agent 用的网页搜索与内容获取 CLI：`search` 多引擎搜索、`fetch` 取正文与文件，输出 markdown / text / json。
+## 定位
+
+一个纯 Python（3.12）的采集工具：搜索聚合、单页正文、热榜、RSS、股票行情，
+通过 `webtool` CLI 和 MCP 暴露。没有服务端，所有状态在本地文件里。
 
 ## 分层
 
 ```
-src/webtool/
-├── cli/                 # typer 声明式 CLI (app/config/plugins); 命令函数填 SimpleNamespace 复用 do_*(args, cfg); 帮助用普通 click 样式 (rich_markup_mode=None, 不用 rich 面板大框)
-│   └── sitesearch / zen / zenproto   # 站内搜索调度 / LLM 对话编排 / OpenAI 兼容协议
-├── feeds/               # RSS/Atom 订阅聚合: command / sources / parse / fetch / cards / feedhealth
-├── radar/               # RSSHub 路由查询与参数填充: routes / rules / instances / official / template / race
-├── pipeline/            # search 调度 / fetch URL→正文 / rank 榜单 / merge 排序去重 / topup 补量 / qhint 质量诊断 / query_ops
-├── render/              # render 正文渲染 / hotrender 榜单分节 / output 落盘
-├── filters/             # blocklist 站点黑名单 / adfilter 广告识别 (纯规则, 不出网)
-├── net/                 # L0 网络底座按 OSI 归位: transport 指纹传输 / fingerprints 指纹档案 / pacing 节奏·超时 /
-│                        #   adapters requests 适配器 / proxy 线路 / tls 证书策略 / stream SSE+WS /
-│                        #   rules 规则引擎 / http urllib 通道 / download 分片下载 / connectivity 探活 / dns / intercept 拦截绕过 / captcha / spa
-├── engines/             # 各站适配器 (由 plugins.json 的 module 指向) + extractors / customsites / source (SearchSource 适配器)
-├── sources/             # 数据契约层 (L0'): DataPacket 统一信封 + SourceBase 接口 + 注册表工厂
-│                        #   五类内置源: search(引擎) · site(站内) · hot(榜单) · feed(RSS) · page(URL→正文)
-├── dao/                 # DAO 层: cache 分桶 TTL / state 跨进程状态 / checkpoint 断点 (只存取, 不懂业务)
-├── core/                # L0 底座
-│   ├── plugins.py       # Registry: 八类插件统一注册表 (engine/site/hot/extractor/resolver/filter/transformer/interceptor/source)
-│   ├── config_data.py   # 配置合并: 包内 data/*.json + ~/.webtool/ 同名文件 (深合并, 列表替换, 指纹判失效)
-│   ├── resilient.py     # 弹性: parallel_map / thread_pool(守护线程池) / retry / breaker / fetch 包装
-│   ├── shutdown.py      # 优雅关闭: Ctrl-C 一次协作退出 (rc 130)、两次强制 os._exit
-│   └── text.py urls.py jsonfmt.py errors.py logging.py stdin.py
-├── stock/               # 股票: command (动作) / bridge (数据源层) / data/reverse (逆向文档)
-│                        #   data/trading_calendar/holidays-<年>.json = 交易日历 (运行必需,
-│                        #   随包分发; 曾经读项目外的 shared/短线复盘/, 换机就静默降级)
-└── data/                # plugins.json / filters.json / instances.json / zen.json / feeds.seed.json
-                         #   certs/ca-bundle.pem = 兜底 CA (随包); 站点证书投放点
-                         #   是用户目录 ~/.webtool/certs/extra/ (包内同名目录只是预置)
-                         #   站点证书要由 rules.json 里的 kind:tls 规则点名才生效
-                         #   (webtool proxy cert sync 按证书域名自动生成)
-                         # 注: 在包根, core.config_data.DATA_DIR 指向它
+cli/       参数解析、输出格式、退出码。唯一可以 import 所有层的地方
+  │
+  ├── pipeline/   编排：搜索降级、抓取流水线、渲染
+  ├── engines/    具体站点/引擎适配（baidu/bing/wechat/sites…）
+  ├── sources/    统一取数契约（DataPacket + SourceBase）
+  ├── feeds/      RSS/Atom 订阅
+  └── stock/      行情、选股
+        │
+        ├── net/    transport(唯一出网口) / intercept / captcha / proxy / rules
+        ├── dao/    state(冷却等状态) / cache(响应缓存)
+        └── core/   bootstrap / config_data / plugins / logging
 ```
 
-依赖只允许向下：`cli` → `feeds`/`radar`/`zen` → `pipeline`/`render` → `net`/`engines` → `core`。
+依赖方向只能向下。唯一的权威是 `tests/test_layering.py`：新增 import 后跑一遍，
+越界会直接失败。实践中的三条硬线：
 
-**扩展方式**：各类插件（engine / hot / site / extractor / resolver / filter / transformer / interceptor / source）在 `data/plugins.json` 声明元数据与模块路径，用户经 `~/.webtool/plugins.json` 覆盖或追加，`包路径:函数名` 约定，详见 README。适配器函数体（URL 构造、解析）属代码，留在 `engines/*.py`；权重、描述、代理偏好、过滤规则等元数据全部外置到 JSON。
+- `net/` 不认识 `engines/`、`pipeline/`、`cli/`（只依赖 `core` + `dao`）。
+- `engines/` 不认识 `cli/`、`pipeline/`。
+- 任何层都不绕过 `net/transport` 自己发 HTTP。
 
-## search 与 fetch
+## 一次请求怎么走
 
-搜索：多引擎并发 → 归一化 → 去重合并（跨引擎佐证进 `weight`）→ 跳转链解码 → 输出 `rank/title/url/snippet/engines/weight`。默认只给摘要，正文另跑 `fetch`。
+**搜索**
 
-fetch 的四步：
-
-1. **一次流式请求同时拿到响应头与 body 通道**（`transport.open_stream`），不做 "HEAD 探类型 + GET 下载" 两趟（HEAD 常被 405 或回假头）。
-2. **按 `Content-Type` 判型**（`fetch.target_kind`），头认不出才看 URL 后缀。html → 提取链；text（json/xml/纯文本）→ 原样输出；image/video/audio/pdf/archive/font/binary → 落盘。
-3. **落点**：`--save <文件或目录>` 覆盖，否则当前目录；文件名按 URL 末段（`.tar.gz` 双后缀保留），URL 没末段才退到 `Content-Disposition` → MIME。续传要求发请求前就知道落点（`Range` 得随请求头发出），定不出名字时不续传。
-4. **三条守规矩**：4xx/5xx 错误页不落盘；超上限不留残件；二进制不进 stdout（类型/体积/落点走 stderr）。
-
-二进制下载（`net/download/`）：边收边写、`.part` + `Range` + `If-Range` 续传、下完才改名；404 / 不认 Range / 响应被压缩时旧片段作废重下。`--jobs N` 多连接分片先探 `Range: bytes=0-0` 确认服务端认账与总大小，再把 `.part` 预分配成总大小，各段 seek 到自己的偏移写不相交区间；段数 `min(jobs, 4, 总大小/1MB)`，默认单连接（并发只在每条连接被限速时才有收益）。
-
-## 正文提取
-
-两层，清单在 `data/plugins.json` 的 `extractor` 段：
-
-- **内容层**：trafilatura / boilerplate / readability —— 同层一起跑，按「碎片率 + 长度」择优（`extractors.pick_best`），不是先到先得。门户页 trafilatura 会带进推广块、长文合集页 readability 会丢正文，没有单一提取器通吃。
-- **兜底层**：inscriptis / 零依赖剥标签 —— 整页纯文本，只在内容层全空时跑，不参与择优（它永远非空）。
-- `boilerplate` 是 readability 算法的纯标准库实现，供装不上 lxml 的平台（Termux/Android）使用。
-
-默认 `auto` 择优，`--extract <名>` / `config set extract <名>` 可固定，指定后无产出自动退回 auto。结果里的 `extract` 字段标明本次用的哪个提取器。
-
-## 路由与网络
-
-线路只由规则表判一次（`net/netx` 是唯一决策点），引擎、适配器、端点都不自报线路。
-
-```jsonc
-// ~/.webtool/config.json —— 只剩与线路无关的项 (timeout/cache/TLS...) + proxy_auth 密文
-{ "timeout": 15, "cache_dir": "~/.webtool/cache" }
-
-// ~/.webtool/rules.json —— 线路唯一决策源 (默认代理也在这)
-{
-  "default": "proxy:default",  // 未命中时的动作 (direct / block / proxy:<名>)
-  "rules": [{"match": {"geosite": ["cn"]}, "action": "direct"}],
-  "proxies": {"default": "http://127.0.0.1:2080"}
-}
+```mermaid
+flowchart LR
+  C[cli] --> S[pipeline: 选引擎/降级]
+  S --> E[engines/baidu · bing · google …]
+  E --> T[net/transport.get]
+  T --> I[net/intercept 判定]
+  I --> P[解析 HTML/JSON]
+  P --> S
+  S --> O[统一结果 + 渲染]
 ```
 
-- `match` 内多条件 AND，同条件内多值 OR；判不出来 = 不匹配（缺库则跳过该条并提示）
-- geo 库（geosite/geoip）随包自带一份，首次运行落到 `~/.webtool/geo/`，无需手动配就能用 `{"geosite":["cn"]}`；
-  `webtool proxy geo update` 刷新用户态那份（下载内容不是 geo 库则拒绝替换）
-- 带 `kind` 的规则不吃线路，按环节生效（`http` / `retry` / `breaker` / `tls`），与线路规则同住一份 rules.json、互不干扰
-- 不支持按引擎名配代理；要单点覆盖就加一条规则（按域名/IP/端口/协议），或用 `--no-proxy` / `--proxy`
-- 环境变量 `http_proxy`/`https_proxy` 不作为决策源（opener 层已堵死）；socks5 走 pysocks
-- 证书**默认不校验**（`ssl_verify` 默认 `off`：没配就不校验，证书怎么处理由用户显式决定），
-  失败直接抛错不重试；要严格就 `ssl_verify on`，按站点配用 `kind:tls` 规则（`ca` 换信任根 / `verify: off` 关该站校验），
-  全局兜底才是 `verify_hosts` 点名豁免与 `ca_bundle` 换 CA；优先级 `verify=` 参数 > tls 规则 > `verify_hosts` > `ssl_verify`
+某条线路被拦或失败时，`pipeline` 按引擎优先级降级；是否还能重试由
+`net/intercept` 的结论和降级梯配置决定（见 [intercept.md](intercept.md)）。
 
-## 输出
+**单页抓取**
 
-```jsonc
-// search -f json
-{"query":"...", "took_ms":1100, "results":[
-  {"rank":1, "title":"...", "url":"https://...", "snippet":"...", "engines":["bing","sogou"], "weight":0.72}]}
-
-// fetch -f json
-{"url":"...", "status":200, "kind":"html", "title":"...", "content":"...",
- "metadata":{"author":"...","date":"...","sitename":"..."}, "took_ms":2300}
-
-// 错误统一
-{"error":"...", "url":"...", "hint":"建议: --engine sogou 或 --proxy ..."}
+```mermaid
+flowchart LR
+  F[pipeline/fetch] --> T[net/transport.open_stream]
+  T --> D[decode: 编码/压缩]
+  D --> B[intercept: 检测 + 绕行]
+  B --> X[extractors: 正文/元数据]
+  X --> M[markdown/text/json]
 ```
 
-省 token 的手段：默认 markdown 正文（去广告/导航/脚本）· `--max-chars` 截断 · 搜索只给摘要 · 分桶缓存（search 60s / fetch 10s / 跳转解析 10min）· 输出去噪（合并空行、去 cookie 提示条等）· `-f txt` 是真纯文本（`core.text.md_to_text` 抹掉标记与 YAML 头）。
+`fetch` 的判定发生在正文读完之后，因此任何站点、任何入口都会被检查一遍，
+不依赖“这次请求挂的是哪个引擎”。
+
+**其它**
+
+- `rank` / `site`：查站点配方 → 走同一套 transport。
+- `feed`：HTTP 拉取 + XML 解析，条目去重后入库/输出。
+- `stock`：行情接口 + 本地缓存，交易日/限频逻辑在 `stock/` 内。
+
+## 缓存与状态
+
+- 响应缓存：`~/.webtool/cache/<bucket>/`，key 由 URL + 关键参数生成；`--no-cache` 跳过。
+- 运行状态：`~/.webtool/state.json`（验证页命中次数、冷却截止、一次性标记等）。
+- 拦截日志：`~/.webtool/intercept.log`（JSONL，2MB 轮转）。
+- 配置：见下节；全部按 mtime 热加载，改完即生效。
+
+## 配置从哪来
+
+优先级从低到高：
+
+1. 包内默认：`src/webtool/data/*.json`（随版本发布，不要手改）
+2. 用户覆盖：`~/.webtool/*.json`（只写要改的键，按段合并）
+3. 环境变量 / 命令行参数（单次生效）
+
+| 文件 | 管什么 |
+|---|---|
+| `plugins.json` | 九类插件的注册、优先级、参数、启停 |
+| `filters.json` | 搜索结果过滤规则（域名、关键词、去重策略） |
+| `rules.json` | 出网规则：代理分流、TLS、指纹、pkg 域名表 |
+| `config.json` | 运行时参数（`cache_dir`、超时、降级梯步数等） |
+| `feeds.json` | 订阅源 |
+| `instances.json` / `mcp.json` / `zen.json` | 模型、MCP、zen 通道配置 |
+
+环境变量：
+
+- `WEBTOOL_DIR`：整个用户目录的根（默认 `~/.webtool`），测试和隔离必用。
+- `WEBTOOL_PLUGIN_DIR`：外部插件搜索目录（默认 `~/.webtool/plugins`）。
+- 代理：优先 `rules.json` 的分流规则；显式 `--proxy` / `--no-proxy` 覆盖单次请求。
+
+配置写错不会炸掉启动：该段回退到默认值，错误进 `webtool config list` 的
+`runtime_errors`；插件级的坏配置只在 `plugins check` 里可见。
+
+## 失败语义
+
+- 退出码：`0` 成功；`1` 运行期错误（网络、解析、被拦）；`2` 参数用法错误；
+  `130` 用户中断。
+- 异常类型：`BlockedError`（被拦截且无路可走，附冷却秒数）、
+  `CooldownError`（站点处于冷却期，未发请求）、`TlsError`（证书/握手）。
+- 降级：单引擎失败不影响整次搜索；外部插件失败只让它自己掉队，返回 `None`。
+
+## 状态与缓存
+
+| 路径 | 内容 |
+|---|---|
+| `~/.webtool/state.json` | 验证页命中次数与冷却截止时间（按站点） |
+| `~/.webtool/cache/` | 页面/抓取缓存（`config.json` 的 `cache_dir` 可改） |
+| `~/.webtool/intercept.log` | 拦截判定日志（JSONL，2MB 轮转 `.1`） |
+| `~/.webtool/logs/` | 调试日志（`-v` 时的落盘） |
+
+删除 `state.json` 里的 `captcha` 段即可立即解除所有站点冷却；缓存可整目录删。

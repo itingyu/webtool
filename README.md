@@ -94,7 +94,7 @@ webtool search "query" -e exa,parallel           # 语义引擎
 - `--operators passthrough|strip|strict` 控制高级操作符（支持 `site:` `intitle:` `inurl:` `-词`）；`--blocklist a.com,b.com` 覆盖黑名单（前缀 `!` 表例外，`off` 关闭）
 - **多引擎并发抓取**：一次搜索同时打所有引擎（不同站点、互不排队），墙钟≈最慢那个引擎而不是各家之和。默认并发=源数（上限 4，`core.resilient.MAX_WORKERS` 常量），`-j/--jobs N` 调（`1` = 串行，`config set jobs N` 持久化）。结果与报错一律按 `-e` 声明顺序回填，同一 query 的输出稳定可复现
 - 跳转链默认自动解码成真实 URL（`--no-resolve` 关）；结果综合加权排序，`-f json` 看 `weight` 与 `engines`（交叉验证数）
-- `webtool engines list|test|presets`：清单与冷却状态 / 实发体检 / 预设组合
+- `webtool engines list|test|presets`：清单与各站点冷却 / 实发体检 / 预设组合
 
 ## fetch
 
@@ -288,7 +288,7 @@ webtool stock docs-stats
 
 - 单股动作的代码走位置参数（`quote`/`check`/`risk` 可给多个）；**没有 `--code` 选项**
 - `kline` / `intraday` 支持**板块**：中文名（`半导体`/`通信运营商`，带不带"行业"后缀都行，全量目录 1h 缓存内解析→BK 代码）、或直接给 `BKxxxx`。K 线/分时都走东财 `90.BKxxxx`；板块没有撮合竞价，分时无竞价段，均价（黄线）按成分股加权价（系数固定×100）。名字对不上时（如东财把"光模块"叫"光通信模块"）会列相近候选；全表用 `webtool stock boards <关键词>` 查
-- `--ascii` 直出终端字符画（影线 `│`/阳 `█`/阴 `▓` 形状级区分；盲文点阵分时），颜色自动探测：`NO_COLOR`/`TERM=dumb`/非 tty 降级无色，`FORCE_COLOR=1` 管道强制
+- `--ascii` 直出终端字符画（影线 `│`/阳 `█`/阴 `▓` 形状级区分；盲文点阵分时），颜色自动探测：`NO_COLOR`/`TERM=dumb`/非 tty 降级无色，`FORCE_COLOR=1` 管道强制；`boards` 表的涨跌% 同口径红涨绿跌
 - `--arg` 的值纯数字一律留字符串（600519 是代码），与 `webtool mcp` 的猜测口径不同
 - `report` / `diagram` / `excel` 原样透传（markdown、mermaid 源码、落盘确认）；`screen` 输出含剔除清单与闸门原因
 - 口径：涨停池输出必带真实数据日；北向等数据缺位标 ⚠「未取得」，不当 0；上游未解析出条目时显式标注
@@ -473,7 +473,7 @@ webtool cache / webtool blocklist
 - `module` 格式 `包路径:函数名`；三层来源后者覆盖前者：包内 JSON → 用户 JSON → `WEBTOOL_PLUGIN_DIR` 外部 `.py`
 - `hot`/`extractor`/`filter`/`transformer` 按插入顺序执行，提取器首个返回非空正文的生效
 - 过滤规则可配：`~/.webtool/filters.json` 覆盖 `adfilter`（广告词/域名）、`blocklist`（低质站点）、`merge`（词典先验域/跟踪参数）、`spa`（内嵌 state 挂载点）
-- 引擎行为参数在 `engine.<name>.params`：`rate`（请求间隔秒）、`captcha_signs`（验证页指纹）、`cooldown`（触发后静默秒）
+- 引擎行为参数在 `engine.<name>.params`：`rate`（请求间隔秒）、`captcha_signs`（验证页指纹，加载时并入全局特征表）；冷却时长不按引擎配，统一由 `captcha` 插件的站点冷却决定（30s 起，连续命中翻倍，上限 4×）
 - 热更新：`plugins.json` / `filters.json` 按 mtime 自动生效；外部插件 `.py` 改动需 `plugins reload`
 - 跳转链解码是 `resolver` 插件，按 URL 特征认链；`match` 里普通串按子串匹配，`~` 开头按正则
 
@@ -502,14 +502,20 @@ class MyWall(Interceptor):
     def note_hit(self, ctx, hit): ...      # 可选: 记冷却, 把剩余秒数写回 hit.left
 ```
 
-- `ctx`（`Ctx`）给到 `engine/url/status/text/headers/profile/attempt/via`，只读
+- `ctx`（`Ctx`）只读：`url / status / text / headers / profile / attempt / via`，
+  另有派生属性 `host`（主机名带端口）与 `site`（主机名，去端口 —— 冷却与日志的记账键）。
+  `ctx.engine` 只是遗留信息字段，判定逻辑不读它
 - `bypass` 返回的 `Bypass` 支持 `url` / `headers` / `profile` / `delay` / `retry`，由传输层执行
-- 只判不绕也合法（`captcha` 现在就是）：传输层按冷却 + 降级梯处理
+- 只判不绕也合法（`captcha` 现在就是）：传输层按**站点**冷却 + 降级梯处理
 - 引擎自己试通道的路径（sogou PC/移动双通道、baidu 预热会话、google web/news 降级）
-  同样过拦截器：调 `intercept.gate(engine, text, url=…)` 判定 + 记账，
-  `intercept.cooldown_of(engine)` 取剩余冷却
+  同样过拦截器：调 `intercept.gate(text, url=…)` 判定 + 记账，
+  `intercept.cooldown_of(url)` 取该站点剩余冷却
 - 插件抛错只让它自己掉队，不拖垮整条请求链路；`webtool plugins check interceptor` 看谁坏了
-- 这套判定只装在**网页搜索/抓取通道**上：股票接口、MCP 服务、LLM 调用这些上游不会有人机验证页，被挡时只如实报错（它们同样经 `net/transport.py` 出网，只是走不带判定的 `transport.request`；见 `docs/coding-standard.md` 的"出网统一走 transport"）
+- 判定挂在**每一个读完正文的入口**：`transport.get()`（搜索 / resolve / radar）与
+  `pipeline/fetch.py`（全部抓取）；不看引擎、不看调用通道，只按响应本身判。
+  唯一例外是 `transport.request()` —— 裸 API 通道，响应流直接交给调用方
+  （股票接口、MCP、LLM），不在中途读体判定，因此不会被验证页特征误伤；
+  出网统一走 `net/transport.py` 的规矩见 `docs/coding-standard.md`
 
 ## 开发
 
