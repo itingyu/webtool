@@ -104,10 +104,6 @@ def stock_cmd(action: str = typer.Argument(None, help='动作名, 见下方常�
                                           help='字符画高度(行), 0=默认 20(K线)/16(分时)'),
               ascii_w: int = typer.Option(0, '--ascii-w',
                                           help='字符画宽度(列), 0=跟随终端'),
-              ascii_plain: bool = typer.Option(False, '--ascii-plain',
-                                               help='纯 ASCII 字符画 (字体缺盲文/方块时用)'),
-              ascii_wide: bool = typer.Option(False, '--ascii-wide',
-                                              help='K线实体用实心块 (默认细柱)'),
               ascii_gap: bool = typer.Option(False, '--ascii-gap',
                                              help='每根K线占2列(留间隔, 同色不粘连)'),
               timeout: float = typer.Option(60.0, '--timeout', help='mcp 动作子进程超时秒'),
@@ -151,7 +147,6 @@ def stock_cmd(action: str = typer.Argument(None, help='动作名, 见下方常�
     a.gran, a.auto_y, a.combo, a.dma = gran, auto_y, combo, dma
     a.ascii_art, a.no_color = ascii_art, no_color
     a.ascii_h, a.ascii_w = ascii_h, ascii_w
-    a.ascii_plain, a.ascii_wide = ascii_plain, ascii_wide
     a.ascii_gap = ascii_gap
     a.limit_y = limit_y
     # stock 不走 net 层, 无代理/缓存概念; 仍走 _run 统一 -f/-o 与退出码

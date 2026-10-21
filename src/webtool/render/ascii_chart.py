@@ -21,7 +21,9 @@ _BLOCKS = ' ▁▂▃▄▅▆▇█'   # 量能: 0..8 档
 _BLOCKS_ASCII = ' .:-=+*#@'  # 纯 ASCII 兜底 (字体缺块元素时)
 _GLYPH = {
     'wide':    dict(wick='│', body_up='█', body_dn='▓', doji='─', dot='·'),
-    'thin':    dict(wick='│', body_up='┃', body_dn='┃', doji='─', dot='·'),
+    # 默认即区分形态: 影线细竖 `│` (灰), 实体 `█`/`▓` (红/绿) —— 有色无色
+    # 都能一眼分开; 旧 "细柱┃" 字形与影线只差半格, 无色环境看不出来, 弃用。
+    'thin':    dict(wick='│', body_up='█', body_dn='▓', doji='─', dot='·'),
     'plain':   dict(wick='|', body_up='#', body_dn='#', doji='-', dot='.'),
 }
 
