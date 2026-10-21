@@ -28,6 +28,8 @@ if __name__ == "__main__":
 可选方法：`preflight / inspect / bypass / note_ok / note_hit`；`hit()` 与
 `bypass()` 负责拼协议字段。`hit(kind, sign, why, left, hint)` 的 `hint`
 是处置建议（可选），命中后 webtool 会附在报错末尾告诉人下一步怎么办。
+`bypass(..., cookies={...}, user_agent="...")` 可把 cookie（如 `cf_clearance`）
+与 UA 交给下一次重试。
 
 ## 其它类别（engine / filter / extractor ...）
 

@@ -505,7 +505,9 @@ class MyWall(Interceptor):
 - `ctx`（`Ctx`）只读：`url / status / text / headers / profile / attempt / via`，
   另有派生属性 `host`（主机名带端口）与 `site`（主机名，去端口 —— 冷却与日志的记账键）。
   `ctx.engine` 只是遗留信息字段，判定逻辑不读它
-- `bypass` 返回的 `Bypass` 支持 `url` / `headers` / `profile` / `delay` / `retry`，由传输层执行
+- `bypass` 返回的 `Bypass` 支持 `url` / `headers` / `profile` / `delay` / `retry` /
+  `cookies` / `user_agent`，由传输层执行（`cookies` 灌进会话 jar，如求解器拿到的
+  `cf_clearance`；`user_agent` 覆盖 UA 会与 TLS 指纹脱钩，更稳的是用 `profile` 切同版本档案）
 - `Hit` 可带 `hint`（处置建议）：命中时附在 `BlockedError` 消息末尾，告诉人下一步该干什么
 - 只判不绕也合法（`captcha` 现在就是）：传输层按**站点**冷却 + 降级梯处理
 - 引擎自己试通道的路径（sogou PC/移动双通道、baidu 预热会话、google web/news 降级）

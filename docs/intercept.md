@@ -62,7 +62,7 @@
 
 ```python
 Bypass(how="补 chksm", url="…", headers={...}, profile="safari17",
-       delay=0.0, retry=True)
+       delay=0.0, retry=True, cookies={...}, user_agent="…")
 ```
 
 - 重试次数由 `config.json` 的 `ladder_steps` 决定（默认 0）。
@@ -70,6 +70,31 @@ Bypass(how="补 chksm", url="…", headers={...}, profile="safari17",
   不放大请求量。
 - 梯子内部只换指纹会话（`profile`），不会偷偷退直连；线路由 `rules.json` 决定。
 - 全部用尽仍被拦 → `BlockedError`，消息里带命中特征与冷却秒数。
+- `cookies` 灌进下一次重试的**会话 jar**（不是裸 `Cookie` 头：裸头会和会话
+  自己的 cookie 打架、也会被目标站刚下发的 `Set-Cookie` 覆盖）；域名取目标站
+  host，目标站才认。
+- `user_agent` 会覆盖 impersonate 自带的 UA —— 这会让「UA 与 TLS 指纹同源」
+  自曝。更稳的做法是用 `profile` 切到同版本档案，**并让求解器跑同一版本的
+  浏览器**（CF 把 clearance 绑在访客/设备上，版本对不上照样拦）。
+
+### 接一个真浏览器求解器
+
+CF 质询这类拦截纯 HTTP 过不了，要过就得让真浏览器算一次 token，再把
+`cf_clearance` 交回给 webtool 复用。插件侧的形状是：
+
+```python
+def bypass(self, ctx, hit):
+    sol = solver.solve(ctx.url)          # 远端 FlareSolverr / Byparr / 自建
+    if not sol:
+        return None                       # 求解不了就老实报错, 别空转
+    return Bypass(how='cf_clearance',
+                  cookies={'cf_clearance': sol['cf_clearance']},
+                  profile=sol.get('profile', ''))   # 同版本指纹档案
+```
+
+三条硬约束（否则求解白做）：**求解与抓取同一出口 IP**、**UA 一致**、
+**浏览器版本与 `profile` 一致**。参考实现见
+`sdk/examples/python/solver_flaresolverr.py`。
 
 ## 插件契约
 
