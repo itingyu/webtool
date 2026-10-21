@@ -4,6 +4,7 @@
 transport 仍再导出这些名字, 老引用无需改。
 """
 import random
+import re
 import threading
 import urllib.parse
 
@@ -167,6 +168,85 @@ def profile_for_impersonate(name, ua=None):
     if ua:
         d['ua'] = ua
     return d
+
+
+def chrome_targets():
+    """curl_cffi 当前支持的 Chrome 伪装目标 (运行时问它, 别写死)
+
+    版本跟得动: curl_cffi 升一次就多几个目标, 写死的清单很快就过期
+    (求解器那边 Chrome 早就 136+ 了)。
+    """
+    try:
+        import typing
+        from curl_cffi.requests.impersonate import BrowserTypeLiteral
+        return [v for v in typing.get_args(BrowserTypeLiteral)
+                if str(v).startswith('chrome')]
+    except Exception:
+        return ['chrome131']
+
+
+def impersonate_for_ua(ua):
+    """从 UA 推出该用哪个 impersonate 目标 → (target, major, platform) 或 None
+
+    为什么需要: 求解器解出来的 cf_clearance 绑在"那台浏览器"上 (UA + IP +
+    JS 环境), 抓取端要复用它, impersonate 的 Chrome 版本就得跟求解端对上。
+
+    platform 是从 UA 认出来的, 但要知道 curl_cffi 的桌面目标**一律发 macOS
+    UA 与 macOS 平台提示** (实测 chrome131/136/142/150 都是), 所以平台对不上
+    只能靠覆盖 UA —— 细节见 docs/intercept.md 的"版本对齐"。
+    """
+    if not ua:
+        return None
+    s = str(ua)
+    m = re.search(r'Chrome/(\d+)', s) or re.search(r'CriOS/(\d+)', s)
+    if not m:
+        return None
+    major = int(m.group(1))
+    if 'Android' in s:
+        platform = 'android'
+    elif 'iPhone' in s or 'iPad' in s:
+        platform = 'ios'
+    elif 'Windows' in s:
+        platform = 'win'
+    elif 'Macintosh' in s or 'Mac OS' in s:
+        platform = 'mac'
+    elif 'Linux' in s or 'X11' in s:
+        platform = 'linux'
+    else:
+        platform = ''
+    targets = chrome_targets()
+    cands = ([f'chrome{major}_android', f'chrome{major}'] if platform == 'android'
+             else [f'chrome{major}', f'chrome{major}a'])
+    for t in cands:
+        if t in targets:
+            return (t, major, platform)
+    # 没有同版本: 退到最接近的低版本 (TLS 指纹接近总比差一整代强)
+    lower = [t for t in targets
+             if t[6:].isdigit() and int(t[6:]) <= major]
+    if lower:
+        return (max(lower, key=lambda t: int(t[6:])), major, platform)
+    return None
+
+
+def profile_for_ua(ua):
+    """求解器 UA → 可直接用的指纹档案 dict (形状同 PROFILES 条目) 或 None
+
+    用途: 求解插件拿到 solver 的 UA 后, 算出该 impersonate 哪个 Chrome 版本,
+    把档案填进 Bypass.profile —— 抓取端就与求解端同版本了。
+
+    sec_ch_ua 故意留空: 品牌列表随版本变 (实测 chrome131 是 "Not_A Brand";
+    v=24", chrome136 是 "Not.A/Brand";v="99", chrome150 又变), 硬编码必然
+    对不上 —— 交给 impersonate 自己发, 它发的才是与该版本一致的。
+    """
+    got = impersonate_for_ua(ua)
+    if not got:
+        return None
+    target, major, platform = got
+    return {'impersonate': target, 'ua': str(ua), 'sec_ch_ua': '',
+            'mobile': '?0',
+            'platform': {'win': '"Windows"', 'mac': '"macOS"',
+                         'linux': '"Linux"', 'android': '"Android"'}.get(platform, ''),
+            'accept_nav': _ACCEPT_NAV}
 
 
 # 指纹轮换状态 (同引擎同进程内固定, 新进程/冷却后新会话自然换)

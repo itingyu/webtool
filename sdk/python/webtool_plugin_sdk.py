@@ -45,6 +45,57 @@ def bypass(how="", url="", headers=None, profile="", delay=0.0, retry=True,
                        "user_agent": str(user_agent or "")}}
 
 
+# curl_cffi 支持的 Chrome 伪装目标 (静态副本: SDK 零依赖, 问不了 curl_cffi;
+# 升级 curl_cffi 后记得同步这份清单)
+CHROME_TARGETS = ("chrome131", "chrome133a", "chrome136", "chrome142",
+                  "chrome145", "chrome146", "chrome150", "chrome131_android")
+
+_PLATFORM_HINT = {"win": '"Windows"', "mac": '"macOS"',
+                  "linux": '"Linux"', "android": '"Android"'}
+
+
+def profile_for_ua(ua):
+    """求解器 UA → 指纹档案 dict (形状同 webtool 的 PROFILES 条目) 或 None
+
+    用法: 求解插件拿到 solver 的 UA 后调它, 把结果填进 bypass(profile=...),
+    抓取端就与求解端同 Chrome 版本了 —— clearance 绑在设备上, 版本对不上
+    照样被拦。
+
+    sec_ch_ua 留空: 品牌列表随版本变, 硬编码必然对不上, 交给 impersonate 自己发。
+    """
+    import re
+    if not ua:
+        return None
+    s = str(ua)
+    m = re.search(r"Chrome/(\d+)", s) or re.search(r"CriOS/(\d+)", s)
+    if not m:
+        return None
+    major = int(m.group(1))
+    if "Android" in s:
+        platform = "android"
+    elif "iPhone" in s or "iPad" in s:
+        platform = "ios"
+    elif "Windows" in s:
+        platform = "win"
+    elif "Macintosh" in s or "Mac OS" in s:
+        platform = "mac"
+    elif "Linux" in s or "X11" in s:
+        platform = "linux"
+    else:
+        platform = ""
+    cands = ([f"chrome{major}_android", f"chrome{major}"] if platform == "android"
+             else [f"chrome{major}", f"chrome{major}a"])
+    target = next((t for t in cands if t in CHROME_TARGETS), "")
+    if not target:
+        lower = [t for t in CHROME_TARGETS
+                 if t[6:].isdigit() and int(t[6:]) <= major]
+        target = max(lower, key=lambda t: int(t[6:])) if lower else ""
+    if not target:
+        return None
+    return {"impersonate": target, "ua": str(ua), "sec_ch_ua": "",
+            "mobile": "?0", "platform": _PLATFORM_HINT.get(platform, "")}
+
+
 class Plugin:
     """外部插件基类：所有方法都可选，返回 None / {} 表示不处理"""
 

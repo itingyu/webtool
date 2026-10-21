@@ -88,10 +88,17 @@ class ExternalInterceptor(Interceptor):
                             'why': hit.why}) or {}).get('bypass')
         if not b:
             return None
+        prof = b.get('profile') or ''
+        if isinstance(prof, dict):
+            # 档案可以是 dict (求解器按 UA 算出来的 impersonate 目标);
+            # 字符串化会把 dict 变成乱码, 那边就没法用了
+            prof = {str(k): v for k, v in prof.items()}
+        else:
+            prof = str(prof)
         return Bypass(how=str(b.get('how') or self.name),
                       url=str(b.get('url') or ''),
                       headers=dict(b.get('headers') or {}),
-                      profile=str(b.get('profile') or ''),
+                      profile=prof,
                       delay=float(b.get('delay') or 0),
                       retry=bool(b.get('retry', True)),
                       cookies=dict(b.get('cookies') or {}),

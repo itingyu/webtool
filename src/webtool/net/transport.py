@@ -114,7 +114,7 @@ def _new_session(profile_name, proxy=None, engine=None, url=None):
     if isinstance(profile_name, dict):
         p = profile_name
     else:
-        p = PROFILES[profile_name]
+        p = _profile(profile_name)
     # trust_env=False: curl_cffi 默认读 http_proxy/https_proxy, 于是'直连' 的主机
     # 会被环境变量送去代理 —— 线路只认配置文件, 不信环境
     s = _cr.Session(impersonate=p['impersonate'], proxy=proxy or None,
@@ -322,6 +322,19 @@ def _lower_keys(headers):
         return {}
 
 
+def _profile(name):
+    """档案名 → 档案 dict; 认不出的名字 (如 chrome136) 借默认档案兜底
+
+    求解器那边 Chrome 早就 136+, 而本仓档案只到 131; 与其 KeyError,
+    不如借默认档案换 impersonate 目标 —— curl_cffi 认这个名就行。
+    """
+    if isinstance(name, dict):
+        return name
+    if name in PROFILES:
+        return PROFILES[name]
+    return profile_for_impersonate(name)
+
+
 def _cookie_header(cookies):
     """把 cookie 字典拼成 Cookie 头 (给没有 jar 的通道用)"""
     return '; '.join(f'{k}={v}' for k, v in (cookies or {}).items()
@@ -398,7 +411,7 @@ def open_stream(url, *, kind='nav', referer=None, proxy=None, timeout=None,
                 prof, p = 'custom', profile
             else:
                 prof = profile or _pick_profile(engine)
-                p = PROFILES[prof]
+                p = _profile(prof)
             s = _new_session(prof, proxy_arg, engine)[0]
         h = headers_for(kind, url, referer=referer, lang=lang, profile=p, extra=headers)
         r = s.get(url, headers=h, timeout=timeout, allow_redirects=True,
@@ -604,7 +617,7 @@ def _request_once(method, url, *, kind='api', referer=None, proxy=None, timeout=
         or (raw_headers and session is None)
     if session is not None:
         s, p = session, (profile if isinstance(profile, dict) else
-                         (PROFILES.get(profile) if profile
+                         (_profile(profile) if profile
                           else PROFILES['chrome131_win']))
     else:
         s, p = _new_session(profile or _pick_profile(engine), proxy_arg,
@@ -705,7 +718,7 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
                 p = profile
             else:
                 prof = profile or _pick_profile(engine)
-                p = PROFILES[prof]
+                p = _profile(prof)
             s = _new_session(prof, proxy_arg, engine)[0]
         _apply_cookies(s, url, cookies)
         h = headers_for(kind, url, referer=referer, lang=lang, profile=p,
