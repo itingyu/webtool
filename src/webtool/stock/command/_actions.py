@@ -238,6 +238,20 @@ def _act_boards(args, cfg):
     """
     from webtool.stock.bridge import orchestrate as _o
     from webtool.stock.bridge.sources import APIClient
+    from webtool.render.ascii_chart import should_color as _sc
+    col = _sc()
+    up, dn, off = ('\033[31m', '\033[32m', '\033[0m') if col else ('', '', '')
+
+    def _pct_s(v):
+        if not isinstance(v, (int, float)):
+            return '  -'
+        s = f'{v:+.2f}'
+        # A 股口径: 红涨绿跌; 环境探测关掉颜色时是纯文本, 重定向也不会混转义
+        if v > 0:
+            return f'{up}{s:>7}{off}'
+        if v < 0:
+            return f'{dn}{s:>7}{off}'
+        return f'{s:>7}'
     items = _o._boards_cached(APIClient())
     if not items:
         print('板块目录未取得 (东财 clist 不可达)')
@@ -259,8 +273,7 @@ def _act_boards(args, cfg):
         return 1
     print(f'{"代码":<8}  {"名称":<14}  {"涨跌%":>7}')
     for code, name, pct in rows:
-        ps = f'{pct:+.2f}' if isinstance(pct, (int, float)) else '  -'
-        print(f'{code:<8}  {name:<14}  {ps:>7}')
+        print(f'{code:<8}  {name:<14}  {_pct_s(pct)}')
     print(f'共 {len(rows)} 个 (行业+概念去重)。K线/分时: webtool stock kline <名称或BK代码>')
     return 0
 
