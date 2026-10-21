@@ -100,12 +100,6 @@ def stock_cmd(action: str = typer.Argument(None, help='动作名, 见下方常�
                                              help='终端字符画 (K线/分时), 直接打到 stdout'),
               no_color: bool = typer.Option(False, '--no-color',
                                             help='字符画不带 ANSI 颜色'),
-              ascii_h: int = typer.Option(0, '--ascii-h',
-                                          help='字符画高度(行), 0=默认 20(K线)/16(分时)'),
-              ascii_w: int = typer.Option(0, '--ascii-w',
-                                          help='字符画宽度(列), 0=跟随终端'),
-              ascii_gap: bool = typer.Option(False, '--ascii-gap',
-                                             help='每根K线占2列(留间隔, 同色不粘连)'),
               timeout: float = typer.Option(60.0, '--timeout', help='mcp 动作子进程超时秒'),
               url: str = typer.Option('', '--url', help='http-* 动作的 URL (也可用位置参数)'),
               referer: str = typer.Option('', '--referer', help='覆盖默认 Referer'),
@@ -146,8 +140,6 @@ def stock_cmd(action: str = typer.Argument(None, help='动作名, 见下方常�
     a.mavg, a.macd, a.after_hours = mavg, macd, after_hours
     a.gran, a.auto_y, a.combo, a.dma = gran, auto_y, combo, dma
     a.ascii_art, a.no_color = ascii_art, no_color
-    a.ascii_h, a.ascii_w = ascii_h, ascii_w
-    a.ascii_gap = ascii_gap
     a.limit_y = limit_y
     # stock 不走 net 层, 无代理/缓存概念; 仍走 _run 统一 -f/-o 与退出码
     return _run(None, _entry_fn('stock'), fmt, output, False, False)
