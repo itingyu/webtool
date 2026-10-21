@@ -64,7 +64,7 @@ def _get_html(url, proxy, timeout):
         text, status = transport.session_get(
             url, warm, kind='nav', referer=BAIDU + '/', timeout=timeout)
         # 这条自造会话的路径也要过全部拦截器 (判定 + 记账一次做完)
-        hit, _ctx = intercept.gate('baidu', text, url=url)
+        hit, _ctx = intercept.gate(text, url=url)
         if hit is None:
             transport._persist_cookies(warm, 'baidu')
             return text, 'cffi+session'

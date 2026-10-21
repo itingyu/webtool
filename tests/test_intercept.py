@@ -53,7 +53,7 @@ check(intercept.inspect(Ctx(engine='baidu', text='正常结果 ' * 400)) is None
       '正常页不误报')
 check(intercept.inspect(Ctx(url='https://example.com/a', text=CAPTCHA_PAGE)) is not None,
       '不带引擎名的请求也判 (只看响应是否被拦)')
-check(intercept.blocked_by('baidu', CAPTCHA_PAGE) is not None,
+check(intercept.blocked_by(CAPTCHA_PAGE) is not None,
       '引擎侧便捷入口同样走全部拦截器')
 
 # ── 记账与冷却门 ─────────────────────────────────────────────────────────
@@ -145,7 +145,7 @@ write_user_interceptor({'captcha': {
 check('captcha' not in [p.name for p in intercept.interceptors()],
       '配置里能停用内置插件',
       str([p.name for p in intercept.interceptors()]))
-check(intercept.blocked_by('baidu', CAPTCHA_PAGE) is None,
+check(intercept.blocked_by(CAPTCHA_PAGE) is None,
       '停用后验证页不再命中 captcha')
 
 # ── 体检: 写错插件要在 `plugins check` 里看得见 ───────────────────────────
@@ -175,22 +175,24 @@ class Gate(Interceptor):
     seen = []
 
     def inspect(self, ctx):
-        Gate.seen.append((ctx.engine, ctx.url))
+        Gate.seen.append((ctx.site, ctx.url))
         if '挡路石' in (ctx.text or ''):
             return Hit(kind='waf', why='WAF 拦截', sign='含 挡路石')
         return None
 
 
 intercept.register(Gate)
-_h4, _c4 = intercept.gate('sogou', '页面写着 挡路石',
+_h4, _c4 = intercept.gate('页面写着 挡路石',
                            url='https://www.sogou.com/web')
 check(_h4 is not None and _h4.by == 'gate',
       '引擎侧 gate 也走全部拦截器 (自定义插件管得到)', str(_h4))
-check(Gate.seen[-1] == ('sogou', 'https://www.sogou.com/web'),
+check(Gate.seen[-1] == ('www.sogou.com', 'https://www.sogou.com/web'),
       'gate 交出的 ctx 就是插件看到的那次', str(Gate.seen[-1]))
-check(intercept.cooldown_of('sogou') is None,
+check(intercept.cooldown_of('https://www.sogou.com/web') is None,
       'gate 只通知判定的插件记账 (captcha 不该跟着记黑账)',
-      str(intercept.cooldown_of('sogou')))
+      str(intercept.cooldown_of('https://www.sogou.com/web')))
+check(intercept.cooldown_of() is None,
+      '不给 URL 就查不到冷却 (冷却按站点记账, 引擎名不是键)')
 
 import glob                                             # noqa: E402
 import re as _re                                        # noqa: E402

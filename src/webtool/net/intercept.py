@@ -46,6 +46,7 @@ import datetime
 import json
 import os
 import threading
+import time
 
 
 @dataclasses.dataclass
@@ -334,23 +335,43 @@ def preflight(ctx):
     return None
 
 
-def cooldown_of(engine, url=''):
-    """这个引擎的通道现在被谁挡着? → Hit (带 left) 或 None
+def cooldown_of(url=''):
+    """这个站点现在被谁挡着? → Hit (带 left) 或 None
 
-    给"冷却 N s, 请换引擎"这类文案用 —— 引擎侧要报剩余秒数, 但不该反过来
+    冷却按站点记账, 所以这里也要按站点查: 传请求 URL, 或直接传站点名
+    (`cooldown_of('www.sogou.com')`)。只传引擎名查不到东西 —— 同一引擎可能
+    横跨多个站点 (web 与 news 是两个站), 引擎名不再是账本键。
+
+    给"冷却 N s, 请换通道"这类文案用 —— 调用方要报剩余秒数, 但不该反过来
     认识具体插件 (谁封的、封多久由插件说了算)。
     """
-    return preflight(Ctx(engine=engine, url=url))
+    if not url:
+        return None
+    return preflight(Ctx(url=url))
 
 
-def gate(engine, text, **kw):
+def cooldowns():
+    """当前仍在冷却中的站点 → {site: Hit(left)} (只读快照, 不发请求)"""
+    now = time.time()
+    out = {}
+    from webtool.dao import state
+    for site, st in state.load().get('captcha', {}).items():
+        left = int(st.get('until', 0) - now)
+        if left > 0:
+            out[site] = Hit(kind='captcha', why='人机验证', left=left)
+    return out
+
+
+def gate(text, **kw):
     """引擎内部挨个试通道时的统一入口: 判定 + 记账一次做完 → (Hit|None, Ctx)
 
     这些路径没有 transport 的响应对象 (引擎自己造会话、自己读正文), 但同样
     该让所有拦截器过一遍 —— 否则新加的插件对这条路径莫名不生效。判定为"被挡"
     时顺手 note_hit 记账 (冷却/计数), 没挡则 note_ok 复位。
+
+    判定只看正文与 URL: 不用传引擎名 (引擎名不再是账本键, 冷却按站点记)。
     """
-    ctx = Ctx(engine=engine, text=text or '', **kw)
+    ctx = Ctx(text=text or '', **kw)
     hit = inspect(ctx)
     if hit is None:
         note_ok(ctx)
@@ -359,14 +380,14 @@ def gate(engine, text, **kw):
     return hit, ctx
 
 
-def blocked_by(engine, text, **kw):
+def blocked_by(text, **kw):
     """引擎自己探通道时的便捷入口 (只有正文可给): 返回 Hit 或 None
 
     专给"引擎内部挨个试通道"的场景用 (如 sogou 的 PC/移动双通道): 那边没有
     transport 的响应对象, 但同样该让所有拦截器过一遍 —— 否则新加的插件管不到
     这条路径, 表现为"新插件对某些引擎莫名不生效"。
     """
-    return inspect(Ctx(engine=engine, text=text or '', **kw))
+    return inspect(Ctx(text=text or '', **kw))
 
 
 def inspect(ctx):

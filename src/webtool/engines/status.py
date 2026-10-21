@@ -27,15 +27,17 @@ def status(args, cfg):
 
 
 def _list(cfg):
-    """列引擎清单 + 本地冷却状态 (不发请求)"""
-    out = []
-    for name, meta in _engines().items():
-        row = {'engine': name, 'desc': meta['desc']}
-        cool = intercept.cooldown_of(name)
-        if cool is not None:
-            row['cooldown'] = f'{cool.left}s (此前{cool.why})'
-        out.append(row)
-    print(json.dumps(out, ensure_ascii=False, indent=1))
+    """列引擎清单 + 各站点冷却状态 (不发请求)
+
+    冷却按站点记账: 同一引擎可能跨站 (google web / news), 所以冷却单独成表,
+    不硬塞进引擎行里。
+    """
+    out = [{'engine': name, 'desc': meta['desc']}
+           for name, meta in _engines().items()]
+    cool = {site: f'{hit.left}s (此前{hit.why})'
+            for site, hit in intercept.cooldowns().items()}
+    print(json.dumps({'engines': out, 'cooldowns': cool},
+                     ensure_ascii=False, indent=1))
     return 0
 
 
@@ -53,9 +55,6 @@ def _test(args, cfg):
     for name in names:
         meta = _engines()[name]
         row = {'engine': name}
-        cool = intercept.cooldown_of(name)
-        if cool is not None:
-            row['cooldown'] = f'{cool.left}s (此前{cool.why})'
         # 线路由规则表判定 (netx.resolve_proxy), 这里不预判、不跳过:
         # 该走代理却没配/不通, 就按真实错误报出来
         proxy = cfg.get('proxy')

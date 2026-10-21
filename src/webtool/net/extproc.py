@@ -5,8 +5,8 @@
                 "command": ["/opt/waf", "--stdio"],
                 "timeout": 0.2, "hosts": ["example.com"]}}
 """
-from webtool.core.external import (ExternalError, ExternalProcess,
-                                   command_of, probe as _probe, timeout_of)
+from webtool.core.external import (ExternalProcess, command_of,
+                                   probe as _probe, timeout_of)
 from webtool.net.intercept import Bypass, Hit, Interceptor
 
 

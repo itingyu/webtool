@@ -43,7 +43,7 @@ def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1
     """
     _LAST.update(channel=None, degraded_from=None, reason=None)
     if proxy:
-        _cool = intercept.cooldown_of('google')
+        _cool = intercept.cooldown_of('https://www.google.com/search')
         if _cool is not None:
             # 冷却期内不再试 web, 直接 news (谁封的、封多久由插件说)
             _LAST.update(channel='news', degraded_from='web',
@@ -55,8 +55,8 @@ def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1
                 return out
             except transport.BlockedError as e:
                 # transport 降级梯 3 跳全撞 reCAPTCHA (IP 级, 指纹无解) → news
-                # (冷却门不再 raise: web 与 news 共挂 'google' 名, web 被拦
-                #  不该把 news 也锁死 — 直接降级, news 自己的请求不受 /search 风控)
+                # 冷却按站点记账: web 是 www.google.com, news 是 news.google.com,
+                # 两个站各记各的 — web 被拦不会锁死 news
                 _LAST.update(channel='news', degraded_from='web', reason=str(e)[:120])
             except RuntimeError as e:
                 # IP 级反爬特征时降级 news (错误串含状态码/unusual/sorry);
@@ -92,8 +92,8 @@ def _web(query, max_results, proxy, timeout, market, page):
         timeout=timeout, engine='google', headers=extra,
         lang=transport.LANG_EN)
     if status in (429, 403) or 'unusual traffic' in text or '/sorry/' in text:
-        # 不在此处 mark_blocked: google 冷却 300s×min(hits,4) 指数加长,
-        # 梯内+上层各记一次会瞬间堆到 1200s, 把 news 通道也锁死 (共享 engine 名)
+        # 不在此处 mark_blocked: 冷却从 30s 起、×min(hits,4) 指数加长,
+        # 梯内+上层各记一次会翻倍到 2 分钟 —— 没必要, 判定的插件已经记过了
         # 先试纯 HTTP 攻坚挑战 (gcaptcha: anchor token + sorry 表单回填)
         try:
             from webtool.engines import gcaptcha as _gc
@@ -113,7 +113,7 @@ def _web(query, max_results, proxy, timeout, market, page):
                     return text2, status
         except Exception:
             pass
-        _cool2 = intercept.cooldown_of('google')
+        _cool2 = intercept.cooldown_of('https://www.google.com/search')
         raise RuntimeError(f'google web IP级反爬({status}), 已降级/冷却'
                            f'{_cool2.left if _cool2 else 0}s')
 

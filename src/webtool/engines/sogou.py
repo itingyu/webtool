@@ -64,7 +64,7 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None,
             return out
         time.sleep(1.5 + attempt)
 
-    _cool = intercept.cooldown_of('sogou', ENDPOINT)
+    _cool = intercept.cooldown_of(ENDPOINT)
     raise RuntimeError(f'sogou 反爬拦截({sign or "unknown"}); '
                        f'PC+移动双通道均被拦, '
                        f'冷却{_cool.left if _cool else 0}s, 请换 -e bing,baidu')
@@ -83,7 +83,7 @@ def _pc_cffi(q, proxy, timeout):
                                              timeout=timeout, profile=p)
         transport._persist_cookies(s, 'sogou')
         # 本通道的判定与记账走 intercept: 新加的拦截器插件才管得到这条路
-        hit, _ctx = intercept.gate('sogou', text, url=url, status=status)
+        hit, _ctx = intercept.gate(text, url=url, status=status)
         if hit is None:
             return text, None
         return None, hit.sign
@@ -112,7 +112,7 @@ def _pc_urllib(q, timeout):
             sign = f'{type(e).__name__}'
             time.sleep(1.5)
             continue
-        hit, _ctx = intercept.gate('sogou', html, url=ENDPOINT)
+        hit, _ctx = intercept.gate(html, url=ENDPOINT)
         if hit is None:
             return html, None
         sign = hit.sign
@@ -150,7 +150,7 @@ def _mobile_search(q, max_results, proxy, timeout, _inner=False):
             html = None
         # 判定全交给拦截器插件 (sogou 的 antispider 特征在 plugins.json 里,
         # 这里再硬编码一句会让自定义插件管不到这条路径)
-        if html and intercept.gate('sogou', html, url=M_ENDPOINT)[0] is None:
+        if html and intercept.gate(html, url=M_ENDPOINT)[0] is None:
             break
         html = None
     if not html:

@@ -189,7 +189,7 @@ intercept.register(Watch)
 transport.request('GET', f'{BASE}/json', proxy='direct', engine='google')
 check(not HITS, 'engine 非空也不进拦截判定 (MCP/LLM/行情不该有验证码语义)',
       str(HITS))
-check(intercept.cooldown_of('google') is None, '也不会顺手给引擎记冷却')
+check(not intercept.cooldowns(), '也不会顺手给站点记冷却')
 
 print('=== 6. 会话可复用自己的 (预热/攒 cookie 的通道) ===')
 s, prof = transport.new_session(proxy='direct')

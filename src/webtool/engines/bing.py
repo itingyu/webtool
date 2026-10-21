@@ -72,7 +72,7 @@ def _cffi_html(query, max_results, proxy, timeout, market, page):
               headers=transport.headers_for('nav', url, referer=base + '/',
                                             profile=p))
     if r.status_code in (429, 403) or 'challenge-form' in r.text:
-        _hit, _ctx = intercept.gate('bing', r.text, url=url,
+        _hit, _ctx = intercept.gate(r.text, url=url,
                                    status=r.status_code)
         raise RuntimeError(f'bing cffi 被风控 ({r.status_code})')
     transport._persist_cookies(s, 'bing')
