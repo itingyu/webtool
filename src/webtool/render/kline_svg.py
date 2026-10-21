@@ -276,8 +276,7 @@ def render_kline_svg(rows, title='', subtitle='', ma=(5, 10, 20),
                     continue              # 一周还不到 26px, 标了也糊成一团
                 for idx, is_hi in ((hi_i, True), (lo_i, False)):
                     val = rows[idx]['high'] if is_hi else rows[idx]['low']
-                    # 周线只给整数: 一周两根数字挤在几像素里, 两位小数必糊
-                    txt = f'{val:.2f}' if kind == 'M' else f'{val:.0f}'
+                    txt = f'{val:.2f}'
                     half = len(txt) * 3.1 + 3
                     tx, y = px(idx), py(val)
                     # 首选贴着该点外侧, 撞了就翻到另一侧
