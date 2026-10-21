@@ -63,7 +63,7 @@ import sys
 from pathlib import Path
 
 from webtool.core import config_data
-from webtool.core import jsonfmt
+from webtool.core import external, jsonfmt
 
 DATA_DIR = config_data.DATA_DIR          # 打包数据在包根 webtool/data/
 PLUGIN_DIR = Path(os.environ.get('WEBTOOL_PLUGIN_DIR',
@@ -122,15 +122,16 @@ class PluginError(RuntimeError):
 
 
 class _Missing:
-    """占位: 解析失败的插件不拖垮整表, 真正调用时才报错"""
+    """占位: 配置有、代码缺的插件不拖垮整表, 真正调用时才提示"""
 
+    missing = True
     __slots__ = ('target', 'reason')
 
     def __init__(self, target, reason):
         self.target, self.reason = target, reason
 
     def __call__(self, *a, **kw):
-        raise PluginError(f'插件 {self.target} 不可用: {self.reason}')
+        raise PluginError(f'插件未找到: {self.target}')
 
     def __repr__(self):
         return f'<unresolved {self.target}: {self.reason}>'
@@ -230,9 +231,13 @@ class Registry:
             if spec is not None:
                 merged.update(meta or {})
             out[name] = normalize(merged, self.kind, name)
-        for spec in out.values():
+        for name, spec in out.items():
             if not callable(spec.get('fn')) and spec.get('entry'):
                 spec['fn'] = _resolve(str(spec['entry']))
+            # 外部进程插件: 套一个 callable 代理, 上层无需感知跨语言
+            if (self.kind != 'interceptor' and not spec.get('fn')
+                    and external.is_external(spec)):
+                spec['fn'] = _external_for(name, self.kind, spec)
         if enabled_only:
             out = {n: s for n, s in out.items() if s.get('enabled', True)}
         return dict(sorted(out.items(),
@@ -259,8 +264,10 @@ class Registry:
         """
         spec = self.get(name)
         if spec is None:
-            raise KeyError(f'no such {self.kind} plugin: {name}')
+            raise PluginError(f'插件未找到: {name}')
         fn = spec['fn']
+        if isinstance(fn, _Missing):
+            raise PluginError('插件未找到: %s (%s)' % (name, fn.target))
         inst = self.setup(name)
         has_setup = bool((spec.get('lifecycle') or {}).get('setup'))
         if has_setup and inst is None:
@@ -296,7 +303,7 @@ class Registry:
             return st.get('instance')
         spec = self.get(name)
         if spec is None:
-            self._state[name] = {'state': 'failed', 'error': '插件不存在',
+            self._state[name] = {'state': 'failed', 'error': '插件未找到: %s' % name,
                                  'instance': None}
             return None
         if not spec.get('enabled', True):
@@ -304,7 +311,8 @@ class Registry:
             return None
         fn = spec.get('fn')
         if isinstance(fn, _Missing) or not callable(fn):
-            err = getattr(fn, 'reason', 'entry 不可调用')
+            err = ('插件未找到: %s (%s)' % (name, fn.target)
+                   if isinstance(fn, _Missing) else 'entry 不可调用')
             self._state[name] = {'state': 'failed', 'error': err, 'instance': None}
             return None
         inst = None
@@ -337,6 +345,10 @@ class Registry:
 
     def reload(self):
         """teardown → 重载外部模块 → 清配置缓存 (下次取用重新 setup)"""
+        for key, obj in list(_EXT_CALLERS.items()):
+            if key[0] == self.kind:
+                obj.close()
+                _EXT_CALLERS.pop(key, None)
         for name in list(self._state):
             try:
                 self.teardown(name)
@@ -374,6 +386,8 @@ class Registry:
             if not state:
                 if spec is None and raw_spec.get('enabled') is False:
                     state = 'disabled'
+                elif spec is not None and isinstance(spec.get('fn'), _Missing):
+                    state = 'missing'
                 elif spec is not None:
                     state = 'declared' if spec.get('enabled', True) else 'disabled'
                 else:
@@ -421,7 +435,9 @@ class Registry:
         """跑 healthcheck 钩子; 未声明则视为可用"""
         spec = self.get(name)
         if spec is None:
-            return False, '插件不存在'
+            return False, '插件未找到: %s' % name
+        if isinstance(spec.get('fn'), _Missing):
+            return False, '插件未找到: %s (%s)' % (name, spec['fn'].target)
         hook = (spec.get('lifecycle') or {}).get('healthcheck')
         if not hook:
             return True, ''
@@ -470,9 +486,12 @@ def _import_target(target, kind=None):
     if not attr:
         raise PluginError(f"entry 缺函数名 (应为 包:函数): {target}")
     if not mod.startswith('webtool.'):
-        d = str(PLUGIN_DIR)
-        if d not in sys.path and PLUGIN_DIR.is_dir():
-            sys.path.insert(0, d)
+        # 外部插件: 目录放 .py / .pyc, 也可以直接丢一个 zip 包 (zipimport)
+        d = PLUGIN_DIR
+        if d.is_dir():
+            for p in [str(d)] + [str(z) for z in sorted(d.glob('*.zip'))]:
+                if p not in sys.path:
+                    sys.path.insert(0, p)
         _EXTERNALS.add(mod)
     return getattr(importlib.import_module(mod), attr)
 
@@ -523,6 +542,24 @@ def resolve_match(url, resolvers=None):
             elif pat in netloc or pat in url:  # 其余按子串匹配
                 return name
     return None
+
+
+_EXT_CALLERS = {}
+
+
+def _external_for(name, kind, spec):
+    """按 (kind, name) 复用代理; command/timeout 变了才重建进程"""
+    key = (kind, name)
+    cmd = tuple(external.command_of(spec))
+    tmo = external.timeout_of(spec, 0.5)
+    cur = _EXT_CALLERS.get(key)
+    if cur is not None and (cur.command, cur.timeout) == (cmd, tmo):
+        return cur
+    if cur is not None:
+        cur.close()
+    obj = external.ExternalCallable(name, kind, spec)
+    _EXT_CALLERS[key] = obj
+    return obj
 
 
 def reload_plugins():

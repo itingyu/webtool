@@ -156,7 +156,9 @@ class Interceptor(abc.ABC):
 _LOCK = threading.Lock()
 _INST = {}                      # 类对象 → 实例 (插件热重载换了类, 自然换新实例)
 _ERR = {}                       # 插件名 → 加载/运行错误 (让 describe 看得见)
+_MISSING = {}                   # 配置有、代码缺的插件 (静默跳过, 不报错)
 _CODE = {}                      # 代码内注册 (测试/临时插件): name → 类
+_EXT = {}                       # 外部插件实例: name → ExternalInterceptor
 
 
 def register(plugin):
@@ -173,17 +175,25 @@ def register(plugin):
     return plugin
 
 
-def _mk(cls):
-    inst = _INST.get(cls)
+def _mk(cls, name=None):
+    key = (cls, name)               # 同一个类配成多个插件时各用各的实例
+    inst = _INST.get(key)
     if inst is None:
-        inst = _INST[cls] = cls()
+        inst = _INST[key] = cls()
     return inst
+
+
+def _is_external(spec):
+    """声明里写了 type=external 的走外部进程适配器 (不需要 Python 代码)"""
+    p = spec.get('params') or {}
+    t = spec.get('type') or p.get('type') or ''
+    return str(t).lower() in ('external', 'process', 'stdio')
 
 
 def _from_config():
     """配置里的拦截器 —— 读不到就当没有, 不能因为配置坏了就整条链路瘫掉
 
-    返回 name -> None (显式停用) 或 {'cls': 类, 'priority': 优先级或 None}。
+    返回 name -> None (显式停用) / {'cls': 类, ...} / {'ext': 声明, ...}。
     优先级单独带出来: 它写在配置里, 而类属性是代码里的默认值。
     """
     try:
@@ -193,14 +203,23 @@ def _from_config():
     except Exception as e:                    # noqa: BLE001 配置/插件文件坏了
         _ERR['<配置>'] = str(e)[:120]
         return {}
+    _MISSING.clear()
     out = {}
     for name, spec in (specs or {}).items():
         if spec.get('enabled') is False:
             out[name] = None                  # 显式停用
             continue
         fn = spec.get('fn')
-        if isinstance(fn, type) and issubclass(fn, Interceptor):
-            out[name] = {'cls': fn, 'priority': spec.get('priority')}
+        if getattr(fn, 'missing', False):
+            _MISSING[name] = getattr(fn, 'reason', '')
+            _ERR.pop(name, None)              # 缺失不是错误, 别混进运行期报错
+        elif isinstance(fn, type) and issubclass(fn, Interceptor):
+            out[name] = {'cls': fn, 'spec': spec, 'priority': spec.get('priority')}
+        elif _is_external(spec):
+            if not (spec.get('command') or (spec.get('params') or {}).get('command')):
+                _MISSING[name] = '未配置 command'
+            else:
+                out[name] = {'ext': spec, 'priority': spec.get('priority')}
         elif fn is not None:
             _ERR[name] = '不是 Interceptor 的子类: %r' % (fn,)
     return out
@@ -213,26 +232,42 @@ def interceptors():
     同名以配置为准, 配置里 `enabled: false` 的剔除。
     """
     with _LOCK:
-        table = dict(_CODE)               # name -> 类
-        prio = {}
+        entries = {}
+        for name, cls in _CODE.items():
+            entries[name] = ('cls', cls, None, None)
         for name, spec in _from_config().items():
             if spec is None:
-                table.pop(name, None)
+                entries.pop(name, None)
                 _ERR.pop(name, None)
-            else:
-                table[name] = spec['cls']
-                prio[name] = spec.get('priority')
-        ok = []
-        for name, cls in table.items():
-            try:
-                inst = _mk(cls)
-            except Exception as e:            # noqa: BLE001 插件构造失败
-                _ERR[name] = '实例化失败: %s' % str(e)[:100]
                 continue
-            p = prio.get(name)
-            if isinstance(p, int) and p != getattr(inst, 'priority', None):
-                inst.priority = p             # 配置里的优先级盖过类属性
+            if 'cls' in spec:
+                entries[name] = ('cls', spec['cls'], spec.get('priority'), spec.get('spec'))
+            else:
+                entries[name] = ('ext', spec['ext'], spec.get('priority'), spec['ext'])
+            _MISSING.pop(name, None)
+        ok = []
+        for name, (kind, payload, prio, spec) in entries.items():
+            try:
+                if kind == 'cls':
+                    inst = _mk(payload, name)
+                    if spec is not None and hasattr(inst, 'configure'):
+                        inst.configure(name, spec)
+                else:
+                    inst = _EXT.get(name)
+                    if inst is None:
+                        from webtool.net.extproc import ExternalInterceptor
+                        inst = _EXT[name] = ExternalInterceptor()
+                    inst.configure(name, payload)
+            except Exception as e:            # noqa: BLE001 插件构造/配置失败
+                _ERR[name] = '实例化失败: %s' % str(e)[:100]
+                _EXT.pop(name, None)
+                continue
+            if isinstance(prio, int) and prio != getattr(inst, 'priority', None):
+                inst.priority = prio          # 配置里的优先级盖过类属性
             ok.append(inst)
+        for name in list(_EXT):
+            if name not in entries:           # 配置删了/停用了 → 关掉子进程
+                _EXT.pop(name).close()
         ok.sort(key=lambda p: (getattr(p, 'priority', 50), getattr(p, 'name', '')))
         return ok
 
@@ -396,6 +431,23 @@ def describe():
 def problems():
     """有问题的拦截器 (加载/运行报错的), 给 config list 之类的地方显示"""
     return dict(_ERR)
+
+
+def close_external():
+    """关掉所有外部插件进程 (plugins reload / 退出前调用)"""
+    with _LOCK:
+        for inst in list(_EXT.values()):
+            try:
+                inst.close()
+            except Exception:                 # noqa: BLE001
+                pass
+        _EXT.clear()
+
+
+def missing():
+    """配置里声明了、但代码里找不到的拦截器 (name → 原因); 静默跳过, 不报错"""
+    _from_config()                     # 现扫一遍, 别等人先调 interceptors()
+    return dict(_MISSING)
 
 
 # ── 拦截日志 ─────────────────────────────────────────────────────────────

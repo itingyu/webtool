@@ -2,7 +2,7 @@
 import json
 import sys
 
-from webtool.core import config_data, plugins
+from webtool.core import config_data, external, plugins
 
 _KINDS = tuple((reg.kind, reg) for reg in plugins._REGISTRIES)
 
@@ -78,15 +78,27 @@ def _bad_interceptor(fn):
 
 def _check():
     """体检: 逐个解析插件的 module 路径 + 签名对照, 报出加载失败/签名不符的"""
-    bad, ok = [], 0
+    bad, miss, ok = [], [], 0
     for name, reg in _KINDS:
         for pname in sorted(reg.names()):
             spec = reg[pname]
             fn = spec.get('fn')
             if isinstance(fn, plugins._Missing):
-                bad.append({'kind': name, 'plugin': pname,
-                            'module': str(spec.get('module', '')),
-                            'error': fn.reason})
+                # 配置有、代码缺: 不算失败, 只是用不了 —— 真正调用时才提示
+                miss.append({'kind': name, 'plugin': pname,
+                             'module': str(spec.get('module', '')),
+                             'error': fn.reason})
+                continue
+            if external.is_external(spec):
+                # 外部插件: 起一次、ping 通即可; 起不来算 missing 不算失败
+                from webtool.core.external import probe
+                okping, why = probe(spec, pname)
+                if okping:
+                    ok += 1
+                else:
+                    miss.append({'kind': name, 'plugin': pname,
+                                 'module': ' '.join(external.command_of(spec)),
+                                 'error': why or '无法启动'})
                 continue
             if not callable(fn):
                 bad.append({'kind': name, 'plugin': pname,
@@ -124,15 +136,26 @@ def _check():
     try:
         from webtool.net import intercept as _ic
         runtime = _ic.problems()
+        seen = {(m['kind'], m['plugin']) for m in miss}
+        for pname, why in _ic.missing().items():
+            if ('interceptor', pname) not in seen:
+                miss.append({'kind': 'interceptor', 'plugin': pname,
+                             'module': '', 'error': why})
     except Exception:                       # noqa: BLE001 拉不起来不影响体检结论
         pass
-    print(json.dumps({'ok': ok, 'failed': len(bad), 'errors': bad,
-                      'runtime_errors': runtime},
+    print(json.dumps({'ok': ok, 'failed': len(bad),
+                      'missing': len(miss), 'missing_plugins': miss,
+                      'errors': bad, 'runtime_errors': runtime},
                      ensure_ascii=False, indent=2))
     return 1 if bad else 0
 
 
 def _reload():
+    try:
+        from webtool.net import intercept as _ic
+        _ic.close_external()
+    except Exception:                       # noqa: BLE001
+        pass
     # 先取外部模块列表再清缓存, 否则 reload 后缓存重建会看不到引用
     ext = sorted({m for _, reg in _KINDS for m in reg.external_modules()})
     done = sorted({m for _, reg in _KINDS for m in reg.reload()})

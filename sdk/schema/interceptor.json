@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "webtool external interceptor protocol v1",
+  "definitions": {
+    "ctx": {
+      "type": "object",
+      "required": ["site", "url", "status"],
+      "properties": {
+        "site": {"type": "string"},
+        "url": {"type": "string"},
+        "status": {"type": "integer"},
+        "via": {"type": "string"},
+        "text": {"type": "string"},
+        "truncated": {"type": "boolean"}
+      }
+    },
+    "hit": {
+      "type": "object",
+      "properties": {
+        "kind": {"type": "string"},
+        "sign": {"type": "string"},
+        "why": {"type": "string"},
+        "left": {"type": "integer", "minimum": 0}
+      }
+    },
+    "bypass": {
+      "type": "object",
+      "properties": {
+        "how": {"type": "string"},
+        "url": {"type": "string"},
+        "headers": {"type": "object", "additionalProperties": {"type": "string"}},
+        "profile": {"type": "string"},
+        "delay": {"type": "number", "minimum": 0},
+        "retry": {"type": "boolean"}
+      }
+    },
+    "response": {
+      "type": "object",
+      "properties": {
+        "ok": {"type": "boolean"},
+        "protocol": {"type": "integer"},
+        "name": {"type": "string"},
+        "hit": {"$ref": "#/definitions/hit"},
+        "bypass": {"$ref": "#/definitions/bypass"}
+      },
+      "additionalProperties": true
+    }
+  }
+}
