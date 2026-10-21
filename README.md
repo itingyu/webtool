@@ -290,6 +290,22 @@ webtool stock docs-stats
 - 口径：涨停池输出必带真实数据日；北向等数据缺位标 ⚠「未取得」，不当 0；上游未解析出条目时显式标注
 - 退出码：0 成功 / 1 数据动作失败 / 2 用法错误
 
+## pydata (外部金融库经 webtool 出网)
+
+akshare / efinance / adata / qstock 这些库的出网 99% 是裸 requests（无 TLS 指纹、无代理路由、无限流），站点一收紧反爬就 `RemoteDisconnected`。`pydata` 不重写它们的任何接口——把 `requests.Session.request` 整个换成 webtool 传输层（chrome 指纹会话、逐 URL 代理规则、证书策略、最小间隔限流、幂等自动重试），业务代码原样跑：
+
+```
+webtool pydata akshare.stock_zh_a_hist '{"symbol":"600519","period":"daily","start_date":"20251001","end_date":"20251020","adjust":"qfq"}'
+webtool pydata efinance.stock.get_quote_history '["600519",101]' -f json
+webtool pydata akshare.stock_zh_a_tick_tx_js '"sz300750"' -n 50
+```
+
+- 实参：JSON dict → kwargs、JSON list → 位置参数、其他字符串 → 单个位置参数；`-n` 控 text/csv 截行数，`-f json` 全量
+- 裸 requests 的身份头（`python-requests/*` UA 等）在出网前被滤掉，换成 webtool 按站点给的浏览器档案头；库里显式设置的头（Referer 等）仍以库为准
+- 库没装会给出安装提示（`pip install akshare`）；`--pace-ms` 控限流（默认 120ms），接口数量大时别关
+- 仅 `pydata` 与 `webtool.net.pyshim.install()` 生效，webtool 自身桥不经过它；`uninstall()` 随时还原原生 requests
+- 已知边界：`files`（文件上传）不支持；库函数若返回非 DataFrame/list/dict 会按文本带 `kind=text` 返回
+
 ## 字符渲染 (banner / pic / video / music)
 
 终端里把文字、图片、视频、音乐画成字符动画，渲染全在本地。Python 依赖已随包（Pillow）；
