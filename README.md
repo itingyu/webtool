@@ -257,6 +257,8 @@ webtool stock excel --excel picks.xlsx        # 选股池导出 xlsx (需 openpy
 webtool stock sentiment 600519                # 消息面打分 (-100~+100; 也可 --text "...")
 webtool stock diagram --kind tree             # mermaid: tree/logic/chain
 webtool stock kline 600519 --bars 120          # K 线 (A股/港股/美股)
+webtool stock kline 半导体 --chart             # 行业板块: 中文名或 BK 代码都行 (东财 BKxxxx)
+webtool stock intraday 电信运营商 --chart      # 板块分时 (仅东财, 无竞价段)
 webtool stock kline 600519 --chart             # 出图: SVG (红涨绿跌 + MA + 量能)
 webtool stock holder 600519                   # 股东研究摘要
 webtool stock forecast 600519                 # 盈利预测
@@ -285,6 +287,7 @@ webtool stock docs-stats
 ```
 
 - 单股动作的代码走位置参数（`quote`/`check`/`risk` 可给多个）；**没有 `--code` 选项**
+- `kline` / `intraday` 支持**板块**：中文名（`半导体`/`通信运营商`，带不带"行业"后缀都行，全量目录 1h 缓存内解析→BK 代码）、或直接给 `BKxxxx`。K 线/分时都走东财 `90.BKxxxx`；板块没有撮合竞价，分时无竞价段，均价（黄线）按成分股加权价（系数固定×100）
 - `--arg` 的值纯数字一律留字符串（600519 是代码），与 `webtool mcp` 的猜测口径不同
 - `report` / `diagram` / `excel` 原样透传（markdown、mermaid 源码、落盘确认）；`screen` 输出含剔除清单与闸门原因
 - 口径：涨停池输出必带真实数据日；北向等数据缺位标 ⚠「未取得」，不当 0；上游未解析出条目时显式标注

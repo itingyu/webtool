@@ -95,6 +95,51 @@ class EmQuoteMixin:
         return _ok({"requested": d, "qdate": str(dd.get("qdate") or ""),
                     "count": len(rows), "rows": rows}, len(r.text))
 
+    def em_board_list(self, kind: str = 'industry') -> dict:
+        """东财板块目录 (clist): 行业 (m:90+t:2) / 概念 (m:90+t:3), **全量分页**
+
+        rows: [{code: BK0480, name: 半导体, pct: 涨跌幅%}]。目录给板块名换
+        BK 代码用, 必须全量 —— 只拿首页 (按涨跌幅排序) 的话, 当天不活跃的
+        板块会解析不到, 报错还像代码拼错。
+        """
+        t = '3' if str(kind).lower().startswith('concept') else '2'
+        boards, total = [], None
+        pn = 1
+        while True:
+            r = self._em_get(
+                "https://push2.eastmoney.com/api/qt/clist/get",
+                {"pn": pn, "pz": 100, "po": 1, "np": 1,
+                 "fltt": 2, "invt": 2, "fid": "f3",
+                 "fs": f"m:90 t:{t}",
+                 "fields": "f3,f12,f14"},
+            )
+            if not r.get('ok'):
+                break
+            raw = r['data']
+            diff = raw.get('diff') if isinstance(raw, dict) else None
+            if not isinstance(diff, list):
+                diff = []
+            if total is None:
+                total = raw.get('total') if isinstance(raw, dict) else None
+            got = 0
+            for it in diff:
+                if not (it.get('f12') and it.get('f14')):
+                    continue
+                try:
+                    pct = round(float(it.get('f3')), 2) if it.get('f3') is not None else None
+                except (TypeError, ValueError):
+                    pct = None
+                boards.append({'code': str(it.get('f12')).upper(),
+                               'name': str(it.get('f14')), 'pct': pct})
+                got += 1
+            if not diff:
+                break                       # 越过末页: 接口多给空页
+            pn += 1
+            if got < 100 or (total and len(boards) >= int(total)):
+                break
+        return _ok({'boards': boards, 'total': total},
+                   sum(len((b or {}).get('name') or '') for b in boards) or 1)
+
     def em_kline(self, code: str = "688825", klt: int = 101,
                  beg: str = "0", end: str = "20500101", fqt: int = 1,
                  lmt: int = 60) -> dict:

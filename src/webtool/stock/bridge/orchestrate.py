@@ -163,6 +163,60 @@ def _build(exch: str, code: str) -> dict:
     raise ValueError(f"unknown exchange: {exch}")
 
 
+def _build_board(code: str, name: str = '') -> dict:
+    """板块代码 dict (东财行业/概念 BKxxxx) —— K 线/分时/快照都走东财 90. 市场
+
+    中文名 ('半导体') 在 `_resolve_board` 里换成 BK 再进来; 这里存 name 供
+    K 线标题直接用, 免得再打一次行情请求换名字。
+    """
+    return {'market': 'board', 'exchange': 'em', 'code': code, 'name': name,
+            'em': code}
+
+
+_BOARD_CACHE: dict = {'at': 0.0, 'items': ()}
+
+
+def _boards_cached(client) -> list:
+    """东财行业+概念板块目录 [(code, name)], 进程内缓存 1h"""
+    now = time.monotonic()
+    if _BOARD_CACHE['items'] and now - _BOARD_CACHE['at'] < 3600:
+        return _BOARD_CACHE['items']
+    items: list = []
+    for kind in ('industry', 'concept'):
+        r = client.em_board_list(kind)
+        for b in (r.get('data') or {}).get('boards') or []:
+            if b.get('code') and b.get('name'):
+                items.append((str(b['code']).upper(), str(b['name'])))
+    if items:
+        _BOARD_CACHE.update({'at': now, 'items': items})
+    return items
+
+
+def _resolve_board(symbol: str) -> dict | None:
+    """'BK0480' / '半导体' / '半导体行业' → 板块 sym dict; 非板块返回 None
+
+    匹配规则: 目录里先找**精确名**, 再找**去后缀前缀匹配** —— '半导体行业'
+    去掉 '行业' 后精确命中, 用户手打变体不至于落空。
+    """
+    s = (symbol or '').strip()
+    if re.fullmatch(r'(?i)bk\d{4}', s):
+        return _build_board(s.upper())
+    if not any('\u4e00' <= ch <= '\u9fff' for ch in s):
+        return None
+    # 可能带行业性后缀; 纯英文名不是板块
+    client = get_client()
+    if not _boards_cached(client):
+        return None
+    norm = re.sub(r'(行业|指数|板块)$', '', s)
+    for code, name in _BOARD_CACHE['items']:
+        if name == s or name == norm:
+            return _build_board(code, name)
+    for code, name in _BOARD_CACHE['items']:
+        if name.startswith(norm) or norm in name:
+            return _build_board(code, name)
+    return None
+
+
 def _build_index(exch: str, code: str) -> dict:
     """指数代码 dict"""
     return {
@@ -311,9 +365,15 @@ def _tail_ef_history(ef_result: dict, count: int) -> dict:
 
 def t_stock_kline(args: dict) -> dict:
     """K 线 (period: day/week/month)"""
-    sym = normalize(args["symbol"])
     period = args.get("period", "day")
     count = args.get("count", 60)
+    sym = _resolve_board(args['symbol'])
+    if sym:
+        client = get_client()
+        klt = {"day": 101, "week": 102, "month": 103}.get(period, 101)
+        return _fallback([("em_kline",
+                           lambda: client.em_kline(sym["em"], klt=klt, lmt=count))])
+    sym = normalize(args["symbol"])
     client = get_client()
 
     if sym["market"] == "cn":
@@ -412,11 +472,13 @@ def _bucket_ticks(rows, gran):
     return out
 
 
-def _norm_minute_points(rows):
+def _norm_minute_points(rows, mult=None):
     """腾讯 'HHMM price 累计量 累计额' / 东财 [t, price, 累计量, 累计额] → 点列表
 
     两条源的量额都是**当日累计**, 所以逐分钟量要做差; 均价用 累计额/(累计量×系数),
-    与行情软件的黄线同口径。
+    与行情软件的黄线同口径。系数常规走 `_vol_mult` 的比值窗口判 (手/股);
+    板块指数的分值来自成分股加权, 比值会飘出窗口 (板块均价 ~70 vs 点位 2346),
+    这类调用方直接给 mult=100, 判不出也得画对黄线。
     """
     recs = []
     for r in rows or []:
@@ -435,7 +497,7 @@ def _norm_minute_points(rows):
         recs.append((t if ':' in t else f'{t[:2]}:{t[2:]}', price, cv, ca))
     if not recs:
         return []
-    mult = _vol_mult(recs[-1][1], recs[-1][3], recs[-1][2])
+    mult = mult or _vol_mult(recs[-1][1], recs[-1][3], recs[-1][2])
     out, pcv = [], 0.0
     for t, price, cv, ca in recs:
         vol = cv - pcv if cv >= pcv else cv
@@ -546,6 +608,18 @@ def t_stock_intraday(args: dict) -> dict:
     没有 09:15-09:25 段 —— 所以主图走腾讯 (稳), 竞价单独向东财要一段再拼。
     东财不可达时不静默: `auction=False` + `auction_note` 明说, 图照出。
     """
+    sym = _resolve_board(args['symbol'])
+    if sym:
+        client = get_client()
+        # 板块的"竞价段"不存在撮合 (板块指数是合成价), 不向 iscr=1 要
+        em_days = client.em_trends(sym['em'], args.get('ndays') or 1)
+        days = [{'date': d.get('date'), 'points': _norm_minute_points(d.get('rows'), mult=100.0)}
+                for d in (em_days.get('data') or {}).get('days') or []]
+        return {'ok': True, 'source': 'em_trends', 'data': {'symbol': sym['code'], 'market': 'board',
+                    'name': sym['name'], 'via': 'em_trends', 'source': 'em_trends',
+                    'preclose': (em_days.get('data') or {}).get('preclose'),
+                    'days': days, 'auction': False,
+                    'note': '板块分时: 仅东财 (无竞价段)'}}
     sym = normalize(args["symbol"])
     ndays = 5 if int(args.get('ndays') or 1) > 1 else 1
     want_auc = bool(args.get('auction', True)) and ndays == 1

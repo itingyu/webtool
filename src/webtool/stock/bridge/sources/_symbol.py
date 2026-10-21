@@ -115,9 +115,16 @@ def em(code: str) -> str:
     return p[1] if p else str(code).strip()
 
 def em_secid(code: str) -> str:
-    """东财 push2: `1.600519` (1=沪 0=深) —— 非 A 股原样透传"""
+    """东财 push2: `1.600519` (1=沪 0=深) —— 非 A 股原样透传
+
+    板块 (行业/概念, 东财编号 `BKxxxx`) 归 `90.` 市场 —— K 线、分时同一条
+    secid 通道; 传 '半导体' 这类中文名走不到这里 (在编排层先换成 BK 代码)。
+    """
     p = parse(code)
     if not p:
+        c = str(code).strip().upper()
+        if re.fullmatch(r'BK\d{4}', c):
+            return f'90.{c}'
         return str(code).strip()
     return f'1.{p[1]}' if p[0] == 'SH' else f'0.{p[1]}'
 
