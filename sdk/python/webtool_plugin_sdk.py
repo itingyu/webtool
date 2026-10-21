@@ -31,11 +31,18 @@ def hit(kind="custom", sign="", why="", left=0, hint=""):
                     "hint": str(hint or "")}}
 
 
-def bypass(how="", url="", headers=None, profile="", delay=0.0, retry=True):
-    """构造一条绕法；至少给 how 或 url 才有意义"""
+def bypass(how="", url="", headers=None, profile="", delay=0.0, retry=True,
+           cookies=None, user_agent=""):
+    """构造一条绕法；至少给 how 或 url 才有意义
+
+    cookies: 下一次重试要带的 cookie（如求解器拿到的 cf_clearance）
+    user_agent: 换 UA。⚠ 覆盖 impersonate 自带的 UA 会让"UA 与 TLS 指纹
+    不同源"自曝；更稳的是用 profile 切到同版本档案，求解器也跑同版浏览器。
+    """
     return {"bypass": {"how": how, "url": url, "headers": dict(headers or {}),
                        "profile": profile, "delay": float(delay),
-                       "retry": bool(retry)}}
+                       "retry": bool(retry), "cookies": dict(cookies or {}),
+                       "user_agent": str(user_agent or "")}}
 
 
 class Plugin:

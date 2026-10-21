@@ -93,7 +93,9 @@ class ExternalInterceptor(Interceptor):
                       headers=dict(b.get('headers') or {}),
                       profile=str(b.get('profile') or ''),
                       delay=float(b.get('delay') or 0),
-                      retry=bool(b.get('retry', True)))
+                      retry=bool(b.get('retry', True)),
+                      cookies=dict(b.get('cookies') or {}),
+                      user_agent=str(b.get('user_agent') or ''))
 
     def note_ok(self, ctx):
         self._ask('note_ok', ctx=self._ctx(ctx))

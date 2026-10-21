@@ -33,7 +33,9 @@
         "headers": {"type": "object", "additionalProperties": {"type": "string"}},
         "profile": {"type": "string"},
         "delay": {"type": "number", "minimum": 0},
-        "retry": {"type": "boolean"}
+        "retry": {"type": "boolean"},
+        "cookies": {"type": "object", "additionalProperties": {"type": "string"}},
+        "user_agent": {"type": "string"}
       }
     },
     "response": {

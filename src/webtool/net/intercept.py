@@ -111,6 +111,10 @@ class Bypass:
     profile: str = ''               # 换浏览器指纹
     delay: float = 0.0              # 重试前先等 (0 = 用默认退避)
     retry: bool = True              # False = 只记录不发生重试
+    cookies: dict = dataclasses.field(default_factory=dict)   # 灌 cookie (如 cf_clearance)
+    user_agent: str = ''            # 换 UA (⚠ 覆盖 impersonate 自带的 UA 会让
+                                    # "UA 与 TLS 指纹不同源" 自曝; 更好的做法是
+                                    # 用 profile 切到同版本档案, 求解器也要跑同版浏览器)
 
 
 class Interceptor(abc.ABC):

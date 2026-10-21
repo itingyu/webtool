@@ -175,7 +175,7 @@ def _ladder_steps():
 
 def get(url, *, kind='nav', referer=None, proxy=None, timeout=None,
         engine=None, rate_engine=None, headers=None, lang=LANG_ZH, max_bytes=8 * 1024 * 1024, profile=None,
-        session=None, verify=None, _depth=0, raw=False):
+        session=None, verify=None, _depth=0, raw=False, cookies=None):
     """浏览器指纹 GET → (text, status, via)
 
     via: 'cffi' | 'urllib'
@@ -211,7 +211,7 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=None,
                              rate_engine=rate_engine, headers=headers,
                              lang=lang, max_bytes=max_bytes, profile=profile,
                              session=session, verify=verify, raw=raw,
-                             _depth=_depth)
+                             _depth=_depth, cookies=cookies)
     except Exception as e:
         _count_failure(br, e)
         raise
@@ -221,7 +221,7 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=None,
 
 def _get_ladder(url, *, kind, referer, proxy, timeout, engine, rate_engine=None,
                 headers=None, lang=None, max_bytes=0, profile=None, session=None,
-                verify=None, raw=False, _depth=0):
+                verify=None, raw=False, _depth=0, cookies=None):
     """取页本体: raw 直取 / 普通走拦截检测与降级梯 (熔断记账在 get 里)"""
     if raw:
         # raw 只要响应头 + 原始字节 (fetch 判目标类型/落盘用), 不进验证码降级梯:
@@ -229,13 +229,15 @@ def _get_ladder(url, *, kind, referer, proxy, timeout, engine, rate_engine=None,
         return _get_once(url, kind=kind, referer=referer, proxy=proxy,
                          timeout=timeout, engine=engine, headers=headers,
                          lang=lang, max_bytes=max_bytes, profile=profile,
-                         session=session, verify=verify, raw=True)
+                         session=session, verify=verify, raw=True,
+                         cookies=cookies)
 
     text, status, via, rhdrs = _get_once(url, kind=kind, referer=referer,
                                          proxy=proxy, timeout=timeout,
                                          engine=engine, headers=headers, lang=lang,
                                          max_bytes=max_bytes, profile=profile,
-                                         session=session, verify=verify)
+                                         session=session, verify=verify,
+                                         cookies=cookies)
     logger.debug('transport | GET %s -> %s via %s (timeout=%s)', url, status, via, timeout)
     # 拦截检测 + 降级梯: 拿到正文就判, 不看通道类型和引擎名
     # transport 不认识"验证码": 谁挡的、凭什么、要不要冷却、有没有绕法, 全问
@@ -287,13 +289,18 @@ def _get_ladder(url, *, kind, referer, proxy, timeout, engine, rate_engine=None,
             headers = {**(headers or {}), **bp.headers}
         if bp.profile:
             profile = bp.profile
+        if bp.cookies:
+            # 插件给的 cookie (如求解器拿到的 cf_clearance) 灌进下一次重试的会话
+            cookies = {**(cookies or {}), **bp.cookies}
+        if bp.user_agent:
+            headers = {**(headers or {}), 'User-Agent': bp.user_agent}
     time.sleep(delay)
     try:
         result = get(url, kind=kind, referer=referer, proxy=proxy,
                      timeout=timeout, engine=engine, rate_engine=rate_engine,
                      headers=headers, lang=lang,
                      max_bytes=max_bytes, profile=profile, session=None,
-                     verify=verify, _depth=_depth + 1)
+                     verify=verify, _depth=_depth + 1, cookies=cookies)
     except (CooldownError, TlsError):
         raise
     except BlockedError:
@@ -313,6 +320,30 @@ def _lower_keys(headers):
         return {str(k).lower(): v for k, v in dict(headers).items()}
     except Exception:
         return {}
+
+
+def _cookie_header(cookies):
+    """把 cookie 字典拼成 Cookie 头 (给没有 jar 的通道用)"""
+    return '; '.join(f'{k}={v}' for k, v in (cookies or {}).items()
+                     if v is not None)
+
+
+def _apply_cookies(session, url, cookies):
+    """把插件给的 cookie 灌进会话 jar (如求解器拿到的 cf_clearance)
+
+    灌 jar 而不是拼 Cookie 头: jar 能与会话自己的 cookie 一起发, 也不会
+    覆盖掉目标站刚下发的 Set-Cookie。域名取 url 里的 host —— 目标站才认。
+    """
+    if not cookies:
+        return
+    host = url.split('//', 1)[-1].split('/', 1)[0].split(':', 1)[0]
+    for k, v in cookies.items():
+        if v is None:
+            continue
+        try:
+            session.cookies.set(str(k), str(v), domain=host, path='/')
+        except Exception as e:      # 非法 cookie 不该拖垮整条请求
+            logger.debug('transport | 注入 cookie %s 失败: %s', k, e)
 
 
 class _UrllibStream:
@@ -647,7 +678,8 @@ from webtool.net.adapters import requests_session  # noqa: E402,F401
 
 
 def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
-              lang, max_bytes, profile, session, verify=None, raw=False):
+              lang, max_bytes, profile, session, verify=None, raw=False,
+              cookies=None):
     """单次请求: curl_cffi 浏览器指纹 → (cffi 崩了才走) urllib 全指纹兜底
 
     证书策略每请求现算 (tls.policy 会看 verify_hosts 白名单), cffi 与 urllib
@@ -675,6 +707,7 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
                 prof = profile or _pick_profile(engine)
                 p = PROFILES[prof]
             s = _new_session(prof, proxy_arg, engine)[0]
+        _apply_cookies(s, url, cookies)
         h = headers_for(kind, url, referer=referer, lang=lang, profile=p,
                         extra=headers)
         r = s.get(url, headers=h, timeout=timeout, allow_redirects=True,
@@ -699,6 +732,9 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
     from webtool.net.http import http_get
     h = headers_for(kind, url, referer=referer, lang=lang, full=True,
                     extra=headers)
+    # urllib 通道没有 cookie jar, 插件给的 cookie 只能拼成 Cookie 头
+    if cookies:
+        h = {**h, 'Cookie': _cookie_header(cookies)}
     try:
         if raw:
             body, status, hdrs = http_get(url, proxy=proxy_arg, timeout=timeout,
