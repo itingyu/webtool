@@ -148,9 +148,9 @@ def _mobile_search(q, max_results, proxy, timeout, _inner=False):
             html = r.text
         except Exception:
             html = None
-        if html and intercept.gate('sogou', html,
-                                   url=M_ENDPOINT)[0] is None \
-                and 'antispider' not in html.lower():
+        # 判定全交给拦截器插件 (sogou 的 antispider 特征在 plugins.json 里,
+        # 这里再硬编码一句会让自定义插件管不到这条路径)
+        if html and intercept.gate('sogou', html, url=M_ENDPOINT)[0] is None:
             break
         html = None
     if not html:

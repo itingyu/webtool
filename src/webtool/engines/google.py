@@ -96,7 +96,7 @@ def _web(query, max_results, proxy, timeout, market, page):
         # 梯内+上层各记一次会瞬间堆到 1200s, 把 news 通道也锁死 (共享 engine 名)
         # 先试纯 HTTP 攻坚挑战 (gcaptcha: anchor token + sorry 表单回填)
         try:
-            from webtool import gcaptcha as _gc
+            from webtool.engines import gcaptcha as _gc
             if _gc.is_challenge(text, status=status) or '/sorry/' in text:
                 gs, gp = transport._new_session(
                     'chrome131_win', proxy, 'google',

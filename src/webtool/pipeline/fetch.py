@@ -453,6 +453,43 @@ def _fetch_via_mcp(url, args, cfg, channel, timeout, prior=None, proxy=None):
     return out
 
 
+def _site_engine(url):
+    """抓取通道的引擎名: 现在只有微信 /s 链接需要拦截器介入"""
+    host = (urlparse(url).hostname or '').lower()
+    return 'wechat' if host == 'mp.weixin.qq.com' else ''
+
+
+def _verify_bypass(url, html, status, via, *, proxy=None, timeout=None, profile=None):
+    """被拦截页挡住时按插件绕法重取一次 → (html, status, via, replaced)
+
+    fetch 走 open_stream (流式/二进制共用), 不进 transport 的拦截判定; 但网页
+    目标读完正文后仍该让拦截器过一遍, 否则新插件对 fetch 这条路永远不生效。
+    """
+    engine = _site_engine(url)
+    if not engine or not html:
+        return html, status, via, False
+    from webtool.net import intercept, transport
+    ctx = intercept.Ctx(engine=engine, url=url, status=status, text=html, via=via)
+    hit = intercept.inspect(ctx)
+    if hit is None:
+        return html, status, via, False
+    bp = intercept.bypass(ctx, hit)
+    if bp is None or not bp.url:
+        logger.debug('fetch | %s 被拦 (%s) 且无绕法 url=%s', engine, hit.sign, url)
+        return html, status, via, False
+    logger.debug('fetch | %s 被拦 (%s), 采用绕法: %s', engine, hit.sign, bp.how)
+    try:
+        text, status2, via2 = transport.get(
+            bp.url, kind='nav', proxy=proxy, timeout=timeout, engine=engine,
+            profile=bp.profile or profile, headers=bp.headers or None)
+    except Exception as e:
+        logger.debug('fetch | 绕法重取失败, 沿用原响应 url=%s: %s', url, e)
+        return html, status, via, False
+    if not text:
+        return html, status, via, False
+    return text, status2, f'{via2}+bypass', True
+
+
 def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
     t0 = time.time()
     # via 进 key: 同一 URL 走本地链与走远程 reader 是两种产出, 共用缓存会串
@@ -502,6 +539,10 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
     if kind == 'text':
         return _text_result(url, payload, status, via, headers, kind, mime, args, t0)
     html = _decode(payload, headers)
+    html, status, via, replaced = _verify_bypass(
+        url, html, status, via, proxy=proxy, timeout=timeout, profile=profile)
+    if replaced:
+        payload = html.encode('utf-8')
     saved = _save_body(args, url, payload, headers, status)
     try:
         if not getattr(args, 'profile', None):
@@ -626,6 +667,16 @@ def _is_nav_shell(content):
 
 def _extract(html, url, mode='auto'):
     """提取器策略链 (见 extractors.py): 壳页预检 → 按 mode 取正文"""
+    # 公众号页有稳定结构 (#js_content), 通用链会把"点赞/在看"UI 当正文 ——
+    # 图片消息尤其明显: 正文只有长图, 通用链只剩 UI 文案。
+    if (urlparse(url).hostname or '') == 'mp.weixin.qq.com':
+        try:
+            from webtool.engines import wechat as _wx
+            md, wx_meta = _wx.extract(html, url)
+            if md:
+                return md, dict(wx_meta, _via='wechat')
+        except Exception as e:
+            logger.debug('fetch | 微信提取失败, 回退通用链 url=%s: %s', url, e)
     if extractors.is_js_shell(html):
         return '', {'_js_shell': '1', 'title': ''}
     return extractors.run_chain(html, url, {}, mode=mode)

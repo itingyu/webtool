@@ -204,7 +204,7 @@ ip/ping 等连通性探测归 `net.connectivity`，不单开网络层，ICMP 受
 - 熔断：按域名失败计数，打开时直接短路并打 debug 日志；状态持久化到 state。**默认关闭**（`breaker_cool=0`），要开则 `config set breaker_cool N`（配合 `breaker_fails`）
 - 取值优先级：`kind` 规则 > `config.json` > 模块常量（`DEFAULT_RETRIES` / `DEFAULT_COOL_SECONDS` = 0）
 - 恢复：批任务（rank/feed/screen）写 checkpoint，重跑跳过已完成条目
-- 反爬降级梯：被拦后换指纹/换头/按插件绕法重试；**默认 0 步**（`ladder_steps=0`，首次被拦即报），要开则 `config set ladder_steps N`
+- 反爬降级梯：被拦后换指纹/换头重试；**默认 0 步**（`ladder_steps=0`，首次被拦即报），要开则 `config set ladder_steps N`。插件给出 `Bypass` 时例外：默认也试一次，且只一次
 - 优雅关闭：并发一律走 `core.resilient.thread_pool()`（daemon 线程池 + 打断即取消未开始任务、不等待在飞请求）；CLI 入口装 `core.shutdown.install()` —— 一次 Ctrl-C 协作退出（rc 130），再按一次强制退出。**别再用裸 `ThreadPoolExecutor`**：它退出时 `shutdown(wait=True)` 会 join 在飞请求，让 Ctrl-C"停不下来"；也别给这个助手起名 `pool`（业务里 `pool=[]` 会把导入遮成局部变量 → UnboundLocalError）
 
 ## 2.10 交付自检（每个 PR 过一遍）
@@ -572,7 +572,17 @@ config.json，而遗留键迁移顺手把该值写进了 `rules.json` 的 `proxi
 `bypass`（有没有绕法）/`note_ok`/`note_hit`（记账）。加一种拦截（WAF 页、429、
 登录墙）只该是写一个 `Interceptor` 子类，不改传输层。
 
-三条硬约束：
+五条硬约束：
+
+- **插件只从配置注册**：`net/intercept.py` 不维护代码内置清单，新增/停用/调优先级
+  一律改 `plugins.json` 的 `interceptor` 段（包内 `data/plugins.json` 给默认，
+  用户 `~/.webtool/plugins.json` 覆盖）。`register()` 只留给测试与临时插件。
+- **按域名分发，别在处理器里判域名**：插件声明 `hosts = ('mp.weixin.qq.com',)`，
+  框架只把该域名的请求交给它；`hosts=()` 的通用插件才每个请求都看。判域名写进
+  `inspect` 等于放弃了这层分发，成本又回到"每请求跑全部插件"。
+- **只有会记账的插件参与 `preflight`/`note_ok`**：声明 `cools_down = True`，或自己
+  实现这两个方法；不记状态的插件没有"现在能不能发"这回事。成功响应里 `hits` 已
+  归零时不要落盘，否则每个正常请求都写一遍 `state.json`。
 
 - **报错信息不许反向依赖具体插件**：冷却剩多久由 `note_hit` 写回 `hit.left`，
   transport 只读 `hit.why`/`hit.sign`/`hit.left`。否则加插件就得改报错文案。

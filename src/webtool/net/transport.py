@@ -152,10 +152,11 @@ __all__ = ['BlockedError', 'CooldownError', 'TlsError', 'Resp', 'get',
 
 # 主入口
 
-# 反爬降级梯最大步数: 被拦后换指纹/换头/按插件绕法重试几次。**默认 0 = 不降级**
+# 反爬降级梯最大步数: 被拦后换指纹/换头重试几次。**默认 0 = 不降级**
 # (首次被拦即报 BlockedError) —— 梯子会把 1 次被拦放大成多次请求, 默认关掉,
-# 要的人 `webtool config set ladder_steps N` (或按站写规则)。仅作用于带引擎名的
-# 抓页通道 (get), fetch/resolve/request 本就不进梯子。
+# 要的人 `webtool config set ladder_steps N` (或按站写规则)。例外: 插件明确
+# 给出绕法时, 默认也放行一次 (只这一次, 见 _get_ladder), 否则 bypass 契约空转。
+# 仅作用于带引擎名的抓页通道 (get), fetch/resolve/request 本就不进梯子。
 DEFAULT_LADDER_STEPS = 0
 
 
@@ -249,16 +250,21 @@ def _get_ladder(url, *, kind, referer, proxy, timeout, engine, rate_engine=None,
             _persist_cookies(session, engine)
         return text, status, via
 
-    # 被拦: 记账 → 退避 → 降级梯 (最多 ladder_steps 步, 默认 0=不重试; note_hit
-    # 记的冷却不影响梯内重试, 冷却门只在 _depth==0 检查)
+    # 被拦: 记账 → 问绕法 → 退避 → 降级梯 (最多 ladder_steps 步; note_hit 记的
+    # 冷却不影响梯内重试, 冷却门只在 _depth==0 检查)
     intercept.note_hit(ctx, hit)
     steps = _ladder_steps()
+    bp = intercept.bypass(ctx, hit)
+    if bp is not None and steps == 0 and _depth == 0:
+        # 插件明确给了绕法: 默认也要试一次 —— 否则梯子关着时 bypass 成了摆设。
+        # 只放一次: 失败即报错, 不把 1 次被拦放大成多次请求 (梯子的本意)。
+        steps = 1
+        logger.debug('transport | %s 被拦, 采用插件绕法: %s', engine, bp.how)
     if _depth >= steps:
         raise BlockedError(
             f'{engine} {hit.why}({hit.sign}), 已重试{_depth}次仍被拦; '
             f'冷却{hit.left}s, 请换引擎')
     delay = min(2 ** _depth, 4) + random.uniform(0, 0.8)
-    bp = intercept.bypass(ctx, hit)
     if bp is not None:
         # 插件给的绕法: 只改这一次重试的形状 (换地址/加头/换指纹/先等一会儿)。
         # 注意梯子本身只换**指纹会话**、线路不变 —— 被拦就偷偷退直连会让

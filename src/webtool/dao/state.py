@@ -13,12 +13,25 @@ import time
 
 logger = logging.getLogger(__name__)
 
-PATH = os.path.expanduser('~/.webtool/state.json')
+PATH = None                 # 显式覆盖 (测试/特殊部署); None → 按 WEBTOOL_DIR 现算
 TTL = {'cookies': 14 * 86400,
        'probe': 60}
 
 _lock = threading.RLock()   # 可重入: save_* → load() 嵌套持锁
 _mem = None
+_mem_path = None
+
+
+def _path():
+    """state.json 位置: 显式 PATH > WEBTOOL_DIR > ~/.webtool
+
+    必须与 core.config_data 同源: WEBTOOL_DIR 表达的是"整份用户状态搬到别处",
+    冷却/cookie/熔断跟着 config 走, 否则测试与多实例会写同一份 state。
+    """
+    if PATH:
+        return PATH
+    base = os.environ.get('WEBTOOL_DIR') or '~/.webtool'
+    return os.path.join(os.path.expanduser(base), 'state.json')
 
 
 def _empty():
@@ -26,13 +39,19 @@ def _empty():
 
 
 def load():
-    """读盘 → 内存缓存 (带锁, 进程内单例)"""
-    global _mem
+    """读盘 → 内存缓存 (带锁, 进程内单例)
+
+    路径变了 (显式改 PATH / WEBTOOL_DIR) 就重新读, 别把上一个目录的缓存
+    带到新目录里。
+    """
+    global _mem, _mem_path
     with _lock:
-        if _mem is None:
+        p = _path()
+        if _mem is None or _mem_path != p:
             _mem = _empty()
+            _mem_path = p
             try:
-                with open(PATH, encoding='utf-8') as f:
+                with open(p, encoding='utf-8') as f:
                     data = json.load(f)
                 if isinstance(data, dict):
                     for k in _empty():
@@ -45,12 +64,14 @@ def load():
 
 def _save_locked():
     """原子写盘 (调用方持锁)"""
+    p = _path()
+    d = os.path.dirname(p) or '.'
     try:
-        os.makedirs(os.path.dirname(PATH), exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(PATH), prefix='.state-')
+        os.makedirs(d, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=d, prefix='.state-')
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
             json.dump(_mem, f, ensure_ascii=False)
-        os.replace(tmp, PATH)
+        os.replace(tmp, p)
     except OSError:
         pass
 
@@ -141,7 +162,7 @@ def info():
     m = load()
     now = time.time()
     return {
-        'path': PATH,
+        'path': _path(),
         'captcha': {e: {'cooldown_left': max(0, int(s.get('until', 0) - now)),
                         'hits': s.get('hits', 0)}
                     for e, s in m.get('captcha', {}).items() if s.get('until', 0) > now or s.get('hits')},

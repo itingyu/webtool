@@ -483,6 +483,11 @@
    "module": "webtool.net.captcha:CaptchaInterceptor",
    "priority": 10,
    "desc": "人机验证页 (百度/搜狗/Google 等) 的识别与冷却; 内置同名实现, 这里可覆盖或停用"
+  },
+  "wechat_poc": {
+   "module": "webtool.net.wechat:WechatPocInterceptor",
+   "priority": 15,
+   "desc": "微信公众号 /s 链接的 POC 校验页; 补 chksm 参数恢复链接形态后重取"
   }
  },
  "source": {

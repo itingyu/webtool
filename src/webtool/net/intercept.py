@@ -8,9 +8,20 @@ transport 不该知道"验证码"是什么 —— 它只该问两句:
 于是检测与绕过都做成 `Interceptor` 插件, 人机验证(captcha)只是第一个实现。
 再加"WAF 页"、"限流 429"、"登录墙"都是写一个类的事, 不用去改 transport。
 
-插件两处来源, 同名以配置为准:
-  1. 内置 (本模块 `_BUILTIN`): 保底, 用户配置里没有也能用
-  2. 配置 `~/.webtool/plugins.json` 的 `interceptor` 段 (热加载, 见 core.plugins)
+插件只从配置注册: `plugins.json` 的 `interceptor` 段 (包内 `data/plugins.json` 提供
+默认, `~/.webtool/plugins.json` 覆盖/追加, 按 mtime 热加载, 见 core.plugins)。
+代码里没有内置清单 —— 配置里删掉或停用, 插件就真的不跑。`register()` 只用于测试
+与临时插件, 同名时配置优先。
+
+域名与检测成本:
+
+    class WechatPoc(Interceptor):
+        name, priority = 'wechat_poc', 15
+        hosts = ('mp.weixin.qq.com',)   # 只在这个域名上被调用
+        cools_down = False              # 不记冷却 → 不参与 preflight/note_ok
+
+框架先按 `hosts` 分发 (没有 hosts 的通用插件才每个请求都看), 再执行命中候选的
+处理器。别把域名判定写进 `inspect` 里 —— 那样框架就拦不住"每个请求扫全部插件"。
 
 写一个插件:
 
@@ -48,10 +59,17 @@ class Ctx:
     profile: str = ''
     attempt: int = 0
     via: str = ''                   # 实际走的通道 (transport 给的 via)
+    _low: str = dataclasses.field(default='', repr=False, compare=False)
 
     def host(self):
         u = self.url
         return u.split('/')[2] if '://' in u else u
+
+    def lower(self):
+        """小写正文 (只算一次): 每个请求几 MB 的正文, 各插件各自 lower 一遍太亏"""
+        if not self._low:
+            self._low = (self.text or '').lower()
+        return self._low
 
 
 @dataclasses.dataclass
@@ -84,9 +102,15 @@ class Interceptor(abc.ABC):
     priority 小的先跑: 判得准的排前面, 兜底的排后面。
     优先级以 `plugins.json` 的 `interceptor` 段为准 (内置清单里写 10, 用户改了
     就听用户的); 类属性只是代码注册 (`register()`) 时的默认值。
+
+    `hosts` 让框架先按域名分发: 声明了域名就只在这些域名上被调用, 空 = 通用
+    (每个请求都看)。这不是性能微调, 是语义 —— 微信插件不该去判百度页。
+    `cools_down` 表示插件自己记冷却; 只有这类插件才需要 preflight/note_ok。
     """
     name = ''
     priority = 50
+    hosts = ()                      # 生效域名 (小写, 空 = 不限)
+    cools_down = False              # 会累计冷却/计数 → 参与 preflight 与 note_ok
 
     @abc.abstractmethod
     def inspect(self, ctx):
@@ -114,24 +138,23 @@ class Interceptor(abc.ABC):
         """
 
 
-_BUILTIN_SPEC = (
-    'webtool.net.captcha:CaptchaInterceptor',
-)
-
 _LOCK = threading.Lock()
 _INST = {}                      # 类对象 → 实例 (插件热重载换了类, 自然换新实例)
 _ERR = {}                       # 插件名 → 加载/运行错误 (让 describe 看得见)
-_BUILTIN = {}                   # 内置插件: name → 类 (register 往里塞)
-_LOADED = []                    # 内置清单是否已经拉过 (只拉一次)
+_CODE = {}                      # 代码内注册 (测试/临时插件): name → 类
 
 
 def register(plugin):
-    """注册一个拦截器 (可直接当装饰器用)"""
+    """注册一个拦截器 (可直接当装饰器用)
+
+    正式插件走配置 (`plugins.json` 的 `interceptor` 段), 这里只留给测试、临时
+    插件与需要动态构造的场景; 同名时配置优先。
+    """
     if not (isinstance(plugin, type) and issubclass(plugin, Interceptor)):
         raise TypeError('拦截器要是 Interceptor 的子类, 收到 %r' % (plugin,))
     if not plugin.name:
         raise ValueError('拦截器必须给 name (配置里要靠它覆盖/停用)')
-    _BUILTIN[plugin.name] = plugin
+    _CODE[plugin.name] = plugin
     return plugin
 
 
@@ -168,25 +191,14 @@ def _from_config():
     return out
 
 
-def _builtins():
-    """拉一次内置插件 (延迟导入: 免得 intercept 一被 import 就拖起半条 net 栈)"""
-    if not _LOADED:
-        _LOADED.append(1)
-        for path in _BUILTIN_SPEC:
-            mod, _, attr = path.partition(':')
-            try:
-                import importlib
-                cls = getattr(importlib.import_module(mod), attr)
-                register(cls)
-            except Exception as e:            # noqa: BLE001
-                _ERR[attr or path] = '内置插件拉不起来: %s' % str(e)[:100]
-    return dict(_BUILTIN)
-
-
 def interceptors():
-    """当前生效的拦截器 (按 priority 升序); 配置覆盖内置, 显式停用的剔除"""
+    """当前生效的拦截器 (按 priority 升序)
+
+    来源 = 配置 (`plugins.json` 的 interceptor 段) + 代码内 register();
+    同名以配置为准, 配置里 `enabled: false` 的剔除。
+    """
     with _LOCK:
-        table = _builtins()               # name -> 类
+        table = dict(_CODE)               # name -> 类
         prio = {}
         for name, spec in _from_config().items():
             if spec is None:
@@ -215,16 +227,56 @@ def _run(plugin, method, *a):
     fn = getattr(plugin, method, None)
     if fn is None:
         return None
+    name = getattr(plugin, 'name', '?')
     try:
-        return fn(*a)
+        r = fn(*a)
     except Exception as e:                    # noqa: BLE001
-        _ERR[getattr(plugin, 'name', '?')] = '%s() 出错: %s' % (method, str(e)[:100])
+        _ERR[name] = '%s() 出错: %s' % (method, str(e)[:100])
         return None
+    _ERR.pop(name, None)                      # 恢复正常就别留着旧报错
+    return r
+
+
+def _host_of(url):
+    """→ 小写主机名 (去端口; 无 scheme 时按原串)"""
+    u = (url or '').strip()
+    if '://' in u:
+        u = u.split('/')[2]
+    u = u.split('/')[0].lower()
+    if u.startswith('['):
+        return u.split(']')[0] + ']'
+    return u.rsplit(':', 1)[0] if ':' in u else u
+
+
+def _candidates(ctx):
+    """按域名分发: 声明 hosts 的插件只在自己域名上被调用, 通用插件每次都看
+
+    这一层只做字符串判等 —— 处理器到下一层才执行。新插件想收窄成本就声明
+    `hosts`, 不要 `inspect` 里自己判域名 (那样框架就拦不住"每次跑全部插件")。
+    """
+    host = _host_of(ctx.url)
+    out = []
+    for p in interceptors():
+        hs = getattr(p, 'hosts', ())
+        if not hs or host in hs:
+            out.append(p)
+    return out
+
+
+def _overrides(plugin, method):
+    """插件自己实现了这个方法? (基类空实现不算)"""
+    return getattr(type(plugin), method, None) is not getattr(Interceptor, method, None)
 
 
 def preflight(ctx):
-    """发请求之前问: 现在能发吗? → Hit 表示"先别发" (第一条命中的说了算)"""
-    for p in interceptors():
+    """发请求之前问: 现在能发吗? → Hit 表示"先别发" (第一条命中的说了算)
+
+    只问会记冷却的插件 (cools_down) 或自己实现了 preflight 的插件 —— 不记
+    状态的插件没有"现在能不能发"这回事, 不必每请求都跑。
+    """
+    for p in _candidates(ctx):
+        if not (getattr(p, 'cools_down', False) or _overrides(p, 'preflight')):
+            continue
         h = _run(p, 'preflight', ctx)
         if h is not None:
             h.by = h.by or getattr(p, 'name', '')
@@ -271,9 +323,12 @@ def inspect(ctx):
     """响应回来了, 是不是被挡了? → Hit 或 None (第一条命中的说了算)
 
     顺序有意义: priority 小的先判。判得准的插件该排前面, 兜底的排后面,
-    否则宽规则会先吃掉窄规则的判定。
+    否则宽规则会先吃掉窄规则的判定。只有域名匹配的候选会进处理器。
     """
-    for p in interceptors():
+    cands = _candidates(ctx)
+    if not cands:
+        return None
+    for p in cands:
         h = _run(p, 'inspect', ctx)
         if h is not None:
             h.by = h.by or getattr(p, 'name', '')
@@ -282,11 +337,11 @@ def inspect(ctx):
 
 
 def bypass(ctx, hit):
-    """问绕法: 先问判定的那个, 再按序问其它 (兜底策略), 第一个给出方案的赢"""
+    """问绕法: 先问判定的那个, 再按序问同域名的其它插件 (兜底策略)"""
     if hit is None:
         return None
     hit_by = hit.by
-    order = interceptors()
+    order = _candidates(ctx)
     order.sort(key=lambda p: 0 if getattr(p, 'name', '') == hit_by else 1)
     for p in order:
         bp = _run(p, 'bypass', ctx, hit)
@@ -297,15 +352,17 @@ def bypass(ctx, hit):
 
 
 def note_ok(ctx):
-    for p in interceptors():
-        _run(p, 'note_ok', ctx)
+    """通过了: 只让会记账的插件复位 (否则每个成功请求都写一遍 state.json)"""
+    for p in _candidates(ctx):
+        if getattr(p, 'cools_down', False) or _overrides(p, 'note_ok'):
+            _run(p, 'note_ok', ctx)
 
 
 def note_hit(ctx, hit):
     """确认命中: 只通知判定的那个 (别让不相关的插件跟着记黑账)"""
     if hit is None:
         return
-    for p in interceptors():
+    for p in _candidates(ctx):
         if getattr(p, 'name', '') == hit.by:
             _run(p, 'note_hit', ctx, hit)
 
