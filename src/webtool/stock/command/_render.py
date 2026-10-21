@@ -72,6 +72,10 @@ def _md(out, action):
     if action in ('report', 'diagram'):
         _passthrough(out, 'md' if action == 'diagram' else 'report')
         return
+    if action == 'intraday' and isinstance(out, dict):
+        from webtool.stock.command._textfmt_quote import _md_intraday
+        _md_intraday(out)
+        return
     if action == 'kline' and isinstance(out, dict):
         rows = _kline_rows(out)
         d = out.get('data') or {}

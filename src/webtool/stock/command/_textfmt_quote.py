@@ -297,3 +297,73 @@ def _text_holder(out):
                   f"占流通股{j.get('TOTAL_SHARES_RATIO')}%")
     _text_raw_tail(out)
 
+
+def _intraday_summary(out):
+    """分时摘要行 (text / markdown 共用) → (标题行, [要点行], 点列表)"""
+    d = (out or {}).get('data') or {}
+    days = d.get('days') or []
+    pts = [p for day in days for p in (day.get('points') or [])]
+    if not pts:
+        return d.get('name') or '', [], []
+    first, last = pts[0], pts[-1]
+    pre = d.get('preclose') or days[-1].get('preclose') or first['price']
+    chg = last['price'] - pre
+    pct = (chg / pre * 100) if pre else 0.0
+    tag = '五日分时' if len(days) > 1 else '分时'
+    head = (f"{d.get('name') or ''} {d.get('symbol') or ''}".strip()
+            + f"  {tag}  {len(days)}日  [{out.get('source')}]")
+    span = (f"{days[0].get('date')} {days[0]['points'][0]['t']} ~ "
+            f"{days[-1].get('date')} {days[-1]['points'][-1]['t']}"
+            if len(days) > 1 else f"{days[0].get('date')} {first['t']}-{last['t']}")
+    hi = max(p['price'] for p in pts)
+    lo = min(p['price'] for p in pts)
+    avg = last.get('avg')
+    lines = [f"现价 {last['price']:.2f}  涨跌 {chg:+.2f} ({pct:+.2f}%)  昨收 {pre:.2f}",
+             f"区间 {span}  高 {hi:.2f}  低 {lo:.2f}"
+             + (f"  均价 {avg:.2f}" if avg else '')]
+    if len(days) == 1:
+        if d.get('auction'):
+            lines.append('集合竞价 已含 (09:15-09:25)')
+        elif d.get('auction_note'):
+            lines.append(f"集合竞价 未含 — {d['auction_note']}")
+        else:
+            lines.append('集合竞价 未含 (--no-auction)')
+    return head, lines, pts
+
+
+def _text_intraday(out):
+    """分时: 摘要 + 最近若干分钟 (全量点铺终端没人读, 图才是主体)"""
+    if not isinstance(out, dict) or not out.get('ok'):
+        print(f"分时失败: {(out or {}).get('error') or out}")
+        return
+    head, lines, pts = _intraday_summary(out)
+    if not pts:
+        print(f'{head}: 无数据')
+        return
+    print(head)
+    for ln in lines:
+        print(f'  {ln}')
+    print('  最近 10 分钟:')
+    for p in pts[-10:]:
+        print(f"    {p['t']}  {p['price']:>9.2f}  均 {p['avg']:>9.2f}  "
+              f"量 {_fmt_vol(p.get('vol') or 0)}")
+    if out.get('chart_path'):
+        print(f'图: {out["chart_path"]}')
+
+
+def _md_intraday(out):
+    d = (out or {}).get('data') or {}
+    head, lines, pts = _intraday_summary(out)
+    if not pts:
+        print(f'**{head}**: 无数据')
+        return
+    print(f'## {head}\n')
+    for ln in lines:
+        print(f'- {ln}')
+    print('\n| 时间 | 价格 | 均价 | 量 |')
+    print('|---|---|---|---|')
+    for p in pts[-10:]:
+        print(f"| {p['t']} | {p['price']:.2f} | {p['avg']:.2f} | "
+              f"{_fmt_vol(p.get('vol') or 0)} |")
+    if out.get('chart_path'):
+        print(f"\n图: `{out['chart_path']}`")

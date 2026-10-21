@@ -36,6 +36,7 @@ from webtool.stock.command._textfmt_data import _text_eco_search
 from webtool.stock.command._textfmt_quote import _text_flow
 from webtool.stock.command._textfmt_quote import _text_holder
 from webtool.stock.command._textfmt_quote import _text_kline
+from webtool.stock.command._textfmt_quote import _text_intraday
 from webtool.stock.command._textfmt_data import _text_raw
 from webtool.stock.command._textfmt_quote import _text_risk
 from webtool.stock.command._textfmt_quote import _text_screen
@@ -98,6 +99,9 @@ def _text(out, action):
         return
     if action == 'kline':
         _text_kline(out)
+        return
+    if action == 'intraday':
+        _text_intraday(out)
         return
     if action in ('report', 'diagram'):
         _passthrough(out, 'md' if action == 'diagram' else 'report')

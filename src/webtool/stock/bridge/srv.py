@@ -31,6 +31,7 @@ ORCHESTRATE_MOD = 'bridge/orchestrate.py'
 TOOLS = {
     'stock_quote': '实时行情 (A股/港股/美股/ETF, 多源 fallback)',
     'stock_kline': 'K 线 (day/week/month)',
+    'stock_intraday': '分时 (当日/五日, 含集合竞价)',
     'stock_company': '公司基本信息与简介',
     'stock_business_analysis': '主营业务详细分析 (A股)',
     'stock_indicators': '核心财务指标 PE/PB/ROE/毛利率/营收净利同比',

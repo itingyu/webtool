@@ -26,6 +26,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import threading
+
 from webtool.stock.bridge.sources import _routing, _symbol
 
 
@@ -130,22 +132,45 @@ class SourceBase:
         return kw
 
     # ── 传输层: curl_cffi 会话 (雪球 TLS 指纹 + 腾讯 K 线过反爬) ──
-    def _xueqiu_session(self) -> Any:
-        """curl_cffi chrome110 + 3 页 warmup 收 cookie。
+    def _cffi(self) -> Any:
+        """curl_cffi chrome110 会话，**不做 warmup**。
 
-        命名保留 xueqiu 是历史原因: 首个使用者是雪球, 后来腾讯 K 线也借它
-        的指纹。新代码直接用这个名字即可, 不必关心归属哪个站。
+        腾讯系 (ifzq 的 fqkline/minute/day、gtimg 逐笔) 只要这层 TLS 指纹，
+        跟雪球 cookie 无关。以前它们借用 `_xueqiu_session()`，每进程白打
+        3 个 xueqiu.com 请求，纯浪费。
         """
         if self._xs is None:
             self._xs = _routing.RoutedCffiSession(
                 impersonate='chrome110', override=self._proxy)
+        return self._xs
+
+    def _cffi_tls(self) -> Any:
+        """线程私有的 curl_cffi 会话。
+
+        curl_cffi 的 Session 不是线程安全的, 并发抓逐笔不能共用一个实例;
+        但按线程各留一个, 同一线程的后续请求仍能复用已建立的连接 (keep-alive),
+        不会退化成每次重开 TLS。
+        """
+        if getattr(self, '_xs_tls', None) is None:
+            self._xs_tls = threading.local()
+        s = getattr(self._xs_tls, 's', None)
+        if s is None:
+            s = self._xs_tls.s = _routing.RoutedCffiSession(
+                impersonate='chrome110', override=self._proxy)
+        return s
+
+    def _xueqiu_session(self) -> Any:
+        """雪球: 指纹会话 + 3 页 warmup 收 cookie (每进程只做一次)。"""
+        s = self._cffi()
+        if not getattr(self, '_xq_warmed', False):
+            self._xq_warmed = True
             for url in ('https://xueqiu.com/', 'https://xueqiu.com/hq',
                         'https://xueqiu.com/S/SH688825'):
                 try:
-                    self._xs.get(url, timeout=self.BASE_TIMEOUT)
+                    s.get(url, timeout=self.BASE_TIMEOUT)
                 except Exception:                        # noqa: BLE001
                     pass
-        return self._xs
+        return s
 
     def _xq_get(self, path: str, params: dict) -> dict:
         """雪球 /v5 系列统一入口: 指纹会话 + Referer + 代码归一 + 状态码转信封。

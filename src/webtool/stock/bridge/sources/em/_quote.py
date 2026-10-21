@@ -120,6 +120,43 @@ class EmQuoteMixin:
                 return last
         return last or _err('empty code')
 
+    def em_trends(self, code: str = "688825", ndays: int = 1,
+                  premarket: bool = False) -> dict:
+        """分时 (trends2): 当日 ndays=1 / 五日 ndays=5
+
+        `premarket=True` 时带盘前集合竞价 (09:15-09:25): 东财的开关是
+        `iscr=1&iscca=0` (口径同 akshare 的 stock_zh_a_hist_pre_min_em)。
+        竞价段的行成交量为 0, 只有 09:25 那根含着竞价成交, 所以画出来是
+        "一条价格线 + 收盘处一根量柱", 正是行情软件的竞价区样子。
+
+        返回与腾讯 `tencent_minute_days` **同一种 days 形状**, 这样编排层
+        换源不必改渲染: {days:[{date, rows:[[t, price, vol, amount], ...]}],
+        name, preclose}。
+        """
+        ndays = 5 if int(ndays or 1) > 1 else 1
+        r = self._em_get(
+            "https://push2his.eastmoney.com/api/qt/stock/trends2/get",
+            {"secid": self._em_secid(code), "ndays": ndays,
+             "iscr": 1 if premarket else 0, "iscca": 0,
+             "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
+             "fields2": "f51,f52,f53,f54,f55,f56,f57,f58"},
+        )
+        if not r["ok"]:
+            return r
+        d = r["data"] if isinstance(r["data"], dict) else {}
+        bucket = {}
+        for line in (d.get("trends") or []):
+            p = str(line).split(",")
+            if len(p) < 7:
+                continue
+            date, _, tm = p[0].partition(" ")
+            bucket.setdefault(date, []).append([tm[-5:], p[2], p[5], p[6]])
+        if not bucket:
+            return _err("no trends rows")
+        days = [{"date": k, "rows": bucket[k]} for k in sorted(bucket)][-ndays:]
+        return _ok({"name": d.get("name"), "preclose": d.get("preClose"),
+                    "days": days, "ndays": ndays}, r.get("raw_size", 0))
+
     def em_kamt(self) -> dict:
         """东财沪股通/深股通资金流向 (push2.eastmoney.com/api/qt/kamt/get)
 

@@ -147,17 +147,265 @@ def _kline_title(out, code):
             return str(d[k])
     return code or '—'
 
-def _write_kline_chart(out, args, code, bars):
-    from webtool.render.kline_svg import write_kline_svg
+def _write_kline_chart(out, args, code, bars, full_rows=None):
+    from webtool.render.kline_svg import render_kline_svg
     rows = _kline_rows(out)
     period = args.period or 'day'
     cn = {'day': '日线', 'week': '周线', 'month': '月线'}.get(period, period)
+    rng = ''
+    if rows:
+        rng = f' · {rows[0]["date"]} ~ {rows[-1]["date"]}'
     path = getattr(args, 'chart_out', None) or f'{code or "kline"}-{period}.svg'
-    write_kline_svg(path, rows, title=_kline_title(out, code),
-                    subtitle=f'{cn} · {len(rows)} 根 · 源 {out.get("source") or "—"}',
-                    ma=[m for m in (getattr(args, 'ma', None) or '5,10,20').split(',') if m.strip()],
-                    bars=bars)
+    svg = render_kline_svg(rows, title=_kline_title(out, code),
+                           subtitle=(f'{cn}{rng} · {len(rows)} 根 · '
+                                     f'源 {out.get("source") or "—"}'),
+                           ma=[m for m in (getattr(args, 'ma', None) or '5,10,20').split(',') if m.strip()],
+                           bars=None, ma_rows=full_rows or rows,
+                           macd=bool(getattr(args, 'macd', False)))
+    return _chart_finish(path, svg, bool(getattr(args, 'png', False)))
+
+
+def _kline_range(start, end):
+    """区间 → 取数根数 (按每周 5 个交易日估 + 余量)
+
+    源普遍只认"根数"不认起止日, 所以先按跨度多取一点, 拿回再按日期裁。
+    只给 --end 时不需要往前推很远: 裁到最后 --bars 根即可。
+    """
+    from datetime import date, timedelta
+    if not start:
+        return 600
+    try:
+        s = date.fromisoformat(start)
+        e = date.fromisoformat(end) if end else date.today()
+    except ValueError:
+        return 260
+    # 源只按"最近 N 根"给数 (腾讯按 count 从今天往前取), 所以根数必须覆盖
+    # start→今天, 而不是 start→end —— 否则查一段老区间会取回空集。
+    span = max((date.today() - s).days, 1)
+    return max(60, min(3000, int(span * 0.72) + 30))
+
+
+def _row_date(r):
+    if isinstance(r, dict):
+        return str(r.get('date') or r.get('time') or '')[:10]
+    if isinstance(r, (list, tuple)) and r:
+        return str(r[0])[:10]
+    return ''
+
+
+def _clip_kline_range(rows, start, end, limit=0):
+    """按日期裁 (dict 行与 list 行都认); limit>0 时再取尾部 N 根"""
+    out = []
+    for r in rows or []:
+        d = _row_date(r)
+        if start and d < start:
+            continue
+        if end and d > end:
+            continue
+        out.append(r)
+    if limit and len(out) > limit:
+        out = out[-limit:]
+    return out
+
+
+# ── 分时图 / 通用出图 ────────────────────────────────────────────────
+def _chart_finish(path, svg, png=False):
+    """落盘: .png 走栅格化, 其余写 SVG 原文
+
+    `--png` 但路径没写扩展名时补 .png; 显式给了 .svg 就尊重用户, 不改名。
+    """
+    low = str(path).lower()
+    if low.endswith('.png'):
+        from webtool.render.png import svg_to_png
+        return svg_to_png(svg, path)
+    if png and not low.endswith(('.svg', '.png')):
+        path = f'{path}.png'
+        from webtool.render.png import svg_to_png
+        return svg_to_png(svg, path)
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(svg)
     return path
+
+
+def _intraday_days(out):
+    d = (out or {}).get('data') or {}
+    return (d.get('days') if isinstance(d, dict) else None) or []
+
+
+def _limit_prices(code, name, pre):
+    """A 股涨跌停价 (封板标注用)
+
+    规则按板块: 主板 10%, 创业板/科创板 20%, 北交所 30%, ST 5%。
+    新股上市首日/复牌等无涨跌幅限制的例外不特判 —— 那种日子算出来的线
+    也画不上去 (价格没碰到), 不会误标成封板。
+    """
+    try:
+        pre = float(pre or 0)
+    except (TypeError, ValueError):
+        return None
+    if pre <= 0:
+        return None
+    c = str(code or '')
+    nm = str(name or '').upper()
+    if 'ST' in nm:
+        pct = 0.05
+    elif c.startswith(('688', '689', '300', '301')):
+        pct = 0.20
+    elif c.startswith(('4', '8', '92')):
+        pct = 0.30
+    else:
+        pct = 0.10
+    return {'pct': pct, 'up': round(pre * (1 + pct), 2),
+            'down': round(pre * (1 - pct), 2)}
+
+
+def _write_intraday_chart(out, args, code):
+    """当日/五日分时图: 左轴价格 + 右轴涨幅 (同一组网格线)"""
+    from webtool.render.intraday_svg import render_intraday_svg
+    days = _intraday_days(out)
+    d = (out or {}).get('data') or {}
+    ndays = len(days)
+    name = (d.get('name') or '') if isinstance(d, dict) else ''
+    title = f'{name} {code}'.strip() or str(code)
+    span = days[0]['date'] if days else ''
+    if ndays > 1:
+        span = f'{days[0]["date"]} ~ {days[-1]["date"]}'
+    tag = '五日分时' if ndays > 1 else '分时'
+    sub = f'{tag} · {span} · 源 {out.get("source") or "—"}'
+    if d.get('preclose'):
+        sub += f' · 涨幅基准 {d["preclose"]:.2f}'
+    if ndays == 1:
+        if int(d.get('gran') or 60) < 60:
+            sub += f' · 量柱{int(d["gran"])}秒'
+        sub += ' · 含集合竞价' if d.get('auction') else ' · 不含集合竞价'
+        if d.get('auction_note'):
+            _n = str(d['auction_note'])
+            sub += _n if _n.startswith('(') else f' ({_n})'
+    default = f'{code or "分时"}-{"五日分时" if ndays > 1 else "分时"}'
+    path = getattr(args, 'chart_out', None) or f'{default}.svg'
+    cn = d.get('market') == 'cn'
+    svg = render_intraday_svg(days, title=title, subtitle=sub,
+                              anchor=d.get('preclose'),
+                              limits=(None if getattr(args, 'auto_y', False) else
+                                      _limit_prices(code, name, d.get('preclose')))
+                              if cn else None,
+                              closing_auction=cn,
+                              macd=bool(getattr(args, 'macd', False)),
+                              limit_y=bool(getattr(args, 'limit_y', False)),
+                              dma=d.get('dma') or [],
+                              mavg=[m for m in (getattr(args, 'mavg', None) or '').split(',')
+                                    if m.strip()])
+    return _chart_finish(path, svg, bool(getattr(args, 'png', False)))
+
+def _dma_levels(kline_out, spec='5,10,20,60'):
+    """从日K取均线档位 [(MA5, 1321.3), ...], 供分时图叠横线"""
+    rows = _kline_rows(kline_out)
+    if not rows:
+        return []
+    closes = [r['close'] for r in rows]
+    out = []
+    for item in str(spec or '').split(','):
+        item = item.strip()
+        if not item.isdigit():
+            continue
+        n = int(item)
+        if n > 0 and len(closes) >= n:
+            out.append((f'MA{n}', round(sum(closes[-n:]) / n, 2)))
+    return out
+
+
+def _intraday_svg(days, d, code, name, tag, span, src, args, title=None,
+                  macd=False):
+    """分时 SVG 通用构建 (单图与组合图共用, 避免两套排版)"""
+    from webtool.render.intraday_svg import render_intraday_svg
+    sub = f'{tag} · {span} · 源 {src}'
+    if d.get('preclose'):
+        sub += f' · 涨幅基准 {d["preclose"]:.2f}'
+    if len(days) == 1:
+        if int(d.get('gran') or 60) < 60 and '量柱' not in tag:
+            sub += f' · 量柱{int(d["gran"])}秒'
+        sub += ' · 含集合竞价' if d.get('auction') else ''
+    cn = d.get('market') == 'cn'
+    return render_intraday_svg(
+        days, title=title or (f'{name} {code}'.strip() or str(code)),
+        subtitle=sub, anchor=d.get('preclose'),
+        limits=(None if getattr(args, 'auto_y', False) else
+                _limit_prices(code, name, d.get('preclose'))) if cn else None,
+        closing_auction=cn,
+        macd=macd,
+        dma=([] if len(days) > 1 else (d.get('dma') or [])),
+        limit_y=bool(getattr(args, 'limit_y', False)),
+        mavg=[m for m in (getattr(args, 'mavg', None) or '5').split(',')
+              if m.strip()])
+
+
+def _write_intraday_combo(outs, args, code, kline=None):
+    """一张长图看全: 当日分钟 / 当日细粒度 / 五日
+
+    数据只取一次: 主调用 (gran<60) 里 `days_1m` 是复用下来的分钟序列,
+    五日另取一次 —— 总共两次请求, 而不是分别跑三条命令。
+    """
+    import tempfile
+    from pathlib import Path
+    from PIL import Image
+    from webtool.render.png import svg_to_png
+
+    main = outs[0]
+    d = (main or {}).get('data') or {}
+    name = d.get('name') or ''
+    src = main.get('source') or '—'
+    date = (d.get('days') or [{}])[0].get('date') or ''
+    root = f'{name} {code}'.strip() or str(code)
+
+    panels = []
+    fine = _intraday_days(main)
+    d5 = (outs[1] or {}).get('data') if len(outs) > 1 else None
+    if d5 and d5.get('days'):
+        d5['dma'] = d.get('dma') or []      # 五日同样叠日线均线
+        dd = d5['days']
+        panels.append((dd, d5, '五日分时',
+                       f'{dd[0]["date"]} ~ {dd[-1]["date"]}', root + ' · 五日'))
+    gran_n = int(d.get('gran') or 60)
+    if gran_n < 60:
+        panels.append((fine, d, f'量柱 {gran_n}秒', date,
+                       f'{root} · 当日 {gran_n}秒'))
+    else:
+        panels.append((fine, d, '分时 · 1分钟', date, root + ' · 当日'))
+
+    svgs = []
+    krows = _kline_rows(kline) if kline else []
+    if krows:
+        from webtool.render.kline_svg import render_kline_svg
+        show = krows[-120:]                 # 看最近 120 根, 均线用全量预热
+        svgs.append(render_kline_svg(
+            show, title=f'{root} · 日K',
+            subtitle=(f'日线 · {show[0]["date"]} ~ {show[-1]["date"]} · '
+                      f'{len(show)} 根 · 源 {(kline or {}).get("source") or "—"}'),
+            ma=['5', '10', '20', '60'], ma_rows=krows, macd=True))
+    for days, dd, tag, span, title in panels:
+        svgs.append(_intraday_svg(days, dd, code, name, tag, span, src, args,
+                                  title=title, macd=True))
+
+    tmp = Path(tempfile.mkdtemp(prefix='combo-'))
+    imgs = []
+    for i, svg in enumerate(svgs):
+        p = tmp / f'p{i}.png'
+        svg_to_png(svg, str(p), zoom=2)
+        imgs.append(Image.open(p).convert('RGB'))
+    w = max(i.width for i in imgs)
+    gap = 18
+    canvas = Image.new('RGB', (w, sum(i.height for i in imgs) + gap * (len(imgs) - 1)),
+                       'white')
+    y = 0
+    for im in imgs:
+        canvas.paste(im, (0, y))
+        y += im.height + gap
+    out = str(getattr(args, 'chart_out', None) or f'{code}-分时三合一.png')
+    if not out.lower().endswith('.png'):
+        out = out.rsplit('.', 1)[0] + '.png'
+    canvas.save(out)
+    return out
+
 
 _IDX_ALIAS = {
     '上证指数': 'sh000001', '上证': 'sh000001', '上证50': 'sh000016',

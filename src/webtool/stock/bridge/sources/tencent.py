@@ -10,6 +10,19 @@ from webtool.stock.bridge.sources import _symbol
 
 import re
 
+
+def _d8(s):
+    """'20261020' / '2026-10-20' → '2026-10-20' (画图与排序都用它)"""
+    s = str(s or '').strip()
+    return f'{s[:4]}-{s[4:6]}-{s[6:8]}' if len(s) == 8 and s.isdigit() else s[:10]
+
+
+def _fnum(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
 class TencentSource(SourceBase):
     """腾讯财经 (qq) 方法集 —— 由 sources/__init__.py 的 APIClient 混入"""
 
@@ -84,7 +97,7 @@ class TencentSource(SourceBase):
         fq: qfq (前复权) / hfq (后复权) / 不复权
         """
         try:
-            r = self._xueqiu_session().get(
+            r = self._cffi().get(
                 "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
                 params={"param": f"{_symbol.tencent(code)},{period},,,{count},{fq}"},
                 headers={"Referer": "https://gu.qq.com/"},
@@ -138,7 +151,7 @@ class TencentSource(SourceBase):
           usAAPL/NVDA day qfq → size=1700/1717
         """
         try:
-            r = self._xueqiu_session().get(
+            r = self._cffi().get(
                 "https://web.ifzq.gtimg.cn/appstock/app/usfqkline/get",
                 params={"param": f"{_symbol.tencent(code)},{period},,,{count},{fq}"},
                 headers={"Referer": "https://gu.qq.com/"},
@@ -171,7 +184,7 @@ class TencentSource(SourceBase):
           usTSLA → size=1420 (美股分时)
         """
         try:
-            r = self._xueqiu_session().get(
+            r = self._cffi().get(
                 "https://web.ifzq.gtimg.cn/appstock/app/minute/query",
                 params={"code": _symbol.tencent(code)},
                 headers={"Referer": "https://gu.qq.com/"},
@@ -191,6 +204,118 @@ class TencentSource(SourceBase):
                     "data": first.get("data", first.get("minute", [])),
                 }, len(r.text))
             return _ok({"data": data}, len(r.text))
+        except Exception as e:
+            return _err(str(e))
+
+    def _tencent_minute_days(self, path: str, code: str) -> tuple:
+        """分时原始取数 → (days, qt 字段数组)
+
+        minute/query 的 data 是 {data: [...], date: '20261020'} (当日一条);
+        day/query 的 data 是 [{date, data:[...]}, ...] (近 5 个交易日, 新→旧)。
+        两种形状在这里收敛成同一种 days, 调用方不必关心走的是哪条端点。
+        """
+        r = self._cffi().get(
+            f"https://web.ifzq.gtimg.cn/appstock/app/{path}",
+            params={"code": _symbol.tencent(code)},
+            headers={"Referer": "https://gu.qq.com/"},
+            timeout=self.BASE_TIMEOUT,
+        )
+        if r.status_code != 200 or not r.text:
+            raise RuntimeError(f"status={r.status_code}")
+        j = r.json()
+        if j.get("code") != 0:
+            raise RuntimeError(f"code={j.get('code')} msg={j.get('msg', '')[:50]}")
+        first = next(iter((j.get("data") or {}).values()), {}) or {}
+        qt = next((v for v in (first.get("qt") or {}).values()
+                   if isinstance(v, list) and len(v) > 4), None)
+        inner = first.get("data")
+        days = []
+        if isinstance(inner, dict):                     # 当日
+            days.append({"date": _d8(inner.get("date") or ""),
+                         "rows": inner.get("data") or []})
+        elif isinstance(inner, list):                   # 五日
+            for it in inner:
+                if isinstance(it, dict):
+                    days.append({"date": _d8(it.get("date") or ""),
+                                 "rows": it.get("data") or []})
+        # 腾讯给新→旧, 统一成正序 (画图从左到右)
+        days.sort(key=lambda d: d["date"])
+        return days, qt
+
+    def tencent_minute_days(self, code: str = "sh600519", ndays: int = 1) -> dict:
+        """分时 (当日 / 五日): 归一成 {days:[{date, rows}], qt, name, preclose}
+
+        rows 原样保留腾讯的 "HHMM price 累计量 累计额" 字符串, 解析放在
+        command 层 (与 K 线的 normalize_rows 同一思路: 源形状各异, 渲染前一次洗干净)。
+
+        已验证: sh600519 121 点/日 (午休压缩), hk00700 152 点 (09:30-12:00),
+        五日 day/query 返回 5 个交易日共 1083 点。
+        """
+        ndays = 5 if int(ndays or 1) > 1 else 1
+        path = "day/query" if ndays == 5 else "minute/query"
+        try:
+            days, qt = self._tencent_minute_days(path, code)
+            if len(days) > ndays:
+                days = days[-ndays:]
+            data = {"symbol": code, "ndays": ndays, "days": days,
+                    "qt": qt or [],
+                    "name": qt[1] if qt and len(qt) > 1 else None,
+                    "preclose": _fnum(qt[4]) if qt and len(qt) > 4 else None}
+            return _ok(data, sum(len(d["rows"]) for d in days))
+        except Exception as e:
+            return _err(str(e))
+
+    def tencent_ticks(self, code: str = "sh600519", max_pages: int = 120) -> dict:
+        """逐笔成交 (分笔): 当日 09:25 起, 70 条/页, 翻页到底
+
+        返回 [时间 HH:MM:SS, 价格, 成交量(手), 成交额] 升序。用于把分时量柱
+        做到分钟以下 (30s/15s); 一整天约 60-80 页, 比分钟接口重, 只在显式
+        要求细粒度时调用。
+        """
+        sym = _symbol.tencent(code)
+        out, seen = [], set()
+        pat = re.compile(r"(\d{2}:\d{2}:\d{2})/([\d.]+)/[-\d.]+/(\d+)/(\d+)")
+
+        def _page(page: int):
+            """取第 page 页 (70 条)。页大小是接口写死的, 只能靠并发削时间。"""
+            r = self._cffi_tls().get(
+                "https://stock.gtimg.cn/data/index.php",
+                params={"appn": "detail", "action": "data",
+                        "c": sym, "p": page},
+                headers={"Referer": "https://gu.qq.com/"},
+                timeout=self.BASE_TIMEOUT,
+            )
+            txt = r.content.decode("gbk", "ignore") if r.content else ""
+            return pat.findall(txt)
+
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+            # 4 路并发: 茅台这种一天 58 页, 串行 6~8s, 并发约 1.5s;
+            # 再高容易触发 gtimg 的频控, 4 是实测稳的值。
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                page = 0
+                while page < max_pages:
+                    todo = list(range(page, min(page + 4, max_pages)))
+                    stop = False
+                    for hits in ex.map(_page, todo):
+                        new = 0
+                        for t, price, vol, amt in hits:
+                            key = f"{t}|{price}|{vol}|{amt}"
+                            if key in seen:
+                                continue
+                            seen.add(key)
+                            new += 1
+                            out.append([t, float(price), float(vol),
+                                        float(amt)])
+                        if new == 0:      # 翻到底 (空页 / 整页重复)
+                            stop = True
+                    if stop:
+                        break
+                    page += 4
+            if not out:
+                return _err("no tick rows")
+            out.sort(key=lambda x: x[0])
+            return _ok({"rows": out, "symbol": code}, len(out))
         except Exception as e:
             return _err(str(e))
 

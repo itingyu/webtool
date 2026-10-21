@@ -57,6 +57,7 @@ from webtool.stock.command._actions_misc import _act_http_get
 from webtool.stock.command._actions_misc import _act_http_post
 from webtool.stock.command._actions_misc import _act_http_rows
 from webtool.stock.command._actions import _act_kline
+from webtool.stock.command._actions import _act_intraday
 from webtool.stock.command._actions_misc import _act_mcp
 from webtool.stock.command._actions import _act_news
 from webtool.stock.command._actions import _act_pool
@@ -82,6 +83,7 @@ ACTIONS = {
 
     # 编排层动作升格 (原来只能 mcp --tool 透传)
     'kline': _act_kline,
+    'intraday': _act_intraday,
     'index': _act_std('stock_index'),
     'income': _act_std('stock_income_statement'),
     'balance': _act_std('stock_balance_sheet'),
@@ -138,9 +140,12 @@ USAGE = """用法: webtool stock <动作> [参数]
   diagram --kind logic|tree|chain [...] mermaid 图
              tree  无参; logic 需 代码 --name [--thesis];
              chain 需 --name --driver(上游) --mid(中游) --catalyst(下游)
-  kline <代码> [--bars 120] [--period day|week|month] [--chart]
-              [--chart-out 路径] [--ma 5,10,20]
-             K 线 (A股/港股/美股); --chart 出一张自包含 SVG (红涨绿跌+均线+量能)
+  kline <代码> [--bars 120 | --start D --end D] [--period day|week|month]
+              [--ma 5,10,20] [--chart] [--chart-out 路径] [--png]
+             K 线 (A股/港股/美股); --start/--end 指定区间;
+             --chart 出图 (红涨绿跌+均线+量能), --png 转 PNG
+  intraday <代码> [--days 1|5] [--no-auction] [--chart] [--chart-out 路径] [--png]
+             分时图; 默认含集合竞价(09:15-09:25), 左轴价格右轴涨幅
 
 透传动作 (按名调用 24 个动作)
   mcp <动作名> [--arg k=v]     透传调用, 例: webtool stock mcp stock_indicators --arg symbol=600519

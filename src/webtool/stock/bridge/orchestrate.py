@@ -346,6 +346,320 @@ def t_stock_kline(args: dict) -> dict:
     return _fallback(ops)
 
 
+
+# ── 分时 (当日/五日) ────────────────────────────────────────────────
+def _vol_mult(price, cum_amt, cum_vol):
+    """成交量单位换算系数: A 股腾讯/东财都是"手"(100 股), 港美股是"股"
+
+    不按市场硬编码 (港股通/ETF/美股指数各有例外), 直接看末行的
+    额/量 与价格之比: 约 100 就是手, 约 1 就是股。
+    """
+    if not (price and cum_vol):
+        return 100.0
+    ratio = cum_amt / (cum_vol * price)
+    return 100.0 if 20 < ratio < 1000 else 1.0
+
+
+def _secs(t):
+    """'HH:MM:SS' / 'HH:MM' → 当日秒数"""
+    f = str(t).split(':')
+    try:
+        h = int(f[0]); m = int(f[1]) if len(f) > 1 else 0
+        sec = int(float(f[2])) if len(f) > 2 else 0
+    except ValueError:
+        return 0
+    return h * 3600 + m * 60 + sec
+
+
+def _bucket_ticks(rows, gran):
+    """逐笔成交 → 每 gran 秒一根: 价取桶内最后一笔, 量按桶累加, 均价走累计口径
+
+    分钟接口给不了更细的粒度, 只能回到逐笔自己合; gran=30 就是 480 根,
+    配合自适应图宽刚好每根还有 1px 以上。
+    """
+    buckets, order = {}, []
+    for r in rows or []:
+        try:
+            t, price = str(r[0]), float(r[1])
+            vol, amt = float(r[2] or 0), float(r[3] or 0)
+        except (IndexError, TypeError, ValueError):
+            continue
+        if not price:
+            continue
+        k = _secs(t) // gran
+        b = buckets.get(k)
+        if b is None:
+            hh, mm, ss = k * gran // 3600, k * gran % 3600 // 60, k * gran % 60
+            b = {'t': f'{hh:02d}:{mm:02d}:{ss:02d}', 'price': price,
+                 'vol': 0.0, 'amt': 0.0}
+            buckets[k] = b
+            order.append(k)
+        b['price'] = price
+        b['vol'] += vol
+        b['amt'] += amt
+    if not order:
+        return []
+    tail = buckets[order[-1]]
+    mult = _vol_mult(tail['price'], tail['amt'], tail['vol'])
+    out, cv, ca = [], 0.0, 0.0
+    for k in order:
+        b = buckets[k]
+        cv += b['vol']
+        ca += b['amt']
+        out.append({'t': b['t'], 'price': b['price'],
+                    'avg': round(ca / (cv * mult), 3) if cv else b['price'],
+                    'vol': round(b['vol'], 2), 'amount': round(b['amt'], 2)})
+    return out
+
+
+def _norm_minute_points(rows):
+    """腾讯 'HHMM price 累计量 累计额' / 东财 [t, price, 累计量, 累计额] → 点列表
+
+    两条源的量额都是**当日累计**, 所以逐分钟量要做差; 均价用 累计额/(累计量×系数),
+    与行情软件的黄线同口径。
+    """
+    recs = []
+    for r in rows or []:
+        try:
+            if isinstance(r, str):
+                f = r.split()
+                t, price = f[0][:5], float(f[1])
+                cv, ca = float(f[2] or 0), float(f[3] or 0) if len(f) > 3 else 0.0
+            else:
+                t, price = str(r[0])[:5].replace(':', ''), float(r[1])
+                cv, ca = float(r[2] or 0), float(r[3] or 0) if len(r) > 3 else 0.0
+        except (IndexError, TypeError, ValueError):
+            continue
+        if not price:
+            continue
+        recs.append((t if ':' in t else f'{t[:2]}:{t[2:]}', price, cv, ca))
+    if not recs:
+        return []
+    mult = _vol_mult(recs[-1][1], recs[-1][3], recs[-1][2])
+    out, pcv = [], 0.0
+    for t, price, cv, ca in recs:
+        vol = cv - pcv if cv >= pcv else cv
+        pcv = cv
+        out.append({'t': t, 'price': price,
+                    'avg': round(ca / (cv * mult), 3) if cv else price,
+                    'vol': round(vol, 2), 'amount': round(ca, 2)})
+    return out
+
+
+def _daily_closes(client, sym: dict) -> dict:
+    """近 N 个交易日收盘价 (给五日图算每日昨收); 失败不拦主流程"""
+    try:
+        if sym['market'] == 'cn':
+            r = client.tencent_kline_global(sym['tencent_a'], 'day', 12, 'qfq')
+        elif sym['market'] == 'hk':
+            r = client.tencent_kline_global(sym['tencent_hk'], 'day', 12)
+        else:
+            return {}
+        rows = ((r or {}).get('data') or {}).get('klines') or []
+        return {str(x[0])[:10]: float(x[2]) for x in rows if len(x) > 2}
+    except Exception:                                        # noqa: BLE001
+        return {}
+
+
+def _fill_preclose(days: list, closes: dict) -> None:
+    """每日昨收: 取该日在收盘价序列里的前一个交易日; 缺失则退化为当日首点"""
+    dates = sorted(closes)
+    for d in days:
+        i = dates.index(d['date']) if d['date'] in dates else -1
+        if i > 0:
+            d['preclose'] = closes[dates[i - 1]]
+        elif d.get('preclose') in (None, 0):
+            d['preclose'] = d['points'][0]['price'] if d['points'] else None
+    if days:
+        for prev, cur in zip(days, days[1:]):
+            if not cur.get('preclose') and prev['points']:
+                cur['preclose'] = prev['points'][-1]['price']
+
+
+def _auction_from_ticks(client, tsym: str):
+    """只抓逐笔第 0 页, 用首行 (09:25:00) 还原竞价成交价/量。
+
+    东财 trends2 不可达时的兜底: 没有 09:15-09:25 的匹配价曲线,
+    但最终成交价、成交量、成交额都有, 竞价那一格不至于空着。
+    """
+    if not tsym:
+        return None
+    try:
+        r = client.tencent_ticks(tsym, max_pages=1)      # 1 次请求
+    except Exception:                                     # noqa: BLE001
+        return None
+    rows = ((r.get('data') or {}).get('rows') or []) if r.get('ok') else []
+    if not rows:
+        return None
+    t, price, vol, amt = (list(rows[0]) + [None] * 4)[:4]
+    if not t or t > '09:26' or not price:
+        return None
+    return {'t': '09:25', 'price': float(price), 'avg': float(price),
+            'vol': float(vol or 0), 'amount': float(amt or 0)}
+
+
+def _merge_auction(days: list, em_days: list) -> int:
+    """把东财的盘前竞价点 (09:15-09:25) 拼到腾讯日线前面; 返回拼上的天数"""
+    by_date = {d['date']: d for d in em_days or []}
+    merged = 0
+    for d in days:
+        e = by_date.get(d['date'])
+        if not e:
+            continue
+        # 竞价段只到 09:25: 东财的 09:26-09:29 是静默期(价格冻结、量为 0),
+        # 当成竞价点画进去会让竞价区比标注宽 4 分钟
+        pre = [p for p in e['points'] if p['t'] <= '09:25']
+        if not pre:
+            continue
+        if d['points'] and d['points'][0]['t'] < '09:30':
+            continue                                  # 源里本来就带
+        # 东财把竞价成交记在 09:26, 行情软件一律画在 09:25, 这里归位
+        auc_vol = 0.0
+        trade = next((p for p in e['points']
+                      if p['t'] > '09:25' and (p.get('vol') or 0) > 0), None)
+        if trade:
+            last = dict(pre[-1])
+            last['price'] = trade['price']
+            last['vol'] = trade['vol']
+            # 东财的 amount 口径偏高 (含虚拟撮合), 用主源开盘那笔累计额更准
+            head0 = d['points'][0] if d['points'] else {}
+            last['amount'] = head0.get('amount') or trade.get('amount') or 0
+            last['avg'] = head0.get('avg') or trade['price']
+            pre = pre[:-1] + [last]
+            auc_vol = trade['vol']
+        rest = list(d['points'])
+        # 主源首根 (09:30) 的累计量本来就含竞价成交, 不扣会重复计一遍
+        if auc_vol and rest and (rest[0].get('vol') or 0) >= auc_vol:
+            head = dict(rest[0])
+            head['vol'] = round((head.get('vol') or 0) - auc_vol, 2)
+            rest[0] = head
+        d['points'] = pre + rest
+        d['auction'] = True
+        merged += 1
+    return merged
+
+
+def t_stock_intraday(args: dict) -> dict:
+    """分时 (ndays=1 当日 / 5 五日), 默认带集合竞价
+
+    竞价只有一个源: 东财 trends2 的 `iscr=1`。腾讯的 minute 端点从 09:30 起,
+    没有 09:15-09:25 段 —— 所以主图走腾讯 (稳), 竞价单独向东财要一段再拼。
+    东财不可达时不静默: `auction=False` + `auction_note` 明说, 图照出。
+    """
+    sym = normalize(args["symbol"])
+    ndays = 5 if int(args.get('ndays') or 1) > 1 else 1
+    want_auc = bool(args.get('auction', True)) and ndays == 1
+    client = get_client()
+
+    if sym['market'] == 'cn':
+        ops = [('tencent', lambda: client.tencent_minute_days(sym['tencent_a'], ndays)),
+               ('em', lambda: client.em_trends(sym['xq'], ndays))]
+        em_code = sym['xq']
+    elif sym['market'] == 'hk':
+        ops = [('tencent', lambda: client.tencent_minute_days(sym['tencent_hk'], ndays)),
+               ('em', lambda: client.em_trends('116.' + sym['code'], ndays))]
+        em_code = '116.' + sym['code']
+    elif sym['market'] == 'us':
+        ops = [('em', lambda: client.em_trends('105.' + sym['code'], ndays)),
+               ('tencent', lambda: client.tencent_minute_days(sym['tencent_us'], ndays))]
+        em_code = '105.' + sym['code']
+    elif sym['market'] == 'index':
+        ops = [('tencent', lambda: client.tencent_minute_days(sym['tencent_a'], ndays)),
+               ('em', lambda: client.em_trends(sym['tencent_a'], ndays))]
+        em_code = sym['tencent_a']
+    else:
+        return {'ok': False, 'error': f"unsupported market: {sym['market']}"}
+
+    res = _fallback(ops)
+    if not res.get('ok'):
+        return res
+    raw = res.get('data') or {}
+    days = []
+    for d in raw.get('days') or []:
+        pts = _norm_minute_points(d.get('rows'))
+        if pts:
+            days.append({'date': d.get('date') or '', 'points': pts,
+                         'preclose': raw.get('preclose')})
+    if not days:
+        return {'ok': False, 'error': 'empty minute rows'}
+
+    # 每日昨收 (五日图要按各自昨收算涨幅)
+    if len(days) > 1:
+        _fill_preclose(days, _daily_closes(client, sym))
+    elif not days[0].get('preclose'):
+        days[0]['preclose'] = days[0]['points'][0]['price']
+
+    # 细粒度 (gran < 60 秒): 分钟接口给不出更细的粒度, 回到逐笔自己合
+    gran = int(args.get('gran') or 60)
+    tick_note = None
+    days_1m = None                 # 细粒度时留一份分钟序列, 供组合图复用
+    if gran and gran < 60 and ndays == 1:
+        days_1m = days
+        tick_sym = (sym.get('tencent_a') or sym.get('tencent_hk')
+                    or sym.get('tencent_us'))
+        tr = client.tencent_ticks(tick_sym) if tick_sym else {'ok': False}
+        if tr.get('ok'):
+            pts = _bucket_ticks(tr['data']['rows'], gran)
+            if not want_auc:      # 逐笔自带 09:25 竞价成交, 不要竞价就剔掉
+                pts = [p for p in pts if p['t'] >= '09:30']
+            if pts:
+                days = [{'date': days[0]['date'], 'points': pts,
+                         'preclose': days[0]['preclose'],
+                         'auction': bool(want_auc and pts[0]['t'] < '09:30')}]
+                tick_note = f'{gran}秒'
+            else:
+                tick_note = f'{gran}秒失败, 退回分钟'
+        else:
+            tick_note = f'{gran}秒失败, 退回分钟'
+
+    # 集合竞价: 主源不带就单独补
+    # 盘后固定价格交易 (15:05-15:30): 价格恒定、量极小, 混进连续竞价里会把
+    # 右端拉成一条直线。默认剔掉, --after-hours 才保留 (科创板等确实有这个时段)。
+    if not args.get('after_hours'):
+        for d in days:
+            d['points'] = [p for p in d['points'] if p['t'] <= '15:00']
+    if not want_auc:      # 源自带盘前点时, 不要竞价也要剔掉
+        for d in days:
+            d['points'] = [p for p in d['points'] if p['t'] >= '09:30']
+
+    auction = any(d.get('auction') for d in days)
+    note = None
+    if want_auc and not auction:
+        em = client.em_trends(em_code, 1, premarket=True)
+        if em.get('ok'):
+            em_days = [{'date': d.get('date'), 'points': _norm_minute_points(d.get('rows'))}
+                       for d in (em['data'].get('days') or [])]
+            auction = bool(_merge_auction(days, em_days))
+            if not auction:
+                note = '该日无竞价数据'
+        else:
+            note = '集合竞价源不可达'
+        # 兜底: 东财断连/无数据时, 用逐笔第一页首行补"最终成交价+量"。
+        # 拿不到 09:15-09:25 的匹配价序列, 但竞价那一格不会空着。
+        if not auction:
+            tsym = (sym.get('tencent_a') or sym.get('tencent_hk')
+                    or sym.get('tencent_us'))
+            ap = _auction_from_ticks(client, tsym) if tsym else None
+            if ap:
+                if not any(p['t'] == '09:25' for p in days[0]['points']):
+                    days[0]['points'].insert(0, ap)
+                days[0]['auction'] = True
+                auction = True
+                note = '竞价价量取自逐笔，无匹配价序列'
+
+    return {'ok': True, 'source': res.get('source'),
+            'data': {'symbol': sym['code'], 'market': sym['market'],
+                     'name': raw.get('name'),
+                     'ndays': len(days), 'auction': auction,
+                     'gran': gran,
+                     'gran_note': tick_note,
+                     'days_1m': days_1m,
+                     'auction_note': note if want_auc else None,
+                     'auction_error': (str(em.get('error'))[:200]
+                                       if want_auc and not auction and em.get('error') else None),
+                     'preclose': days[-1].get('preclose'), 'days': days},
+            'attempts': res.get('attempts', []), 'took_ms': res.get('took_ms')}
+
 def t_stock_company(args: dict) -> dict:
     """公司基本信息+简介"""
     sym = normalize(args["symbol"])

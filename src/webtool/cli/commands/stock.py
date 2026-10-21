@@ -8,7 +8,8 @@ from webtool.cli.app import app
 
 _EPILOG = _verbatim("""常用动作
   quote        实时行情 (可多股/指数别名)
-  kline        K 线 (--chart 出 SVG)
+  kline        K 线 (--start/--end 区间, --chart 出图)
+  intraday     分时 (当日/五日, 默认含集合竞价)
   pool         涨停池
   flow         资金流榜单
   screen       选股池
@@ -22,6 +23,9 @@ _EPILOG = _verbatim("""常用动作
 示例
   webtool stock quote 600519 sh000001
   webtool stock kline 600519 --chart
+  webtool stock kline 600519 --start 2025-01-01 --end 2025-06-30 --chart
+  webtool stock intraday 600519 --chart
+  webtool stock intraday 600519 --days 5 --chart --png
   webtool stock screen --pool short --min-score 70
 
 全部动作 (60+): webtool stock""")
@@ -64,7 +68,48 @@ def stock_cmd(action: str = typer.Argument(None, help='动作名, 见下方常�
               chart: bool = typer.Option(False, '--chart', help='kline 出一张 SVG 图 (红涨绿跌 + 均线 + 量能)'),
               chart_out: str = typer.Option(None, '--chart-out',
                                             help='kline 图输出路径 (默认 <代码>-<周期>.svg)'),
-              ma: str = typer.Option('5,10,20', '--ma', help='kline 均线, 逗号分隔'),
+              ma: str = typer.Option('5,10,20', '--ma',
+                                     help='kline 均线, 逗号分隔 (可多个值画多条)'),
+              mavg: str = typer.Option(None, '--mavg',
+                                       help='intraday 分时均线 (按分钟价格), 逗号分隔, 如 5,20'),
+              start: str = typer.Option(None, '--start',
+                                        help='kline 起始日期 YYYY-MM-DD (与 --end 配合)'),
+              end: str = typer.Option(None, '--end',
+                                      help='kline 结束日期 YYYY-MM-DD'),
+              days: int = typer.Option(1, '--days',
+                                       help='intraday 天数: 1=当日 5=五日'),
+              no_auction: bool = typer.Option(False, '--no-auction',
+                                              help='intraday 当日图不含集合竞价'),
+              after_hours: bool = typer.Option(False, '--after-hours',
+                                               help='intraday 保留 15:05 后的盘后固定价格交易'),
+              gran: int = typer.Option(60, '--gran',
+                                       help='intraday 量柱粒度(秒): 60=分钟, 30/15 用逐笔聚合'),
+              dma: str = typer.Option('5,10,20,60', '--dma',
+                                      help='intraday 叠加日线均线横线, 逗号分隔; 传空串关闭'),
+              limit_y: bool = typer.Option(False, '--limit-y',
+                                           help='intraday 纵轴强制撑满涨跌停(默认按波动取景)'),
+              combo: bool = typer.Option(False, '--combo',
+                                         help='intraday 出一张三合一长图(当日/30秒/五日)'),
+              auto_y: bool = typer.Option(False, '--auto-y',
+                                          help='intraday 纵轴按当日实际波动自适应(默认按涨跌停固定)'),
+              png: bool = typer.Option(False, '--png',
+                                       help='图表输出 PNG (默认 SVG)'),
+              macd: bool = typer.Option(False, '--macd',
+                                        help='kline 加 MACD(12,26,9) 副图'),
+              ascii_art: bool = typer.Option(False, '--ascii',
+                                             help='终端字符画 (K线/分时), 直接打到 stdout'),
+              no_color: bool = typer.Option(False, '--no-color',
+                                            help='字符画不带 ANSI 颜色'),
+              ascii_h: int = typer.Option(0, '--ascii-h',
+                                          help='字符画高度(行), 0=默认 20(K线)/16(分时)'),
+              ascii_w: int = typer.Option(0, '--ascii-w',
+                                          help='字符画宽度(列), 0=跟随终端'),
+              ascii_plain: bool = typer.Option(False, '--ascii-plain',
+                                               help='纯 ASCII 字符画 (字体缺盲文/方块时用)'),
+              ascii_wide: bool = typer.Option(False, '--ascii-wide',
+                                              help='K线实体用实心块 (默认细柱)'),
+              ascii_gap: bool = typer.Option(False, '--ascii-gap',
+                                             help='每根K线占2列(留间隔, 同色不粘连)'),
               timeout: float = typer.Option(60.0, '--timeout', help='mcp 动作子进程超时秒'),
               url: str = typer.Option('', '--url', help='http-* 动作的 URL (也可用位置参数)'),
               referer: str = typer.Option('', '--referer', help='覆盖默认 Referer'),
@@ -101,5 +146,13 @@ def stock_cmd(action: str = typer.Argument(None, help='动作名, 见下方常�
     a.catalysts = list(catalyst or [])
     a.mid = list(mid or [])
     a.bars, a.period, a.chart, a.chart_out, a.ma = bars, period, chart, chart_out, ma
+    a.start, a.end, a.days, a.no_auction, a.png = start, end, days, no_auction, png
+    a.mavg, a.macd, a.after_hours = mavg, macd, after_hours
+    a.gran, a.auto_y, a.combo, a.dma = gran, auto_y, combo, dma
+    a.ascii_art, a.no_color = ascii_art, no_color
+    a.ascii_h, a.ascii_w = ascii_h, ascii_w
+    a.ascii_plain, a.ascii_wide = ascii_plain, ascii_wide
+    a.ascii_gap = ascii_gap
+    a.limit_y = limit_y
     # stock 不走 net 层, 无代理/缓存概念; 仍走 _run 统一 -f/-o 与退出码
     return _run(None, _entry_fn('stock'), fmt, output, False, False)
