@@ -145,7 +145,7 @@ def _act_kline(args, cfg):
         out['chart_path'] = _write_kline_chart(out, args, code, count,
                                                full_rows=locals().get('full_rows'))
     if getattr(args, 'ascii_art', False) and isinstance(out, dict):
-        from webtool.render.ascii_chart import kline_ascii
+        from webtool.render.ascii_chart import kline_ascii, should_color
         rows_a = _kline_rows(out)
         period = getattr(args, 'period', 'day') or 'day'
         cn = {'day': '日线', 'week': '周线', 'month': '月线'}.get(period, period)
@@ -154,7 +154,7 @@ def _act_kline(args, cfg):
         ww = int(getattr(args, 'ascii_w', 0) or 0) or None
         print(kline_ascii(rows_a,
                           ma=[m for m in (getattr(args, 'ma', '') or '').split(',') if m.strip()],
-                          title=head, color=not getattr(args, 'no_color', False),
+                          title=head, color=should_color(),
                           height=hh, width=ww,
                           plain=bool(getattr(args, 'ascii_plain', False)),
                           wide=bool(getattr(args, 'ascii_wide', False)),
@@ -210,7 +210,7 @@ def _act_intraday(args, cfg):
         else:
             out['chart_path'] = _write_intraday_chart(out, args, code)
     if getattr(args, 'ascii_art', False) and isinstance(out, dict):
-        from webtool.render.ascii_chart import intraday_ascii
+        from webtool.render.ascii_chart import intraday_ascii, should_color
         d = out.get('data') or {}
         days = d.get('days') or []
         if days:
@@ -223,9 +223,9 @@ def _act_intraday(args, cfg):
             ww = int(getattr(args, 'ascii_w', 0) or 0) or None
             print(intraday_ascii(days, title=head,
                                  preclose=d.get('preclose'),
-                                 color=not getattr(args, 'no_color', False),
+                                 color=should_color(),
                                  height=hh, width=ww,
-                                 plain=bool(getattr(args, 'ascii_plain', False))))
+                                 plain=False))
     return out
 
 def _act_std(action_name):

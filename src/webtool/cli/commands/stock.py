@@ -97,9 +97,7 @@ def stock_cmd(action: str = typer.Argument(None, help='动作名, 见下方常�
               macd: bool = typer.Option(False, '--macd',
                                         help='kline 加 MACD(12,26,9) 副图'),
               ascii_art: bool = typer.Option(False, '--ascii',
-                                             help='终端字符画 (K线/分时), 直接打到 stdout'),
-              no_color: bool = typer.Option(False, '--no-color',
-                                            help='字符画不带 ANSI 颜色'),
+                                             help='终端字符画 (K线/分时), 颜色按环境自动检测'),
               timeout: float = typer.Option(60.0, '--timeout', help='mcp 动作子进程超时秒'),
               url: str = typer.Option('', '--url', help='http-* 动作的 URL (也可用位置参数)'),
               referer: str = typer.Option('', '--referer', help='覆盖默认 Referer'),
@@ -139,7 +137,7 @@ def stock_cmd(action: str = typer.Argument(None, help='动作名, 见下方常�
     a.start, a.end, a.days, a.no_auction, a.png = start, end, days, no_auction, png
     a.mavg, a.macd, a.after_hours = mavg, macd, after_hours
     a.gran, a.auto_y, a.combo, a.dma = gran, auto_y, combo, dma
-    a.ascii_art, a.no_color = ascii_art, no_color
+    a.ascii_art = ascii_art
     a.limit_y = limit_y
     # stock 不走 net 层, 无代理/缓存概念; 仍走 _run 统一 -f/-o 与退出码
     return _run(None, _entry_fn('stock'), fmt, output, False, False)

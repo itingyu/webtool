@@ -6,6 +6,7 @@
 网格约定: 一行 = 一个字符单元, 价格越高行号越小 (与屏幕方向一致)。
 左侧留 9 列写价格轴, 其余宽度按 1 根 K 线 = 1 列排布。
 """
+import os
 import shutil
 
 _ANSI = {
@@ -98,6 +99,30 @@ def _fnum(v, nd=2):
 
 
 # ── K 线 ────────────────────────────────────────────────────────────
+def should_color(stream=None) -> bool:
+    """字符画要不要上色 —— 环境自己说了算, 用户不选:
+
+    - `NO_COLOR=1` (社区标准) 或 `TERM=dumb`/未设 → 不上色 (管道、日志、
+      dumb 终端混转义序列只会变成花屏字符)
+    - 输出非 tty (重定向) → 不上色; `FORCE_COLOR=1` 强制 (CI 里想要色)
+    - 其余 (交互终端) → 上色
+    """
+    import sys as _sys
+    if os.environ.get('FORCE_COLOR') and not os.environ.get('NO_COLOR'):
+        return True
+    if os.environ.get('NO_COLOR'):
+        return False
+    try:
+        s = stream if stream is not None else _sys.stdout
+        if not getattr(s, 'isatty', None) or not s.isatty():
+            return False
+        if str(os.environ.get('TERM') or '').strip().lower() in ('', 'dumb'):
+            return False
+        return True
+    except Exception:                                   # noqa: BLE001
+        return False
+
+
 def _silent_gap(a, b):
     """09:25 撮合完到 09:30 连续竞价之间没有成交, 连线会画出假走势"""
     return (str(a.get('t') or '')[:5] <= '09:25'
