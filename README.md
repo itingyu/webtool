@@ -506,11 +506,17 @@ class MyWall(Interceptor):
   另有派生属性 `host`（主机名带端口）与 `site`（主机名，去端口 —— 冷却与日志的记账键）。
   `ctx.engine` 只是遗留信息字段，判定逻辑不读它
 - `bypass` 返回的 `Bypass` 支持 `url` / `headers` / `profile` / `delay` / `retry`，由传输层执行
+- `Hit` 可带 `hint`（处置建议）：命中时附在 `BlockedError` 消息末尾，告诉人下一步该干什么
 - 只判不绕也合法（`captcha` 现在就是）：传输层按**站点**冷却 + 降级梯处理
 - 引擎自己试通道的路径（sogou PC/移动双通道、baidu 预热会话、google web/news 降级）
   同样过拦截器：调 `intercept.gate(text, url=…)` 判定 + 记账，
   `intercept.cooldown_of(url)` 取该站点剩余冷却
 - 插件抛错只让它自己掉队，不拖垮整条请求链路；`webtool plugins check interceptor` 看谁坏了
+- **Cloudflare 质询单列一档**（`kind=cf_challenge`）：靠响应头 `cf-mitigated: challenge`
+  与质询页专有特征识别，冷却 5 分钟起（普通验证页 30s 起），报错附处置建议。
+  纯 HTTP 过不了这类拦截（要浏览器算 token），本项目**只识别不求解**；
+  要过就得接真浏览器求解器，并复用 `cf_clearance`（须与抓取同出口 IP、同 UA）。
+  细节见 [docs/intercept.md](docs/intercept.md)
 - 判定挂在**每一个读完正文的入口**：`transport.get()`（搜索 / resolve / radar）与
   `pipeline/fetch.py`（全部抓取）；不看引擎、不看调用通道，只按响应本身判。
   唯一例外是 `transport.request()` —— 裸 API 通道，响应流直接交给调用方

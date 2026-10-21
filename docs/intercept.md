@@ -16,11 +16,33 @@
 
 特征来自 `data/plugins.json`：通用段（标题含 captcha/安全验证/just a moment，
 正文含 cf-challenge 等）加上各引擎段的 `captcha_signs`，**加载时合并成一张
-全局特征表**。因此请求带不带引擎名，判定一致。
+全局特征表**。因此请求带不带引擎名，判定一致。Cloudflare 质询单列一档，
+**先判它**（见下节），其余走通用段。
 
 - `len_lt`（正文过短）不参与合并：它是站点专属启发式，全站套用会把正常短页
   全判成验证页，而误判要付冷却代价。
 - 特征表缓存 5 秒，避免每条响应重建 62 个插件的表；实测判定约 0.08ms。
+
+## Cloudflare 质询（单列一档）
+
+「浏览器里等几秒就自动放行」那种拦截是 Cloudflare 的**非交互式 JS 质询**：
+服务端要的是浏览器算出来的 token，纯 HTTP 拿不到。它因此单列一档：
+
+- **识别**：响应头 `cf-mitigated: challenge`（官方标记，最可靠）优先；正文只认
+  质询页专有特征（`cf-challenge-running` / `challenge-spinner` / `cf-please-wait` /
+  `trk_jschal_js` / `_cf_chl_opt` / `orchestrate/chl_page` / 标题 "Just a moment"）。
+  **不放** `cf-ray`、`turnstile`、`cdn-cgi/challenge-platform` 这类泛用串 ——
+  正常文章页挂 Turnstile 挂件、CF 站带 cf-ray 页脚，误判要付冷却代价。
+- **冷却**：CF 质询按 **5 分钟起**翻倍（上限 4×），普通验证页仍是 30s 起。
+  短冷却对这种拦截没意义，只会把 1 次拦截放大成连续请求，把站点信誉打得更差。
+- **报错**：`BlockedError` 附处置建议 —— 换出口线路/换引擎，或接真浏览器求解
+  （远端 FlareSolverr/Byparr）取 `cf_clearance` 复用；求解与抓取须**同一出口 IP
+  且 UA 一致**，否则 clearance 失效。
+- 命中类型记为 `cf_challenge`（普通验证页仍是 `captcha`），拦截日志的 `kind`
+  字段能直接区分。
+
+本项目**只识别不求解**（求解要真浏览器）。`Hit.hint` 字段就是给插件写处置
+建议用的：命中时带上，报错时附在消息末尾。
 
 ## 冷却
 
