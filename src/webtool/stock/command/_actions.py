@@ -228,6 +228,42 @@ def _act_intraday(args, cfg):
                                  plain=False))
     return out
 
+
+def _act_boards(args, cfg):
+    """板块目录: 行业+概念全量 (东财 clist), 可选关键词过滤
+
+    用法: webtool stock boards [关键词] —— 给 `kline/intraday` 挑名字用。
+    过滤支持: 名字含关键词 ('光' / '模块')、BK 代码 ('BK1136'/'1136');
+    无过滤输出全表 (行业在前), 按 |涨跌幅| 降序, 当天活跃的排前面。
+    """
+    from webtool.stock.bridge import orchestrate as _o
+    from webtool.stock.bridge.sources import APIClient
+    items = _o._boards_cached(APIClient())
+    if not items:
+        print('板块目录未取得 (东财 clist 不可达)')
+        return 1
+    kw = (list(args.codes or ['']) or [''])[0].strip().upper() \
+        if getattr(args, 'codes', None) else ''
+    seen, rows = set(), []
+    for code, name, pct in items:
+        if code in seen:
+            continue
+        seen.add(code)
+        if kw and kw not in name.upper() and kw not in code and \
+                kw.replace('BK', '') != code.replace('BK', ''):
+            continue
+        rows.append((code, name, pct))
+    rows.sort(key=lambda r: -(abs(r[2]) if isinstance(r[2], (int, float)) else 0))
+    if not rows:
+        print(f'没有匹配 "{args.codes[0]}" 的板块; 空过滤看全表: webtool stock boards')
+        return 1
+    print(f'{"代码":<8}  {"名称":<14}  {"涨跌%":>7}')
+    for code, name, pct in rows:
+        ps = f'{pct:+.2f}' if isinstance(pct, (int, float)) else '  -'
+        print(f'{code:<8}  {name:<14}  {ps:>7}')
+    print(f'共 {len(rows)} 个 (行业+概念去重)。K线/分时: webtool stock kline <名称或BK代码>')
+    return 0
+
 def _act_std(action_name):
     """编排动作的通用子命令包装
 

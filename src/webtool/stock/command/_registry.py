@@ -58,6 +58,7 @@ from webtool.stock.command._actions_misc import _act_http_post
 from webtool.stock.command._actions_misc import _act_http_rows
 from webtool.stock.command._actions import _act_kline
 from webtool.stock.command._actions import _act_intraday
+from webtool.stock.command._actions import _act_boards
 from webtool.stock.command._actions_misc import _act_mcp
 from webtool.stock.command._actions import _act_news
 from webtool.stock.command._actions import _act_pool
@@ -84,6 +85,7 @@ ACTIONS = {
     # 编排层动作升格 (原来只能 mcp --tool 透传)
     'kline': _act_kline,
     'intraday': _act_intraday,
+    'boards': _act_boards,
     'index': _act_std('stock_index'),
     'income': _act_std('stock_income_statement'),
     'balance': _act_std('stock_balance_sheet'),
@@ -145,6 +147,7 @@ USAGE = """用法: webtool stock <动作> [参数]
              K 线 (A股/港股/美股); --start/--end 指定区间;
              --chart 出图 (红涨绿跌+均线+量能), --png 转 PNG
   intraday <代码> [--days 1|5] [--no-auction] [--chart] [--chart-out 路径] [--png]
+  boards [关键词]        板块目录 (行业+概念, 代码/名称/涨跌%), 给 kline/intraday 挑名
              分时图; 默认含集合竞价(09:15-09:25), 左轴价格右轴涨幅
 
 透传动作 (按名调用 24 个动作)

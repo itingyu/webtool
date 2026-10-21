@@ -177,7 +177,7 @@ _BOARD_CACHE: dict = {'at': 0.0, 'items': ()}
 
 
 def _boards_cached(client) -> list:
-    """东财行业+概念板块目录 [(code, name)], 进程内缓存 1h"""
+    """东财行业+概念板块目录 [(code, name, pct)], 进程内缓存 1h"""
     now = time.monotonic()
     if _BOARD_CACHE['items'] and now - _BOARD_CACHE['at'] < 3600:
         return _BOARD_CACHE['items']
@@ -186,7 +186,8 @@ def _boards_cached(client) -> list:
         r = client.em_board_list(kind)
         for b in (r.get('data') or {}).get('boards') or []:
             if b.get('code') and b.get('name'):
-                items.append((str(b['code']).upper(), str(b['name'])))
+                items.append((str(b['code']).upper(), str(b['name']),
+                              b.get('pct')))
     if items:
         _BOARD_CACHE.update({'at': now, 'items': items})
     return items
@@ -208,13 +209,39 @@ def _resolve_board(symbol: str) -> dict | None:
     if not _boards_cached(client):
         return None
     norm = re.sub(r'(行业|指数|板块)$', '', s)
-    for code, name in _BOARD_CACHE['items']:
+    for code, name, _p in _BOARD_CACHE['items']:
         if name == s or name == norm:
             return _build_board(code, name)
-    for code, name in _BOARD_CACHE['items']:
+    for code, name, _p in _BOARD_CACHE['items']:
         if name.startswith(norm) or norm in name:
             return _build_board(code, name)
     return None
+
+
+def _board_or_hint(symbol: str) -> dict | None:
+    """板块解析; 中文名解析不到时**报相近候选**, 不丢给 normalize 出天书错
+
+    用户口中的板块名与东财目录对不上是常态 ('光模块' 目录里叫 '光通信模块')
+    —— 只回 'cannot normalize symbol' 等于让人自己翻接口。给出相似度 Top5
+    和查询命令, 一眼换正确名。
+    """
+    sym = _resolve_board(symbol)
+    if sym or not any('\u4e00' <= c <= '\u9fff' for c in symbol or ''):
+        return sym
+    client = get_client()
+    items = _boards_cached(client)
+    if not items:                       # 目录没拿到 (断网/接口挂): 沿用旧口径
+        return None
+    import difflib
+    norm = re.sub(r'(行业|指数|板块)$', '', symbol)
+    cand = sorted(
+        ((difflib.SequenceMatcher(None, norm, nm).ratio()
+          + (0.25 if norm and (norm in nm or nm in norm) else 0), cd, nm, pc)
+         for cd, nm, pc in items),
+        reverse=True)[:5]
+    top = '、'.join(f'{nm}({cd})' for _s, cd, nm, _p in cand)
+    raise ValueError(f'没有"{symbol}"这个板块; 相近: {top}\n'
+                     f'查全表: webtool stock boards <关键词>')
 
 
 def _build_index(exch: str, code: str) -> dict:
@@ -367,7 +394,7 @@ def t_stock_kline(args: dict) -> dict:
     """K 线 (period: day/week/month)"""
     period = args.get("period", "day")
     count = args.get("count", 60)
-    sym = _resolve_board(args['symbol'])
+    sym = _board_or_hint(args['symbol'])
     if sym:
         client = get_client()
         klt = {"day": 101, "week": 102, "month": 103}.get(period, 101)
@@ -608,7 +635,7 @@ def t_stock_intraday(args: dict) -> dict:
     没有 09:15-09:25 段 —— 所以主图走腾讯 (稳), 竞价单独向东财要一段再拼。
     东财不可达时不静默: `auction=False` + `auction_note` 明说, 图照出。
     """
-    sym = _resolve_board(args['symbol'])
+    sym = _board_or_hint(args['symbol'])
     if sym:
         client = get_client()
         # 板块的"竞价段"不存在撮合 (板块指数是合成价), 不向 iscr=1 要
