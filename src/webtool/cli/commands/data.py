@@ -368,6 +368,39 @@ def diff_cmd(left: str = typer.Argument(None,
     a.version = None
     return _run('data', _entry_fn('diff'), fmt, output, no_cache, no_proxy)
 
+@app.command('watch')
+def watch_cmd(target: list[str] = typer.Argument(None,
+                                                help='关键词 (默认) 或榜单源名 (--kind rank)'),
+              kind: str = typer.Option('search', '--kind',
+                                       help='search=关键词检索 / rank=热榜'),
+              num: int = typer.Option(20, '-n', '--num', help='每次取多少条'),
+              engine: str = typer.Option(None, '-e', '--engine', help='搜索引擎 (同 search -e)'),
+              preset: str = typer.Option(None, '--preset', help='引擎组合预设 (同 search)'),
+              since: str = typer.Option(None, '--since', help='只看这个时间之后 (同 search)'),
+              until: str = typer.Option(None, '--until', help='只看这个时间之前 (同 search)'),
+              name: str = typer.Option(None, '--name',
+                                       help='桶名 (默认按参数哈希; 换参数就是另一个桶)'),
+              list_: bool = typer.Option(False, '--list', help='列出已有桶与上次运行'),
+              reset: bool = typer.Option(False, '--reset', help='清空该桶的已见记录'),
+              max_seen: int = typer.Option(500, '--max-seen',
+                                           help='每桶最多记多少条已见 (默认 500)'),
+              fmt: str = Fmt, output: str = Output,
+              no_proxy: bool = NoProxy, no_cache: bool = NoCache):
+    """增量监控: 同一句检索反复跑, 只报"上次之后新出现的"
+
+    适合挂定时任务: `webtool watch "关键词"` 有新增时退出码 1, 拿来决定要不要
+    发通知。状态在 ~/.webtool/watch_state.json, 首次运行那批算基线。
+    """
+    a = _CTX['args']
+    a.target = ' '.join(target).strip() if target else ''
+    a.kind = (kind or 'search').strip().lower()
+    a.num = max(1, num)
+    a.engine, a.preset, a.since, a.until = engine, preset, since, until
+    a.name = name
+    a.list, a.reset = list_, reset
+    a.max_seen = max(50, max_seen)
+    return _run('data', _entry_fn('watch'), fmt, output, no_cache, no_proxy)
+
 @app.command('site')
 def site_cmd(site: str = typer.Argument(None, help='站点 key, `webtool site list` 查看全部'),
              query: str = typer.Argument(None, help='站内搜索词'),
