@@ -218,7 +218,8 @@ def xhs(q, limit=10, proxy=None, timeout=15):
     headers['Content-Type'] = 'application/json'
     r = transport.request('POST', XHS_BASE + XHS_SEARCH_URI, kind='api',
                           proxy=proxy, timeout=timeout, engine='xhs',
-                          headers=headers, json_body=payload)
+                          headers=headers, json_body=payload,
+                          profile='chrome136_linux')
     try:
         d = r.json() if hasattr(r, 'json') else json.loads(r.text)
     except ValueError:

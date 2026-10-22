@@ -52,11 +52,26 @@ class QRTimeout(QRError):
 
 def _session():
     from curl_cffi import requests as cr
-    s = cr.Session(impersonate='chrome')
+    # UA 平台 + TLS 模板要自洽 (早先 impersonate='chrome' 报成 macOS+150,
+    # 跟真实环境对不上); Linux 档案跟内置浏览器一致
+    s = cr.Session(impersonate='chrome136', headers=_LINUX_CHROME_136)
     return s
 
 
 # ---------------------------------------------------------------- xhs
+
+
+# 指纹要自洽: UA 说是 Linux/Chrome136, curl_cffi 的 impersonate 模板默认
+# 却发 sec-ch-ua-platform: "macOS" —— 两边打架一眼就被看出来。四件套一起
+# 覆盖 (UA / sec-ch-ua / sec-ch-ua-mobile / sec-ch-ua-platform)。
+_LINUX_CHROME_136 = {
+    'User-Agent': ('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+                   '(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'),
+    'sec-ch-ua': ('"Chromium";v="136", "Google Chrome";v="136", '
+                  '"Not_A Brand";v="24"'),
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Linux"',
+}
 
 
 def _xhs_client():
