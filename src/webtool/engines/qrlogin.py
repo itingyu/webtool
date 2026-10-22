@@ -22,6 +22,7 @@ cookie 从会话的 Set-Cookie 里收, 成功后交给 state.save_cookies。
 """
 from __future__ import annotations
 
+import sys
 import time
 
 QR_SITES = {
@@ -124,6 +125,8 @@ def _xhs_poll(session, state, timeout, interval):
     X = _xhs_client()
     ck = state['cookies']
     uri = '/api/sns/web/v1/login/qrcode/status'
+    # 参数名必须是 qr_id: 实测传 qrId 服务端直接 400
+    # ("param is required, but got none"), 前端那套 qrId 是它自己的字段名
     params = {'qr_id': state['qr_id'], 'code': state['code']}
     deadline = time.time() + timeout
     seen = None
@@ -137,15 +140,34 @@ def _xhs_poll(session, state, timeout, interval):
         except Exception as e:
             raise QRError(f'小红书状态查询失败: {e}') from e
         st = (d.get('data') or {}).get('code_status')
-        if st == 2:
-            return _cookies_of(session)
-        if st in (3, 4):
-            raise QRError('扫码已取消或二维码已过期, 重新生成一个')
         if st != seen:
             seen = st
+            print('扫码状态: ' + xhs_status_text(st), file=sys.stderr, flush=True)
+        if st == 2:
+            ck = _cookies_of(session)
+            if not any(c['name'] == 'web_session' for c in ck):
+                # 登录态 cookie 可能不随 status 响应下发, 前端是再打一次
+                # userinfo 换来的 —— 这里照做一遍兜底
+                try:
+                    _xhs_userinfo(session, ck)
+                except Exception:
+                    pass
+                ck = _cookies_of(session)
+            return ck
+        if st in (3, 4):
+            raise QRError('扫码已取消或二维码已过期, 重新生成一个')
         time.sleep(interval)
     raise QRTimeout(f'{timeout} 秒内没等到扫码确认',
                     '重新运行 webtool auth qr xhs 生成新二维码')
+
+
+def _xhs_userinfo(session, ck):
+    """扫码成功后补打一次 userinfo, 逼服务端把登录态 cookie 下发"""
+    uri = '/api/qrcode/userinfo'
+    X = _xhs_client()
+    hdr = X.sign_headers_get(uri, ck, params={}, sign_format='xyw')
+    hdr.update({'Referer': 'https://www.xiaohongshu.com/login'})
+    session.get('https://edith.xiaohongshu.com' + uri, headers=hdr, timeout=20)
 
 
 # ---------------------------------------------------------------- boss
@@ -177,30 +199,29 @@ def _boss_poll(session, state, timeout, interval):
            'Accept': 'application/json, text/plain, */*'}
     qr_id = state['qr_id']
     deadline = time.time() + timeout
+    seen = None
     while time.time() < deadline:
-        r = session.get('https://www.zhipin.com/wapi/zppassport/qrcode/scan',
+        # 判据在 scanLogin 上, 不在 scan 上: 实测 scan 恒回 scaned=true
+        # (跟有没有扫无关), 真正带 login 字段的是 scanLogin
+        r = session.get('https://www.zhipin.com/wapi/zppassport/qrcode/scanLogin',
                         params={'qrId': qr_id}, headers=hdr, timeout=25)
         try:
             d = r.json()
         except Exception as e:
             raise QRError(f'BOSS 状态查询失败: {e}') from e
-        # login=true 才是登录成功; scaned=true 只表示"已被扫到, 还在等 App 确认"
-        # (实测未扫码时也可能回 scaned=true, 所以不能拿它当成功信号)
+        # scanLogin 的 scaned/newScaned 实测恒为 true, 分不出"没扫"和"扫了
+        # 待确认", 所以只报能确定的那件事: 还没拿到 login
+        flag = '等待 App 扫码并确认'
+        if flag != seen:
+            seen = flag
+            print('扫码状态: ' + flag, file=sys.stderr, flush=True)
         if boss_login_done(d):
             break
         time.sleep(interval)
     else:
         raise QRTimeout(f'{timeout} 秒内没等到扫码确认',
                         '重新运行 webtool auth qr boss 生成新二维码')
-    # 已扫码: 先问 scanLogin 要不要确认, 再用 dispatcher 换会话 cookie
-    r = session.get('https://www.zhipin.com/wapi/zppassport/qrcode/scanLogin',
-                    params={'qrId': qr_id}, headers=hdr, timeout=25)
-    try:
-        d = r.json()
-    except Exception as e:
-        raise QRError(f'BOSS 扫码确认失败: {e}') from e
-    if not d.get('login') and not d.get('scaned'):
-        raise QRError(f'BOSS 扫码未完成登录: {d}')
+    # 登录确认过了, 用 dispatcher 换会话 cookie (前端就是这么走的)
     r = session.get('https://www.zhipin.com/wapi/zppassport/qrcode/dispatcher',
                     params={'qrId': qr_id, 'pk': state['pk']},
                     headers=hdr, timeout=25)
