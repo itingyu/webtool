@@ -151,7 +151,10 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
               via: str = typer.Option('local', '--via',
                                       help='取正文通道: local=本地提取链(默认, 免配额) / '
                                            'auto=本地失败时兜底远程 reader / '
-                                           'parallel|exa|firecrawl=直接走对应 MCP 的 web_fetch')):
+                                           'parallel|exa|firecrawl=直接走对应 MCP 的 web_fetch'),
+              pdf_pages: str = typer.Option(None, '--pdf-pages',
+                                            help='PDF 只抽这几页 (如 "1-5" / "1,3,5-7"); '
+                                                 '不给=全文。配合本地 PDF 文本抽取')):
     """抓取 URL 并提取正文"""
     a = _CTX['args']
     a.url, a.url_file = url, url_file
@@ -163,6 +166,7 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
     a.jobs = jobs
     a.via = via
     a.resume = resume
+    a.pdf_pages = pdf_pages
     return _run('data', _do('fetch'), fmt, output, no_cache, no_proxy)
 
 @app.command('zen')

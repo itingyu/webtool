@@ -209,6 +209,38 @@ def _file_result(url, r, kind, mime, status, via, t0):
     return out
 
 
+def _pdf_result(url, r, kind, mime, status, via, t0, args):
+    """PDF 下载结果 + 本地文本抽取
+
+    PDF 原来只能"下载不能读" —— 正文得靠 --via auto 走远程 reader (耗配额、
+    依赖对方在线)。论文/财报/白皮书是高频刚需, 本地能抽就不该逼用户花配额。
+
+    抽不出文字不算失败: 扫描件/加密/损坏的 PDF 照样给出下载结果, 只是正文
+    为空并说明原因 —— 不让一次 fetch 因为 PDF 抽不出文本就整体报错。
+    """
+    out = _file_result(url, r, kind, mime, status, via, t0)
+    if out.get('error') or not out.get('file'):
+        return out
+    from webtool.pipeline import pdftext
+    text, meta = pdftext.extract(out['file'],
+                                 pages=getattr(args, 'pdf_pages', None),
+                                 max_chars=getattr(args, 'max_chars', 0) or 0)
+    out['pdf'] = meta
+    if text:
+        out['content'] = text
+        out['chars'] = len(text)
+        out['extract'] = 'pdf-text'
+    else:
+        # 抽不出: 保留 raw-binary 语义, 但把原因说清楚 (扫描件 vs 缺依赖)
+        out['extract'] = 'raw-binary'
+        if meta.get('status') == 'unavailable':
+            out['hint'] = ('PDF 本地抽文本需要 pypdf: pip install pypdf '
+                           '(或用 --via auto 走远程 reader)')
+        elif meta.get('error'):
+            out['hint'] = f'PDF 未抽出文本: {meta["error"]}'
+    return out
+
+
 def _text_result(url, data, status, via, headers, kind, mime, args, t0):
     """文本类目标 (json/xml/纯文本): 原样给, 不提取
 
@@ -505,7 +537,7 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
     # 尾部的提取代数: 提取链换算法后要作废旧缓存, 否则公布出去的是上次的垃圾正文
     ckey = (f'{url}|{args.format}|{args.max_chars}|'
             f'{getattr(args, "via", "") or "local"}|{_EXTRACT_GEN}'
-            f'|{extract_mode}')
+            f'|{extract_mode}|{getattr(args, "pdf_pages", "") or ""}')
     cached = None if (args.no_cache or args.raw) else cache.get(cfg, 'fetch', ckey)
     if cached is not None:
         cached['cache'] = 'hit'
@@ -534,6 +566,8 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
             progress=getattr(args, 'progress', None),
             jobs=max(1, getattr(args, 'jobs', 1) or 1), t0=t0,
             opened=None if start else (resp, status, via, headers))
+        if kind == 'pdf' and not getattr(args, 'raw', False):
+            return _pdf_result(url, r, kind, mime, status, via, t0, args)
         return _file_result(url, r, kind, mime, status, via, t0)
     if start:
         # 之前给这个 URL 留过半截 .part, 但这次服务端说是网页/文本: Range 头会

@@ -48,7 +48,12 @@ dependencies = [
     "efinance>=0.5",
     "openpyxl>=3.1",
     # `stock data` / `stock eco` 的默认库 (体积最大的一件, 但也在全装之内)
-    "akshare>=1.12,<2",    # 终端图像渲染 (pic / banner --font big)。Pillow 只在函数内延迟 import,
+    "akshare>=1.12,<2",
+    # PDF 本地文本抽取 (pipeline/pdftext.py)。PDF 原来只能下载不能读 ——
+    # 正文得靠 --via auto 走远程 reader (耗配额、依赖对方在线)。论文/财报/
+    # 白皮书是高频刚需, 本地能抽就不该逼用户花配额。
+    "pypdf>=4.0",
+    # 终端图像渲染 (pic / banner --font big)。Pillow 只在函数内延迟 import,
     # 但 scripts/audit_deps.py 的规矩是延迟 import 也要声明。
     "pillow>=10",
 ]
