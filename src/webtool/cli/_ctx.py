@@ -182,6 +182,7 @@ def _entry_fn(name):
                'ask': ('cli.ask', 'do_ask'),
                'snapshot': ('cli.snapshot', 'do_snapshot'),
                'diff': ('cli.snapshot', 'do_diff'),
+               'compare': ('pipeline.compare', 'do_compare'),
                'watch': ('cli.watch', 'do_watch'),
                'crawl': ('cli.crawl', 'do_crawl'),
                'stock': ('stock.command', 'do_stock'),

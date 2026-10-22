@@ -375,6 +375,23 @@ def diff_cmd(left: str = typer.Argument(None,
     a.version = None
     return _run('data', _entry_fn('diff'), fmt, output, no_cache, no_proxy)
 
+
+@app.command('compare')
+def compare_cmd(urls: list[str] = typer.Argument(None,
+                                                 help='要对比的 URL (至少 2 个)'),
+                n: int = typer.Option(6, '-n', help='每个来源取几条要点'),
+                max_chars: int = typer.Option(0, '--max-chars',
+                                              help='抓取时正文截断字符数, 0=不截断'),
+                fmt: str = Fmt, output: str = Output,
+                no_proxy: bool = NoProxy, no_cache: bool = NoCache):
+    """多源并排对比: 几个 URL 各讲了什么, 哪些是共有的, 哪些是独有的"""
+    a = _CTX['args']
+    a.urls = list(urls or [])
+    a.n = max(1, n)
+    a.max_chars = max(0, max_chars)
+    a.timeout = None
+    return _run('data', _entry_fn('compare'), fmt, output, no_cache, no_proxy)
+
 @app.command('watch')
 def watch_cmd(target: list[str] = typer.Argument(None,
                                                 help='关键词 (默认) 或榜单源名 (--kind rank)'),
