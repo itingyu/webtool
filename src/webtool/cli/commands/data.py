@@ -140,6 +140,9 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
               raw: bool = typer.Option(False, '--raw', help='跳过正文提取, 输出原始 HTML'),
               with_metadata: bool = typer.Option(False, '--with-metadata',
                                                  help='json 格式附带标题/作者/日期'),
+              mark_untrusted: bool = typer.Option(False, '--mark-untrusted',
+                                                  help='把正文裹进 <<<BEGIN-UNTRUSTED … >>> 边界再输出 '
+                                                       '(喂给模型时区分"资料"与"指令")'),
               profile: str = typer.Option(None, '--profile',
                                           help='传输指纹档案: chrome131_win/mac/linux/android, '
                                                'safari18_4_ios 等 (移动站/拿不到数据时试 android/ios)'),
@@ -169,6 +172,7 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
     a.url, a.url_file = url, url_file
     a.proxy = proxy
     a.max_chars, a.raw, a.with_metadata, a.profile = max_chars, raw, with_metadata, profile
+    a.mark_untrusted = mark_untrusted
     a.extract = extract
     a.save = save
     a.progress = progress

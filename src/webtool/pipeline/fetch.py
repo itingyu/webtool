@@ -363,6 +363,18 @@ def do_fetch(args, cfg):
             if not r.get('error'):
                 cp.done(u)
 
+    # 抓回来的是第三方网页内容, 不是用户指令。给出去的时候必须标清楚:
+    # 下游(模型/Agent)拿这段文本当资料是安全的, 当成指令执行就是被注入。
+    # 标记只在**出口**加, 不进缓存 —— 缓存存原样, 本次是否包裹由命令行决定。
+    mark = bool(getattr(args, 'mark_untrusted', False))
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        if r.get('content') or r.get('html'):
+            r['trust'] = 'external_untrusted'
+        if mark and r.get('content'):
+            r['content'] = text.wrap_untrusted(r['content'], r.get('url'))
+
     if args.format == 'json' and not single:
         print(json.dumps(results, ensure_ascii=False, indent=1))
     else:
