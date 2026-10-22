@@ -43,6 +43,8 @@ DYN_IMPORT_FUNCS = {'_try_import'}
 OPTIONAL = {
     'imageio_ffmpeg': '没系统 ffmpeg 时的兜底 (pip 装上就被认出, 自带二进制)',
     'static_ffmpeg': '同上, 另带 ffprobe',
+    # render/png.py: 有 rsvg-convert 命令行兜底, 装上才用 (可选, 体积大)
+    'cairosvg': 'SVG→PNG 的可选实现, 没装时走系统 rsvg-convert',
 }
 
 

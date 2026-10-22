@@ -56,6 +56,9 @@ dependencies = [
     # 终端图像渲染 (pic / banner --font big)。Pillow 只在函数内延迟 import,
     # 但 scripts/audit_deps.py 的规矩是延迟 import 也要声明。
     "pillow>=10",
+    # 公众号正文抽取 (engines/wechat.py) 用 bs4 解析 HTML。同样是函数内
+    # 延迟 import, 但用过就得声明, 否则装最小依赖的用户一抓公众号就崩。
+    "beautifulsoup4>=4.12",
 ]
 
 [project.scripts]
