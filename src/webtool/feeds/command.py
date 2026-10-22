@@ -172,7 +172,7 @@ def do_feed(args, cfg):
             print('  webtool feed radar 36kr --pick 2           选定第 2 条 (或 --pick <模板子串>)')
             print('  webtool feed radar 36kr --pick 2 --param category=newsflashes   填参并直接拉数据')
             print('  webtool feed radar 36kr --pick 2 --example 用官方示例路径取数 (免填参)')
-            print('  webtool feed radar 36kr --pick 2 --top 2   用第 2 条真实样例取数 (免填参)')
+            print('  webtool feed radar 36kr --pick 2 --sample-row 2   用第 2 条真实样例取数 (免填参)')
             print('  webtool feed radar --from-url https://space.bilibili.com/946974  反推路由')
             print('  webtool feed radar 36kr --pick 2 --example --add r36kr   落地成订阅源')
             print('  webtool feed instances                      看公共实例今天哪些活着')

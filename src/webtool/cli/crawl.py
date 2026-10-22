@@ -58,7 +58,7 @@ def _keep(url, args, inc, exc, host, rules):
 def do_crawl(args, cfg):
     seed = (getattr(args, 'url', '') or '').strip()
     if not seed:
-        print('用法: webtool crawl <URL> [--depth 2] [--max 20]', file=sys.stderr)
+        print('用法: webtool crawl <URL> [--depth 2] [--max-pages 20]', file=sys.stderr)
         return 2
     if not seed.startswith(('http://', 'https://')):
         seed = 'https://' + seed

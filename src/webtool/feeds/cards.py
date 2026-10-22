@@ -16,7 +16,7 @@ from webtool.feeds.sources import load_user_feeds, save_user_feeds
 def print_route_cards(cards, kw, args, cfg):
     """渲染 feed radar 的路由卡片。
 
-    纯搜索 (无 --param/--example/--top/--pick/--add) 只列卡片并提示下一步;
+    纯搜索 (无 --param/--example/--sample-row/--pick/--add) 只列卡片并提示下一步;
     填参模式用 --pick 选定一条, 实参只灌进那一条, 输出订阅 URL 并直接拉数
     渲染。参数只作用于选中项, 不改写模板, 不影响其它候选路由。
     """
@@ -56,7 +56,7 @@ def print_route_cards(cards, kw, args, cfg):
             tail = f' --param {need[0]}=...' if need else ' (无需填参)'
             _out(f'  取数  --pick {i}{tail}')
         _out('\n-- --pick <序号|模板子串> 选定一条后填参取数;'
-              ' --example / --top N 可直接借现成路径')
+              ' --example / --sample-row N 可直接借现成路径')
         return
 
     # 填参: 选定一条
@@ -76,7 +76,7 @@ def print_route_cards(cards, kw, args, cfg):
     if top_idx is not None:
         tfs = c['top_feeds']
         if not (1 <= top_idx <= len(tfs)):
-            _out(f'\n⚠ --top {top_idx} 越界 (该路由只有 {len(tfs)} 条真实样例)',
+            _out(f'\n⚠ --sample-row {top_idx} 越界 (该路由只有 {len(tfs)} 条真实样例)',
                   file=sys.stderr)
             raise SystemExit(2)
         filled, src = tfs[top_idx - 1]['path'], f'topFeeds #{top_idx}'
@@ -90,7 +90,7 @@ def print_route_cards(cards, kw, args, cfg):
             miss = ' '.join(nm for nm, _ in e.missing)
             _out(f'\n⚠ 还缺必填参数: {miss}', file=sys.stderr)
             _out(f'  补上: --param {miss.split()[0]}=... '
-                  f'  或借现成路径: --example / --top N', file=sys.stderr)
+                  f'  或借现成路径: --example / --sample-row N', file=sys.stderr)
             return 2
 
     url = base + '/' + filled.lstrip('/')   # topFeeds 的 url 不保证带前导 /

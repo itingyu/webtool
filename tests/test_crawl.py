@@ -86,7 +86,7 @@ check(pages == ['https://s.test/'], 'depth=0 只抓种子')
 
 rc, out = _run(depth=2, max=2)
 pages = [u for u in _fetched if not u.endswith('robots.txt')]
-check(len(pages) == 2, '--max 限制页数')
+check(len(pages) == 2, '--max-pages 限制页数')
 
 rc, out = _run(depth=2, include=r'/a$|/c$')
 pages = [u for u in _fetched if not u.endswith('robots.txt')]
