@@ -49,7 +49,9 @@ def _main(ctx: typer.Context,
         from webtool.net import tls as _tls
         _tls.broadcast_env()   # 信任根也广播给第三方库 (akshare/trafilatura/requests)
         from webtool.net import adapters as _ad
-        _ad.patch_requests()   # 第三方库自建的 requests 会话也回到统一通道
+        # 第三方库自建的 requests 会话也回到统一通道。补丁挂在"首次 import
+        # requests"上: 纯本地命令 (calendar/config get) 不再白付 requests 的导入
+        _ad.install_patch_hook()
     _CTX.clear()
     _CTX.update(proxy=proxy, no_cache=no_cache, args=SimpleNamespace())
 

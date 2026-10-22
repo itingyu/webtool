@@ -211,3 +211,72 @@ def _as_requests_response(r, request):
     if 'charset=' in ct:
         resp.encoding = ct.split('charset=')[-1].split(';')[0].strip()
     return resp
+
+
+# ── 延迟补丁: 谁先用 requests, 谁触发 ────────────────────────────────────
+# patch_requests() 本身要 import requests (~0.5s: requests + urllib3 + 编解码)。
+# 以前每条命令启动都先付这笔钱, 连 `stock calendar` / `config get` 这种纯本地
+# 动作也一样。改成挂在 requests 的首次导入上: 补丁仍然**早于任何 Session 创建**
+# (第三方库 import requests 之后才会建 Session), 但不用它的命令一分不付。
+_HOOK = None
+
+
+class _PatchOnRequestsImport:
+    """找到 `requests` 的 spec, 在它的 exec_module 之后立刻打补丁"""
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname != 'requests':
+            return None
+        spec = None
+        for finder in list(_sys().meta_path):
+            if finder is self:
+                continue
+            find_spec = getattr(finder, 'find_spec', None)
+            if find_spec is None:
+                continue
+            try:
+                spec = find_spec(fullname, path, target)
+            except Exception:                 # noqa: BLE001
+                spec = None
+            if spec is not None:
+                break
+        if spec is None or spec.loader is None:
+            return None
+        _orig_exec = spec.loader.exec_module
+        _finder = self
+
+        def _exec(module):
+            _orig_exec(module)
+            try:
+                patch_requests()
+            except Exception:                 # noqa: BLE001
+                pass
+            finally:
+                try:
+                    _sys().meta_path.remove(_finder)
+                except ValueError:
+                    pass
+
+        spec.loader.exec_module = _exec
+        return spec
+
+
+def _sys():
+    import sys
+    return sys
+
+
+def install_patch_hook():
+    """装上"首次 import requests 时打补丁"的钩子 (幂等)"""
+    import os
+    import sys
+    if os.environ.get('WEBTOOL_NO_PATCH_REQUESTS'):
+        return False
+    if 'requests' in sys.modules:             # 已经被谁抢先导入了: 立刻补
+        return patch_requests()
+    global _HOOK
+    if _HOOK is not None and _HOOK in sys.meta_path:
+        return False
+    _HOOK = _PatchOnRequestsImport()
+    sys.meta_path.insert(0, _HOOK)
+    return True

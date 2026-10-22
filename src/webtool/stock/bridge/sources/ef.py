@@ -5,12 +5,23 @@
 
 """
 from webtool.stock.bridge.sources._base import _err, _ok, SourceBase
-try:
-    import efinance as ef
-    HAS_EFINANCE = True
-except ImportError:
-    ef = None
-    HAS_EFINANCE = False
+
+# efinance 顶层 import 会把 pandas/numpy 一起拉起来 (~2.5s)。只有真调 ef_*
+# 这 3 个方法时才需要它 —— 别的源、甚至同包其他类都不该替它付这笔钱。
+_ef_mod = None
+_HAS_EF = None
+
+
+def _ef():
+    """(efinance 模块 | None)。首次调用才探测, 结果缓存"""
+    global _ef_mod, _HAS_EF
+    if _HAS_EF is None:
+        try:
+            import efinance as _m
+            _ef_mod, _HAS_EF = _m, True
+        except ImportError:
+            _ef_mod, _HAS_EF = None, False
+    return _ef_mod
 
 
 
@@ -18,7 +29,7 @@ class EfSource(SourceBase):
     """efinance 方法集 —— 由 sources/__init__.py 的 APIClient 混入"""
 
     def _ef_check(self):
-        if not HAS_EFINANCE:
+        if _ef() is None:
             from webtool.core import deps
             return _err('efinance 不可用: ' + deps.install_hint('efinance'))
         return None
@@ -28,7 +39,7 @@ class EfSource(SourceBase):
         err = self._ef_check()
         if err: return err
         try:
-            s = ef.stock.get_quote_snapshot(code)
+            s = _ef().stock.get_quote_snapshot(code)
             if s is None:
                 return _err("返回 None")
             d = dict(s)
@@ -43,7 +54,7 @@ class EfSource(SourceBase):
         err = self._ef_check()
         if err: return err
         try:
-            df = ef.stock.get_quote_history(code)
+            df = _ef().stock.get_quote_history(code)
             return _ok(df.to_dict(orient="records"), len(df))
         except Exception as e:
             return _err(str(e))
@@ -53,7 +64,7 @@ class EfSource(SourceBase):
         err = self._ef_check()
         if err: return err
         try:
-            s = ef.stock.get_base_info(code)
+            s = _ef().stock.get_base_info(code)
             if s is None:
                 return _err("返回 None")
             d = dict(s)
