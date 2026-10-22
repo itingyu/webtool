@@ -2,7 +2,8 @@
 
 设计原则:
 1. 每个站点一个适配器, 统一输出 {title,url,snippet,score,site} 结构
-2. 只收录有稳定公开 JSON/XML 接口的站点; 纯 HTML 爬站的不进
+2. 优先收录有稳定公开 JSON/XML 接口的站点; 服务端渲染的 HTML 站可以收,
+   但解析规则必须有离线 fixture 测试兜底 (改版时测试先红, 不静默失效)
 3. 与 search 子命令分开: webtool site <site> <query>
 4. 失败信息带 hint, 代理策略继承全局配置
 5. 请求头走 transport 统一指纹: 浏览器站点用 XHR 指纹, 开放 API 用 API
@@ -271,6 +272,43 @@ def npm(q, limit=10, proxy=None, timeout=15):
                               'publisher': (p.get('publisher') or {}).get('username'),
                               'date': (p.get('date') or '')[:10]}))
     return out
+
+
+_SF_ITEM = re.compile(
+    r'<li class="py-3 list-group-item list-group-item-action">\s*'
+    r'<a href="(/(?:a|q)/\d+)"[^>]*>\s*<h5[^>]*>(.*?)</h5>\s*</a>'
+    r'(.*?)</li>', re.S)
+_SF_BODY = re.compile(r'class="text-secondary[^"]*"[^>]*>(.*?)</div>', re.S)
+_SF_CMT = re.compile(r'<!--.*?-->', re.S)
+
+
+def _parse_segmentfault(html, limit=10):
+    """从搜索页抽条目 (纯函数: 用离线 fixture 测, 不联网)
+
+    页面混排文章 (/a/ID) 与问答 (/q/ID), 两者都收; 标题里夹着 React 的
+    注释节点 (<!-- -->), 先剥掉再进 text.plain, 否则会留下空 comment。
+    """
+    out = []
+    for href, title, rest in _SF_ITEM.findall(html or ''):
+        m = _SF_BODY.search(rest)
+        out.append(_mk(_SF_CMT.sub('', title),
+                       'https://segmentfault.com' + href,
+                       m.group(1) if m else ''))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def segmentfault(q, limit=10, proxy=None, timeout=15):
+    """SegmentFault 技术问答/文章
+
+    没有公开 JSON 接口 (gateway 要页面 token, 直接调返回"非法请求"),
+    只能取服务端渲染的搜索页 —— 解析规则有离线 fixture 兜底, 改版会先
+    在 tests/test_sites_html.py 里挂掉。
+    """
+    url = f'https://segmentfault.com/search?q={urllib.parse.quote(q)}'
+    txt, _st, _via = _fetch(url, proxy, timeout, _headers(url, 'nav'))
+    return _parse_segmentfault(txt, limit)
 
 
 def _fetch(url, proxy, timeout, headers, profile=None, engine=None):

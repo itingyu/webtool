@@ -76,11 +76,15 @@ def _render_search(out, fmt):
             if eng: flags.append(eng)
             if r.get('weight') is not None: flags.append(f"w={r['weight']:.2f}")
             if r.get('is_ad'): flags.append('AD')
+            if r.get('fallback'): flags.append('fallback')
             if flags: line += f"  ({';'.join(flags)})"
             print(line)
             print(f"    {r['url']}")
             if r.get('snippet'):
                 print(f"    {r['snippet'][:150]}")
+        if out.get('degraded'):
+            for d in out['degraded']:
+                print('note: ' + d, file=sys.stderr)
         if out.get('errors'):
             print('errors: ' + json.dumps(out['errors'], ensure_ascii=False), file=sys.stderr)
 

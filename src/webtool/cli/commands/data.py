@@ -108,7 +108,10 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
                                          help='只要这个时间之前的 (只认 YYYY-MM-DD)'),
                date_strict: bool = typer.Option(False, '--date-strict',
                                                 help='认不出日期的结果也剔掉 (默认保留, '
-                                                     '免得清空结果)')):
+                                                     '免得清空结果)'),
+               no_fallback: bool = typer.Option(False, '--no-fallback',
+                                                help='关闭免 key 引擎降级: 主引擎结果不足时'
+                                                     '不再补跑 marginalia/exa/firecrawl/parallel')):
     """多引擎网页搜索"""
     a = _CTX['args']
     a.update = None
@@ -118,6 +121,7 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
     a.operators, a.blocklist = operators, blocklist
     a.jobs = jobs
     a.since, a.until, a.date_strict = since, until, date_strict
+    a.no_fallback = no_fallback
     a.no_ad = True
 
     def fn(args, cfg):

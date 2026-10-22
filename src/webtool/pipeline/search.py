@@ -9,6 +9,7 @@ from webtool.core import config_data
 from webtool.core.resilient import thread_pool
 from webtool.core.plugins import table as _plugin_table
 from webtool.filters.blocklist import filter_blocklist, is_blocked
+from webtool.pipeline.fallback import needed as _fb_needed
 
 logger = logging.getLogger(__name__)
 
@@ -307,6 +308,50 @@ def _do_search(args, cfg, filter_ad=True):
                 from webtool.filters.datefilter import filter_by_date as _fbd
                 results = _fbd(results, {'args': args, 'cfg': cfg})
 
+    # 免 key 降级: 主引擎被拦/超时/空结果时, 按 fallback_rank 补跑免 key 引擎。
+    # 触发条件保守 (见 fallback.needed: 少于 min(n,3) 条), 正常搜索不多付请求。
+    # 降级来的条目统一打 fallback=True, 消费方能看出"这条不是主引擎给的"。
+    fallback_used = []
+    if not getattr(args, 'no_fallback', False) and _fb_needed(len(results), _want):
+        from webtool.pipeline import fallback as _fb
+        cand = _fb.select(_engines(), engines, 3)
+        if cand:
+            _fbq, _ = _apply_ops(args.query, cand,
+                                 getattr(args, 'operators', 'passthrough'))
+            qmap.update({k: v for k, v in (_fbq or {}).items() if v})
+            logger.debug('search | 降级链触发 结果=%d/%d 候选=%s',
+                         len(results), _want, ','.join(cand))
+            for eng in cand:
+                if len(results) >= _want:
+                    break
+                try:
+                    rs, status, n_ad = fetch(eng)
+                except Exception as e:
+                    err_of[eng] = str(e)[:200]
+                    errors.append({'engine': eng, 'error': err_of[eng],
+                                   'fallback': True})
+                    logger.debug('search | 降级引擎 %s 失败: %s', eng, err_of[eng])
+                    continue
+                per_engine[eng] = status
+                ad_filtered += n_ad
+                _resolve_sogou_links(rs, cfg, proxy)
+                seen = {r.get('url') for r in results}
+                add = [dict(r, engine=eng, fallback=True) for r in rs
+                       if r.get('url') not in seen
+                       and (_off or not is_blocked(r.get('url'),
+                                                    extra_block=_blk,
+                                                    extra_allow=_alw))]
+                if add:
+                    results.extend(add)
+                    fallback_used.append({'engine': eng, 'added': len(add)})
+            if fallback_used:
+                results = _merge(results, args.query, use_semantic=True,
+                                 dedupe=True, apply_blocklist=False,
+                                 stats=stats, max_n=getattr(args, 'max', None))
+                if getattr(args, 'since', None) or getattr(args, 'until', None):
+                    from webtool.filters.datefilter import filter_by_date as _fbd
+                    results = _fbd(results, {'args': args, 'cfg': cfg})
+
     n_blocked = stats.get('blocked', 0)
     n_floor = stats.get('floor_dropped', 0)
     # 输出侧全景: 进来多少条、被去重/黑名单/权重地板各砍掉多少 ——
@@ -341,6 +386,9 @@ def _do_search(args, cfg, filter_ad=True):
         out['topup'] = {'fetched': topup_fetched,
                         'note': '翻页补拉(最多2页/引擎)'}
         out['requested'] = _want
+    if fallback_used:
+        out['fallback'] = fallback_used
+        out['requested'] = _want
 
     # 引擎通道自报 + 结果证据: 降级是静默的 (429 被引擎内部 catch 换通道,
     # 不进 errors), 消费方无法从结果反推"这批是全 Web 搜索还是新闻检索"。
@@ -367,6 +415,10 @@ def _do_search(args, cfg, filter_ad=True):
                     for e, c in ch.items() if c == 'news']
         if degraded:
             out['degraded'] = degraded
+    if fallback_used:
+        out.setdefault('degraded', []).append(
+            '主引擎结果不足, 已用免 key 引擎兜底: '
+            + ', '.join(f"{f['engine']}(+{f['added']})" for f in fallback_used))
     from webtool.pipeline.query_ops import describe as _describe_ops, parse as _parse_ops
     if _parse_ops(args.query).has_operators:
         out['query_operators'] = {'used': _describe_ops(args.query),

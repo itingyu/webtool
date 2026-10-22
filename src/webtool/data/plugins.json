@@ -285,7 +285,9 @@
    "desc": "Marginalia 独立索引, 小站/老网页长尾, 免key直连, sst挑战自动解",
    "params": {
     "ops": [],
-    "enabled_by_default": false
+    "enabled_by_default": false,
+    "keyless": true,
+    "fallback_rank": 1
    }
   },
   "exa": {
@@ -293,7 +295,9 @@
    "desc": "Exa 语义搜索(MCP), 免key直连, 英文/技术长尾强; 配额按出口IP计",
    "params": {
     "ops": [],
-    "enabled_by_default": false
+    "enabled_by_default": false,
+    "keyless": true,
+    "fallback_rank": 2
    }
   },
   "parallel": {
@@ -301,7 +305,9 @@
    "desc": "Parallel 语义搜索(MCP), 匿名免key, 每月$5额度; 返回JSON含publish_date",
    "params": {
     "ops": [],
-    "enabled_by_default": false
+    "enabled_by_default": false,
+    "keyless": true,
+    "fallback_rank": 4
    }
   },
   "firecrawl": {
@@ -309,7 +315,9 @@
    "desc": "Firecrawl 搜索(MCP), keyless可用, 免费层500次/月; scrape可过JS渲染",
    "params": {
     "ops": [],
-    "enabled_by_default": false
+    "enabled_by_default": false,
+    "keyless": true,
+    "fallback_rank": 3
    }
   }
  },
@@ -394,6 +402,10 @@
   "ithome_so": {
    "module": "webtool.engines.moresites2:ithome_so",
    "desc": "IT之家资讯搜索 (列表分页后本地筛标题; 官方搜索需登录)"
+  },
+  "segmentfault": {
+   "module": "webtool.engines.sites:segmentfault",
+   "desc": "SegmentFault 技术问答/文章 (服务端渲染页, 无公开 API)"
   }
  },
  "presets": {
