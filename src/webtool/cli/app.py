@@ -21,31 +21,13 @@ except ImportError:                        # typer <= 0.25: 异常来自顶层 c
 from webtool.core.errors import WebtoolError as _WebtoolError
 
 from types import SimpleNamespace  # noqa: E402
-from webtool.cli._ctx import _CTX, _argv_format  # noqa: E402
+from webtool.cli._ctx import _CTX  # noqa: E402
+from webtool.cli import fastpath as _fp  # noqa: E402
 
-_HELP = '''Agent 友好的网页搜索与内容获取工具
 
-最常用 (按想做的事找):
-  搜东西    search <词>           多引擎, 主引擎不足自动降级兜底
-  读网页    fetch <url>           正文提取 / PDF 抽取 / --structured 结构化
-  搜某站    site <站点> <词>      20 个站点, 站点名见 site list
-  比口径    compare <url> <url>   多源并排: 哪些共有、哪些各有侧重
-  看热榜    rank <源>...          26 个榜单源, 不带参数=列全部源
-  问问题    ask <问题>            先检索再答, 每条结论带来源
-  看股票    stock <子命令>        行情/涨停/资金/新闻/财报/K线/选股
-
-全部命令分组:
-  搜索  search  fetch  site  crawl  ask
-  对比  snapshot  diff  compare
-  监控  watch  feed
-  榜单  rank
-  金融  stock  pydata
-  基建  proxy  pkg  mcp  plugins  cache  config  engines  blocklist
-  展示  pic  banner  video  music
-  其他  zen  upgrade  uninstall  intercept-log
-
-每个命令:  webtool <命令> -h
-'''
+# 这次只是看帮助: 不装 requests 补丁、不广播证书变量 —— 帮助不联网,
+# 而 patch_requests() 会拖进 requests/urllib3 等 ~180 个模块 (约 0.4s)
+_HELP_ONLY = False
 
 app = typer.Typer(add_completion=False, no_args_is_help=True,
                   rich_markup_mode=None,   # 关掉 rich 帮助面板 (不要大框框住)
@@ -63,10 +45,11 @@ def _main(ctx: typer.Context,
     # --version / -V 不在 click 层, 由 main() 预扫 (子命令后面也能用), 见 main
     from webtool.core import logging as _log
     _log.setup(debug + _log.env_debug(), log_file=log_file)
-    from webtool.net import tls as _tls
-    _tls.broadcast_env()       # 信任根也广播给第三方库 (akshare/trafilatura/requests)
-    from webtool.net import adapters as _ad
-    _ad.patch_requests()       # 第三方库自建的 requests 会话也回到统一通道
+    if not _HELP_ONLY:
+        from webtool.net import tls as _tls
+        _tls.broadcast_env()   # 信任根也广播给第三方库 (akshare/trafilatura/requests)
+        from webtool.net import adapters as _ad
+        _ad.patch_requests()   # 第三方库自建的 requests 会话也回到统一通道
     _CTX.clear()
     _CTX.update(proxy=proxy, no_cache=no_cache, args=SimpleNamespace())
 
@@ -77,6 +60,8 @@ def main(argv=None):
     这里统一转成 stderr 提示 + rc 2。
     """
     argv = list(sys.argv[1:] if argv is None else argv)
+    global _HELP_ONLY
+    _HELP_ONLY = any(a in ('-h', '--help') for a in argv)
     # 优雅关闭: 首次 Ctrl-C 抛 KeyboardInterrupt 走正常收尾, 再按一次强制 exit
     # (真卡在 C 调用/线程 join 里时, 这是唯一能停下来的路)。见 core/shutdown。
     from webtool.core import shutdown as _shutdown
@@ -84,20 +69,14 @@ def main(argv=None):
     # -v/-V/--version 在 click 解析前先扫: 放在子命令后面 (webtool zen --version)
     # click 会当作未知选项报错, 而用户想看的只是版本号。
     # pkg 透传除外 —— 它后面的 -v/--version 是子命令的参数, 不能截
-    if (argv and argv[0] != 'pkg'
-            and ('--version' in argv or '-v' in argv or '-V' in argv)):
-        from webtool.core import version as _v
-        if _argv_format(argv) == 'json':
-            import json
-            print(json.dumps(_v.info(), ensure_ascii=False, indent=2))
-        else:
-            print('webtool %s' % _v.get_version())
-        return 0
+    if _fp.wants_version(argv):
+        return _fp.print_version(argv)
     # 顶层帮助: typer 的 rich 渲染会把多行帮助折成一段 (且不认 \b),
     # 直接打自己的速查表, 别让用户看到一坨。
-    if not argv or argv[0] in ('-h', '--help'):
-        print(_HELP)
+    if _fp.wants_help(argv):
+        print(_fp.HELP)
         return 0
+    _load_commands(argv[0] if argv else None)
     try:
         # 首次启动补齐缺失的用户配置文件 (主要是 rules.json) —— 装完就有一份
         # 可编辑的默认路由规则, 不用自己去 ~/.webtool 里造。
@@ -142,15 +121,48 @@ def main(argv=None):
         return 1
 
 
-from webtool.cli.commands import banner as _banner_cmd   # noqa: F401,E402
-from webtool.cli.commands import data as _data_cmds       # noqa: F401,E402
-from webtool.cli.commands import intercept as _ic_cmds    # noqa: F401,E402
-from webtool.cli.commands import maintenance as _mnt_cmds  # noqa: F401,E402
-from webtool.cli.commands import media as _media_cmd    # noqa: F401,E402
-from webtool.cli.commands import pic as _pic_cmd         # noqa: F401,E402
-from webtool.cli.commands import stock as _stock_cmd  # noqa: F401,E402
-from webtool.cli.commands import zenapp as _zen_cmd  # noqa: F401,E402
-from webtool.cli.commands import feedapp as _feed_cmd  # noqa: F401,E402
+_COMMANDS_LOADED = set()
+
+# 顶层命令 → 定义它的模块。只为"这次真的要跑/要看帮助的那一个"付 import 钱:
+# 全量导入约 200ms, 而 `stock -h` 用不上 data/media 那些。
+_CMD_MODULE = {
+    'search': 'data', 'fetch': 'data', 'ask': 'data', 'snapshot': 'data',
+    'diff': 'data', 'compare': 'data', 'watch': 'data', 'crawl': 'data',
+    'site': 'data', 'rank': 'data', 'pydata': 'data',
+    'feed': 'feedapp',
+    'stock': 'stock',
+    'zen': 'zenapp',
+    'banner': 'banner', 'pic': 'pic',
+    'video': 'media', 'music': 'media',
+    'intercept-log': 'intercept',
+    'proxy': 'maintenance', 'pkg': 'maintenance', 'engines': 'maintenance',
+    'mcp': 'maintenance', 'cache': 'maintenance', 'blocklist': 'maintenance',
+    'uninstall': 'maintenance', 'upgrade': 'maintenance', 'update': 'maintenance',
+    'config': 'maintenance', 'plugins': 'maintenance',
+}
+
+
+def _load_module(name):
+    if name in _COMMANDS_LOADED:
+        return
+    _COMMANDS_LOADED.add(name)
+    import importlib
+    importlib.import_module('webtool.cli.commands.' + name)
+
+
+def _load_commands(wanted=None):
+    """注册命令模块 (靠模块里 `from ... import app` 的副作用)
+
+    必须惰性: 顶层 `-h`/`--version` 在 main() 里就返回了, 命令模块一个都用不上。
+    wanted=本次的顶层命令名: 只加载它那一个模块; 认不出 (或没给) 就全量加载。
+    """
+    mod = _CMD_MODULE.get(wanted) if wanted else None
+    if mod:
+        _load_module(mod)
+        return
+    for name in ('banner', 'data', 'feedapp', 'intercept', 'maintenance',
+                 'media', 'pic', 'stock', 'zenapp'):
+        _load_module(name)
 
 
 if __name__ == '__main__':

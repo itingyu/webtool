@@ -23,10 +23,27 @@ _KEY_DEPS = ('trafilatura', 'curl_cffi', 'typer', 'pysocks', 'certifi',
 def _read_pyproject_version():
     """从 pyproject.toml 读版本 (唯一真源)
 
-    tomllib 是 py3.11+ 标准库; 3.9/3.10 上**不去装 tomli** —— 为一个版本号
-    多背一个依赖不值, 那两条路上直接用已安装包的元数据 (见 _installed_version),
-    跑源码的开发者本来就 ≥3.11 居多。
+    先按行扫 `[project]` 段: 只为一个版本号把 tomllib 拉进来要 ~85ms, 而这条
+    路径在 `webtool --version` / 报障输出上每次都要走。扫不到 (非标准写法/没有
+    pyproject) 才回落到 tomllib, 结果仍是同一份文件说了算。
     """
+    try:
+        with open(_PYPROJECT, encoding='utf-8') as f:
+            in_project = False
+            for line in f:
+                s = line.strip()
+                if s.startswith('['):
+                    in_project = s == '[project]'
+                    continue
+                if not in_project or '=' not in s:
+                    continue
+                key, _, val = s.partition('=')
+                if key.strip() == 'version':
+                    val = val.split('#', 1)[0].strip().strip('"\'')
+                    if val:
+                        return val
+    except OSError:
+        return None
     try:
         import tomllib
     except ModuleNotFoundError:                 # py3.9/3.10

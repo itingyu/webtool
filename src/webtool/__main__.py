@@ -1,7 +1,7 @@
-"""`python -m webtool` 入口: 走包内那一份 app, 避免 __main__ 双导入"""
+"""`python -m webtool` 入口: 与 console script 走同一条快速路径"""
 import sys
 
-from webtool.cli.app import main
+from webtool.cli.fastpath import main
 
 if __name__ == "__main__":
     sys.exit(main())
