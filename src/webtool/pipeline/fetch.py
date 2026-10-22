@@ -543,13 +543,35 @@ def _verify_bypass(url, html, status, via, *, proxy=None, timeout=None, profile=
     return text, status2, f'{via2}+bypass', True
 
 
+def _attach_struct(out, html, url, args):
+    """按 --structured / --fields 把 JSON-LD 等结构化字段挂到结果上
+
+    必须在 `cache.put` 之前调用: 缓存键带了这两个标记, 命中缓存却缺字段
+    会静默返回不完整结果。
+    """
+    want = getattr(args, 'structured', False)
+    names = getattr(args, 'fields', None)
+    if not (want or names) or not html:
+        return out
+    from webtool.core import structured as _st
+    got = _st.parse(html)
+    out['structured'] = got
+    if names:
+        wanted = [n.strip() for n in names.split(',') if n.strip()]
+        out['fields'] = _st.pick(got, wanted)
+        out['fields_missing'] = [n for n in wanted if n not in out['fields']]
+    return out
+
+
 def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
     t0 = time.time()
     # via 进 key: 同一 URL 走本地链与走远程 reader 是两种产出, 共用缓存会串
     # 尾部的提取代数: 提取链换算法后要作废旧缓存, 否则公布出去的是上次的垃圾正文
     ckey = (f'{url}|{args.format}|{args.max_chars}|'
             f'{getattr(args, "via", "") or "local"}|{_EXTRACT_GEN}'
-            f'|{extract_mode}|{getattr(args, "pdf_pages", "") or ""}')
+            f'|{extract_mode}|{getattr(args, "pdf_pages", "") or ""}'
+            f'|{"s" if getattr(args, "structured", False) else ""}'
+            f'|{getattr(args, "fields", "") or ""}')
     cached = None if (args.no_cache or args.raw) else cache.get(cfg, 'fetch', ckey)
     if cached is not None:
         cached['cache'] = 'hit'
@@ -623,8 +645,9 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
         logger.debug('fetch | 抓取路径异常, 沿用已有内容 url=%s via=%s html=%d: %s',
                      url, via, len(html or ''), e, exc_info=True)
     if args.raw:
-        return {'url': url, 'status': status, 'html': html, 'via': via,
-                'took_ms': int((time.time() - t0) * 1000)}
+        out = {'url': url, 'status': status, 'html': html, 'via': via,
+               'took_ms': int((time.time() - t0) * 1000)}
+        return _attach_struct(out, html, url, args)
     content, meta = _extract(html, url, extract_mode)
     js_shell = meta.pop('_js_shell', None)
     extract_via = meta.pop('_via', '')
@@ -654,6 +677,7 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
                 out['spa_note'] = note
             if args.with_metadata and args.format == 'json':
                 out['metadata'] = meta
+            _attach_struct(out, html, url, args)
             cache.put(cfg, 'fetch', ckey, out)
             out['cache'] = 'miss'
             return out
@@ -681,6 +705,7 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
            **({'file': saved} if saved else {})}
     if args.with_metadata and args.format == 'json':
         out['metadata'] = meta
+    _attach_struct(out, html, url, args)
     if out['content']:
         cache.put(cfg, 'fetch', ckey, out)
     else:
@@ -760,6 +785,26 @@ def _warn_missing(missing):
               file=sys.stderr)
 
 
+def _print_struct(r):
+    """text/markdown 下把结构化字段打成正文本块 (全量 JSON-LD 太吵, 只给摘要)"""
+    got = r.get('structured') or {}
+    lines = []
+    fields = r.get('fields') or got.get('fields') or {}
+    for k, v in fields.items():
+        lines.append('  %s: %s' % (k, v))
+    for k in r.get('fields_missing') or []:
+        lines.append('  %s: (未找到)' % k)
+    if not lines:
+        return
+    head = '结构化字段'
+    types = got.get('types') or []
+    if types:
+        head += ' (%s)' % ', '.join(types[:4])
+    print(head)
+    print('\n'.join(lines))
+    print('')
+
+
 def _emit(r, args, single):
     if 'error' in r:
         print(json.dumps(r, ensure_ascii=False), file=sys.stderr)
@@ -781,6 +826,8 @@ def _emit(r, args, single):
         print(line, file=sys.stderr)
         return
     # --raw 的产出放在 'html' 而不是 'content' —— 各格式分支都得认它
+    if r.get('fields') or getattr(args, 'structured', False):
+        _print_struct(r)
     if r.get('file'):
         print(f'已存: {r["file"]}', file=sys.stderr)
     body = r['html'] if 'html' in r else r.get('content', '')

@@ -143,6 +143,11 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
               mark_untrusted: bool = typer.Option(False, '--mark-untrusted',
                                                   help='把正文裹进 <<<BEGIN-UNTRUSTED … >>> 边界再输出 '
                                                        '(喂给模型时区分"资料"与"指令")'),
+              structured: bool = typer.Option(False, '--structured',
+                                              help='顺带抽 JSON-LD/OpenGraph 结构化字段 (商品价格/评分/发布时间等)'),
+              fields: str = typer.Option(None, '--fields',
+                                         help='只要这些结构化字段, 逗号分隔 (如 name,price,availability); '
+                                              '隐含 --structured, 支持 offers.price 这类路径'),
               profile: str = typer.Option(None, '--profile',
                                           help='传输指纹档案: chrome131_win/mac/linux/android, '
                                                'safari18_4_ios 等 (移动站/拿不到数据时试 android/ios)'),
@@ -173,6 +178,7 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
     a.proxy = proxy
     a.max_chars, a.raw, a.with_metadata, a.profile = max_chars, raw, with_metadata, profile
     a.mark_untrusted = mark_untrusted
+    a.structured, a.fields = structured, fields
     a.extract = extract
     a.save = save
     a.progress = progress
