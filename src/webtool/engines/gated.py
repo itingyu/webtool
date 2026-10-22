@@ -219,12 +219,14 @@ def xhs(q, limit=10, proxy=None, timeout=15):
     r = transport.request('POST', XHS_BASE + XHS_SEARCH_URI, kind='api',
                           proxy=proxy, timeout=timeout, engine='xhs',
                           headers=headers, json_body=payload)
-    if r.status_code != 200:
-        raise RuntimeError(f'HTTP {r.status_code}')
     try:
         d = r.json() if hasattr(r, 'json') else json.loads(r.text)
     except ValueError:
-        raise RuntimeError('返回不是 JSON (可能被风控页拦了)')
+        raise RuntimeError(f'HTTP {r.status_code}: 返回不是 JSON (可能被风控页拦了)')
+    # 先看 body 再看 HTTP 状态: 小红书的 461 是带着业务 code 的
+    # (300011 Account abnormal), 只看状态码会丢掉这条关键信息
+    if r.status_code != 200 and d.get('code') in (0, None):
+        raise RuntimeError(f'HTTP {r.status_code}')
     code = d.get('code')
     if code in (300011, 461) or str(d.get('msg', '')).lower().find('abnormal') >= 0:
         raise SiteAuthError(
