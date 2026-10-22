@@ -390,6 +390,10 @@
   "gh_search": {
    "module": "webtool.engines.moresites2:gh_search",
    "desc": "GitHub 仓库搜索 (q 语法透传)"
+  },
+  "ithome_so": {
+   "module": "webtool.engines.moresites2:ithome_so",
+   "desc": "IT之家资讯搜索 (列表分页后本地筛标题; 官方搜索需登录)"
   }
  },
  "presets": {

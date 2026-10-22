@@ -362,12 +362,12 @@ def config_cmd(action: str = typer.Argument(..., help='list/get/set/unset'),
     return _run(None, fn, fmt, output, False, False)
 
 @app.command('plugins')
-def plugins_cmd(action: str = typer.Argument('list', help='list/check/reload/enable/disable'),
+def plugins_cmd(action: str = typer.Argument('list', help='list/check/doctor/reload/enable/disable'),
                 kind: str = typer.Argument(None, help='engine, hot, site, source, extractor, resolver, filter, transformer, interceptor'),
                 plugin: str = typer.Argument(None, help='enable/disable 的插件名'),
                 all: bool = typer.Option(False, '--all', '-a', help='list 含 disabled 项'),
                 fmt: str = Fmt, output: str = Output):
-    """插件管理: 清单与来源 / 加载体检 / 启停 / 热重载外部插件"""
+    """插件管理: 清单与来源 / 加载体检 / 孤儿自检 / 启停 / 热重载外部插件"""
     a = _CTX['args']
     a.action, a.kind, a.plugin, a.all = action, kind, plugin, all
 

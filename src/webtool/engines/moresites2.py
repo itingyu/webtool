@@ -1,7 +1,7 @@
 """webtool site 第二批: 关键词搜索型适配器, 全走指纹通道。
 
 csdn_so (CSDN 问答) / juejin2 (掘金) / bili2 (B站, 需 buvid cookie) /
-douban (HTML 版免登录) / gh_search (GitHub 仓库)。
+douban (HTML 版免登录) / gh_search (GitHub 仓库) / ithome_so (IT之家)。
 """
 
 import json
@@ -14,7 +14,7 @@ _sites = _sys.modules.get('webtool.engines.sites')
 if _sites is None:
     from webtool import sites as _sites
 from webtool.core import text
-from webtool.engines.sites import _headers, _mk, _fetch
+from webtool.engines.sites import _headers, _mk, _fetch, _post
 
 
 _clean = text.clean_markup
@@ -112,22 +112,52 @@ def bili2(q, limit=10, proxy=None, timeout=15):
 # ============================================================ IT之家搜索
 
 def ithome_so(q, limit=10, proxy=None, timeout=15):
-    """IT之家关键词搜索 (so.ithome.com 搜索页 HTML; api 域搜索接口已 404)"""
+    """IT之家关键词搜索 (www.ithome.com/category/listpage 分页拉新闻流后本地筛)
+
+    IT之家已无公开搜索接口: 站内搜索页 (www.ithome.com/search/<词>.html) 要
+    软媒通行证登录, 老搜索域 so.ithome.com 整域 NXDOMAIN, api 域的
+    /json/newslist/search 不认 keyword 参数 (恒返回同一批首页旧闻)。
+    剩下能用的就是列表页的分页接口 /category/listpage?page=N —— 首页
+    "更多" 按钮就是它。按时间倒序翻若干页, 再本地按关键词筛标题。
+    """
     if not (q or '').strip():
         return []
-    kw = urllib.parse.quote(q)
-    url = f'https://so.ithome.com/html/search.html?word={kw}'
-    headers = _headers(url, 'nav', {'Referer': 'https://www.ithome.com/'})
-    txt, st, _ = _fetch(url, proxy, timeout, headers)
-    out = []
-    for m in re.finditer(
-            r'<a[^>]+href="(?:https?:)?//(www\.ithome\.com/0/\d+/\d+\.htm)"[^>]*>([^<]{6,120})</a>',
-            txt):
-        u, title = m.group(1), _clean(m.group(2))
-        if not title or any(u == x['url'] for x in out):
-            continue
-        out.append(_mk(title, f'https://{u}'))
-        if len(out) >= limit:
+    url = 'https://www.ithome.com/category/listpage'
+    headers = _headers(url, 'api', {
+        'Referer': 'https://www.ithome.com/list/',
+        'X-Requested-With': 'XMLHttpRequest',
+    })
+    kw = q.strip().lower()
+    out, seen = [], set()
+    # 每页约 50 条, 翻 8 页 ≈ 最近两天多; 命中够数就早停
+    for page in range(1, 9):
+        try:
+            txt, _st, _ = _post(f'{url}?page={page}', proxy, timeout,
+                                headers, data='')
+        except Exception:
+            break
+        try:
+            o = json.loads(txt)
+        except Exception:
+            break
+        html = ((o.get('content') or {}).get('html') or '')
+        if not html:
+            break
+        got = False
+        for m in re.finditer(
+                r'<a class="t" href="(https?://www\.ithome\.com/\d+/\d+/\d+\.htm)"[^>]*>([^<]{2,120})</a>'
+                r'(?:.*?<i>([^<]*)</i>)?', html, re.S):
+            u, title, ts = m.group(1), _clean(m.group(2)), (m.group(3) or '').strip()
+            if not title or u in seen:
+                continue
+            seen.add(u)
+            got = True
+            if kw and kw not in title.lower():
+                continue
+            out.append(_mk(title, u, ts or None, extra={'time': ts} if ts else None))
+            if len(out) >= limit:
+                return out
+        if not got:
             break
     return out[:limit]
 

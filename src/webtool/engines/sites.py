@@ -289,6 +289,28 @@ def _fetch(url, proxy, timeout, headers, profile=None, engine=None):
     return text, status, _via
 
 
+def _post(url, proxy, timeout, headers, data=None, profile=None, engine=None):
+    """POST 版 _fetch: 走 transport.request (指纹同源), 非幂等故不自动重试
+
+    data: 字符串或 dict (dict 走 form 编码)。传空 body 时仍要带
+    Content-Length —— 有些站点 (IT之家 /category/listpage) 对无长度 POST
+    直接回 411 Length Required。
+    """
+    p = transport.PROFILES.get(profile) if isinstance(profile, str) else profile
+    h = dict(headers or {})
+    body = '' if data is None else data
+    if isinstance(body, dict):
+        body = urllib.parse.urlencode(body)
+    h.setdefault('Content-Type', 'application/x-www-form-urlencoded')
+    h.setdefault('Content-Length', str(len(body.encode('utf-8'))))
+    r = transport.request('POST', url, kind='plain', proxy=proxy,
+                          timeout=timeout, headers=h, data=body,
+                          engine=engine, profile=p)
+    if r.status_code != 200:
+        raise RuntimeError(f'HTTP {r.status_code} (via {r.via})')
+    return r.text, r.status_code, r.via
+
+
 # 注册表
 # site_key -> {desc, module, params}  (清单在 data/plugins.json 的 "site" 段)
 # 不再有 proxy 字段: 站点不出网, 只暴露 (q, limit, proxy, timeout) 适配器,
