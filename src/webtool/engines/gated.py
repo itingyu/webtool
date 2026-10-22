@@ -209,8 +209,11 @@ def xhs(q, limit=10, proxy=None, timeout=15):
     payload = {'keyword': q, 'page': 1, 'page_size': min(limit, 20),
                'search_id': format(int(time.time() * 1000) % 10 ** 12, 'x'),
                'sort': 'general', 'note_type': 0}
+    # 必须用 xyw 格式: 这是小红书网页版的签名格式。默认格式虽然不报错
+    # (code=0), 但服务端会静默返回空 items —— 实测 xyw 才真正走到业务侧
     headers = _signer().sign_headers_post(
-        XHS_SEARCH_URI, {c['name']: c['value'] for c in ck}, payload=payload)
+        XHS_SEARCH_URI, {c['name']: c['value'] for c in ck}, payload=payload,
+        sign_format='xyw')
     headers.update(_headers('xhs', ck, 'https://www.xiaohongshu.com/'))
     headers['Content-Type'] = 'application/json'
     r = transport.request('POST', XHS_BASE + XHS_SEARCH_URI, kind='api',
@@ -223,6 +226,11 @@ def xhs(q, limit=10, proxy=None, timeout=15):
     except ValueError:
         raise RuntimeError('返回不是 JSON (可能被风控页拦了)')
     code = d.get('code')
+    if code in (300011, 461) or str(d.get('msg', '')).lower().find('abnormal') >= 0:
+        raise SiteAuthError(
+            f"小红书判定账号异常 (code={code} {d.get('msg', '')})",
+            '这个账号在服务端被风控了, 不是本地 cookie 的问题; '
+            '换个账号扫码, 或在浏览器里搜一下确认是不是同样被拦')
     if code not in (0, None):
         raise SiteAuthError(
             f"小红书拒绝了请求 (code={code} {d.get('msg', '')}): "

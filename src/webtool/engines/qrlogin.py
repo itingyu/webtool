@@ -22,6 +22,7 @@ cookie 从会话的 Set-Cookie 里收, 成功后交给 state.save_cookies。
 """
 from __future__ import annotations
 
+import json
 import sys
 import time
 
@@ -123,7 +124,10 @@ def boss_login_done(data):
 
 def _xhs_poll(session, state, timeout, interval):
     X = _xhs_client()
-    ck = state['cookies']
+    # 签名用的 cookie (a1/webId, dict) 和会话 jar 里的 cookie (list) 要分开:
+    # 早先在循环里把 ck 覆盖成 list, 下一轮签名就炸了
+    # ('list' object has no attribute 'get')
+    sign_ck = state['cookies']
     uri = '/api/sns/web/v1/login/qrcode/status'
     # 参数名必须是 qr_id: 实测传 qrId 服务端直接 400
     # ("param is required, but got none"), 前端那套 qrId 是它自己的字段名
@@ -131,7 +135,7 @@ def _xhs_poll(session, state, timeout, interval):
     deadline = time.time() + timeout
     seen = None
     while time.time() < deadline:
-        hdr = X.sign_headers_get(uri, ck, params=params, sign_format='xyw')
+        hdr = X.sign_headers_get(uri, sign_ck, params=params, sign_format='xyw')
         hdr.update({'Referer': 'https://www.xiaohongshu.com/login'})
         try:
             r = session.get('https://edith.xiaohongshu.com' + uri, params=params,
@@ -139,21 +143,32 @@ def _xhs_poll(session, state, timeout, interval):
             d = r.json()
         except Exception as e:
             raise QRError(f'小红书状态查询失败: {e}') from e
-        st = (d.get('data') or {}).get('code_status')
-        if st != seen:
-            seen = st
-            print('扫码状态: ' + xhs_status_text(st), file=sys.stderr, flush=True)
-        if st == 2:
-            ck = _cookies_of(session)
-            if not any(c['name'] == 'web_session' for c in ck):
-                # 登录态 cookie 可能不随 status 响应下发, 前端是再打一次
+        # 实测登录成功后 data 会从 dict 变成 [] 或 {}, code_status 直接
+        # 消失 —— 所以不能只认 code_status, 结构变了本身就是信号
+        data = d.get('data')
+        st = data.get('code_status') if isinstance(data, dict) else None
+        sig = json.dumps(d, ensure_ascii=False)[:500]
+        if sig != seen:
+            seen = sig
+            print('扫码状态: %s  %s' % (xhs_status_text(st), sig),
+                  file=sys.stderr, flush=True)
+        if st == 2 or st is None:
+            jar = _cookies_of(session)
+            print('jar: %s' % (', '.join(c['name'] for c in jar) or '(空)'),
+                  file=sys.stderr, flush=True)
+            if not any(c['name'] == 'web_session' for c in jar):
+                # 登录态 cookie 不随 status 响应下发, 前端是再打一次
                 # userinfo 换来的 —— 这里照做一遍兜底
-                try:
-                    _xhs_userinfo(session, ck)
-                except Exception:
-                    pass
-                ck = _cookies_of(session)
-            return ck
+                for note in _xhs_fetch_login_ck(session, jar):
+                    print('换 cookie: %s' % note, file=sys.stderr, flush=True)
+                    jar = _cookies_of(session)
+                    if any(c['name'] == 'web_session' for c in jar):
+                        break
+            if any(c['name'] == 'web_session' for c in jar):
+                return jar
+            if st == 2:
+                raise QRError('登录成功了但没拿到登录态 cookie',
+                              '用 webtool auth set xhs --cookie "a1=...; web_session=..." 手工导入')
         if st in (3, 4):
             raise QRError('扫码已取消或二维码已过期, 重新生成一个')
         time.sleep(interval)
@@ -161,13 +176,52 @@ def _xhs_poll(session, state, timeout, interval):
                     '重新运行 webtool auth qr xhs 生成新二维码')
 
 
+def _xhs_fetch_login_ck(session, ck):
+    """登录态 cookie 不在 status 响应里下发, 得主动去换
+
+    依次试几个前端登录后会走的接口, 返回过程说明给上层打日志。
+    """
+    notes = []
+    try:
+        _xhs_userinfo(session, ck)
+        notes.append('userinfo 走完')
+    except Exception as e:
+        notes.append('userinfo 失败: %s' % e)
+    # 首页/用户信息接口有时才真正下发 web_session
+    for url in ('https://www.xiaohongshu.com/',
+                'https://edith.xiaohongshu.com/api/sns/web/v1/user/me'):
+        try:
+            r = session.get(url, timeout=20)
+            notes.append('%s -> %s' % (url.split('/')[2], r.status_code))
+        except Exception as e:
+            notes.append('%s 失败: %s' % (url.split('/')[2], e))
+    return notes
+
+
 def _xhs_userinfo(session, ck):
-    """扫码成功后补打一次 userinfo, 逼服务端把登录态 cookie 下发"""
+    """扫码成功后补打一次 userinfo, 逼服务端把登录态 cookie 下发
+
+    方法不确定 (前端可能是 POST), GET/POST 都试一次。
+    """
     uri = '/api/qrcode/userinfo'
     X = _xhs_client()
-    hdr = X.sign_headers_get(uri, ck, params={}, sign_format='xyw')
+    url = 'https://edith.xiaohongshu.com' + uri
+    # ck 可能是 list (jar 里的 cookie) 也可能是 dict, 统一成 dict 给签名用
+    if isinstance(ck, dict):
+        sign_ck = ck
+    else:
+        sign_ck = {c['name']: c['value'] for c in ck}
+    hdr = X.sign_headers_get(uri, sign_ck, params={}, sign_format='xyw')
     hdr.update({'Referer': 'https://www.xiaohongshu.com/login'})
-    session.get('https://edith.xiaohongshu.com' + uri, headers=hdr, timeout=20)
+    try:
+        r = session.get(url, headers=hdr, timeout=20)
+        if r.status_code < 400:
+            return
+    except Exception:
+        pass
+    hdr2 = X.sign_headers_post(uri, sign_ck, payload={})
+    hdr2.update({'Referer': 'https://www.xiaohongshu.com/login'})
+    session.post(url, headers=hdr2, timeout=20)
 
 
 # ---------------------------------------------------------------- boss
