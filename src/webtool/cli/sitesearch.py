@@ -88,8 +88,14 @@ def do_site(args, cfg):
             cache.put(cfg, 'search', ckey, results)
             src = 'fresh'
         except Exception as e:
+            # 登录态源要给出能照做的指引, 通用 hint("换代理/降 -n")对它没用
+            hint = ('先 webtool auth set %s 导入 cookie, 再 webtool auth test %s 自检'
+                    % (args.site, args.site))
+            from webtool.engines.gated import SiteAuthError
+            if isinstance(e, SiteAuthError):
+                hint = getattr(e, 'hint', '') or hint
             print(json.dumps({'error': str(e)[:300], 'site': args.site,
-                              'hint': '可试 --proxy / --no-proxy 或降低 -n; `webtool site list` 查看站点'},
+                              'hint': hint},
                              ensure_ascii=False), file=sys.stderr)
             return 1
 

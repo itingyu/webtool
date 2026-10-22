@@ -406,6 +406,14 @@
   "segmentfault": {
    "module": "webtool.engines.sites:segmentfault",
    "desc": "SegmentFault 技术问答/文章 (服务端渲染页, 无公开 API)"
+  },
+  "boss": {
+   "module": "webtool.engines.gated:boss",
+   "desc": "BOSS直聘职位搜索 (需登录态: webtool auth set boss)"
+  },
+  "xhs": {
+   "module": "webtool.engines.gated:xhs",
+   "desc": "小红书笔记搜索 (需登录态+签名: webtool auth set xhs)"
   }
  },
  "presets": {

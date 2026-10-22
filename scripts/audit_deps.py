@@ -43,6 +43,8 @@ DYN_IMPORT_FUNCS = {'_try_import'}
 OPTIONAL = {
     'imageio_ffmpeg': '没系统 ffmpeg 时的兜底 (pip 装上就被认出, 自带二进制)',
     'static_ffmpeg': '同上, 另带 ffprobe',
+    'xhshow': '小红书签名库 (第三方逆向实现, 只有小红书源要它; 没装时该源报可读提示)',
+    'cairosvg': 'SVG→PNG 渲染 (要系统 cairo 库, 没装时走 rsvg-convert 兜底)',
 }
 
 
