@@ -8,6 +8,7 @@ cookie 存 dao.state 的 cookies 桶 (键名 = 站点名), 站点源只读不写
 
 from __future__ import annotations
 
+import os
 import sys
 
 import typer
@@ -160,7 +161,8 @@ def _do_test(site, fmt, query):
     return '\n'.join(lines)
 
 
-def _dispatch(action, site, cookie, file, query, fmt):
+def _dispatch(action, site, cookie, file, query, fmt, out=None,
+              timeout=120):
     """auth 的实际实现; typer 命令与 do_auth 入口都走这里"""
     fmt = (fmt or 'text').lower()
     act = (action or 'list').strip().lower()
@@ -175,6 +177,8 @@ def _dispatch(action, site, cookie, file, query, fmt):
         return _do_rm(site, fmt)
     if act == 'test':
         return _do_test(site, fmt, query)
+    if act == 'qr':
+        return _do_qr(site, fmt, out, timeout)
     raise typer.BadParameter(f'未知动作 {action!r}; 可用: list/set/rm/test')
 
 
@@ -189,9 +193,11 @@ def auth_cmd(
                                    help='直接给 Cookie 头串 (k=v; k2=v2)'),
         file: str = typer.Option(None, '--file', help='从文件读 (头串/JSON/Netscape)'),
         query: str = typer.Option('python', '--query', help='test 用的检索词'),
+        out: str = typer.Option(None, '--out', help='qr: 二维码 PNG 输出路径'),
+        timeout: int = typer.Option(120, '--timeout', help='qr: 等待扫码的秒数'),
         fmt: str = Fmt):
     """管理需要登录态的站点 cookie (只显示名字, 不显示值)"""
-    print(_dispatch(action, site, cookie, file, query, fmt))
+    print(_dispatch(action, site, cookie, file, query, fmt, out, timeout))
 
 
 def do_auth(args, cfg):
@@ -202,6 +208,8 @@ def do_auth(args, cfg):
     fmt = 'text'
     cookie = None
     path = None
+    out = None
+    timeout = 120
     i = 2
     while i < len(argv):
         a = argv[i]
@@ -217,10 +225,63 @@ def do_auth(args, cfg):
             path = argv[i + 1]
             i += 2
             continue
+        if a == '--out' and i + 1 < len(argv):
+            out = argv[i + 1]
+            i += 2
+            continue
+        if a == '--timeout' and i + 1 < len(argv):
+            try:
+                timeout = int(argv[i + 1])
+            except ValueError:
+                timeout = 120
+            i += 2
+            continue
         i += 1
-    out = _dispatch(action, site, cookie, path, 'python', fmt)
+    out = _dispatch(action, site, cookie, path, 'python', fmt, out, timeout)
     if fmt == 'json':
         import json
         print(json.dumps(out, ensure_ascii=False))
     else:
         print(out)
+
+
+def _do_qr(site, fmt, out, timeout):
+    """扫码登录: 生成二维码 → 等用户扫 → 落 cookie"""
+    from webtool.core import qrimg
+    from webtool.engines import qrlogin
+    if site not in qrlogin.QR_SITES:
+        raise typer.BadParameter(
+            f'不支持扫码登录的站点 {site!r}; 可用: '
+            + ' / '.join(sorted(qrlogin.QR_SITES)))
+    ctx = qrlogin.create(site)
+    path = out or os.path.expanduser(f'~/.webtool/qr/{site}.png')
+    os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+    try:
+        qrimg.render(ctx['text'], path)
+    except qrimg.QRRenderError as e:
+        raise typer.BadParameter(
+            f'{e}; pip install qrcode') from e
+    spec = qrlogin.QR_SITES[site]
+    # 先把二维码路径打出来 (要 flush), 调用方好立刻把图给人扫
+    msg = [f'二维码已生成: {path}',
+           f'扫码内容: {ctx["text"]}',
+           f'请用{spec["label"]} App 扫码 (超时 {timeout} 秒)']
+    if fmt == 'json':
+        msg.append('')
+    else:
+        print('\n'.join(msg), flush=True)
+    try:
+        cookies = qrlogin.poll(site, ctx, timeout=timeout)
+    except qrlogin.QRError as e:
+        if fmt == 'json':
+            return {'site': site, 'ok': False, 'qr': path,
+                    'content': ctx['text'], 'reason': str(e),
+                    'hint': getattr(e, 'hint', '')}
+        raise typer.BadParameter(str(e)) from e
+    qrlogin.save(site, cookies)
+    names = [c['name'] for c in cookies]
+    if fmt == 'json':
+        return {'site': site, 'ok': True, 'qr': path,
+                'content': ctx['text'], 'cookies': names, 'count': len(names)}
+    return (f'{spec["label"]} 登录成功, 已保存 {len(names)} 个 cookie: '
+            + ', '.join(names))

@@ -45,6 +45,7 @@ OPTIONAL = {
     'static_ffmpeg': '同上, 另带 ffprobe',
     'xhshow': '小红书签名库 (第三方逆向实现, 只有小红书源要它; 没装时该源报可读提示)',
     'cairosvg': 'SVG→PNG 渲染 (要系统 cairo 库, 没装时走 rsvg-convert 兜底)',
+    'qrcode': '扫码登录时本地渲染二维码 (没装时只有 auth qr 不可用, 其余功能不受影响)',
 }
 
 
