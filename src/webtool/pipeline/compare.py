@@ -25,7 +25,12 @@ _FRONT = re.compile(r'\A---\s*\n(.*?)\n---\s*\n', re.S)
 _NOISE = re.compile(
     r'点击|扫码|关注我们|下载客户端|一键生成|无脑|转发|责任编辑|原标题|'
     r'举报|免责声明|版权归|未经授权|更多精彩|来源：|编辑：|实习生|'
-    r'https?://|\]\(|_trans_|\bAPP\b|公众号')
+    r'https?://|\]\(|_trans_|\bAPP\b|公众号|'
+    # 第一人称推销/软文尾巴 (实测漏网: "让我这个 30+打工人的工作效率
+    # 提升至少30%，年底成功达到加薪目标！")。只收高置信度的营销词,
+    # 不收"打工人""效率提升"这类正文里也常见的说法。
+    r'加薪目标|亲测|血赚|真香|绝了|神器|限时|免费领|速看|闭眼入|'
+    r'让我|我这个|我亲|安利给|不买后悔')
 
 
 
@@ -198,6 +203,15 @@ def _short(url, width=48):
     return url if len(url) <= width else url[:width - 1] + '…'
 
 
+def _host(url):
+    """只要域名: 标题已经说了是哪个页面, 再跟一长串路径是噪声"""
+    try:
+        from urllib.parse import urlsplit
+        return urlsplit(url).netloc or _short(url)
+    except Exception:
+        return _short(url)
+
+
 def _render(res, fmt):
     """text/markdown 渲染: 先看共有, 再看各自独有"""
     md = fmt == 'markdown'
@@ -234,7 +248,7 @@ def _render(res, fmt):
         body = uniq.get(u) or []
         out.append('')
         header = '### %s' % (d.get('title') or _short(u))
-        out.append(header if md else '--- %s (%s) ---' % (d.get('title') or '(无标题)', _short(u)))
+        out.append(header if md else '--- %s (%s) ---' % (d.get('title') or '(无标题)', _host(u)))
         if not body:
             out.append('  (全部要点都与其他来源重合, 无独有内容)')
             continue
