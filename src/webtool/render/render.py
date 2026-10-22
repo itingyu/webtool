@@ -69,6 +69,10 @@ def _render_search(out, fmt):
             if r.get('snippet'):
                 print(f"\n{r['snippet'][:200]}")
     else:  # text
+        if not results:
+            where = f'站点 {out["site"]} ' if out.get('site') else ''
+            print(f'{where}没有搜索结果 (共 0 条) —— 换个关键词, 或 `webtool site list` 看站点状态')
+            return
         for r in results:
             eng = ','.join(r['engines']) if r.get('engines') else r.get('engine', '')
             line = f"[{r['rank']}] {r['title']}"

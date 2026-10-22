@@ -23,7 +23,7 @@ _clean = text.clean_markup
 # ============================================================ CSDN 问答
 
 def csdn_so(q, limit=10, proxy=None, timeout=15):
-    """CSDN 问答搜索 (so.csdn.net/api/v3/search, t=ask)"""
+    """CSDN 问答 · 服务端搜索页 (so.csdn.net/api/v3/search, t=ask)"""
     if not (q or '').strip():
         return []
     kw = urllib.parse.quote(q)
@@ -45,7 +45,7 @@ def csdn_so(q, limit=10, proxy=None, timeout=15):
 # ============================================================ 掘金综合
 
 def juejin2(q, limit=10, proxy=None, timeout=15):
-    """掘金文章搜索 (search_api/v1/search; id_type=0 时 result_model 为字符串容器,
+    """掘金 · 搜索页接口 (备用; 结果可能与 juejin 不同; search_api/v1/search; id_type=0 时 result_model 为字符串容器,
     需按 result_type 分支解析)"""
     if not (q or '').strip():
         return []
@@ -78,7 +78,7 @@ def juejin2(q, limit=10, proxy=None, timeout=15):
 # ============================================================ B站视频
 
 def bili2(q, limit=10, proxy=None, timeout=15):
-    """B站综合搜索 (x/web-interface/search/all/v2; 需 buvid cookie)"""
+    """B站综合搜索 · 页面接口 (备用, 含专栏/用户; x/web-interface/search/all/v2; 需 buvid cookie)"""
     if not (q or '').strip():
         return []
     kw = urllib.parse.quote(q)
@@ -188,7 +188,7 @@ def douban(q, limit=10, proxy=None, timeout=15):
 
 
 def gh_search(q, limit=10, proxy=None, timeout=15):
-    """GitHub 仓库关键词搜索 (api.github.com; q 语法透传 stars:>1000 language:python)"""
+    """GitHub 仓库 (q 语法透传; 接口比 github 弱, 一般用 github 即可; api.github.com; stars:>1000 language:python)"""
     if not (q or '').strip():
         return []
     url = (f'https://api.github.com/search/repositories?q={urllib.parse.quote(q)}'

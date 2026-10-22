@@ -324,7 +324,7 @@
  "site": {
   "github": {
    "module": "webtool.engines.sites:github",
-   "desc": "GitHub 仓库"
+   "desc": "GitHub 仓库 (官方 API; 一般用这个)"
   },
   "so": {
    "module": "webtool.engines.sites:stackoverflow",
@@ -353,11 +353,11 @@
   },
   "juejin": {
    "module": "webtool.engines.sites:juejin",
-   "desc": "掘金"
+   "desc": "掘金 (官方搜索 API; 优先)"
   },
   "bilibili": {
    "module": "webtool.engines.sites:bilibili",
-   "desc": "B站视频"
+   "desc": "B站视频 (站内 API; 优先)"
   },
   "sspai": {
    "module": "webtool.engines.sites:sspai",
@@ -381,15 +381,15 @@
   },
   "csdn_so": {
    "module": "webtool.engines.moresites2:csdn_so",
-   "desc": "CSDN 问答搜索"
+   "desc": "CSDN 问答 (服务端搜索页)"
   },
   "juejin2": {
    "module": "webtool.engines.moresites2:juejin2",
-   "desc": "掘金文章搜索"
+   "desc": "掘金 (搜索页接口; 备用, 结果可能与 juejin 不同)"
   },
   "bili2": {
    "module": "webtool.engines.moresites2:bili2",
-   "desc": "B站视频综合搜索"
+   "desc": "B站综合搜索 (页面接口; 备用, 含专栏/用户)"
   },
   "douban": {
    "module": "webtool.engines.moresites2:douban",
@@ -397,7 +397,7 @@
   },
   "gh_search": {
    "module": "webtool.engines.moresites2:gh_search",
-   "desc": "GitHub 仓库搜索 (q 语法透传)"
+   "desc": "GitHub 仓库搜索 (q 语法透传; 接口比 github 弱)"
   },
   "ithome_so": {
    "module": "webtool.engines.moresites2:ithome_so",

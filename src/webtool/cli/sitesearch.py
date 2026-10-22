@@ -6,6 +6,28 @@ import time
 from webtool.dao import cache
 from webtool.engines.sites import sites_table
 
+# 站点别名: 正式名里有 gh_search / bili2 / juejin2 这种记不住的,
+# 用户嘴上的自然叫法都认 (大小写不敏感)
+_SITE_ALIAS = {
+    'bili': 'bilibili', 'b站': 'bilibili', '小破站': 'bilibili',
+    '掘金': 'juejin', '掘金文章': 'juejin2',
+    'v2ex': 'sov2ex', 'v2': 'sov2ex',
+    'stackoverflow': 'so', 'stack-overflow': 'so', 'stack': 'so',
+    'wiki': 'wikipedia', '维基': 'wikipedia', '维基百科': 'wikipedia',
+    'gh': 'github', 'github-search': 'gh_search', 'github搜索': 'gh_search',
+    '豆瓣': 'douban', '豆瓣读书': 'douban',
+    'it之家': 'ithome_so', 'ithome': 'ithome_so',
+    'sf': 'segmentfault', 'segment': 'segmentfault',
+    'csdn问答': 'csdn_so', 'csdn-qa': 'csdn_so',
+    '澎湃': 'thepaper', '澎湃新闻': 'thepaper',
+    '东财': 'eastmoney', '东方财富': 'eastmoney',
+    '少数派': 'sspai', 'npm包': 'npm',
+}
+
+def _canon_site(name):
+    """别名 -> 正式站点名; 不认识的原样返回"""
+    return _SITE_ALIAS.get(str(name).strip().lower(), name)
+
 
 def _site_kwargs(args, spec):
     """站点声明要的额外参数 (params.args) 与命令行值的交集
@@ -42,6 +64,7 @@ def do_site(args, cfg):
         return 0
     if args.query is None:
         args.query = ''
+    args.site = _canon_site(args.site)      # bili / 掘金 / v2ex 等别名先归一
 
     # 自定义站点优先查 (允许覆盖内置)
     from webtool.engines.customsites import load_custom_sites, search_custom
@@ -55,7 +78,11 @@ def do_site(args, cfg):
     elif args.site in sites_table():
         kind, spec = 'builtin', sites_table()[args.site]
     else:
-        print(f'unknown site: {args.site}\navailable: {", ".join(sorted(set(sites_table()) | set(customs)))}\n'
+        import difflib
+        names = sorted(set(sites_table()) | set(customs))
+        near = difflib.get_close_matches(str(args.site), names + sorted(_SITE_ALIAS), n=3)
+        hint = ('\n你是不是想找: ' + ', '.join(near)) if near else ''
+        print(f'unknown site: {args.site}{hint}\navailable: {", ".join(names)}\n'
               f'use `webtool site list` for detail', file=sys.stderr)
         return 2
 

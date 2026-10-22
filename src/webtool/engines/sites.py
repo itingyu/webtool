@@ -75,7 +75,7 @@ def _mk(title, url, snippet='', score=None, extra=None):
 # adapters
 
 def github(q, limit=10, proxy=None, timeout=15):
-    """GitHub 仓库搜索 (api.github.com, 匿名 10 req/min)"""
+    """GitHub 仓库 (api.github.com, 匿名 10 req/min; 一般用这个)"""
     url = (f'https://api.github.com/search/repositories?q={urllib.parse.quote(q)}'
            f'&per_page={min(limit, 50)}&sort=best-match')
     txt, st, _ = _fetch(url, proxy, timeout, _headers(url, 'rest', {
@@ -181,7 +181,7 @@ def csdn(q, limit=10, proxy=None, timeout=15):
 
 
 def juejin(q, limit=10, proxy=None, timeout=15):
-    """掘金 (稀土掘金社区文章)"""
+    """掘金 · 官方 search_api (优先)"""
     url = (f'https://api.juejin.cn/search_api/v1/search?query={urllib.parse.quote(q)}'
            f'&id_type=0&limit={min(limit, 50)}')
     txt, st, _ = _fetch(url, proxy, timeout, _headers(url, 'api', {
@@ -206,7 +206,7 @@ def juejin(q, limit=10, proxy=None, timeout=15):
 
 
 def bilibili(q, limit=10, proxy=None, timeout=15):
-    """B站视频搜索 (站内 API, 必须带 www.bilibili.com Referer, 否则 412)"""
+    """B站视频 · 站内 API (优先; 需 bilibili Referer)"""
     url = (f'https://api.bilibili.com/x/web-interface/search/all/v2'
            f'?keyword={urllib.parse.quote(q)}')
     # B站跨域: 页面在 www, API 在 api, 前端 XHR 是 cors 跨站请求
