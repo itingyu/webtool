@@ -24,12 +24,12 @@ HELP = '''Agent 友好的网页搜索与内容获取工具
 
 全部命令分组:
   搜索  search  fetch  site  crawl  ask
-  对比  snapshot  diff  compare
+  对比  diff  compare
   监控  watch  feed
   榜单  rank
   金融  stock  pydata
-  基建  proxy  pkg  mcp  plugins  cache  config  engines  blocklist
-  展示  pic  banner  video  music
+  基建  proxy  pkg  mcp  plugins  config  engines
+  展示  render
   其他  zen  upgrade  uninstall  intercept-log
 
 每个命令:  webtool <命令> -h

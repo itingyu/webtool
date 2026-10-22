@@ -10,6 +10,7 @@ from webtool.cli._ctx import (
     _entry_fn, _run,
 )
 from webtool.cli.app import app
+from webtool.cli.commands._group import make_group
 
 @app.command('pydata')
 def pydata_cmd(qual: str = typer.Argument(None,
@@ -234,42 +235,27 @@ def ask_cmd(question: list[str] = typer.Argument(None,
     a.max_tokens = None
     return _run('data', _entry_fn('ask'), fmt, output, no_cache, no_proxy)
 
-@app.command('snapshot')
-def snapshot_cmd(url: str = typer.Argument(None, help='要存快照的 URL'),
-                 name: str = typer.Option(None, '--name',
-                                          help='快照名 (默认从 URL 生成: 主机-路径)'),
-                 list_: bool = typer.Option(False, '--list', help='列出已有快照'),
-                 history: str = typer.Option(None, '--history',
-                                             help='列出某个快照的全部版本'),
-                 rm: str = typer.Option(None, '--rm', help='删掉某个快照'),
-                 max_chars: int = typer.Option(0, '--max-chars',
-                                               help='正文截断字符数, 0=不截断'),
-                 fmt: str = Fmt, output: str = Output,
-                 no_proxy: bool = NoProxy, no_cache: bool = NoCache):
-    """页面快照: 存一版正文, 之后可 diff 出"变了什么\""""
-    a = _CTX['args']
-    a.url, a.name = url, name
-    a.list, a.history, a.rm = list_, history, rm
-    a.max_chars = max(0, max_chars)
-    return _run('data', _entry_fn('snapshot'), fmt, output, no_cache, no_proxy)
+diff_app = make_group(
+    'diff', '页面版本对比: diff <a> [b] | diff save <url> | diff list | diff history <名> | diff rm <名>')
 
-@app.command('diff')
-def diff_cmd(left: str = typer.Argument(None,
-                                        help='旧: 快照名 / URL / 本地文件'),
-             right: str = typer.Argument(None,
-                                         help='新: 快照名 / URL / 本地文件 (省略则比该快照最近两版)'),
-             context: int = typer.Option(3, '-C', '--context',
-                                         help='差异上下文行数 (默认 3)'),
-             ignore_ws: bool = typer.Option(False, '-w', '--ignore-ws',
-                                            help='忽略行内空白差异'),
-             no_meta: bool = typer.Option(False, '--no-meta',
-                                          help='比正文时去掉开头的 YAML 元数据头 (跨 URL 对比时常需要)'),
-             max_lines: int = typer.Option(400, '--max-lines',
-                                           help='text/markdown 最多打印多少差异行'),
-             max_chars: int = typer.Option(0, '--max-chars',
-                                           help='抓 URL 时正文截断字符数, 0=不截断'),
-             fmt: str = Fmt, output: str = Output,
-             no_proxy: bool = NoProxy, no_cache: bool = NoCache):
+
+@diff_app.command('diff')
+def _diff_run(left: str = typer.Argument(None,
+                                         help='旧: 快照名 / URL / 本地文件'),
+              right: str = typer.Argument(None,
+                                          help='新: 快照名 / URL / 本地文件 (省略则比该快照最近两版)'),
+              context: int = typer.Option(3, '-C', '--context',
+                                          help='差异上下文行数 (默认 3)'),
+              ignore_ws: bool = typer.Option(False, '-w', '--ignore-ws',
+                                             help='忽略行内空白差异'),
+              no_meta: bool = typer.Option(False, '--no-meta',
+                                           help='比正文时去掉开头的 YAML 元数据头 (跨 URL 对比时常需要)'),
+              max_lines: int = typer.Option(400, '--max-lines',
+                                            help='text/markdown 最多打印多少差异行'),
+              max_chars: int = typer.Option(0, '--max-chars',
+                                            help='抓 URL 时正文截断字符数, 0=不截断'),
+              fmt: str = Fmt, output: str = Output,
+              no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """对比两版页面/文件; 退出码 0=相同 1=有差异 2=出错"""
     a = _CTX['args']
     a.left, a.right = left, right
@@ -280,6 +266,62 @@ def diff_cmd(left: str = typer.Argument(None,
     a.version = None
     return _run('data', _entry_fn('diff'), fmt, output, no_cache, no_proxy)
 
+
+def _snapshot_args(url=None, name=None, list_=False, history=None, rm=None,
+                   max_chars=0):
+    a = _CTX['args']
+    a.url, a.name = url, name
+    a.list, a.history, a.rm = list_, history, rm
+    a.max_chars = max(0, max_chars)
+
+
+@diff_app.command('save')
+def _diff_save(url: str = typer.Argument(..., help='要存快照的 URL'),
+               name: str = typer.Option(None, '--name',
+                                        help='快照名 (默认从 URL 生成: 主机-路径)'),
+               max_chars: int = typer.Option(0, '--max-chars',
+                                             help='正文截断字符数, 0=不截断'),
+               fmt: str = Fmt, output: str = Output,
+               no_proxy: bool = NoProxy, no_cache: bool = NoCache):
+    """存一版快照 (之后 `diff <快照名>` 看改了什么)"""
+    _snapshot_args(url=url, name=name, max_chars=max_chars)
+    return _run('data', _entry_fn('snapshot'), fmt, output, no_cache, no_proxy)
+
+
+@diff_app.command('list')
+def _diff_list(fmt: str = Fmt, output: str = Output):
+    """列已有快照"""
+    _snapshot_args(list_=True)
+    return _run('data', _entry_fn('snapshot'), fmt, output, False, False)
+
+
+@diff_app.command('history')
+def _diff_history(name: str = typer.Argument(..., help='快照名'),
+                  fmt: str = Fmt, output: str = Output):
+    """列某个快照的全部版本"""
+    _snapshot_args(history=name)
+    return _run('data', _entry_fn('snapshot'), fmt, output, False, False)
+
+
+@diff_app.command('rm')
+def _diff_rm(name: str = typer.Argument(..., help='快照名'),
+             fmt: str = Fmt, output: str = Output):
+    """删掉一个快照 (连同各版本)"""
+    _snapshot_args(rm=name)
+    return _run('data', _entry_fn('snapshot'), fmt, output, False, False)
+
+
+@diff_app.callback(invoke_without_command=True)
+def _diff_root(ctx: typer.Context):
+    """无参 = 打印用法 (需要左右两版)"""
+    if ctx.invoked_subcommand is None:
+        raise typer.Exit(_diff_run(
+            left=None, right=None, context=3, ignore_ws=False, no_meta=False,
+            max_lines=400, max_chars=0, fmt='txt', output=None,
+            no_proxy=False, no_cache=False))
+
+
+app.add_typer(diff_app, name='diff')
 
 @app.command('compare')
 def compare_cmd(urls: list[str] = typer.Argument(None,

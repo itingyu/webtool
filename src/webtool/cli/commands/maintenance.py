@@ -272,44 +272,6 @@ def mcp_cmd(action: str = typer.Argument('list', help='list=列工具; probe=端
         return do_mcp(args, cfg)
     return _run(None, fn, fmt, output, False, no_proxy)
 
-@app.command('cache')
-def cache_cmd(action: str = typer.Argument(None, help='clear/info'),
-               fmt: str = Fmt, output: str = Output):
-    """缓存管理"""
-    if action is None:
-        print('用法: webtool cache <动作>\n'
-              '  clear   清空缓存\n'
-              '  info    缓存大小与条目数', file=sys.stderr)
-        return 2
-    a = _CTX['args']
-    a.action = action
-
-    def fn(args, cfg):
-        from webtool.dao import cache
-        return cache.handle(args, cfg)
-    return _run(None, fn, fmt, output, False, False)
-
-@app.command('blocklist')
-def blocklist_cmd(action: str = typer.Argument(None, help='show/add/remove/reset'),
-                  domain: str = typer.Argument(None, help='域名, 如 csdn.net'),
-                  allow: bool = typer.Option(False, '--allow', help='add/remove 白名单例外'),
-               fmt: str = Fmt, output: str = Output):
-    """黑名单管理 (低质量站点)"""
-    if action is None:
-        print('用法: webtool blocklist <动作> [域名] [--allow]\n'
-              '  show           列当前黑名单\n'
-              '  add <域名>     加入黑名单\n'
-              '  remove <域名>  移出 (--allow 加白名单例外)\n'
-              '  reset          恢复默认', file=sys.stderr)
-        return 2
-    a = _CTX['args']
-    a.action, a.domain, a.allow = action, domain, allow
-
-    def fn(args, cfg):
-        import webtool.filters.blocklist as blocklist
-        return blocklist.handle_cli(args)
-    return _run(None, fn, fmt, output, False, False)
-
 @app.command('uninstall')
 def uninstall_cmd(purge_data: bool = typer.Option(False, '--purge-data', help='完全卸载: 连 ~/.webtool 里的配置/凭据/缓存一起删'),
                   yes: bool = typer.Option(False, '--yes', '-y', help='确认删除数据 (--purge-data 必须带)'),
@@ -366,27 +328,23 @@ def upgrade_cmd(check_only: bool = typer.Option(False, '--check', help='只问 p
     """
     return _upgrade_run(check_only, from_, fmt, output)
 
-@app.command('update', hidden=True)          # 旧命令名别名
-def update_cmd(check_only: bool = typer.Option(False, '--check'),
-               from_: str = typer.Option(None, '--from'),
-               fmt: str = Fmt, output: str = Output):
-    """(别名) 同 upgrade"""
-    return _upgrade_run(check_only, from_, fmt, output)
+config_app = typer.Typer(
+    add_completion=False, no_args_is_help=True, rich_markup_mode=None,
+    help='配置与本地状态: config get/set/list/unset | config cache | config blocklist',
+    context_settings={'help_option_names': ['-h', '--help']})
 
-@app.command('config')
-def config_cmd(action: str = typer.Argument(None, help='list/get/set/unset'),
-               key: str = typer.Argument(None),
-               value: str = typer.Argument(None),
-               fmt: str = Fmt, output: str = Output):
-    """配置管理: 代理/黑名单/权重阈值/默认引擎等"""
-    if action is None:
-        print('用法: webtool config <动作> [键] [值]\n'
-              '  list              列全部配置\n'
-              '  get <键>          看一项\n'
-              '  set <键> <值>     改一项\n'
-              '  unset <键>        恢复默认\n'
-              '例: webtool config get proxy', file=sys.stderr)
-        return 2
+cache_app = typer.Typer(add_completion=False, no_args_is_help=True,
+                        rich_markup_mode=None,
+                        help='HTTP 缓存: cache info | cache clear',
+                        context_settings={'help_option_names': ['-h', '--help']})
+
+blocklist_app = typer.Typer(add_completion=False, no_args_is_help=True,
+                            rich_markup_mode=None,
+                            help='低质量站点黑名单: show/add/remove/reset',
+                            context_settings={'help_option_names': ['-h', '--help']})
+
+
+def _cfg_run(action, key, value, fmt, output):
     a = _CTX['args']
     a.action, a.key, a.value = action, key, value
 
@@ -394,6 +352,100 @@ def config_cmd(action: str = typer.Argument(None, help='list/get/set/unset'),
         from webtool.cli import config as _cfg_cmd
         return _cfg_cmd.handle(args)
     return _run(None, fn, fmt, output, False, False)
+
+
+@config_app.command('list')
+def _cfg_list(fmt: str = Fmt, output: str = Output):
+    """列全部配置"""
+    return _cfg_run('list', None, None, fmt, output)
+
+
+@config_app.command('get')
+def _cfg_get(key: str = typer.Argument(..., help='配置键, 如 proxy'),
+             fmt: str = Fmt, output: str = Output):
+    """看一项配置"""
+    return _cfg_run('get', key, None, fmt, output)
+
+
+@config_app.command('set')
+def _cfg_set(key: str = typer.Argument(..., help='配置键'),
+             value: str = typer.Argument(..., help='新值 (空字符串=清空)'),
+             fmt: str = Fmt, output: str = Output):
+    """改一项配置"""
+    return _cfg_run('set', key, value, fmt, output)
+
+
+@config_app.command('unset')
+def _cfg_unset(key: str = typer.Argument(..., help='配置键'),
+               fmt: str = Fmt, output: str = Output):
+    """恢复默认值"""
+    return _cfg_run('unset', key, None, fmt, output)
+
+
+def _cache_run(action, fmt, output):
+    a = _CTX['args']
+    a.action = action
+
+    def fn(args, cfg):
+        from webtool.dao import cache
+        return cache.handle(args, cfg)
+    return _run(None, fn, fmt, output, False, False)
+
+
+@cache_app.command('info')
+def _cache_info(fmt: str = Fmt, output: str = Output):
+    """缓存大小与条目数"""
+    return _cache_run('info', fmt, output)
+
+
+@cache_app.command('clear')
+def _cache_clear(fmt: str = Fmt, output: str = Output):
+    """清空缓存"""
+    return _cache_run('clear', fmt, output)
+
+
+def _bl_run(action, domain, allow, fmt, output):
+    a = _CTX['args']
+    a.action, a.domain, a.allow = action, domain, allow
+
+    def fn(args, cfg):
+        import webtool.filters.blocklist as blocklist
+        return blocklist.handle_cli(args)
+    return _run(None, fn, fmt, output, False, False)
+
+
+@blocklist_app.command('show')
+def _bl_show(fmt: str = Fmt, output: str = Output):
+    """列当前黑名单"""
+    return _bl_run('show', None, False, fmt, output)
+
+
+@blocklist_app.command('add')
+def _bl_add(domain: str = typer.Argument(..., help='域名, 如 csdn.net'),
+            allow: bool = typer.Option(False, '--allow', help='加进白名单例外'),
+            fmt: str = Fmt, output: str = Output):
+    """加入黑名单"""
+    return _bl_run('add', domain, allow, fmt, output)
+
+
+@blocklist_app.command('remove')
+def _bl_remove(domain: str = typer.Argument(..., help='域名'),
+               allow: bool = typer.Option(False, '--allow', help='从白名单里移除'),
+               fmt: str = Fmt, output: str = Output):
+    """移出黑名单"""
+    return _bl_run('remove', domain, allow, fmt, output)
+
+
+@blocklist_app.command('reset')
+def _bl_reset(fmt: str = Fmt, output: str = Output):
+    """恢复默认黑名单"""
+    return _bl_run('reset', None, False, fmt, output)
+
+
+config_app.add_typer(cache_app, name='cache')
+config_app.add_typer(blocklist_app, name='blocklist')
+app.add_typer(config_app, name='config')
+
 
 @app.command('plugins')
 def plugins_cmd(action: str = typer.Argument('list', help='list/check/doctor/reload/enable/disable'),

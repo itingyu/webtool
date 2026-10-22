@@ -316,12 +316,12 @@ webtool pydata akshare.stock_zh_a_tick_tx_js '"sz300750"' -n 50
 `video` / `music` 另需 **ffmpeg**（ffprobe 可选，来源见文首「依赖」段）。
 
 ```bash
-webtool banner "HELLO" --font slant        # 文字排大字符 (6 种点阵字体, --list 看全)
-webtool banner 你好                        # 汉字/emoji 自动走字体栅格化
-webtool pic photo.jpg -w 90                # 图片转字符画
-webtool pic "data:image/png;base64,...."   # 也吃 data URI / 裸 base64 / - (读 stdin)
-webtool video clip.mp4 --dur 10            # 视频转字符动画 (Bad Apple 效果)
-webtool music song.mp3 --bands 24          # 音乐转频谱柱动画
+webtool render text "HELLO" --font slant        # 文字排大字符 (6 种点阵字体, --list 看全)
+webtool render text 你好                        # 汉字/emoji 自动走字体栅格化
+webtool render image photo.jpg -w 90                # 图片转字符画
+webtool render image "data:image/png;base64,...."   # 也吃 data URI / 裸 base64 / - (读 stdin)
+webtool render video clip.mp4 --dur 10            # 视频转字符动画 (Bad Apple 效果)
+webtool render music song.mp3 --bands 24          # 音乐转频谱柱动画
 ```
 
 **尺寸**（`pic` / `video` / `music`）：默认按终端自动适配 —— 列数取终端宽度，行数按原始宽高比换算，装不下就自动收窄。想固定就写 `--size 120x40`（也认 `120*40`、`120,40`，只给一个数就是宽度），或用 `-w/--width`、`--height` 单独指定。`music` 另有 `--bands`（柱数，上限 64）与 `--rows`（柱高）。
@@ -446,7 +446,8 @@ webtool pkg --proxy tokyo git pull
 ```bash
 webtool config list|get|set|unset      # default_engines/extract/market/timeout/cache/ssl_verify/...
 webtool plugins list|check|reload|enable|disable
-webtool cache / webtool blocklist
+webtool config cache info|clear          # HTTP 缓存
+webtool config blocklist show|add|remove|reset  # 低质站黑名单
 ```
 
 九类插件：`engine`（搜索引擎）、`hot`（榜单源）、`site`（站内站点）、`extractor`（正文提取器）、`resolver`（跳转链解码）、`filter`（结果过滤）、`transformer`（结果改写）、`interceptor`（拦截检测与绕过）、`source`（数据源，`SourceBase` 实现）。清单在 `src/webtool/data/plugins.json`，用户在 `~/.webtool/plugins.json` 覆盖或追加：

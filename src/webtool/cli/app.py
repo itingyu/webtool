@@ -128,18 +128,17 @@ _COMMANDS_LOADED = set()
 # 顶层命令 → 定义它的模块。只为"这次真的要跑/要看帮助的那一个"付 import 钱:
 # 全量导入约 200ms, 而 `stock -h` 用不上 data/media 那些。
 _CMD_MODULE = {
-    'search': 'data', 'fetch': 'data', 'ask': 'data', 'snapshot': 'data',
+    'search': 'data', 'fetch': 'data', 'ask': 'data',
     'diff': 'data', 'compare': 'data', 'watch': 'data', 'crawl': 'data',
     'site': 'data', 'rank': 'data', 'pydata': 'data',
     'feed': 'feedapp',
     'stock': 'stock',
     'zen': 'zenapp',
-    'banner': 'banner', 'pic': 'pic',
-    'video': 'media', 'music': 'media',
+    'render': 'renderapp',
     'intercept-log': 'intercept',
     'proxy': 'maintenance', 'pkg': 'maintenance', 'engines': 'maintenance',
-    'mcp': 'maintenance', 'cache': 'maintenance', 'blocklist': 'maintenance',
-    'uninstall': 'maintenance', 'upgrade': 'maintenance', 'update': 'maintenance',
+    'mcp': 'maintenance',
+    'uninstall': 'maintenance', 'upgrade': 'maintenance',
     'config': 'maintenance', 'plugins': 'maintenance',
 }
 
@@ -162,8 +161,8 @@ def _load_commands(wanted=None):
     if mod:
         _load_module(mod)
         return
-    for name in ('banner', 'data', 'feedapp', 'intercept', 'maintenance',
-                 'media', 'pic', 'stock', 'zenapp'):
+    for name in ('data', 'feedapp', 'intercept', 'maintenance',
+                 'renderapp', 'stock', 'zenapp'):
         _load_module(name)
 
 

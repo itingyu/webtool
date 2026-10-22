@@ -4,7 +4,6 @@
 (cls=_DefaultGroup 的默认命令)。
 """
 import typer
-from typer.core import TyperGroup
 
 from webtool.cli._ctx import (
     Fmt, NoCache, NoProxy, Output, _CTX, _entry_fn, _run,
@@ -12,25 +11,10 @@ from webtool.cli._ctx import (
 from webtool.cli.app import app
 
 
-class _DefaultGroup(TyperGroup):
-    default_cmd = 'get'
+from webtool.cli.commands._group import make_group
 
-    def resolve_command(self, ctx, args):
-        # 空参数也交给默认命令 (feed 无参=列清单, zen 无参=空 prompt)。
-        # 用 get_commands(ctx): TyperGroup.commands 依赖 ctx, 无参时是空的。
-        names = self.list_commands(ctx)
-        if self.default_cmd in names and (
-                not args or (args[0] not in names and not args[0].startswith('-'))):
-            return (self.default_cmd,
-                    self.get_command(ctx, self.default_cmd), args)
-        return super().resolve_command(ctx, args)
-
-
-feed_app = typer.Typer(
-    cls=_DefaultGroup, add_completion=False, no_args_is_help=False,
-    rich_markup_mode=None,
-    help='RSS/Atom 订阅: feed <源> | feed sources | feed radar',
-    context_settings={'help_option_names': ['-h', '--help']})
+feed_app = make_group('get',
+    'RSS/Atom 订阅: feed <源> | feed sources | feed radar')
 
 
 def _build(fmt, output, no_proxy, no_cache, **kw):

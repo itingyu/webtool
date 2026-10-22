@@ -5,7 +5,7 @@
 - 上游: **Noto Sans CJK SC** (notofonts/noto-cjk 的 Sans/, .ttc 字面 index 2)
 - 版权: © 2014-2021 Adobe (http://www.adobe.com/), 上游未声明 Reserved Font Name
 - 生成: pyftsubset NotoSansCJK-Regular.ttc --font-number=2 --text-file=<ASCII 可打印 + GB2312 一级汉字 + 常用标点/制表符>
-- 内容: 4736 个字, 供 webtool banner --font big 把汉字/符号栅格化成字符画
+- 内容: 4736 个字, 供 webtool render text --font big 把汉字/符号栅格化成字符画
 - 改动: 仅子集裁剪, 未改字形轮廓, 未改字体名
 - 查找顺序: WEBTOOL_BANNER_FONT 环境变量 → 本随包字体 → 系统字体 (见 cli/commands/banner.py::_find_font)
 

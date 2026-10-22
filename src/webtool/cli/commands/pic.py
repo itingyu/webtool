@@ -9,7 +9,6 @@ import typer
 
 from webtool.cli._ctx import _run, Fmt, Output
 from webtool.cli import _size
-from webtool.cli.app import app
 
 DEFAULT_CHARS = ' .:-=+*#%@'
 
@@ -82,7 +81,6 @@ def _to_ascii(data, width, height, chars, invert):
     return '\n'.join(out)
 
 
-@app.command('pic')
 def pic_cmd(src: str = typer.Argument(None, help='图片源: 路径 / http(s) URL / data: URI / 裸 base64 / - 读 stdin'),
             width: int = typer.Option(80, '-w', '--width', help='输出列数'),
             height: int = typer.Option(0, '--height', help='输出行数 (默认按比例, 字高≈宽 2 倍)'),
@@ -92,7 +90,7 @@ def pic_cmd(src: str = typer.Argument(None, help='图片源: 路径 / http(s) UR
             fmt: str = Fmt, output: str = Output):
     """图片转字符画 (jpg/png/webp/gif/bmp; 本地或 URL)"""
     if src is None:
-        print('用法: webtool pic <图片> [-w 80] [--height N] [--size 120x40] [-c] [--sixel]\n'
+        print('用法: webtool render image <图片> [-w 80] [--height N] [--size 120x40] [-c] [--sixel]\n'
               '  图片源: 本地路径 / http(s) URL / data: URI / 裸 base64 / - 读 stdin',
               file=sys.stderr)
         return 2

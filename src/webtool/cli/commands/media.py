@@ -16,7 +16,6 @@ import time
 import typer
 
 from webtool.cli import _size
-from webtool.cli.app import app
 
 RAMP = ' .:-=+*#%@'
 HIDE, SHOW, HOME = '\033[?25l', '\033[?25h', '\033[H'
@@ -351,7 +350,6 @@ def _play(make_frames, fps, loop):
         out.write(SHOW + '\n')
 
 
-@app.command('video')
 def video_cmd(src: str = typer.Argument(None, help='视频路径或 URL (http/https 走代理规则)'),
               width: int = typer.Option(0, '-w', '--width', help='输出列数 (默认跟着终端宽度)'),
               height: int = typer.Option(0, '--height', help='输出行数 (默认按比例, 装不下自动收窄)'),
@@ -368,7 +366,7 @@ def video_cmd(src: str = typer.Argument(None, help='视频路径或 URL (http/ht
               player: str = typer.Option(None, '--player', help='指定播放器 (默认自动找)')):
     """视频转字符画播放 (Bad Apple 效果; URL 边收边放, 不全量下载; 需要 ffmpeg)"""
     if src is None:
-        print('用法: webtool video <视频> [-w 100] [--height N] [--size 120x40]\n'
+        print('用法: webtool render video <视频> [-w 100] [--height N] [--size 120x40]\n'
               '  路径或 http(s) URL, 边收边放转字符画', file=sys.stderr)
         return 2
     if len(chars) < 2:
@@ -539,7 +537,6 @@ def _music_frames(path, freqs, costs, rate, fps, bands, rows, start, dur, title,
             p.kill()
 
 
-@app.command('music')
 def music_cmd(src: str = typer.Argument(None, help='音频路径或 URL (http/https 走代理规则)'),
               bands: int = typer.Option(0, '--bands', help='频谱柱数 (列数; 默认跟终端宽度, 上限 64)'),
               rows: int = typer.Option(0, '--rows', help='柱子最高多少行 (默认跟终端高度)'),
@@ -554,7 +551,7 @@ def music_cmd(src: str = typer.Argument(None, help='音频路径或 URL (http/ht
               player: str = typer.Option(None, '--player', help='指定播放器 (默认自动找; 找不到只放画面)')):
     """音乐转字符律动: 频谱柱动画 (URL 边收边放, 不全量下载; 需要 ffmpeg 解码)"""
     if src is None:
-        print('用法: webtool music <音频> [--bands N] [--rows N] [--size 100x16]\n'
+        print('用法: webtool render music <音频> [--bands N] [--rows N] [--size 100x16]\n'
               '  路径或 http(s) URL, 终端频谱动画', file=sys.stderr)
         return 2
     try:

@@ -5,7 +5,6 @@ import unicodedata
 import typer
 
 from webtool.cli._ctx import _run, Fmt, Output
-from webtool.cli.app import app
 from webtool.cli.bannerfont import COL, DEFAULT_FONT, GLYPHS, ROW, _FONTS
 from webtool.core.config_data import DATA_DIR
 
@@ -141,7 +140,6 @@ def _render_big(text, cols=0, chars=_BIG_RAMP):
     return '\n'.join(out)
 
 
-@app.command('banner')
 def banner_cmd(text: list[str] = typer.Argument(None, help='要排版的文字 (可给多个词; 留空读 stdin)'),
                font: str = typer.Option(DEFAULT_FONT, '--font', help='字体 (见 --list; big = 字体栅格化, 支持汉字)'),
                spacing: int = typer.Option(1, '--spacing', help='字间距 (空列数)'),
@@ -165,8 +163,8 @@ def banner_cmd(text: list[str] = typer.Argument(None, help='要排版的文字 (
         from webtool.core import stdin as _stdin
         s = _stdin.read_input(words, what='要排版的文字')
         if not s or not s.strip():
-            print('用法: webtool banner <文字> [--font big] [--spacing 1] [--width N]\n'
-                  '  文字也可从管道喂: echo HI | webtool banner', file=sys.stderr)
+            print('用法: webtool render text <文字> [--font big] [--spacing 1] [--width N]\n'
+                  '  文字也可从管道喂: echo HI | webtool render text', file=sys.stderr)
             return 2
         if font == 'big' or any(ord(c) > 127 for c in s):     # 汉字/emoji → 字体栅格化
             if font in _FONTS:

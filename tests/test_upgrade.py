@@ -262,8 +262,8 @@ def main():
     _rc, _o = run('upgrade', '--check', '-f', 'json')
     check(_rc == 1 and json.loads(_o)['state'] == 'behind',
           '有新版本 → 退出码 1, -f json 可解析')
-    _rc, _o = run('update', '--check')            # 别名
-    check(_rc == 1, 'update 是 upgrade 的别名 (同一实现)')
+    _rc, _o = run('update', '--check')            # 别名已按"不留别名"原则删除
+    check(_rc == 2, 'update 别名已移除: 未知命令退 2, 提示改用 upgrade')
     _up._pip = _stub(1, None, err='ERROR: nope')
     _rc, _o = run('upgrade', '--check')
     check(_rc == 2, '判不出来 → 退出码 2 (不是 0)')

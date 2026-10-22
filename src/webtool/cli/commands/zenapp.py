@@ -4,7 +4,6 @@
 (cls=_DefaultGroup 的默认命令)。
 """
 import typer
-from typer.core import TyperGroup
 
 from webtool.cli._ctx import (
     Fmt, NoCache, NoProxy, Output, _CTX, _entry_fn, _norm_think, _run,
@@ -12,26 +11,10 @@ from webtool.cli._ctx import (
 from webtool.cli.app import app
 
 
-class _DefaultGroup(TyperGroup):
-    """第一个词不是已知子命令 (也不是选项) 时, 当作默认命令的参数"""
-    default_cmd = 'chat'
+from webtool.cli.commands._group import make_group
 
-    def resolve_command(self, ctx, args):
-        # 空参数也交给默认命令 (feed 无参=列清单, zen 无参=空 prompt)。
-        # 用 get_commands(ctx): TyperGroup.commands 依赖 ctx, 无参时是空的。
-        names = self.list_commands(ctx)
-        if self.default_cmd in names and (
-                not args or (args[0] not in names and not args[0].startswith('-'))):
-            return (self.default_cmd,
-                    self.get_command(ctx, self.default_cmd), args)
-        return super().resolve_command(ctx, args)
-
-
-zen_app = typer.Typer(
-    cls=_DefaultGroup, add_completion=False, no_args_is_help=False,
-    rich_markup_mode=None,
-    help='OpenCode Zen 对话 (公开模式, 无需 key): zen "问题" | zen models | zen agent',
-    context_settings={'help_option_names': ['-h', '--help']})
+zen_app = make_group('chat',
+    'OpenCode Zen 对话 (公开模式, 无需 key): zen "问题" | zen models | zen agent')
 
 
 def _build(fmt, output, no_proxy, no_cache, **kw):

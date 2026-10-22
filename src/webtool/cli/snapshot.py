@@ -1,10 +1,10 @@
 """snapshot / diff: 页面存档与版本对比
 
-`snapshot` 把一页的正文存进 `~/.webtool/snapshots/`, `diff` 拿两版比。两者合起来
+`diff save` 把一页的正文存进 `~/.webtool/snapshots/`, `diff` 拿两版比。两者合起来
 解决 webtool 之前完全没有的维度: **这个页面变了没有**。
 
-    webtool snapshot https://example.com/price          # 存第一版
-    webtool snapshot https://example.com/price          # 第二天再存 (内容没变就不追加)
+    webtool diff save https://example.com/price         # 存第一版
+    webtool diff save https://example.com/price         # 第二天再存 (内容没变就不追加)
     webtool diff example.com-price --prev               # 比最近两版
     webtool diff NAME https://example.com/price         # 存档 vs 现在 (边看边存)
 
@@ -59,7 +59,7 @@ def _resolve(spec, args):
         if not ok:
             raise ValueError('抓取 %s 失败: %s' % (spec, content))
         return {'label': spec, 'content': content}
-    raise ValueError('找不到快照 %r (webtool snapshot --list 看已有的), '
+    raise ValueError('找不到快照 %r (webtool diff list 看已有的), '
                      '也不是能抓的 URL 或存在的文件' % spec)
 
 
@@ -72,7 +72,7 @@ def do_snapshot(args, cfg):
             print(json.dumps(rows, ensure_ascii=False, indent=1))
             return 0
         if not rows:
-            print('还没有快照 (webtool snapshot <URL> 存一版)')
+            print('还没有快照 (webtool diff save <URL> 存一版)')
             return 0
         import time as _t
         print('%-40s %6s %8s  %s' % ('名字', '版数', '字数', '最近存档'))
@@ -106,8 +106,9 @@ def do_snapshot(args, cfg):
 
     url = (args.url or '').strip()
     if not url:
-        print('用法: webtool snapshot <URL> [--name 名字]  |  '
-              'webtool snapshot --list  |  --history 名字  |  --rm 名字',
+        print('用法: webtool diff save <URL> [--name 名字]  |  '
+              'webtool diff list  |  webtool diff history 名字  |  '
+              'webtool diff rm 名字',
               file=sys.stderr)
         return 2
     if not _looks_url(url):
@@ -149,7 +150,7 @@ def do_diff(args, cfg):
                 print('diff: 给两份才能比 (%r 不是快照名); 例: '
                       'webtool diff %s 另一版' % (a, a), file=sys.stderr)
             else:
-                print('diff: 没有快照 %r (webtool snapshot --list 看已有的)'
+                print('diff: 没有快照 %r (webtool diff list 看已有的)'
                       % a, file=sys.stderr)
             return 2
         if len(rows) < 2:

@@ -37,11 +37,17 @@ def builtin_blocklist():
 DEFAULT_BLOCKLIST = builtin_blocklist()
 
 
+def _user_path():
+    """用户黑名单文件; 跟着 WEBTOOL_DIR 走 (测试/多实例隔离)"""
+    base = os.environ.get('WEBTOOL_DIR') or '~/.webtool'
+    return os.path.join(os.path.expanduser(base), 'blocklist.json')
+
+
 def load_blocklist():
     """返回 (block_set, allow_set); 内置表 mtime 热生效"""
     block = set(builtin_blocklist())
     allow = set()
-    path = os.path.expanduser('~/.webtool/blocklist.json')
+    path = _user_path()
     if os.path.exists(path):
         try:
             with open(path, encoding='utf-8') as f:
@@ -94,8 +100,8 @@ def filter_blocked(results, ctx=None):
 
 
 def handle_cli(args):
-    """webtool blocklist show/add/remove/reset"""
-    path = os.path.expanduser('~/.webtool/blocklist.json')
+    """webtool config blocklist show/add/remove/reset"""
+    path = _user_path()
     data = {'block': [], 'allow': []}
     if os.path.exists(path):
         try:
