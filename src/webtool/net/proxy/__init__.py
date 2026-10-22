@@ -15,6 +15,7 @@
 from webtool.core.config_data import USER_DIR as USER_DIR
 from webtool.net.proxy.auth import (_delpass as _delpass, _passwd as _passwd,
                                     _setpass as _setpass)
+from webtool.net.proxy.cli import dispatch as dispatch
 from webtool.net.proxy.cli import handle as handle
 from webtool.net.proxy.geo import (_asn as _asn, _geoip as _geoip,
                                    _geosite as _geosite)

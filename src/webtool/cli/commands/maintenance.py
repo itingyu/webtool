@@ -171,9 +171,9 @@ def _upgrade_run(check_only, spec, fmt, output):
     return _run(None, fn, fmt, output, False, False)
 
 _PROXY_EPILOG = _verbatim("""子命令
-  线路  get set unset test noproxy named
+  线路  get set unset test named noproxy
   凭据  passwd setpass delpass cert
-  分流  rules tidy rule ruledel
+  分流  rules rule add|del tidy
   数据  geoip geosite geo asn
 
 例
@@ -186,27 +186,126 @@ _PROXY_EPILOG = _verbatim("""子命令
 
 注: 上面都是举例地址, 没有任何一个是 webtool 的内置默认值 —— 没配就是直连。""")
 
+proxy_app = typer.Typer(add_completion=False, no_args_is_help=True,
+                        rich_markup_mode=None, epilog=_PROXY_EPILOG,
+                        context_settings={'help_option_names': ['-h', '--help']},
+                        help='代理配置: 选线路 / 存凭据(密文) / 按域名-IP-端口-协议-GeoIP 分流')
+rule_app = typer.Typer(add_completion=False, no_args_is_help=True,
+                       rich_markup_mode=None,
+                       context_settings={'help_option_names': ['-h', '--help']},
+                       help='规则表: add <match JSON> <动作> | del <序号>')
+proxy_app.add_typer(rule_app, name='rule')
 
-@app.command('proxy', epilog=_PROXY_EPILOG)
-def proxy_cmd(action: str = typer.Argument(None, help='子命令, 完整清单见下方目录 (不填就打印目录)'),
-              value: str = typer.Argument(None, help='代理地址; 或 rule/cert 的子命令; 或试算用的 URL'),
-              user: str = typer.Argument(None, help='setpass/delpass 的用户名; rule add 的 match JSON; ruledel 的序号'),
-              act: str = typer.Argument(None, help='rule add 的动作: direct/proxy/block/proxy:<名字>'),
-              first: bool = typer.Option(False, '--first', help='rule add: 插到规则表最前面 (默认追加到末尾, 会被前面的规则吃掉)'),
-              pos: int = typer.Option(None, '--pos', help='rule add: 插到第 N 位 (0 = 最前)'),
-              apply: bool = typer.Option(False, '--apply', help='tidy: 落盘 (默认干跑, 落盘前自动备份)'),
-              url: str = typer.Option(None, '--url', help='test: 探活目标 (默认 google generate_204)')):
-    """代理配置: 选线路 / 存凭据(密文) / 按域名-IP-端口-协议-GeoIP 分流"""
-    if not action:
-        print(_PROXY_EPILOG)
-        return 0
-    a = _CTX['args']
-    a.action, a.value, a.user, a.act = action, value, user, act
-    a.first, a.pos, a.apply, a.url = first, pos, apply, url
-    cfg = _proxy.load_config()
+_ProxyUrl = typer.Argument(None, help='代理地址, 如 http://127.0.0.1:7890')
+_ProxyName = typer.Argument(None, help='命名代理的名字; 或 list / del')
+
+
+def _p(action, **kw):
+    """调 proxy 各动作; 参数语义按各 handler 自己的字段传, 不再做位置换位"""
+    from webtool.net import proxy as _P
+    cfg = _P.load_config()
     if _CTX.get('proxy'):
         cfg['proxy'] = _CTX['proxy']
-    return _proxy.handle(a, cfg) or 0
+    return _P.dispatch(action, cfg, **kw)
+
+
+@proxy_app.command('get', help='查看当前线路、命名代理与规则来源')
+def proxy_get():
+    return _p('get')
+
+
+@proxy_app.command('set', help='设全局线路 (URL 不许带明文密码, 用 setpass 存)')
+def proxy_set(url: str = typer.Argument(..., help='代理地址, 如 http://127.0.0.1:7890')):
+    return _p('set', value=url)
+
+
+@proxy_app.command('unset', help='取消全局线路, 回到直连/按规则走')
+def proxy_unset():
+    return _p('unset')
+
+
+@proxy_app.command('test', help='探活一条线路, 并说明它与目标 URL 实际走的线是否一致')
+def proxy_test(which: str = typer.Argument(None, help='要测的线路: 名字或 URL (缺省测当前线路)'),
+               url: str = typer.Option(None, '--url', help='探活目标 (默认 google generate_204)')):
+    return _p('test', value=which, url=url)
+
+
+@proxy_app.command('named', help='命名代理: named <名字> <URL> | named del <名字> | named (列全部)')
+def proxy_named(name: str = _ProxyName, url: str = _ProxyUrl):
+    return _p('named', value=name, user=url)
+
+
+@proxy_app.command('noproxy', help='试算常见站点各走哪条线, 确认分流符合预期')
+def proxy_noproxy(urls: str = typer.Argument(None, help='逗号分隔的 URL 列表 (缺省用内置样例)')):
+    return _p('noproxy', value=urls)
+
+
+@proxy_app.command('passwd', help='交互式设置全局线路的密码并加密存进保险库')
+def proxy_passwd():
+    return _p('passwd')
+
+
+@proxy_app.command('setpass', help='存一条凭据: setpass <用户名> [密码] (密码留空则交互输入)')
+def proxy_setpass(user: str = typer.Argument(..., help='用户名, 或 user@host:port'),
+                  password: str = typer.Argument(None, help='密码 (留空则交互输入, 避免进 history)')):
+    return _p('setpass', user=user, value=password)
+
+
+@proxy_app.command('delpass', help='删掉一条已存凭据')
+def proxy_delpass(user: str = typer.Argument(..., help='用户名, 或 user@host:port')):
+    return _p('delpass', user=user)
+
+
+@proxy_app.command('cert', help='站点证书: cert list | cert sync (按站点把信任根写进规则表)')
+def proxy_cert(action: str = typer.Argument('list', help='list / sync')):
+    return _p('cert', value=action)
+
+
+@proxy_app.command('rules', help='打印规则表; 带 URL 时试算这条请求走哪条线')
+def proxy_rules(url: str = typer.Argument(None, help='要试算的 URL (可选)')):
+    return _p('rules', value=url)
+
+
+@proxy_app.command('tidy', help='规则表去重/合并 (默认干跑, --apply 落盘并自动备份)')
+def proxy_tidy(apply: bool = typer.Option(False, '--apply', help='落盘 (默认只展示改动)')):
+    return _p('tidy', apply=apply)
+
+
+@rule_app.command('add', help='加一条规则: add <match JSON> <动作>')
+def proxy_rule_add(match: str = typer.Argument(..., help='match JSON, 如 {"domain":["example.com"]}'),
+                   act: str = typer.Argument(..., help='direct / proxy / block / proxy:<名字>'),
+                   first: bool = typer.Option(False, '--first', help='插到最前面 (默认追加到末尾, 会被前面的规则吃掉)'),
+                   pos: int = typer.Option(None, '--pos', help='插到第 N 位 (0 = 最前)')):
+    return _p('rule', user=match, act=act, first=first, pos=pos)
+
+
+@rule_app.command('del', help='删一条规则: del <序号> (proxies rules 看序号)')
+def proxy_rule_del(index: str = typer.Argument(..., help='规则序号, 从 0 开始')):
+    return _p('ruledel', user=index)
+
+
+@proxy_app.command('geoip', help='GeoIP 国家库: 带路径设库 / update 在线更新 / 不带看状态')
+def proxy_geoip(ip: str = typer.Argument(None, help='库文件路径 (.mmdb 或 geoip.dat) 或 update')):
+    return _p('geoip', value=ip)
+
+
+@proxy_app.command('geosite', help='GeoSite 域名库: 带路径设库 / update 在线更新 / 不带看状态')
+def proxy_geosite(domain: str = typer.Argument(None, help='库文件路径 (geosite.dat) 或 update')):
+    return _p('geosite', value=domain)
+
+
+@proxy_app.command('geo', help='GeoIP/GeoSite 数据: geo status|update [geosite|geoip|all]')
+def proxy_geo(action: str = typer.Argument('status', help='status / update'),
+              target: str = typer.Argument('all', help='geosite / geoip / all')):
+    return _p('geo', value=action, user=target)
+
+
+@proxy_app.command('asn', help='配 ASN 库 (GeoLite2-ASN.mmdb 路径), 并自检一条')
+def proxy_asn(ip: str = typer.Argument(..., help='GeoLite2-ASN.mmdb 路径')):
+    return _p('asn', value=ip)
+
+
+app.add_typer(proxy_app, name='proxy')
 
 @app.command('pkg', context_settings={'allow_extra_args': True,
                                       'ignore_unknown_options': True})

@@ -1,5 +1,6 @@
 """proxy 子命令分发: webtool proxy <子命令> → 各 handler"""
 import sys
+from types import SimpleNamespace
 
 from webtool.net.proxy.auth import _delpass, _passwd, _setpass
 from webtool.net.proxy.geo import _asn, _geo, _geoip, _geosite
@@ -54,3 +55,20 @@ _ACTIONS = {
     'asn': _asn,
     'noproxy': _noproxy,
 }
+
+
+def dispatch(action, cfg, **kw):
+    """按动作名直接调用 handler (给 CLI 子命令用)
+
+    关键字就是各 handler 自己的字段: value / user / act / first / pos /
+    apply / url。子命令已经把这些字段摆正 (如 setpass 的 user=用户名),
+    所以这里不做 handle() 里那套位置换位。
+    """
+    fn = _ACTIONS.get(action)
+    if fn is None:
+        raise KeyError('unknown proxy action: %s' % action)
+    args = SimpleNamespace(action=action, value=kw.get('value'),
+                           user=kw.get('user'), act=kw.get('act'),
+                           first=kw.get('first', False), pos=kw.get('pos'),
+                           apply=kw.get('apply', False), url=kw.get('url'))
+    return fn(args, cfg) or 0
