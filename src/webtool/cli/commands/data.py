@@ -148,6 +148,8 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
               fields: str = typer.Option(None, '--fields',
                                          help='只要这些结构化字段, 逗号分隔 (如 name,price,availability); '
                                               '隐含 --structured, 支持 offers.price 这类路径'),
+              links: bool = typer.Option(False, '--links',
+                                         help='顺带抽出页面里的站内链接 (json 里给 links, 供 crawl 用)'),
               profile: str = typer.Option(None, '--profile',
                                           help='传输指纹档案: chrome131_win/mac/linux/android, '
                                                'safari18_4_ios 等 (移动站/拿不到数据时试 android/ios)'),
@@ -179,6 +181,7 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
     a.max_chars, a.raw, a.with_metadata, a.profile = max_chars, raw, with_metadata, profile
     a.mark_untrusted = mark_untrusted
     a.structured, a.fields = structured, fields
+    a.links, a.links_same_host = links, True
     a.extract = extract
     a.save = save
     a.progress = progress
@@ -400,6 +403,31 @@ def watch_cmd(target: list[str] = typer.Argument(None,
     a.list, a.reset = list_, reset
     a.max_seen = max(50, max_seen)
     return _run('data', _entry_fn('watch'), fmt, output, no_cache, no_proxy)
+
+@app.command('crawl')
+def crawl_cmd(url: str = typer.Argument(None, help='起点 URL'),
+              depth: int = typer.Option(2, '--depth', help='最多跟几层链接 (0=只抓这一页)'),
+              max_pages: int = typer.Option(20, '--max', help='最多抓多少页'),
+              delay: float = typer.Option(0.5, '--delay', help='每页之间停几秒 (别把人家站打疼)'),
+              include: str = typer.Option(None, '--include', help='只跟匹配这个正则的 URL'),
+              exclude: str = typer.Option(None, '--exclude', help='跳过匹配这个正则的 URL'),
+              any_host: bool = typer.Option(False, '--any-host', help='允许跨域名'),
+              no_robots: bool = typer.Option(False, '--no-robots', help='不读 robots.txt'),
+              max_chars: int = typer.Option(0, '--max-chars', help='每页正文截断字符数, 0=不截断'),
+              save_dir: str = typer.Option(None, '--save', help='把每页存成 markdown 到这个目录'),
+              fmt: str = Fmt, output: str = Output,
+              no_proxy: bool = NoProxy, no_cache: bool = NoCache):
+    """小站/文档站抓取: 从一页顺着站内链接爬有限几页
+
+    默认同 host、遵守 robots.txt、页间隔 0.5s, 深度和页数都有硬上限 ——
+    是"把一个文档站读下来"的工具, 不是通用爬虫。正文照旧走 fetch (含缓存/抽取)。
+    """
+    a = _CTX['args']
+    a.url, a.depth, a.max = url, depth, max(1, max_pages)
+    a.delay, a.include, a.exclude = delay, include, exclude
+    a.any_host, a.no_robots = any_host, no_robots
+    a.max_chars, a.save_dir = max(0, max_chars), save_dir
+    return _run('data', _entry_fn('crawl'), fmt, output, no_cache, no_proxy)
 
 @app.command('site')
 def site_cmd(site: str = typer.Argument(None, help='站点 key, `webtool site list` 查看全部'),

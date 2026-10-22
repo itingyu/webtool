@@ -183,6 +183,7 @@ def _entry_fn(name):
                'snapshot': ('cli.snapshot', 'do_snapshot'),
                'diff': ('cli.snapshot', 'do_diff'),
                'watch': ('cli.watch', 'do_watch'),
+               'crawl': ('cli.crawl', 'do_crawl'),
                'stock': ('stock.command', 'do_stock'),
                'feed': ('feeds.command', 'do_feed')}[name]
         m = importlib.import_module('webtool.' + mod[0])

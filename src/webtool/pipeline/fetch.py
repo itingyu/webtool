@@ -551,6 +551,10 @@ def _attach_struct(out, html, url, args):
     """
     want = getattr(args, 'structured', False)
     names = getattr(args, 'fields', None)
+    if getattr(args, 'links', False) and html:
+        from webtool.core import links as _lk
+        out['links'] = _lk.extract_links(
+            html, url, same_host=getattr(args, 'links_same_host', True))
     if not (want or names) or not html:
         return out
     from webtool.core import structured as _st
@@ -571,7 +575,9 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
             f'{getattr(args, "via", "") or "local"}|{_EXTRACT_GEN}'
             f'|{extract_mode}|{getattr(args, "pdf_pages", "") or ""}'
             f'|{"s" if getattr(args, "structured", False) else ""}'
-            f'|{getattr(args, "fields", "") or ""}')
+            f'|{getattr(args, "fields", "") or ""}'
+            f'|{"l" if getattr(args, "links", False) else ""}'
+            f'|{"1" if getattr(args, "links_same_host", True) else "0"}')
     cached = None if (args.no_cache or args.raw) else cache.get(cfg, 'fetch', ckey)
     if cached is not None:
         cached['cache'] = 'hit'
