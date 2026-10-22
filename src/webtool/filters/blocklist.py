@@ -125,7 +125,7 @@ def handle_cli(args):
         key = 'allow' if getattr(args, 'allow', False) else 'block'
         domain = (args.domain or '').lower().strip().lstrip('.')
         if not domain:
-            print('usage: webtool blocklist add <domain> [--allow]', file=__import__('sys').stderr)
+            print('usage: webtool config blocklist add <domain> [--allow]', file=__import__('sys').stderr)
             return 2
         if args.action == 'add':
             if domain not in data.get(key, []):
