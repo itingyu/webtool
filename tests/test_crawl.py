@@ -1,10 +1,7 @@
 """crawl 的离线测试: 打桩 _fetch_page, 不碰网络"""
 import io
-import json
 import os
-import shutil
 import sys
-import tempfile
 from contextlib import redirect_stdout
 from types import SimpleNamespace
 

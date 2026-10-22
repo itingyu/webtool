@@ -397,7 +397,7 @@ def clamp(model, requested):
 
 
 def describe(rows=None):
-    """人读摘要, 给 `webtool zen --limits` 用 → [str]"""
+    """人读摘要, 给 `webtool zen limits` 用 → [str]"""
     d = load() if rows is None else rows
     if not d:
         return ['还没有任何模型上限 —— 首次调用会从模型目录预取; '
@@ -413,5 +413,5 @@ def describe(rows=None):
     if floor:
         out.append('目录里查不到的模型会按最保守值 %d 兜底 (不盲发)。' % floor)
     out.append('请求的 --max-tokens 超过这些值时会自动降档 (并说明)。'
-               '要忘掉: webtool zen --forget-limits [--model <名>]')
+               '要忘掉: webtool zen limits --forget [--model <名>]')
     return out

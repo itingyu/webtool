@@ -294,7 +294,7 @@ def _act_health(args, cfg):
 
 def _route_probe():
     """规则表对一个典型数据源域名的实际决策 —— 让用户能确认配置生效了"""
-    from webtool.stock.bridge.sources import _routing
+    from webtool.net import routing as _routing
     return {u: _routing.resolve(u)
             for u in ('https://push2.eastmoney.com/',
                       'https://stock.xueqiu.com/',

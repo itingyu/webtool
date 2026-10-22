@@ -129,8 +129,12 @@ try:
           '--dry-run 只报要跑什么, 不动手')
     calls.clear()
     rc, out = run('uninstall')
+    check(rc == 2 and not calls and _TMP3.exists(),
+          '默认无参: 拒绝执行 (危险命令要先确认), 包和数据都不动', rc)
+    calls.clear()
+    rc, out = run('uninstall', '--yes')
     check(rc == 0 and calls and _TMP3.exists() and '数据没动' in out,
-          '默认: 卸包 + 明确告诉你数据没动', out.splitlines()[:1])
+          '--yes: 卸包 + 明确告诉你数据没动', out.splitlines()[:1])
     calls.clear()
     rc, out = run('uninstall', '--purge-data', '--yes', '-f', 'json')
     d = json.loads(out)

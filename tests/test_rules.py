@@ -273,9 +273,15 @@ if os.path.exists(_seed_dst):                     # 别的用例已写过就清�
 _made = BOOT.ensure_user_files()
 check(os.path.exists(_seed_dst), '缺失时把包内 rules.json 落到用户目录')
 check(os.path.join(WEBTOOL_DIR, 'rules.json') in _made, '返回值报出新建的文件')
-check(open(_seed_dst, encoding='utf-8').read()
-      == open(os.path.join(DATA_DIR, 'rules.json'), encoding='utf-8').read(),
-      '落地内容 = 包内默认逐字节一致')
+# 首启落地时 bootstrap 会把 default 从 proxy:default 改写成 direct
+# (没代理的机器原样落地会每条请求都撞"规则引用了未定义的代理"),
+# 且会重新序列化 —— 所以比对 JSON 结构而不是字节。
+_seed = json.loads(open(os.path.join(DATA_DIR, 'rules.json'), encoding='utf-8').read())
+_dst = json.loads(open(_seed_dst, encoding='utf-8').read())
+if (str(_seed.get('default') or '').startswith('proxy')
+        and not (_seed.get('proxies') or {})):
+    _seed['default'] = 'direct'
+check(_dst == _seed, '落地内容 = 包内默认 (default 按首启规则改写为 direct)')
 _again = BOOT.ensure_user_files()
 check(_again == [], f'已有文件不重复补 (实际 {_again})')
 with open(_seed_dst, 'w', encoding='utf-8') as _f:

@@ -24,7 +24,7 @@ def _install() -> None:
         return
     import requests
 
-    from webtool.stock.bridge.sources._routing import proxies_for
+    from webtool.net.routing import proxies_for
 
     orig = requests.sessions.Session.request
 

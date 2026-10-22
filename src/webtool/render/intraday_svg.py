@@ -15,9 +15,7 @@
 (轴上只有一个 %, 混用每天各自的昨收会自相矛盾), 每日自己的昨收用灰虚线画。
 """
 import html
-from datetime import datetime
 
-from webtool.render.kline_svg import MA_COLORS
 
 UP = '#e2453c'          # 涨
 DOWN = '#17a673'        # 跌
@@ -168,8 +166,6 @@ def render_intraday_svg(days, title='', subtitle='', width=980,
          f'<rect width="{width}" height="{h}" fill="#fff"/>']
 
     # ── 标题 ────────────────────────────────────────────────────
-    d0, dn = days[0]['date'], days[-1]['date']
-    span_txt = (d0[5:] if d0 == dn or not multi else f'{d0[5:]} ~ {dn[5:]}')
     s.append(f'<text x="{left}" y="26" font-size="17" font-weight="600" '
              f'fill="{INK}">{html.escape(title)}</text>')
     s.append(f'<text x="{left}" y="47" font-size="12" fill="{AXIS}">'
@@ -470,7 +466,6 @@ def render_intraday_svg(days, title='', subtitle='', width=980,
     # ── 时间轴: 单日标时刻 (取分界线的位置), 多日只标日期 ──────────
     if not multi:
         di, guides = day_guides[0]
-        prev_x = -1e9
         labels = []                      # (gx, lab, anchor)
         for frac, lab, emph in guides:
             gx = xpos(di, frac)

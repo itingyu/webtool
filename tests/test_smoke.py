@@ -664,7 +664,8 @@ with _tf.TemporaryDirectory() as _td:
 
 # ── 出网路由: 四条通道都必须问规则表 ──────────────────────────────
 print('\n=== 代理路由 (配置说了算) ===')
-from webtool.stock.bridge.sources import _routing, APIClient as _NewClient
+from webtool.net import routing as _routing
+from webtool.stock.bridge.sources import APIClient as _NewClient
 from webtool.stock.bridge import _eco_net as _econet
 
 _a = _NewClient()

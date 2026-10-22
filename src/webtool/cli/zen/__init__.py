@@ -200,7 +200,7 @@ def _do_zen(args, cfg):
     if tip:
         print('zen: %s' % tip, file=sys.stderr)
 
-    # 记住的模型输出上限: --limits 读出来, --forget-limits 清掉 (都不联网)
+    # 记住的模型输出上限: zen limits 读出来, --forget 清掉 (都不联网)
     if getattr(args, 'limits', False) or getattr(args, 'forget_limits', False):
         from webtool.cli.zen import limits as _lim
         if getattr(args, 'forget_limits', False):

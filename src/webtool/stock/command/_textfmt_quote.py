@@ -352,7 +352,6 @@ def _text_intraday(out):
 
 
 def _md_intraday(out):
-    d = (out or {}).get('data') or {}
     head, lines, pts = _intraday_summary(out)
     if not pts:
         print(f'**{head}**: 无数据')

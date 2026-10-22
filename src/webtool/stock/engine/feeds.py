@@ -193,7 +193,7 @@ def ths_industry_rows(limit=10):
         # q 站偶发回 401 验证页 (html 为空), 换 v cookie 重试一次
         # (带 Cookie: v=xxx 可过, 因为 sources 层会话缺这个头)
         import requests as _rq
-        from webtool.stock.bridge.sources import _routing
+        from webtool.net import routing as _routing
         s = _rq.Session()
         s.trust_env = False               # 线路只由配置/规则表决定
         # 证书不用自己管: 这个会话已被 adapters.patch_requests 挂上 transport 适配器,

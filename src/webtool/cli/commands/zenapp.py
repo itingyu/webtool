@@ -157,11 +157,16 @@ def _debug(prompt: list[str] = typer.Argument(None, help='要预览的问题'),
            show: str = typer.Option(None, '--show', help='只看一段: request/headers/body/text'),
            model: str = typer.Option(None, '--model', help='模型 id'),
            system: str = typer.Option(None, '--system', help='system prompt'),
+           max_tokens: int = typer.Option(None, '--max-tokens', help='回复上限 token'),
+           think: str = typer.Option(None, '--think',
+                                     help='思考档位: off/low/medium/high/xhigh'),
+           tools: str = typer.Option(None, '--tools', help='工具集: min/all/逗号清单'),
            fmt: str = Fmt, output: str = Output,
            no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """打印将要发出的请求, 不联网"""
     return _build(fmt, output, no_proxy, no_cache,
                   prompt=' '.join(prompt or []), model=model, system=system,
+                  max_tokens=max_tokens, think=think, tools=tools,
                   dry_run=True, show=show)
 
 

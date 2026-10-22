@@ -45,7 +45,6 @@ def _scan_site_adapters():
     """
     import ast
     import os
-    import inspect as _inspect
 
     try:
         import webtool.engines as _eng

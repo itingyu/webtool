@@ -77,7 +77,7 @@ def t_client_headers_filtered():
             holder.append(fi)
             return fi
 
-    import webtool.stock.bridge.sources._routing as _rt
+    import webtool.net.routing as _rt
     orig = _rt.RoutedCffiSession
     _rt.RoutedCffiSession = _FakeCls
     try:

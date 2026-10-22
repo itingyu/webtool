@@ -28,7 +28,8 @@ from typing import Any
 
 import threading
 
-from webtool.stock.bridge.sources import _routing, _symbol
+from webtool.net import routing as _routing
+from webtool.stock.bridge.sources import _symbol
 
 
 def _ok(data: Any, raw_size: int = 0) -> dict:

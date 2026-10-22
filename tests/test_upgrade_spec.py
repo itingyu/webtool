@@ -25,6 +25,10 @@ with open(os.path.join(TMP, 'rules.json'), 'w', encoding='utf-8') as f:
     json.dump({'default': 'proxy:default',
                'proxies': {'default': 'http://127.0.0.1:2080'},
                'rules': [{'match': {'domain': ['*.lab']}, 'action': 'direct'}]}, f)
+# 这里测的是"规则表怎么判", 不是"代理起没起": 关掉可达性兜底, 否则跑测试的
+# 机器上 127.0.0.1:2080 没监听, 线路会被判成直连, 用例全跟着环境漂
+with open(os.path.join(TMP, 'config.json'), 'w', encoding='utf-8') as f:
+    json.dump({'proxy_fallback': 'off'}, f)
 
 from webtool.core import upgrade as up          # noqa: E402
 from webtool.cli import app as app_mod          # noqa: E402
@@ -73,27 +77,34 @@ check(app_mod._pip_route_note('git+https://github.com/a/b', PROXY_ENV) is None,
 check(app_mod._pip_route_note('requests', PROXY_ENV) is None,
       'PyPI 源 + 代理 → 无需提示')
 note = app_mod._pip_route_note('git+ssh://git@github.com/a/b', PROXY_ENV)
-check(note and '不认' in note and 'git+https' in note,
+check(note and '吃不到代理' in note and 'git+https' in note,
       'ssh 源 + 代理 → 明说代理无效并给出替代命令', str(note))
 note = app_mod._pip_route_note('git://github.com/a/b.git', PROXY_ENV)
-check(note and '不认' in note, 'git:// 源 + 代理 → 同样明说', str(note))
+check(note and '吃不到代理' in note, 'git:// 源 + 代理 → 同样明说', str(note))
 check(app_mod._pip_route_note('file:///srv/webtool', PROXY_ENV) is None,
       '本地源 + 代理 → 不唠叨 (压根不出网)')
-check(app_mod._pip_route_note('git+ssh://git@github.com/a/b', DIRECT_ENV) is None,
-      'ssh 源但本来就是直连 → 不唠叨')
+check(app_mod._pip_route_note('git+ssh://git@git.lab/a/b', DIRECT_ENV) is None,
+      'ssh 源但本来就是直连 → 不唠叨 (规则表 *.lab=direct)')
 
 # ── 判线路用的是"源的地址", 不是写死的 github.com ────────────────────────
-check(app_mod._pip_proxy_env().get('HTTPS_PROXY') == 'http://127.0.0.1:2080',
-      '默认源 (github) → 规则表判代理, 给 pip 塞代理变量',
-      str(app_mod._pip_proxy_env()))
-check(set(app_mod._pip_proxy_env('git+https://git.lab/x/y.git')) ==
-      {'NO_PROXY', 'no_proxy'},
-      '--from 换成规则表判直连的源 → 改成 NO_PROXY=* (不拿 github 的线路套)',
-      str(app_mod._pip_proxy_env('git+https://git.lab/x/y.git')))
+_env = app_mod._pip_proxy_env()
+check(_env.get('GIT_CONFIG_VALUE_0') == 'http://127.0.0.1:2080',
+      '默认源 (github) → 规则表判代理, 只给 git 腿 (GIT_CONFIG_*)',
+      str(_env))
+check('HTTPS_PROXY' not in _env,
+      '默认不把 pip 自己的请求塞进代理 (要开用 config set pip_proxy on)',
+      str(_env))
+_env = app_mod._pip_proxy_env('git+https://git.lab/x/y.git')
+check(_env.get('NO_PROXY') == '*' and not any(k.startswith('GIT_CONFIG') for k in _env),
+      '--from 换成规则表判直连的源 → NO_PROXY=* 且不塞 git 代理 (不拿 github 的线路套)',
+      str(_env))
 
 # ── note 要出现在人读输出与 json 里 ─────────────────────────────────────
 _real_pip = up._pip
 up._pip = lambda args, timeout=None, env_extra=None: (0, '', '')
+# 新结构: 先 fetch_git 取源码, 再本地 pip。这里测 note 的落位, 取源码一步直接
+# 当成功且不留目录 (src_dir=None → 走 pip install --upgrade)
+up.fetch_git = lambda spec, env_extra=None: (None, [], None)
 _info = up.check('git+ssh://git@github.com/a/b', env_extra=PROXY_ENV, note=note)
 check(_info.get('route_note') == note, 'check: json 带 route_note')
 check('注意' in up.describe(_info), 'check: describe 打成"注意"行',

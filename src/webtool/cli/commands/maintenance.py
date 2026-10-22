@@ -28,8 +28,8 @@ def _pip_route_note(spec, env):
     """
     from webtool.core import upgrade as _up
     url, transport = _up.spec_url(spec)
-    if transport in ('https', 'local'):
-        return None                      # https 这条腿已经拿到代理; local 不出网
+    if transport not in ('ssh', 'git'):
+        return None                      # https/index 走 http 栈, 能吃到代理; local 不出网
     from webtool.net import netx
     if not netx.resolve_proxy('auto', url):
         return None                      # 本来就是直连, 没骗人
@@ -94,7 +94,12 @@ def _pip_proxy_env(spec=None):
     out = dict(_pip_tls_env(spec))
     url, transport = _up.spec_url(spec)
     route = netx.resolve_proxy('auto', url)
-    if not route or transport != 'https':
+    if not route:
+        # 规则表判直连: 子进程是 dict(os.environ, **env) 起的, 用户 shell 里的
+        # HTTP(S)_PROXY 会漏进去, 等于绕过规则表 —— 显式关掉
+        out.update({'NO_PROXY': '*', 'no_proxy': '*'})
+        return out
+    if transport != 'https':
         # 只有 git-over-https 这条腿要代理: ssh / git:// 吃不到 http.proxy, index
         # 则是 pip 自己在拉包 —— pip 不该走代理 (它要的 PyPI 多半直连可达), 免得被
         # 代理带着卡死, 报出来还成了"代理连不上"。

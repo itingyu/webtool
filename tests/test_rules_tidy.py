@@ -117,17 +117,21 @@ tpl = os.path.join(os.path.dirname(__file__), '..', 'src', 'webtool', 'data', 'r
 s = spec([])
 s['rules'] = []
 n = R.seed_rules(s, tpl)
-check(n >= 1 and len(s['rules']) == n and n == 1, '空规则表从模板补种子', s)
+check(n >= 1 and len(s['rules']) == n, '空规则表从模板补种子', s)
 
 s2 = spec([{'match': {'domain': ['*.mine.com']}, 'action': 'direct'}])
 n2 = R.seed_rules(s2, tpl)
 check(n2 == 0 and doms(s2) == ['*.mine.com'], '已有规则不覆盖', s2)
 
-# 模板本身要是"合并后的形态": 动作相同的规则只有一条
+# 模板本身要是"合并后的形态"。注意 match 各条件是 AND 语义:
+# geosite / geoip / domain 不能合成一条 (那会变成"必须同时命中"),
+# 所以只要求**纯 domain 规则**里同动作只有一条 —— 这才是 tidy 能合的范围。
 import json
 tpl_spec = json.load(open(tpl, encoding='utf-8'))
-acts = [r.get('action') for r in tpl_spec.get('rules') or []]
-check(len(acts) == len(set(acts)), '模板已合并 (同动作只有一条)', acts)
+dom_acts = [r.get('action') for r in tpl_spec.get('rules') or []
+            if set((r.get('match') or {}).keys()) <= {'domain', 'domain_suffix'}]
+check(len(dom_acts) == len(set(dom_acts)),
+      '模板已合并 (纯 domain 规则同动作只有一条)', dom_acts)
 check(not [x for x in R.tidy_spec(tpl_spec)[1]
            if x.startswith('〔') and not x.startswith(('〔同默认〕', '〔提示〕'))],
       '模板不含冗余条目 (tidy 无结构性问题)',

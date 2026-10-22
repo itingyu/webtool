@@ -6,7 +6,7 @@
 """
 from webtool.stock.bridge.sources._base import _err, _ok, SourceBase
 from webtool.stock.bridge.sources._base import _ths_v_token
-from webtool.stock.bridge.sources import _routing
+from webtool.net import routing as _routing
 
 # 同花顺会话统一走 RoutedCffiSession (带 netx 代理路由)
 _ths_factory = lambda: _routing.RoutedCffiSession(  # noqa: E731

@@ -157,10 +157,18 @@ print('\n=== 4. verify_arg: 修掉 CA 路径喂给 urllib 的坑 ===')
 # tls.policy 返回 False 或 CA 路径 (cffi/requests 用), 而 urllib 的
 # ssl_context 只认布尔。直接透传会报 "ssl_verify 只认 on/off"。
 if tls.ca_available()[0]:
+    # ssl_verify 默认 off (b9e2718, 首次可用优先), 所以这里显式开校验再测
+    # "CA 路径 → urllib 布尔" 的转换, 否则 policy 返回 False 测不到转换逻辑
+    from webtool.net import proxy as _pm
+    _slc = _pm.load_config
+    _pm.load_config = lambda *a, **kw: {'ssl_verify': 'on'}
+    tls._CACHE = (None, None)
     ver = tls.policy('https://example.com', None)
-    check(ver is not False, '有 CA 时 policy 给出非 False 值')
+    check(ver is not False, '有 CA 且开校验时 policy 给出非 False 值')
     check(netx.verify_arg(ver) is True,
           f'CA 路径 → urllib 侧转成 True (实际 {netx.verify_arg(ver)!r})')
+    _pm.load_config = _slc
+    tls._CACHE = (None, None)
 check(netx.verify_arg(False) is False, 'False 原样保留 (豁免不丢)')
 check(netx.verify_arg(True) is True, 'True 原样保留')
 
@@ -247,7 +255,10 @@ out2 = subprocess.run(
 #   net/proxy/pool.py — proxy set/test 的 CLI 路径, 要在报错前先补全
 ALLOWED_AUTH = {'src/webtool/core/secrets_store.py', 'src/webtool/net/netx.py',
                 'src/webtool/net/http.py', 'src/webtool/net/transport.py',
-                'src/webtool/net/proxy/pool.py'}
+                'src/webtool/net/proxy/pool.py',
+                # 给 ffmpeg 子进程设 http(s)_proxy 环境变量: 子进程拿不到我们的
+                # 会话, 只能把带凭据的 URL 写进 env, 补密码必须在这发生
+                'src/webtool/cli/commands/media.py'}
 stray2 = [f for f in out2 if f.endswith('.py') and f not in ALLOWED_AUTH]
 check(not stray2, 'resolve_auth 没扩散到未经审计的模块', str(stray2))
 
@@ -257,12 +268,15 @@ out3 = subprocess.run(
 # 例外按路径片段匹配, 不用硬编码全路径 —— stock 的 HTTP 通道已下沉到
 # bridge/http.py, 写死 'stock/http.py' 会让它混进 bad3 而误报
 # 例外 = 合法传 proxies 的通道: netx 自己、三条 webtool HTTP 通道, 以及
-# stock 的路由层 (sources/_adapter/_routing/_base: 那里是按 URL 现算代理的
+# 路由层 (net/routing + sources/_adapter/_base: 那里是按 URL 现算代理的
 # 实现, 正是本测试想确保的"唯一的合法出处")
 _ok_exc = ('netx.py', 'transport.py', 'net/http.py', 'adapters.py',
            'bridge/http.py', 'bridge/_eco_net.py',
-           'bridge/sources/_adapter.py', 'bridge/sources/_routing.py',
-           'bridge/sources/_base.py')
+           'bridge/sources/_adapter.py', 'net/routing.py',
+           'bridge/sources/_base.py',
+           # pyshim 是 requests 的补丁通道: 打补丁后必须把路由算出的 proxy 显式
+           # 传给底层 session, 否则补丁形同虚设
+           'pyshim.py')
 bad3 = [f for f in out3 if f.endswith('.py')
         and not any(x in f for x in _ok_exc)]
 check(not bad3, '只有已知通道给底层库传 proxies', str(bad3))
@@ -509,8 +523,10 @@ check('def fetch_models(' in inspect.getsource(_zen.fetch_models) and
 #    实测确认过; 心跳开关必须"正名在前"。
 _app_src = (inspect.getsource(_app)
             + inspect.getsource(
-                __import__('webtool.cli.commands.data', fromlist=['x'])))
-for _flag in ("'--stream/--no-stream'", "'--reasoning/--no-reasoning'"):
+                __import__('webtool.cli.commands.data', fromlist=['x']))
+            + inspect.getsource(
+                __import__('webtool.cli.commands.zenapp', fromlist=['x'])))
+for _flag in ("'--live/--no-live'", "'--reasoning/--no-reasoning'"):
     check(_flag in _app_src, f'app.py 布尔标志写法正确 {_flag}')
 # 2) 退出码非零时不能把报告丢掉 (zen --check 全挂时人得看得到表)
 _run_src = inspect.getsource(_app._run)
@@ -699,19 +715,19 @@ def _cli(*argv):
     return _rc, _buf.getvalue()
 
 
-_rc, _o = _cli('zen', '来看看', '--dry-run')
+_rc, _o = _cli('zen', 'debug', '来看看')
 check(_rc == 0 and _o.startswith('POST https://')
       and 'X-Opencode-Session-Id: ses_' in _o        # 预览给的是服务端视角的头名
       and 'Connection: close' in _o and '"tool_choice": "auto"' in _o,
-      '--dry-run: URL + 请求头 (服务端视角) + 请求体 一次看全, 不出网')
-_rc, _o = _cli('zen', '来看看', '--show', 'headers')
-check(_rc == 0 and 'Authorization:' in _o and '{' not in _o, '--show headers: 只出请求头')
-_rc, _o = _cli('zen', '来看看', '-f', 'json', '--dry-run')
+      'zen debug: URL + 请求头 (服务端视角) + 请求体 一次看全, 不出网')
+_rc, _o = _cli('zen', 'debug', '来看看', '--show', 'headers')
+check(_rc == 0 and 'Authorization:' in _o and '{' not in _o, 'zen debug --show headers: 只出请求头')
+_rc, _o = _cli('zen', 'debug', '来看看', '-f', 'json')
 check(json.loads(_o)['body']['tools'][0]['function']['name'] == 'bash',
-      '-f json --dry-run: 结构可直接管道')
-_rc, _o = _cli('zen', '来看看', '--show-body')
-check(_rc == 0 and json.loads(_o)['model'] == 'big-pickle', '旧名 --show-body 仍按 body 走')
-_rc, _o = _cli('zen', '来看看', '--show', 'bogus')
+      'zen debug -f json: 结构可直接管道')
+_rc, _o = _cli('zen', 'debug', '来看看', '--show', 'body')
+check(_rc == 0 and json.loads(_o)['model'] == 'big-pickle', 'zen debug --show body: 结构可解析')
+_rc, _o = _cli('zen', 'debug', '来看看', '--show', 'bogus')
 check(_rc == 2, '--show 传错值报错退出 (不再静默 exit 0)')
 _w = _zen._tool_warn
 check(_w(_ty.SimpleNamespace(tools='min')) is None and _w(_ty.SimpleNamespace(tools='all')) is None,
@@ -720,8 +736,9 @@ check('缺 read' in (_w(_ty.SimpleNamespace(tools='bash,edit')) or ''),
       '--tools 缺 bash/read → 提醒大概率 403')
 check('工具名不存在' in (_w(_ty.SimpleNamespace(tools='bash,read,nope')) or ''),
       '--tools 写了不存在的工具名 → 提醒会被丢掉')
-_rc, _o = _cli('zen', 'x', '--dry-run', '--no-live')       # 旧名别名要能解析
-check(_rc == 0, '--no-live / --stream 旧名仍可解析')
+_rc, _o = _cli('zen', 'chat', '-h')      # 布尔对要在 help 里成对出现
+check(_rc == 0 and '--live' in _o and '--no-live' in _o,
+      '--live / --no-live 布尔对能解析')
 
 print('\n=== 思考标签 / 思考强度 / 着色 ===')
 # 混在正文里的思考标签: 标签前是思考, 标签后才是答案
@@ -756,13 +773,13 @@ check(_cli_app._norm_think(None) == 'medium', '不填 --think → 默认 medium'
 check(_cli_app._norm_think('off') is None and _cli_app._norm_think('none') is None,
       '--think off/none → 不带该字段')
 check(_cli_app._norm_think('XHigh') == 'XHigh', '取值只去空白, 不改大小写')
-_rc, _o = _cli('zen', 'x', '--dry-run', '--think', 'xhigh', '-f', 'json')
+_rc, _o = _cli('zen', 'debug', 'x', '--think', 'xhigh', '-f', 'json')
 check(_rc == 0 and json.loads(_o)['body']['reasoning_effort'] == 'xhigh',
       'dry-run 预览里能看到 --think 落到请求体')
-_rc, _o = _cli('zen', 'x', '--dry-run', '-f', 'json')
+_rc, _o = _cli('zen', 'debug', 'x', '-f', 'json')
 check(json.loads(_o)['body']['reasoning_effort'] == 'medium',
       '不填时请求体里带默认 medium')
-_rc, _o = _cli('zen', 'x', '--dry-run', '--think', 'off', '-f', 'json')
+_rc, _o = _cli('zen', 'debug', 'x', '--think', 'off', '-f', 'json')
 check(_rc == 0 and 'reasoning_effort' not in json.loads(_o)['body'],
       '--think off → 不带该字段')
 check(_zen._blames_effort({'status': 400,
@@ -773,10 +790,10 @@ check(_zen._color_on() is False, '非终端不上色 (测试进程 stdout 不是
 
 print('\n=== zen 默认值可配 (命令行 > zen.json > 内置) ===')
 # 命令行是变长参数, 拼一次; 早前 _do_zen 又 join 了一次, 把字符串按**字符**插空格
-_rc, _o = _cli('zen', 'hello world', '--show', 'text', '-f', 'json')
+_rc, _o = _cli('zen', 'debug', 'hello world', '--show', 'text', '-f', 'json')
 check(json.loads(_o)[1]['content'] == 'hello world',
       '提示词不被二次 join 拆成单字 (h e l l o)')
-_rc, _o = _cli('zen', 'x', '--dry-run', '-f', 'json')
+_rc, _o = _cli('zen', 'debug', 'x', '-f', 'json')
 _b = json.loads(_o)['body']
 check(_b['max_tokens'] == _zp.DEFAULT_MAX_TOKENS == 200000,
       'max_tokens 内置默认 200000')
@@ -791,12 +808,12 @@ with open(_zd, 'w', encoding='utf-8') as _f:
 from webtool.core import config_data as _CD          # noqa: E402
 _CD.invalidate()
 try:
-    _rc, _o = _cli('zen', 'x', '--dry-run', '-f', 'json')
+    _rc, _o = _cli('zen', 'debug', 'x', '-f', 'json')
     _b = json.loads(_o)['body']
     check(_b['model'] == 'mimo-x' and _b['max_tokens'] == 8000
           and _b['reasoning_effort'] == 'high' and len(_b['tools']) == 12,
           'zen.json 的 zen 段覆盖内置默认')
-    _rc, _o = _cli('zen', 'x', '--dry-run', '--max-tokens', '100',
+    _rc, _o = _cli('zen', 'debug', 'x', '--max-tokens', '100',
                    '--think', 'low', '--model', 'y', '-f', 'json')
     _b = json.loads(_o)['body']
     check(_b['max_tokens'] == 100 and _b['reasoning_effort'] == 'low'
@@ -827,9 +844,9 @@ for _f in ('pipeline/search.py', 'cli/sitesearch.py', 'engines/status.py',
 _pj = (_SRC / 'data/plugins.json').read_text(encoding='utf-8')
 check('proxy_hint' not in _pj, '插件清单里不再声明 proxy_hint')
 _rc, _o = _cli_merged('config', 'get', 'engine_proxy.google')
-check(_rc == 2 and '规则表' in (_o or ''), 'config get engine_proxy.* 被拒并指向规则表', _rc)
+check(_rc == 2 and 'rules.json' in (_o or ''), 'config get engine_proxy.* 被拒并指向规则表', _rc)
 _rc, _o = _cli_merged('config', 'set', 'engine_proxy.google', 'http://x')
-check(_rc == 2 and '规则表' in (_o or ''), 'config set engine_proxy.* 被拒并指向规则表', _rc)
+check(_rc == 2 and 'rules.json' in (_o or ''), 'config set engine_proxy.* 被拒并指向规则表', _rc)
 _rc, _o = _cli('proxy', 'get')
 check('engine_proxy' not in (_o or '') or '已废弃' in _o,
       'proxy get 不再把 engine_proxy 当正常配置项', (_o or '')[:40])
@@ -840,15 +857,19 @@ print('\n=== 13. 出网原语必须登记 (新出口不许悄悄开) ===')
 # 又开了一个不受设计与测试照看的口子 —— 必须来这里签字 (顺手想清楚它要不要
 # 反爬判定、走不走路由表)。
 _NET_CHANNELS = {
-    'cli/zenproto.py': 'LLM 流式直连 (http.client, 要拿裸流)',
+    # 这三个不是"另开出口": 是补丁/类型层 —— tls.py 与 pyshim.py patch
+    # requests.Session.request 把调用桥回 transport, fingerprints.py 只
+    # 是导 curl_cffi 的类型字面量
+    'net/tls.py': 'patch requests 会话的证书校验 (桥回 transport)',
+    'net/pyshim.py': 'patch requests.Session.request (桥回 transport)',
+    'net/fingerprints.py': '指纹档案: 导 curl_cffi 类型字面量, 不出网',
     'net/http.py': 'urllib 通道本体 (transport 备胎/探活)',
     'engines/sogou.py': 'PC cffi / urllib / 移动端 三通道',
     'net/netx.py': '决策层 + 参考通道 netx.get (当前无生产调用者)',
     'net/transport.py': '主通道: 指纹会话 + 降级梯 + 拦截判定',
     'net/adapters.py': 'requests 兼容适配器: 桥到 transport.request (转发, 不自己出网)',
     'stock/bridge/_eco_net.py': '生态库 (akshare/tushare) 的 requests 打补丁, 改不动',
-    'stock/bridge/sources/_routing.py': '股票源路由: cffi 会话 (少见参数路径) + 逐请求线路',
-    'stock/tools/extract_recipes.py': '离线工具 (抓一次配方, 不在运行链路)',
+    'net/routing.py': '出网路由: 逐请求线路 + cffi 会话 (数据源与 pyshim 共用)',
     'net/proxy/reach.py': '代理可达性探测: 一次 TCP 握手判"代理没起" (决定改不改走直连)',
 }
 _PRIMS = [r'^\s*import\s+requests\b', r'^\s*from\s+requests\b',
@@ -858,17 +879,48 @@ _PRIMS = [r'^\s*import\s+requests\b', r'^\s*from\s+requests\b',
           r'from curl_cffi', r'\b_cr\.[A-Z]', r'\bcr\.Session\(', r'urlopen\(',
           r'\bhttp\.client\b', r'HTTPConnection\(', r'\bsocket\.socket\b',
           r'\bsocket\.create_connection\b']
+def _code_only(path):
+    """原文照留, 只把字符串/注释的内容抹成空格
+
+    之前试过逐 token 拼回去, `requests.Session` 会被拼成
+    `requests . Session`, 正则反而失配; 也试过"含字符串就整行丢弃",
+    结果 `transport._cr.Session(impersonate='...')` 这种行被整条吞掉,
+    真出网的行反而漏检、已登记的通道被误判过时。按坐标挖空内容才对。
+    """
+    import io as _io
+    import tokenize as _tk
+    _src = path.read_text(encoding='utf-8')
+    try:
+        _toks = list(_tk.generate_tokens(_io.StringIO(_src).readline))
+    except (_tk.TokenError, IndentationError):
+        return _src
+    _lines = [list(_l) for _l in _src.splitlines()]
+    for _t in _toks:
+        if _t.type not in (_tk.STRING, _tk.COMMENT):
+            continue
+        (_r1, _c1), (_r2, _c2) = _t.start, _t.end
+        for _r in range(_r1, _r2 + 1):
+            if _r - 1 >= len(_lines):
+                break
+            _a = _c1 if _r == _r1 else 0
+            _b = _c2 if _r == _r2 else len(_lines[_r - 1])
+            for _i in range(_a, min(_b, len(_lines[_r - 1]))):
+                _lines[_r - 1][_i] = ' '
+    return '\n'.join(''.join(_l) for _l in _lines)
+
+
 _unregistered = []
 for _f in _SRC.rglob('*.py'):
     _rel = str(_f.relative_to(_SRC)).replace('\\', '/')
-    _txt = _f.read_text(encoding='utf-8')
+    _txt = _code_only(_f)
     if any(re.search(_p, _txt) for _p in _PRIMS) and _rel not in _NET_CHANNELS:
         _unregistered.append(_rel)
 check(not _unregistered,
       '出网原语只出现在登记过的通道里 (新出口要显式登记)',
       str(_unregistered))
+# re.M: _PRIMS 里 ^ 锚定的规则要逐行匹配, 否则只认全文第一行 (老 bug)
 _stale = [k for k in _NET_CHANNELS
-          if not any(re.search(_p, (_SRC / k).read_text(encoding='utf-8'))
+          if not any(re.search(_p, _code_only(_SRC / k), re.M)
                      for _p in _PRIMS)]
 check(not _stale, '登记表没有过时条目 (改过的通道要同步)', str(_stale))
 

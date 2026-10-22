@@ -355,7 +355,7 @@ def call_zen_retry(model, prompt, system=None, session=None, on_delta=None,
     max_tokens, _known = _limits.clamp(model, max_tokens)
     if _known:
         print('[zen] 模型 %s 已知上限 %d tokens, 本次直接按上限走 '
-              '(webtool zen --limits 看记住的值)' % (model, _known),
+              '(webtool zen limits 看记住的值)' % (model, _known),
               file=sys.stderr)
     route = _route(cfg, _endpoints()[0], verbose)
     for attempt in range(1, max(1, max_attempts) + 1):

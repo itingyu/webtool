@@ -45,7 +45,6 @@ def _mkpdf(path, pages_text, encrypt=None):
                      + stream + b'\nendstream')
     if encrypt:
         # 加密交给 pypdf (原始字节做 RC4 麻烦); 先写明文再原地加密
-        import io
         from pypdf import PdfWriter
         w = PdfWriter()
         w.add_blank_page(width=300, height=300)

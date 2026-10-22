@@ -142,6 +142,11 @@ srv.shutdown()
 DIRECT_URL = 'https://www.so.com/s?q=x'          # 命中 *.so.com -> direct
 DEFAULT_URL = 'https://example.com/page'         # 无规则命中 -> default 代理
 DEFAULT_PX = 'http://127.0.0.1:2080'
+# 这一段测的是"路由决策", 不是"代理探活"。运行时 reach.usable() 在代理没起来时
+# 会兜底成直连 (那是对的), 但单测里没起代理, 不 patch 就会把决策测成 None。
+from webtool.net.proxy import reach as _reach            # noqa: E402
+_saved_usable = _reach.usable
+_reach.usable = lambda *a, **kw: True
 
 check(wnetx.resolve_proxy(None, DEFAULT_URL) == wnetx.resolve_proxy('auto', DEFAULT_URL),
       'None 与 auto 同结果 (无规则命中处)',
@@ -165,6 +170,7 @@ for _u in (DEFAULT_URL, DIRECT_URL):
 check(wnetx.resolve_proxy(None, None) == DEFAULT_PX,
       '没给 url 时退默认动作而非抛错',
       repr(wnetx.resolve_proxy(None, None)))
+_reach.usable = _saved_usable        # 恢复真探活, 后面的用例自己决定
 
 # 归一结果再喂回来 (同一 URL) 必须等价 —— 引擎把上游归一出的 None 原样回传
 # (bing 就这么干) 时, 不该被当成"没表态"再问一次规则表而翻案。

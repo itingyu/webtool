@@ -126,9 +126,20 @@ got, why = tls._probe_ca()
 check(os.path.join(base_dir, 'ca-bundle.pem') in why,
       '宿主没 CA → 用仓库自带那份兜底', why)
 check('宿主没装 ca-certificates' in why, '自带兜底是"看得见"的', why)
-check(tls.policy('https://push2.eastmoney.com/') is not False,
-      '宿主没 CA 也仍然开着校验 (不再降级为不校验)',
+# b9e2718 起: ssl_verify 没配 = off (Android/容器/MITM 下默认严格会让首用不可用)
+check(tls.policy('https://push2.eastmoney.com/') is False,
+      '默认不校验证书 (ssl_verify 未配 = off)',
       str(tls.policy('https://push2.eastmoney.com/')))
+# 但显式开校验时, 宿主没 CA 也走自带兜底, 不能降级
+from webtool.net import proxy as _proxy_mod       # noqa: E402
+_saved_lc = _proxy_mod.load_config
+_proxy_mod.load_config = lambda *a, **kw: {'ssl_verify': 'on'}
+tls._CACHE = (None, None)
+checked = tls.policy('https://push2.eastmoney.com/')
+check(checked is not False,
+      '显式开校验时, 宿主没 CA 也用自带兜底 (不降级)', str(checked))
+_proxy_mod.load_config = _saved_lc
+tls._CACHE = (None, None)
 ssl.get_default_verify_paths = _saved
 
 # ── 合并写不进去时退回基础 CA (不能因为缓存目录只读就丢掉信任根) ────────

@@ -7,7 +7,7 @@
 方案:patch **requests.Session.request** 这一个漏斗 —— requests.get/post 与
 session.get/post 全部经过它。改道后每个请求:
 - 走 RoutedCffiSession (chrome131_win 指纹, TLS 层过反爬)
-- 逐 URL 问代理规则表 + 证书策略 (webtool.stock..._routing 同一套)
+- 逐 URL 问代理规则表 + 证书策略 (webtool.net.routing, 与数据源同一套)
 - 自带最小间隔限流 + 幂等方法自动重试 (GET/HEAD 2 次退避)
 - 仍以 requests.Response 形态返回 —— 业务代码零改动
 
@@ -19,7 +19,6 @@ import json as _json
 import threading
 import time
 from datetime import timedelta
-from http.cookiejar import CookieJar as _CJCookieJar
 
 import requests
 import requests.exceptions as _rex
@@ -70,7 +69,7 @@ def _session():
     """线程私有的指纹会话 (lazy)"""
     s = getattr(_local, 's', None)
     if s is None:
-        from webtool.stock.bridge.sources._routing import RoutedCffiSession
+        from webtool.net.routing import RoutedCffiSession
         s = _local.s = RoutedCffiSession(impersonate=None)   # 默认 chrome131_win
     return s
 
@@ -95,7 +94,7 @@ def _shimmed_request(self, method, url,
     if files:
         raise TypeError('webtool requests-shim: 文件上传未支持, 该调用请走原生 requests')
     from webtool.net.tls import policy as _tls_policy
-    from webtool.stock.bridge.sources import _routing as _rt
+    from webtool.net import routing as _rt
 
     m = (method or 'GET').upper()
     tmo = timeout
@@ -107,7 +106,7 @@ def _shimmed_request(self, method, url,
     # 关键: 先滤掉裸 requests 的身份头 (UA=python-requests 等) —— 顶着这个
     # UA, curl_cffi 的浏览器指纹等于白挂; 然后垫底 webtool 按站点给的
     # 浏览器档案头 (UA/Accept-Language), 库里显式设的头 (Referer 等) 在上、仍赢。
-    from webtool.stock.bridge.sources import _routing as _rt2
+    from webtool.net import routing as _rt2
 
     def _bot_header(k, v):
         if k.lower() == 'user-agent':

@@ -152,6 +152,9 @@ def main():
     check((not res['ok']) and res['action'] == 'none', 'pip 失败 → 不谎报成功',
           res['action'])
     _up._pip = _stub(0, None, out='Successfully installed webtool-9.9.9')
+    # 现在 upgrade = fetch_git + 本地 pip; 这里只验 pip 腿, 取源码当成功
+    _real_fetch = _up.fetch_git
+    _up.fetch_git = lambda spec, env_extra=None: (None, [], None)
     res = _up.upgrade()
     check(res['ok'] and res['action'] == 'pip-upgrade'
           and any('Successfully installed' in l for l in res['log']),
@@ -165,9 +168,12 @@ def main():
         _seen.append(list(args))
         return 0, 'Successfully installed webtool-1.8.0', ''
     _up._pip = _cap
+    _up.fetch_git = lambda spec, env_extra=None: ('/tmp/wt-src-fake', [], None)
     _up.upgrade('webtool @ git+https://example.com/w')
     check('--force-reinstall' in _seen[-1] and '--no-deps' in _seen[-1],
-          'git 升级: 强制重装+不动依赖 (否则 pip 报 satisfied 什么都不干)', _seen[-1])
+          'git 升级: 从本地目录强制重装+不动依赖 (否则 pip 报 satisfied 什么都不干)',
+          _seen[-1])
+    _up.fetch_git = _real_fetch
     _up.upgrade('webtool')
     check('--force-reinstall' not in _seen[-1] and '--upgrade' in _seen[-1],
           '索引来源仍走普通 --upgrade (版本号说了算)')
@@ -235,13 +241,14 @@ def main():
     _real_rp = _netx.resolve_proxy
     _netx.resolve_proxy = lambda p, url=None: 'http://127.0.0.1:2080'
     _env = _app_mod._pip_proxy_env()
-    check(_env.get('HTTPS_PROXY') == 'http://127.0.0.1:2080'
-          and _env.get('http_proxy') == 'http://127.0.0.1:2080'
-          and _env.get('NO_PROXY') == '',
-          '规则表判代理 → pip/git 拿到 HTTP(S)_PROXY', str(sorted(_env))[:60])
+    check(_env.get('GIT_CONFIG_VALUE_0') == 'http://127.0.0.1:2080'
+          and _env.get('GIT_CONFIG_KEY_0') == 'http.proxy'
+          and 'HTTPS_PROXY' not in _env,
+          '规则表判代理 → 只把代理塞给 git 腿 (http.proxy)', str(sorted(_env))[:80])
     _netx.resolve_proxy = lambda p, url=None: None
     _env = _app_mod._pip_proxy_env()
-    check(set(_env) == {'NO_PROXY', 'no_proxy'} and _env['NO_PROXY'] == '*',
+    check(_env.get('NO_PROXY') == '*' and _env.get('no_proxy') == '*'
+          and not any(k.startswith('GIT_CONFIG') for k in _env),
           '规则表判直连 → 明确 NO_PROXY=* (屏蔽环境里可能残留的代理)',
           str(sorted(_env)))
     _netx.resolve_proxy = _real_rp
@@ -261,9 +268,12 @@ def main():
     _rc, _o = run('upgrade', '--check')
     check(_rc == 2, '判不出来 → 退出码 2 (不是 0)')
     _up._pip = _stub(0, None, out='Successfully installed webtool-9.9.9')
+    _real_fetch2 = _up.fetch_git
+    _up.fetch_git = lambda spec, env_extra=None: (None, [], None)
     _rc, _o = run('upgrade', '--from', 'webtool @ git+https://example.com/w')
     check(_rc == 0 and 'Successfully installed' in _o,
           'webtool upgrade --from <spec> 换源可用 (默认走元数据里的源)')
+    _up.fetch_git = _real_fetch2
     _up._pip = _real_pip
 
     print(f'\n{PASS + FAIL + SKIP} 项: {PASS} PASS, {FAIL} FAIL, {SKIP} SKIP')

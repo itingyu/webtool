@@ -4,7 +4,7 @@
 要钉住的行为:
 1. 从各家 400 文案里抠出**上限** (不是被拒的那个值); 抠不出就不记 (不许猜)
 2. 学到就落盘, 下次运行直接按上限发请求 —— 不必再撞一次墙
-3. 能读出来 (`--limits`), 能忘掉 (`--forget-limits`)
+3. 能读出来 (`zen limits`), 能忘掉 (`zen limits --forget`)
 4. 上游改了口径就覆盖旧值, 死守旧值等于一直撞墙
 
 跑法: python3 tests/test_zen_token_memory.py
@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'src'))
@@ -66,7 +67,8 @@ check(L.limit_for('m1') == 131072, '读得回来')
 check(L.clamp('m1', 200000) == (131072, 131072), '超了记住的上限 → 降档并告知')
 check(L.clamp('m1', 4096) == (4096, None), '没超 → 原样, 不动用户给的值')
 check(L.clamp('m1', None) == (None, None), '没给值 → 原样')
-check(L.clamp('没记住的模型', 200000) == (200000, None), '没记住的模型不干预')
+check(L.clamp('没记住的模型', 200000) == (131072, 131072),
+      '没记住的模型 → 按表里最小上限兜底 (宁可少要, 不盲发注定被拒的请求)')
 
 L.remember('m1', 131072)
 check(L.load()['m1']['hits'] == 2, '同一个上限再学到 → hits 累加',
@@ -82,7 +84,7 @@ check(L.remember('m2', 0)[1] is False and L.limit_for('m2') is None,
 check(L.remember('m2', 10 ** 9)[1] is False, '大到离谱的数字不记')
 check(L.remember('', 8192)[1] is False, '没模型名不记')
 
-check(L.forget('m1') == 1 and L.limit_for('m1') is None, '--forget-limits <模型> 只忘那一个')
+check(L.forget('m1') == 1 and L.limit_for('m1') is None, 'zen limits --forget --model 只忘那一个')
 L.remember('m1', 4096)
 L.remember('m2', 8192)
 check(L.forget() == 2 and L.load() == {}, '不点名就全忘')
@@ -95,6 +97,9 @@ with open(os.path.join(TMP, 'zen_limits.json'), 'w') as f:
     f.write('{"m9": 8192}')                  # 手写简写也认
 check(L.limit_for('m9') == 8192, '手写的简写形式 {"模型": 8192} 也认')
 os.remove(os.path.join(TMP, 'zen_limits.json'))
+# 目录预取的缓存戳: 让 call_zen_retry 跳过联网刷新, 这段才测得到 400 反推
+with open(os.path.join(TMP, 'model_catalog.json'), 'w') as f:
+    json.dump({'ts': int(time.time())}, f)
 
 # ── 3. 客户端: 撞墙时学到, 下次直接用 ────────────────────────────
 CALLS = []
@@ -134,7 +139,7 @@ try:
                                max_tokens=200000)
     check(CALLS == [131072], '第二次运行: 直接按记住的上限发, 没有白跑那一次',
           str(CALLS))
-    check(res.get('ok') is True and '上次报过上限' in err.getvalue(),
+    check(res.get('ok') is True and '已知上限' in err.getvalue(),
           '并说明了为什么降档', err.getvalue()[:80])
 
     # 抠不出数字 → 不记、不重试 (不许猜一个值记下来)
@@ -157,12 +162,12 @@ finally:
 L.remember('big-pickle', 131072)
 env = dict(os.environ, WEBTOOL_DIR=TMP)
 r = subprocess.run([sys.executable, os.path.join(ROOT, 'src', 'webtool', '__main__.py'),
-                    'zen', '--limits'], capture_output=True, text=True, env=env,
+                    'zen', 'limits'], capture_output=True, text=True, env=env,
                    timeout=180)
 check(r.returncode == 0 and 'big-pickle' in r.stdout and '131072' in r.stdout,
-      'webtool zen --limits 列出记住的上限', r.stdout[-200:] + r.stderr[-200:])
+      'webtool zen limits 列出记住的上限', r.stdout[-200:] + r.stderr[-200:])
 r2 = subprocess.run([sys.executable, os.path.join(ROOT, 'src', 'webtool', '__main__.py'),
-                     'zen', '--limits', '-f', 'json'], capture_output=True,
+                     'zen', 'limits', '-f', 'json'], capture_output=True,
                     text=True, env=env, timeout=180)
 try:
     j = json.loads(r2.stdout)
@@ -171,9 +176,9 @@ except ValueError:
     okj = False
 check(okj, '-f json 给结构化结果 (给脚本读)', r2.stdout[-200:])
 r3 = subprocess.run([sys.executable, os.path.join(ROOT, 'src', 'webtool', '__main__.py'),
-                     'zen', '--forget-limits'], capture_output=True, text=True,
+                     'zen', 'limits', '--forget'], capture_output=True, text=True,
                     env=env, timeout=180)
-check(r3.returncode == 0 and L.load() == {}, 'webtool zen --forget-limits 清掉记录',
+check(r3.returncode == 0 and L.load() == {}, 'webtool zen limits --forget 清掉记录',
       r3.stdout[-120:])
 
 shutil.rmtree(TMP, ignore_errors=True)

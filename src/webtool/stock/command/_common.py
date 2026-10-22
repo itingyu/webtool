@@ -171,12 +171,12 @@ def _kline_range(start, end):
     源普遍只认"根数"不认起止日, 所以先按跨度多取一点, 拿回再按日期裁。
     只给 --end 时不需要往前推很远: 裁到最后 --bars 根即可。
     """
-    from datetime import date, timedelta
+    from datetime import date
     if not start:
         return 600
     try:
         s = date.fromisoformat(start)
-        e = date.fromisoformat(end) if end else date.today()
+        date.fromisoformat(end) if end else date.today()
     except ValueError:
         return 260
     # 源只按"最近 N 根"给数 (腾讯按 count 从今天往前取), 所以根数必须覆盖
