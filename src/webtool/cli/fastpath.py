@@ -28,7 +28,7 @@ HELP = '''Agent 友好的网页搜索与内容获取工具
   监控  watch  feed
   榜单  rank
   金融  stock  pydata
-  基建  proxy  pkg  mcp  plugins  config  engines
+  基建  proxy  pkg  mcp  plugins  config
   展示  render
   其他  zen  upgrade  uninstall  intercept-log
 

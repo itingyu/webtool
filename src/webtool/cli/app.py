@@ -136,7 +136,7 @@ _CMD_MODULE = {
     'zen': 'zenapp',
     'render': 'renderapp',
     'intercept-log': 'intercept',
-    'proxy': 'maintenance', 'pkg': 'maintenance', 'engines': 'maintenance',
+    'proxy': 'maintenance', 'pkg': 'maintenance',
     'mcp': 'maintenance',
     'uninstall': 'maintenance', 'upgrade': 'maintenance',
     'config': 'maintenance', 'plugins': 'maintenance',

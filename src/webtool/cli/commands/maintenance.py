@@ -227,51 +227,6 @@ def pkg_cmd(ctx: typer.Context,
     from webtool.cli import pkg as _pkg
     return _pkg.handle(list(ctx.args), cfg, no_proxy=no_proxy, proxy=proxy)
 
-@app.command('engines')
-def engines_cmd(action: str = typer.Argument('list', help='list=清单+冷却状态; test=实发体检; presets=引擎组合预设'),
-                name: str = typer.Argument(None, help='test 时的引擎名; 省略=全部引擎'),
-                check: bool = typer.Option(False, '--check', help='实发一次测试请求 (等价 engines test)'),
-                query: str = typer.Option('python', '--query', help='test 用的测试词'),
-                fmt: str = Fmt, output: str = Output):
-    """引擎状态与预设"""
-    a = _CTX['args']
-    a.action, a.name, a.check, a.query = action, name, check, query
-
-    def fn(args, cfg):
-        if args.action == 'presets':
-            import json as _j
-            from webtool.pipeline.search import presets as _p
-            rows = [{'preset': k, 'desc': v.get('desc', ''),
-                     'engines': ','.join(v.get('engines', []))}
-                    for k, v in _p().items()]
-            print(_j.dumps(rows, ensure_ascii=False, indent=1))
-            return 0
-        from webtool.engines.status import status
-        return status(args, cfg)
-    return _run(None, fn, fmt, output, False, False)
-
-@app.command('mcp')
-def mcp_cmd(action: str = typer.Argument('list', help='list=列工具; probe=端点体检; call=调工具'),
-            target: str = typer.Argument(..., help='MCP 端点 URL, 或 ~/.webtool/mcp.json 里的别名'),
-            tool: str = typer.Argument(None, help='call 时的工具名'),
-            arguments: str = typer.Argument(None, help="call 时的 JSON 参数, 如 '{\"query\":\"x\"}'"),
-            params: List[str] = typer.Option(None, '--arg', metavar='K=V',
-                                             help='call 时的拆开参数, 可多次; 值按 JSON 字面量猜类型'),
-            key_env: str = typer.Option('', '--key-env', help='从哪个环境变量读 API key'),
-            tools: str = typer.Option('', '--tools', help='工具白名单, 逗号分隔 (?tools=)'),
-            timeout: float = typer.Option(45.0, '--timeout', help='单次请求超时秒'),
-            fmt: str = Fmt, output: str = Output, no_proxy: bool = NoProxy):
-    """通用 MCP 客户端 (不绑死具体 server)"""
-    a = _CTX['args']
-    a.action, a.target, a.tool, a.arguments = action, target, tool, arguments
-    a.params = params
-    a.key_env, a.tools, a.timeout = key_env, tools, timeout
-
-    def fn(args, cfg):
-        from webtool.cli.mcp import do_mcp
-        return do_mcp(args, cfg)
-    return _run(None, fn, fmt, output, False, no_proxy)
-
 @app.command('uninstall')
 def uninstall_cmd(purge_data: bool = typer.Option(False, '--purge-data', help='完全卸载: 连 ~/.webtool 里的配置/凭据/缓存一起删'),
                   yes: bool = typer.Option(False, '--yes', '-y', help='确认删除数据 (--purge-data 必须带)'),
@@ -447,17 +402,165 @@ config_app.add_typer(blocklist_app, name='blocklist')
 app.add_typer(config_app, name='config')
 
 
-@app.command('plugins')
-def plugins_cmd(action: str = typer.Argument('list', help='list/check/doctor/reload/enable/disable'),
-                kind: str = typer.Argument(None, help='engine, hot, site, source, extractor, resolver, filter, transformer, interceptor'),
-                plugin: str = typer.Argument(None, help='enable/disable 的插件名'),
-                all: bool = typer.Option(False, '--all', '-a', help='list 含 disabled 项'),
-                fmt: str = Fmt, output: str = Output):
-    """插件管理: 清单与来源 / 加载体检 / 孤儿自检 / 启停 / 热重载外部插件"""
+engines_app = typer.Typer(
+    add_completion=False, no_args_is_help=True, rich_markup_mode=None,
+    help='引擎状态: engines list | engines test [名] | engines presets',
+    context_settings={'help_option_names': ['-h', '--help']})
+
+
+def _eng_run(action, name, query, fmt, output):
     a = _CTX['args']
-    a.action, a.kind, a.plugin, a.all = action, kind, plugin, all
+    a.action, a.name, a.query = action, name, query
+
+    def fn(args, cfg):
+        if args.action == 'presets':
+            import json as _j
+            from webtool.pipeline.search import presets as _p
+            rows = [{'preset': k, 'desc': v.get('desc', ''),
+                     'engines': ','.join(v.get('engines', []))}
+                    for k, v in _p().items()]
+            print(_j.dumps(rows, ensure_ascii=False, indent=1))
+            return 0
+        from webtool.engines.status import status
+        return status(args, cfg)
+    return _run(None, fn, fmt, output, False, False)
+
+
+@engines_app.command('list')
+def _eng_list(fmt: str = Fmt, output: str = Output):
+    """引擎清单 + 冷却状态"""
+    return _eng_run('list', None, 'python', fmt, output)
+
+
+@engines_app.command('test')
+def _eng_test(name: str = typer.Argument(None, help='引擎名; 省略=全部引擎'),
+              query: str = typer.Option('python', '--query', help='测试用的检索词'),
+              fmt: str = Fmt, output: str = Output):
+    """实发一次测试请求"""
+    return _eng_run('test', name, query, fmt, output)
+
+
+@engines_app.command('presets')
+def _eng_presets(fmt: str = Fmt, output: str = Output):
+    """引擎组合预设 (search --engine 里可用的名字)"""
+    return _eng_run('presets', None, 'python', fmt, output)
+
+
+mcp_app = typer.Typer(
+    add_completion=False, no_args_is_help=True, rich_markup_mode=None,
+    help='MCP 客户端: mcp list <端点> | mcp probe <端点> | mcp call <端点> <工具> [JSON]',
+    context_settings={'help_option_names': ['-h', '--help']})
+
+
+def _mcp_run(action, target, tool, arguments, params, key_env, tools, timeout,
+             fmt, output, no_proxy):
+    a = _CTX['args']
+    a.action, a.target, a.tool, a.arguments = action, target, tool, arguments
+    a.params = params
+    a.key_env, a.tools, a.timeout = key_env, tools, timeout
+
+    def fn(args, cfg):
+        from webtool.cli.mcp import do_mcp
+        return do_mcp(args, cfg)
+    return _run(None, fn, fmt, output, False, no_proxy)
+
+
+@mcp_app.command('list')
+def _mcp_list(target: str = typer.Argument(..., help='MCP 端点 URL, 或 mcp.json 里的别名'),
+              key_env: str = typer.Option('', '--key-env', help='从哪个环境变量读 API key'),
+              tools: str = typer.Option('', '--tools', help='工具白名单, 逗号分隔 (?tools=)'),
+              timeout: float = typer.Option(45.0, '--timeout', help='单次请求超时秒'),
+              fmt: str = Fmt, output: str = Output, no_proxy: bool = NoProxy):
+    """列端点提供的工具"""
+    return _mcp_run('list', target, None, None, None, key_env, tools, timeout,
+                    fmt, output, no_proxy)
+
+
+@mcp_app.command('probe')
+def _mcp_probe(target: str = typer.Argument(..., help='MCP 端点 URL, 或 mcp.json 里的别名'),
+               key_env: str = typer.Option('', '--key-env', help='从哪个环境变量读 API key'),
+               tools: str = typer.Option('', '--tools', help='工具白名单, 逗号分隔 (?tools=)'),
+               timeout: float = typer.Option(45.0, '--timeout', help='单次请求超时秒'),
+               fmt: str = Fmt, output: str = Output, no_proxy: bool = NoProxy):
+    """端点体检 (握手 + 工具数)"""
+    return _mcp_run('probe', target, None, None, None, key_env, tools, timeout,
+                    fmt, output, no_proxy)
+
+
+@mcp_app.command('call')
+def _mcp_call(target: str = typer.Argument(..., help='MCP 端点 URL, 或 mcp.json 里的别名'),
+              tool: str = typer.Argument(..., help='工具名'),
+              arguments: str = typer.Argument(None, help="JSON 参数, 如 '{\"query\":\"x\"}'"),
+              params: List[str] = typer.Option(None, '--arg', metavar='K=V',
+                                               help='拆开传参, 可多次; 值按 JSON 字面量猜类型'),
+              key_env: str = typer.Option('', '--key-env', help='从哪个环境变量读 API key'),
+              tools: str = typer.Option('', '--tools', help='工具白名单, 逗号分隔 (?tools=)'),
+              timeout: float = typer.Option(45.0, '--timeout', help='单次请求超时秒'),
+              fmt: str = Fmt, output: str = Output, no_proxy: bool = NoProxy):
+    """调一个工具"""
+    return _mcp_run('call', target, tool, arguments, params, key_env, tools,
+                    timeout, fmt, output, no_proxy)
+
+
+app.add_typer(mcp_app, name='mcp')
+
+
+plugins_app = typer.Typer(
+    add_completion=False, no_args_is_help=True, rich_markup_mode=None,
+    help='插件与引擎: plugins list/check/doctor/reload/enable/disable | plugins engines',
+    context_settings={'help_option_names': ['-h', '--help']})
+
+
+def _plug_run(action, kind, plugin, all_, fmt, output):
+    a = _CTX['args']
+    a.action, a.kind, a.plugin, a.all = action, kind, plugin, all_
 
     def fn(args, cfg):
         from webtool.cli import plugins as _plug_cmd
         return _plug_cmd.handle(args)
     return _run(None, fn, fmt, output, False, False)
+
+
+@plugins_app.command('list')
+def _plug_list(kind: str = typer.Argument(None, help='只列某一类: search/hot/site/source/extractor/mcp/llm/...'),
+               all_: bool = typer.Option(False, '--all', '-a', help='含未启用的'),
+               fmt: str = Fmt, output: str = Output):
+    """列站点插件"""
+    return _plug_run('list', kind, None, all_, fmt, output)
+
+
+@plugins_app.command('check')
+def _plug_check(kind: str = typer.Argument(None, help='只查某一类'),
+                fmt: str = Fmt, output: str = Output):
+    """检查插件可加载性"""
+    return _plug_run('check', kind, None, False, fmt, output)
+
+
+@plugins_app.command('doctor')
+def _plug_doctor(fmt: str = Fmt, output: str = Output):
+    """全面体检 (加载失败 / 冲突 / 缺依赖)"""
+    return _plug_run('doctor', None, None, False, fmt, output)
+
+
+@plugins_app.command('reload')
+def _plug_reload(fmt: str = Fmt, output: str = Output):
+    """重扫插件目录"""
+    return _plug_run('reload', None, None, False, fmt, output)
+
+
+@plugins_app.command('enable')
+def _plug_enable(plugin: str = typer.Argument(..., help='插件名'),
+                 fmt: str = Fmt, output: str = Output):
+    """启用一个插件"""
+    return _plug_run('enable', None, plugin, False, fmt, output)
+
+
+@plugins_app.command('disable')
+def _plug_disable(plugin: str = typer.Argument(..., help='插件名'),
+                  fmt: str = Fmt, output: str = Output):
+    """禁用一个插件"""
+    return _plug_run('disable', None, plugin, False, fmt, output)
+
+
+plugins_app.add_typer(engines_app, name='engines')
+app.add_typer(plugins_app, name='plugins')
