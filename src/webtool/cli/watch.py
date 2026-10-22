@@ -17,11 +17,23 @@ import os
 import sys
 import time
 
-WATCH_STATE_FILE = os.path.expanduser('~/.webtool/watch_state.json')
+WATCH_STATE_FILE = None      # 显式覆盖 (测试/特殊部署); None → 按 WEBTOOL_DIR 现算
+
+
+def _state_path():
+    """状态文件位置: 显式覆盖 > WEBTOOL_DIR > ~/.webtool
+
+    跟 state.json / snapshots / zen_limits 同一套规矩, 换目录时整包搬走。
+    必须在调用时算 —— 导入时算会把 WEBTOOL_DIR 的变化吃掉。
+    """
+    if WATCH_STATE_FILE:
+        return WATCH_STATE_FILE
+    base = os.environ.get('WEBTOOL_DIR') or '~/.webtool'
+    return os.path.join(os.path.expanduser(base), 'watch_state.json')
 
 
 def _load(path=None):
-    path = path or WATCH_STATE_FILE
+    path = path or _state_path()
     try:
         with open(path, encoding='utf-8') as fh:
             d = json.load(fh)
@@ -31,7 +43,7 @@ def _load(path=None):
 
 
 def _save(state, path=None):
-    path = path or WATCH_STATE_FILE
+    path = path or _state_path()
     d = os.path.dirname(path)
     if d:
         os.makedirs(d, exist_ok=True)
@@ -226,5 +238,5 @@ def _print_buckets(state, args):
               % (r['bucket'], r['kind'] or '', r['seen'],
                  r['last_new'] if r['last_new'] is not None else '-',
                  r['last_run']))
-    print('\n共 %d 个桶 (状态: %s)' % (len(rows), WATCH_STATE_FILE))
+    print('\n共 %d 个桶 (状态: %s)' % (len(rows), _state_path()))
     return 0
