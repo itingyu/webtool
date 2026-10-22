@@ -7,7 +7,7 @@ import typer
 
 from webtool.cli._ctx import (
     Fmt, NoCache, NoProxy, Output, _CTX, _do,
-    _entry_fn, _norm_think, _run,
+    _entry_fn, _run,
 )
 from webtool.cli.app import app
 
@@ -194,101 +194,6 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
     a.resume = resume
     a.pdf_pages = pdf_pages
     return _run('data', _do('fetch'), fmt, output, no_cache, no_proxy)
-
-@app.command('zen')
-def zen_cmd(prompt: list[str] = typer.Argument(None, help='要问的问题 (留空则走 --list-models)'),
-            model: str = typer.Option(None, '--model',
-                                      help='模型 id (不带 provider 前缀; 见 zen --list-models; 默认取 zen.json 的 model, 再回落 big-pickle)'),
-            system: str = typer.Option(None, '--system',
-                                       help='system prompt (分类器只验 role:system 存在, 不读内容)'),
-            tool_choice: str = typer.Option(None, '--tool-choice',
-                                            help='是否允许模型调工具; 默认 auto (闸门判据, 改 none 会被拒)'),
-            tools: str = typer.Option(None, '--tools',
-                                      help='工具集: min(默认, 闸门最小集 bash+read) / all / 逗号清单 (如 bash,read,grep)'),
-            max_tokens: int = typer.Option(None, '--max-tokens',
-                                           help='回复上限 token (默认取 zen.json 的 max_tokens, 再回落 200000)'),
-            list_models: bool = typer.Option(False, '--list-models', help='列出 /v1/models 的全部 id'),
-            list_free: bool = typer.Option(False, '--list-free',
-                                           help='只列免费层 id (按命名约定筛, 不是保证)'),
-            check: bool = typer.Option(False, '--check',
-                                       help='真调一次验证可用性 (默认只验免费层)'),
-            check_all: bool = typer.Option(False, '--check-all',
-                                           help='连收费模型一起验 (80+ 个, 慢且易被上游限流); 自带 --check'),
-            refresh: bool = typer.Option(False, '--refresh', help='绕过 1h 模型清单缓存'),
-            dry_run: bool = typer.Option(False, '--dry-run',
-                                         help='打印将要发出的请求 (URL + 请求头 + 请求体), 不联网'),
-            show: str = typer.Option(None, '--show',
-                                     help='只看请求的一段 (不联网): request / headers / body / text'),
-            show_body: bool = typer.Option(False, '--show-body', hidden=True,
-                                           help='(旧名) 同 --show body'),
-            show_text: bool = typer.Option(False, '--show-text', hidden=True,
-                                           help='(旧名) 同 --show text'),
-            all_tools: bool = typer.Option(False, '--all-tools', hidden=True,
-                                           help='(旧名) 同 --tools all'),
-            live: bool = typer.Option(None, '--live/--no-live', '--stream/--no-stream',
-                                      help='边收边打印 (默认开, 仅终端里生效); --no-live 攒到最后一次输出'),
-            show_reasoning: bool = typer.Option(True, '--reasoning/--no-reasoning',
-                                                help='打印思考过程 (默认开); --no-reasoning 只要答案 (不改请求体)'),
-            think: str = typer.Option(None, '--think', '--reasoning-effort',
-                                      help='思考强度 (透传上游 reasoning_effort; 可选值随模型而异, 如 low/medium/high; 默认 medium, off 则不带该字段)'),
-            retries: int = typer.Option(2, '--retries', help='瞬时故障 (连接错/408/429/5xx) 重试次数; 退避指数 2/4/8s'),
-            limits: bool = typer.Option(False, '--limits',
-                                        help='列出记住的模型输出上限 (上游在 400 里报过的; 不联网)'),
-            forget_limits: bool = typer.Option(False, '--forget-limits',
-                                               help='忘掉记住的上限; 配合 --model 只忘那一个, 否则全忘'),
-            sticky: bool = typer.Option(True, '--sticky/--no-sticky',
-                                        help='固定会话 id, 按整点轮换 (默认开); --no-sticky 每次运行换新'),
-            agent: bool = typer.Option(False, '--agent',
-                                       help='多轮工具循环: 模型调工具 → 本地执行 → 结果回喂 → 再问, 直到给出答案'),
-            agent_tools: str = typer.Option(None, '--agent-tools',
-                                            help='agent 能用的工具 (逗号清单; 默认 read,glob,grep,websearch,webfetch)'),
-            agent_max_steps: int = typer.Option(20, '--agent-max-steps',
-                                                help='agent 最多几轮模型请求 (默认 20; 到顶如实报停)'),
-            agent_max_chars: int = typer.Option(8000, '--agent-max-chars',
-                                                help='单次工具输出回喂给模型的字数上限 (默认 8000, 超出截断)'),
-            workspace: str = typer.Option(None, '--workspace', '-w',
-                                          help='agent 工作空间目录 (默认当前目录); read/glob/grep 只能碰里面, AGENTS.md 会进 system'),
-            session: str = typer.Option(None, '--session',
-                                        help='命名会话 (首次自动创建, 存 ~/.webtool/zen_sessions/<名>.json); 同名再跑即接着聊'),
-            continue_session: bool = typer.Option(False, '--continue',
-                                                  help='接最近一条会话 (一般配合 --agent)'),
-            sessions: bool = typer.Option(False, '--sessions',
-                                          help='列出保存的会话 (不联网)'),
-            clear_session: bool = typer.Option(False, '--clear-session',
-                                               help='删掉 --session 指的会话 (不给则删最近一条)'),
-            fmt: str = Fmt, output: str = Output,
-            no_proxy: bool = NoProxy, no_cache: bool = NoCache):
-    """OpenCode Zen 对话 (OpenAI 兼容, 公开模式, 无需 key)"""
-    a = _CTX['args']
-    # 默认值优先级: 命令行 > ~/.webtool/zen.json 的 zen 段 > 内置 (见 zenproto.DEFAULTS)
-    from webtool.cli import zenproto as _zp
-    dfl = _zp.defaults()
-    a.prompt = ' '.join(prompt) if prompt else ''
-    a.model = model or dfl['model']
-    a.model_explicit = bool(model)      # --forget-limits 只清点名那个才需要它
-    a.limits, a.forget_limits = limits, forget_limits
-    a.system = system if system is not None else dfl['system']
-    a.tool_choice = tool_choice or dfl['tool_choice']
-    a.tools = 'all' if all_tools else (tools or dfl['tools'])
-    a.max_tokens = max_tokens or dfl['max_tokens']
-    a.list_models, a.list_free = list_models, list_free
-    a.check = check or check_all          # --check-all 单独给也生效
-    a.check_all, a.refresh = check_all, refresh
-    a.dry_run, a.show = dry_run, show
-    a.stream = dfl['live'] if live is None else live
-    a.show_body, a.show_text = show_body, show_text
-    a.retries, a.sticky = retries, sticky
-    a.agent = agent
-    a.agent_tools = agent_tools
-    # 步数/输出上限取正数: 0 或负数会让循环一轮都不跑/立刻截断, 那是没配好不是用法
-    a.agent_max_steps = max(1, agent_max_steps)
-    a.agent_max_chars = max(200, agent_max_chars)
-    a.workspace = workspace
-    a.session, a.continue_session = session, continue_session
-    a.sessions, a.clear_session = sessions, clear_session
-    a.reasoning = show_reasoning
-    a.think = _norm_think(think if think is not None else dfl['reasoning_effort'])
-    return _run('data', _entry_fn('zen'), fmt, output, no_cache, no_proxy)
 
 @app.command('ask')
 def ask_cmd(question: list[str] = typer.Argument(None,
@@ -491,45 +396,3 @@ def rank_cmd(sources: list[str] = typer.Argument(None, help='榜单源 key; 无�
     a.cluster = cluster
     return _run('data', _entry_fn('rank'), fmt, output, no_cache, no_proxy)
 
-@app.command('feed')
-def feed_cmd(sources: list[str] = typer.Argument(None, help='feed key 或任意 RSS/Atom URL; 无参数 = 清单+用法'),
-             max: int = typer.Option(10, '-n', '--limit', help='每源条数'),
-             query: str = typer.Option(None, '-q', '--query', help='语义筛选词 (BM25 本地筛 + 按相关度重排)'),
-             threshold: float = typer.Option(0.15, '-t', '--threshold',
-                                             help='语义筛选阈值 (默认 0.15; 0=只重排不过滤)'),
-             new_only: bool = typer.Option(False, '--new-only',
-                                           help='增量: 只显示上次抓取后的新条目 (状态存 ~/.webtool/feed_state.json)'),
-             add: list[str] = typer.Option([], '--add',
-                                           help='添加自定义源: --add NAME --add URL [--add 描述] (存 ~/.webtool/feeds.json)'),
-             del_src: str = typer.Option(None, '--del', help='删除自定义源 (预设源不可删)'),
-             mark: list[str] = typer.Option([], '--mark',
-                                            help='人工登记坏源: --mark KEY [--mark URL] --mark "原因备注"'),
-             retest: str = typer.Option(None, '--retest',
-                                        help='复查坏源是否恢复: --retest KEY 或 --retest all'),
-             pick: str = typer.Option(None, '--pick',
-                                      help='选定命中的第几条路由 (1 起) 或按模板子串匹配; 不给则自动取 heat 最高'),
-             param: list[str] = typer.Option([], '--param',
-                                             help='给选中的那条路由填占位符, 可重复: --param category=newsflashes'),
-             example: bool = typer.Option(False, '--example', help='用官方 example 路径填参出订阅 URL'),
-             top: int = typer.Option(None, '--sample-row', help='用第 N 条真实实例样例 (topFeeds, 1 起) 填参'),
-             from_url: str = typer.Option(None, '--from-url', help='给定网页 URL, 用 radar.source 模式反推路由'),
-             instance: str = typer.Option(None, '--instance', help='指定实例前缀 (默认自动挑最快可用的)'),
-             cat: str = typer.Option(None, '--cat', help='按分类过滤路由 (new-media/programming/finance/...)'),
-             radar_refresh: bool = typer.Option(False, '--radar-refresh', help='强制刷新路由库缓存 (默认 7 天)'),
-             no_xcheck: bool = typer.Option(False, '--no-xcheck',
-                                            help='不与官网 feed 交叉校验 (默认校验并据此决定取数源)'),
-             items: bool = typer.Option(False, '--items',
-                                        help='校验后把选定源的条目完整输出; 默认只报校验结论与耗时'),
-             no_url: bool = typer.Option(False, '--no-url',
-                                         help='输出不带链接: 去掉每条的 url 字段 (markdown/text 只留标题)'),
-             fmt: str = Fmt, output: str = Output,
-             no_proxy: bool = NoProxy, no_cache: bool = NoCache):
-    """RSS/Atom 订阅源抓取 (官方 feed + 任意 URL; 支持增量)"""
-    a = _CTX['args']
-    a.sources, a.max, a.query, a.threshold = sources or [], max, query, threshold
-    a.no_url = no_url
-    a.new_only, a.add, a.del_src, a.mark, a.retest = new_only, add, del_src, mark, retest
-    a.pick, a.param, a.example, a.top = pick, param, example, top
-    a.from_url, a.instance, a.cat = from_url, instance, cat
-    a.radar_refresh, a.no_xcheck, a.items = radar_refresh, no_xcheck, items
-    return _run('data', _entry_fn('feed'), fmt, output, no_cache, no_proxy)

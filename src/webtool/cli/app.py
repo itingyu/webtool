@@ -149,6 +149,8 @@ from webtool.cli.commands import maintenance as _mnt_cmds  # noqa: F401,E402
 from webtool.cli.commands import media as _media_cmd    # noqa: F401,E402
 from webtool.cli.commands import pic as _pic_cmd         # noqa: F401,E402
 from webtool.cli.commands import stock as _stock_cmd  # noqa: F401,E402
+from webtool.cli.commands import zenapp as _zen_cmd  # noqa: F401,E402
+from webtool.cli.commands import feedapp as _feed_cmd  # noqa: F401,E402
 
 
 if __name__ == '__main__':

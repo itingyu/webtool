@@ -246,7 +246,7 @@ def do_feed(args, cfg):
         print(f'unknown feed sources (skip): {", ".join(unknown)}; '
               f'可选: {", ".join(sorted(all_names))} 或任意 RSS/Atom URL', file=sys.stderr)
     if not names:
-        print('无可用 feed 源; `webtool feed list` 查看清单, 或直接传 RSS/Atom URL',
+        print('无可用 feed 源; `webtool feed sources` 查看清单, 或直接传 RSS/Atom URL',
               file=sys.stderr)
         return 2
 
