@@ -113,7 +113,6 @@ def main(argv=None):
         return 1
 
 
-from webtool.cli.commands import auth as _auth_cmds       # noqa: F401,E402
 from webtool.cli.commands import banner as _banner_cmd   # noqa: F401,E402
 from webtool.cli.commands import data as _data_cmds       # noqa: F401,E402
 from webtool.cli.commands import intercept as _ic_cmds    # noqa: F401,E402

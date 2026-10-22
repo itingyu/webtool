@@ -43,23 +43,6 @@ PROFILES = {
         'sec_ch_ua': _SCU131, 'platform': '"Linux"', 'mobile': '?0',
         'accept_nav': _ACCEPT_NAV,
     },
-    # 登录态站点 (小红书/BOSS) 用: 内置浏览器是 Linux 上的 Chrome,
-    # 这里必须 UA 平台 + TLS 模板 + client hints 三者自洽 —— 早先
-    # impersonate='chrome' 会报成 macOS + Chrome/150, 跟真实环境对不上,
-    # 平台都不一致 (UA 说 macOS, 实际是 Linux/Android), 风控一眼就看出来。
-    # curl_cffi 没有 chrome134, 用最接近的 chrome136。
-    'chrome136_linux': {
-        'impersonate': 'chrome136',
-        'ua': ('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
-               '(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'),
-        'sec_ch_ua': ('"Chromium";v="136", "Google Chrome";v="136", '
-                      '"Not_A Brand";v="24"'),
-        'platform': '"Linux"', 'mobile': '?0', 'accept_nav': _ACCEPT_NAV,
-        # impersonate=chrome136 自带的是 macOS UA + macOS platform, 与本档案
-        # 的 Linux 对不上 (UA 说 Linux、client hints 说 macOS, 自曝)。一般
-        # 档案靠 impersonate 自带的对齐头就够, 这里要跨平台, 必须显式覆盖。
-        'force_client_hints': True,
-    },
     # 移动端档案 (m.sogou 等移动站): UA 与 platform/mobile 全套对齐
     'chrome131_android': {
         'impersonate': 'chrome131_android',   # 真移动指纹 (TLS 层面)
@@ -121,20 +104,16 @@ def headers_for(kind, url, referer=None, lang=LANG_ZH, profile=None,
     """
     p = profile or PROFILES['chrome131_win']
     h = {}
-    # full=False 时一般不设 UA (impersonate 自带的是与 TLS 同源的版本)。
-    # 但档案跨平台时 (比如 chrome136_linux 撞上 impersonate 自带的 macOS),
-    # 必须显式覆盖, 否则 UA 说 Linux、client hints 说 macOS, 自曝矛盾。
-    if full or p.get('force_client_hints'):
+    if full:
         if p.get('ua'):
             h['User-Agent'] = p['ua']
+        h['Accept-Encoding'] = 'gzip, deflate'
         if p.get('sec_ch_ua'):
             h['sec-ch-ua'] = p['sec_ch_ua']
         if p.get('mobile'):
             h['sec-ch-ua-mobile'] = p['mobile']
         if p.get('platform'):
             h['sec-ch-ua-platform'] = p['platform']
-    if full:
-        h['Accept-Encoding'] = 'gzip, deflate'
     if kind == 'nav':
         h.update({
             'Accept': p['accept_nav'],

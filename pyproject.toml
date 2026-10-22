@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "webtool"
-version = "1.23.0"
+version = "1.21.2"
 description = "Agent-friendly web search & content fetch CLI: clean markdown/text/json output"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -56,9 +56,6 @@ dependencies = [
     # 终端图像渲染 (pic / banner --font big)。Pillow 只在函数内延迟 import,
     # 但 scripts/audit_deps.py 的规矩是延迟 import 也要声明。
     "pillow>=10",
-    # 公众号正文抽取 (engines/wechat.py) 用 BeautifulSoup, 在 extract() 里延迟
-    # import —— 之前一直靠环境里恰好装了才没炸, 声明补上。
-    "beautifulsoup4>=4.12",
 ]
 
 [project.scripts]
