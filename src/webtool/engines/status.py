@@ -5,6 +5,7 @@
 `list` 只读本地状态 (不发请求), `test` 真打一次搜索拿耗时与条数。
 """
 import json
+import sys
 import time
 
 from webtool.net import intercept
@@ -36,8 +37,12 @@ def _list(cfg):
            for name, meta in _engines().items()]
     cool = {site: f'{hit.left}s (此前{hit.why})'
             for site, hit in intercept.cooldowns().items()}
-    print(json.dumps({'engines': out, 'cooldowns': cool},
-                     ensure_ascii=False, indent=1))
+    if cool:
+        # 冷却按站点记账, 和引擎行不是一一对应: 走 stderr 单列一行,
+        # 别让 {list, dict} 混合结构把 adminfmt 的表格展平弄坏
+        print('冷却中: ' + ', '.join('%s=%s' % (k, v) for k, v in cool.items()),
+              file=sys.stderr)
+    print(json.dumps({'engines': out}, ensure_ascii=False, indent=1))
     return 0
 
 

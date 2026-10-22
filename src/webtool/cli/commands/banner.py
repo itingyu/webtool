@@ -165,7 +165,8 @@ def banner_cmd(text: list[str] = typer.Argument(None, help='要排版的文字 (
         from webtool.core import stdin as _stdin
         s = _stdin.read_input(words, what='要排版的文字')
         if not s or not s.strip():
-            print('error: 没给要排版的文字', file=sys.stderr)
+            print('用法: webtool banner <文字> [--font big] [--spacing 1] [--width N]\n'
+                  '  文字也可从管道喂: echo HI | webtool banner', file=sys.stderr)
             return 2
         if font == 'big' or any(ord(c) > 127 for c in s):     # 汉字/emoji → 字体栅格化
             if font in _FONTS:

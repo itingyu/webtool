@@ -268,9 +268,14 @@ def mcp_cmd(action: str = typer.Argument('list', help='list=列工具; probe=端
     return _run(None, fn, fmt, output, False, no_proxy)
 
 @app.command('cache')
-def cache_cmd(action: str = typer.Argument(..., help='clear/info'),
+def cache_cmd(action: str = typer.Argument(None, help='clear/info'),
                fmt: str = Fmt, output: str = Output):
     """缓存管理"""
+    if action is None:
+        print('用法: webtool cache <动作>\n'
+              '  clear   清空缓存\n'
+              '  info    缓存大小与条目数', file=sys.stderr)
+        return 2
     a = _CTX['args']
     a.action = action
 
@@ -280,11 +285,18 @@ def cache_cmd(action: str = typer.Argument(..., help='clear/info'),
     return _run(None, fn, fmt, output, False, False)
 
 @app.command('blocklist')
-def blocklist_cmd(action: str = typer.Argument(..., help='show/add/remove/reset'),
+def blocklist_cmd(action: str = typer.Argument(None, help='show/add/remove/reset'),
                   domain: str = typer.Argument(None, help='域名, 如 csdn.net'),
                   allow: bool = typer.Option(False, '--allow', help='add/remove 白名单例外'),
                fmt: str = Fmt, output: str = Output):
     """黑名单管理 (低质量站点)"""
+    if action is None:
+        print('用法: webtool blocklist <动作> [域名] [--allow]\n'
+              '  show           列当前黑名单\n'
+              '  add <域名>     加入黑名单\n'
+              '  remove <域名>  移出 (--allow 加白名单例外)\n'
+              '  reset          恢复默认', file=sys.stderr)
+        return 2
     a = _CTX['args']
     a.action, a.domain, a.allow = action, domain, allow
 
@@ -310,6 +322,15 @@ def uninstall_cmd(purge_data: bool = typer.Option(False, '--purge-data', help='�
         import json as _json
         from webtool.core import uninstall as _un
         want_json = (args.format or '') == 'json'
+        # 裸 `webtool uninstall` 以前会直接卸包 —— 手滑即自毁, 没有任何确认。
+        # 现在必须先看 (--dry-run) 或明确确认 (--yes)。
+        if not args.dry_run and not args.yes:
+            print('webtool uninstall 会卸载 webtool 本身。\n'
+                  '  先看要做什么:  webtool uninstall --dry-run\n'
+                  '  确认卸载(留数据): webtool uninstall --yes\n'
+                  '  连数据一起删:   webtool uninstall --purge-data --yes',
+                  file=sys.stderr)
+            return 2
         # 先把两种"要动数据但没确认"的情况挡在门外: 一个字节都不动
         if args.purge_data and not args.yes:
             print('webtool uninstall: --purge-data 要真删得加 --yes (否则只是安全卸载)',
@@ -348,11 +369,19 @@ def update_cmd(check_only: bool = typer.Option(False, '--check'),
     return _upgrade_run(check_only, from_, fmt, output)
 
 @app.command('config')
-def config_cmd(action: str = typer.Argument(..., help='list/get/set/unset'),
+def config_cmd(action: str = typer.Argument(None, help='list/get/set/unset'),
                key: str = typer.Argument(None),
                value: str = typer.Argument(None),
                fmt: str = Fmt, output: str = Output):
     """配置管理: 代理/黑名单/权重阈值/默认引擎等"""
+    if action is None:
+        print('用法: webtool config <动作> [键] [值]\n'
+              '  list              列全部配置\n'
+              '  get <键>          看一项\n'
+              '  set <键> <值>     改一项\n'
+              '  unset <键>        恢复默认\n'
+              '例: webtool config get proxy', file=sys.stderr)
+        return 2
     a = _CTX['args']
     a.action, a.key, a.value = action, key, value
 

@@ -55,10 +55,15 @@ def _rows(data):
         # 全部值都是 list → 两层结构, 展平
         if data and all(isinstance(v, list) for v in data.values()):
             flat = []
+            # 单键 (如 engines 的 {'engines': [...]}) 只是包了一层, 不是
+            # 分类结构 —— 加 kind 列纯属噪声; 多键 (plugins 的
+            # {engine: [...], site: [...]}) 才需要标明来源分类
+            multi = len(data) > 1
             for kind, items in data.items():
                 for it in items:
                     row = dict(it) if isinstance(it, dict) else {'value': it}
-                    row.setdefault('kind', kind)
+                    if multi:
+                        row.setdefault('kind', kind)
                     flat.append(row)
             return flat
         return [data]
