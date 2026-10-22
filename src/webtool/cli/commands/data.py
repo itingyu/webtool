@@ -273,6 +273,91 @@ def zen_cmd(prompt: list[str] = typer.Argument(None, help='要问的问题 (留�
     a.think = _norm_think(think if think is not None else dfl['reasoning_effort'])
     return _run('data', _entry_fn('zen'), fmt, output, no_cache, no_proxy)
 
+@app.command('ask')
+def ask_cmd(question: list[str] = typer.Argument(None,
+                                                 help='要问的问题, 如 webtool ask "长征九十周年有哪些纪念活动"'),
+            num: int = typer.Option(8, '-n', '--num',
+                                    help='搜索取多少条 (默认 8)'),
+            sources: int = typer.Option(4, '--sources',
+                                        help='最多读几篇正文 (默认 4; 抓不到正文的退回搜索摘要)'),
+            max_chars: int = typer.Option(4000, '--max-chars',
+                                          help='单篇正文截断字符数 (默认 4000)'),
+            engine: str = typer.Option(None, '-e', '--engine',
+                                       help='搜索引擎 (同 search -e; 默认走默认预设)'),
+            preset: str = typer.Option(None, '--preset', help='引擎组合预设 (同 search)'),
+            since: str = typer.Option(None, '--since',
+                                      help='只要这个时间之后的资料 (同 search --since)'),
+            until: str = typer.Option(None, '--until',
+                                      help='只要这个时间之前的资料 (同 search --until)'),
+            model: str = typer.Option(None, '--model', help='模型 id (默认取 zen.json / big-pickle)'),
+            retries: int = typer.Option(2, '--retries', help='模型调用瞬时故障重试次数'),
+            fmt: str = Fmt, output: str = Output,
+            no_proxy: bool = NoProxy, no_cache: bool = NoCache):
+    """先检索再作答: 搜索 → 抓正文 → 归纳, 每条结论带来源 URL
+
+    与 `zen` 的区别是**答案必须可核**: 只依据本次检索到的资料作答, 逐条标注
+    [n] 对应文末来源; 检索不到资料就直接回"没查到", 不拿模型记忆充数。
+    """
+    a = _CTX['args']
+    a.question = ' '.join(question).strip() if question else ''
+    a.num = max(1, num)
+    a.sources = max(1, sources)
+    a.max_chars = max(200, max_chars)
+    a.engine, a.preset = engine, preset
+    a.since, a.until = since, until
+    a.model = model
+    a.system = None
+    a.retries = max(1, retries)
+    a.think = None
+    a.max_tokens = None
+    return _run('data', _entry_fn('ask'), fmt, output, no_cache, no_proxy)
+
+@app.command('snapshot')
+def snapshot_cmd(url: str = typer.Argument(None, help='要存快照的 URL'),
+                 name: str = typer.Option(None, '--name',
+                                          help='快照名 (默认从 URL 生成: 主机-路径)'),
+                 list_: bool = typer.Option(False, '--list', help='列出已有快照'),
+                 history: str = typer.Option(None, '--history',
+                                             help='列出某个快照的全部版本'),
+                 rm: str = typer.Option(None, '--rm', help='删掉某个快照'),
+                 max_chars: int = typer.Option(0, '--max-chars',
+                                               help='正文截断字符数, 0=不截断'),
+                 fmt: str = Fmt, output: str = Output,
+                 no_proxy: bool = NoProxy, no_cache: bool = NoCache):
+    """页面快照: 存一版正文, 之后可 diff 出"变了什么\""""
+    a = _CTX['args']
+    a.url, a.name = url, name
+    a.list, a.history, a.rm = list_, history, rm
+    a.max_chars = max(0, max_chars)
+    return _run('data', _entry_fn('snapshot'), fmt, output, no_cache, no_proxy)
+
+@app.command('diff')
+def diff_cmd(left: str = typer.Argument(None,
+                                        help='旧: 快照名 / URL / 本地文件'),
+             right: str = typer.Argument(None,
+                                         help='新: 快照名 / URL / 本地文件 (省略则比该快照最近两版)'),
+             context: int = typer.Option(3, '-C', '--context',
+                                         help='差异上下文行数 (默认 3)'),
+             ignore_ws: bool = typer.Option(False, '-w', '--ignore-ws',
+                                            help='忽略行内空白差异'),
+             no_meta: bool = typer.Option(False, '--no-meta',
+                                          help='比正文时去掉开头的 YAML 元数据头 (跨 URL 对比时常需要)'),
+             max_lines: int = typer.Option(400, '--max-lines',
+                                           help='text/markdown 最多打印多少差异行'),
+             max_chars: int = typer.Option(0, '--max-chars',
+                                           help='抓 URL 时正文截断字符数, 0=不截断'),
+             fmt: str = Fmt, output: str = Output,
+             no_proxy: bool = NoProxy, no_cache: bool = NoCache):
+    """对比两版页面/文件; 退出码 0=相同 1=有差异 2=出错"""
+    a = _CTX['args']
+    a.left, a.right = left, right
+    a.context = max(0, context)
+    a.ignore_ws, a.max_lines = ignore_ws, max(10, max_lines)
+    a.no_meta = no_meta
+    a.max_chars = max(0, max_chars)
+    a.version = None
+    return _run('data', _entry_fn('diff'), fmt, output, no_cache, no_proxy)
+
 @app.command('site')
 def site_cmd(site: str = typer.Argument(None, help='站点 key, `webtool site list` 查看全部'),
              query: str = typer.Argument(None, help='站内搜索词'),

@@ -13,12 +13,10 @@ fetch 管线。bash / write / edit 这些既没有实现也不打算在这里实
 会话历史由 `zen/session.py` 落盘, 每轮存一次。
 """
 
-import io
 import json
 import re
 import sys
 import time
-from contextlib import redirect_stdout
 
 from webtool.cli import zenproto as _zp
 from webtool.core.logging import get_logger
@@ -191,42 +189,8 @@ def t_grep(args, ctx):
 
 # ── web 类工具 (复用本仓管线, 不另写一份抓取逻辑) ────────────────────
 
-def _run_cli(argv):
-    """进程内跑一条 webtool 命令 → (rc, stdout)
-
-    走 `cli.app.main(argv)` 而不是直接调 `pipeline.search.do_search`: 后者要
-    29 个字段的 args 对象, 自己拼等于在本仓里复制一份 CLI 契约, 迟早漂 (与
-    `stock/bridge` 调 web_search 同一个理由)。
-
-    两处全局状态必须复原, 否则第一次工具调用就把外层弄坏:
-      `_CTX` —— app 回调每次都 `_CTX.clear()`, 复原前外层已经取到的 args 不受影响,
-        但之后的读 (如 args.format) 会读到空;
-      日志级别 —— 回调按本层 argv 的 debug 次数重新 setup(0), 会把外层 `-d` 抹掉。
-    """
-    from webtool.cli import app as _app
-    from webtool.cli._ctx import _CTX
-    from webtool.core import logging as _log
-    saved_ctx = dict(_CTX)
-    saved_dbg = _log.debug_level()
-    buf = io.StringIO()
-    try:
-        with redirect_stdout(buf):
-            rc = _app.main(argv)
-    finally:
-        _CTX.clear()
-        _CTX.update(saved_ctx)
-        _log.setup(saved_dbg)
-    return rc, buf.getvalue()
-
-
-def _cli_json(argv):
-    """跑一条 webtool 命令取 json 结果 → (ok, 值或原始文本)"""
-    rc, out = _run_cli(argv)
-    try:
-        return True, json.loads(out)
-    except ValueError:
-        return False, (out.strip() or '(webtool %s 无输出, rc=%s)'
-                       % (' '.join(argv[:1]), rc))
+# 进程内跑 webtool 命令的桥接已下沉到 cli/_bridge.py (ask 也要用)
+from webtool.cli._bridge import cli_json as _cli_json  # noqa: E402
 
 
 def t_websearch(args, ctx):

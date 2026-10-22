@@ -179,6 +179,9 @@ def _entry_fn(name):
         mod = {'zen': ('cli.zen', 'do_zen'), 'fetch': ('pipeline.fetch', 'do_fetch'),
                'site': ('cli.sitesearch', 'do_site'),
                'rank': ('pipeline.rank', 'do_rank'),
+               'ask': ('cli.ask', 'do_ask'),
+               'snapshot': ('cli.snapshot', 'do_snapshot'),
+               'diff': ('cli.snapshot', 'do_diff'),
                'stock': ('stock.command', 'do_stock'),
                'feed': ('feeds.command', 'do_feed')}[name]
         m = importlib.import_module('webtool.' + mod[0])
