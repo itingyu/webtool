@@ -20,6 +20,11 @@ def strip_urls(out):
                 _drop_url(items)
         elif isinstance(v, list):
             _drop_url(v)
+    # 聚类条目是嵌套在 clusters[].items 里 的, 上面两轮遍历够不到它,
+    # 不单独处理的话 --no-url + --cluster 的 json 里还会漏出链接。
+    for c in out.get('clusters') or []:
+        if isinstance(c, dict):
+            _drop_url(c.get('items'))
     out['no_url'] = True
     return out
 
@@ -42,6 +47,34 @@ def _meta_of(r):
 def _print_errors_md(errors):
     for nm, e in (errors or {}).items():
         print(f"\n### ⚠ {nm}\n\n> {e}")
+
+
+def _print_clusters_md(clusters):
+    """跨源事件聚类的 markdown 输出"""
+    if not clusters:
+        return
+    print(f"\n### 跨源事件 ({len(clusters)} 个, 按平台数排)\n")
+    for i, c in enumerate(clusters, 1):
+        print(f"**{i}. {c['title']}** — {len(c['sources'])} 平台 "
+              f"({len(c['items'])} 条): {', '.join(c['sources'])}\n")
+        for it in c['items']:
+            url = it.get('url') or ''
+            t = it.get('title') or ''
+            link = f'[{t}]({url})' if url else t
+            print(f"- ({it.get('source', '')}) {link}")
+        print()
+
+
+def _print_clusters_text(clusters):
+    if not clusters:
+        return
+    print(f"== 跨源事件 ({len(clusters)}) ==")
+    for i, c in enumerate(clusters, 1):
+        print(f"[{i}] ({len(c['sources'])} 平台: {', '.join(c['sources'])}) "
+              f"{c['title']}")
+        for it in c['items']:
+            print(f"    ({it.get('source', '')}) {it.get('title') or ''}")
+    print()
 
 
 def render_rank(out, fmt, filters):
@@ -78,6 +111,7 @@ def render_rank(out, fmt, filters):
                 link = f'[{t}]({url})' if url else t
                 meta = _meta_of(r)
                 print(f"{i}. {link}" + (f" — *{' '.join(meta)}*" if meta else ''))
+        _print_clusters_md(out.get('clusters'))
         _print_errors_md(errors)
         if filters:
             print(f"\n---\n**过滤统计**: {'; '.join(filters)}")
@@ -90,6 +124,7 @@ def render_rank(out, fmt, filters):
                 if r.get('url'):
                     print(f"    {r['url']}")
             print()
+        _print_clusters_text(out.get('clusters'))
         for nm in out['sources']:
             items = data.get(nm)
             if not items:

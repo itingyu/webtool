@@ -301,13 +301,17 @@ def rank_cmd(sources: list[str] = typer.Argument(None, help='榜单源 key; 无�
              max: int = typer.Option(10, '-n', '--max', help='每源条数'),
              no_url: bool = typer.Option(False, '--no-url',
                                          help='输出不带链接: 去掉每条的 url 字段 (markdown/text 只留标题)'),
+             cluster: bool = typer.Option(False, '--cluster',
+                                          help='跨源事件聚类: 把各榜单里讲同一件事的条目并成一条, '
+                                               '按涉及平台数排 (看真实热度用这个)'),
              fmt: str = Fmt, output: str = Output,
              no_proxy: bool = NoProxy, no_cache: bool = NoCache):
-    """榜单聚合: 无参=榜单清单; 指定源=按源分组原序; -q 语义筛选"""
+    """榜单聚合: 无参=榜单清单; 指定源=按源分组原序; -q 语义筛选; --cluster 跨源事件聚类"""
     a = _CTX['args']
     # 默认值不能是 []: click 8.1.x 的 nargs=-1 参数带非 None default 直接 TypeError (老 typer 上炸)
     a.sources, a.query, a.threshold, a.max = sources or [], query, threshold, max
     a.no_url = no_url
+    a.cluster = cluster
     return _run('data', _entry_fn('rank'), fmt, output, no_cache, no_proxy)
 
 @app.command('feed')

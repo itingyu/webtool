@@ -203,6 +203,21 @@ def do_rank(args, cfg):
         out['results'] = flat
         out['filtered_out'] = filtered_out
         out['total'] = len(flat)
+
+    # 跨源事件聚类: 同一热点在多个平台各占一行, 聚起来才看得出真实热度
+    if getattr(args, 'cluster', False):
+        from webtool.pipeline.events import cluster_events as _cluster
+        pool = []
+        for src in names:
+            for it in (results.get(src) or []):
+                row = dict(it)
+                row['source'] = src
+                pool.append(row)
+        clusters = _cluster(pool)
+        out['clusters'] = clusters
+        out['cluster_count'] = len(clusters)
+        out['cluster_sources'] = sorted(
+            {s for c in clusters for s in c['sources']})
     from webtool.render.hotrender import render_rank, strip_urls
     if getattr(args, 'no_url', False):
         strip_urls(out)
