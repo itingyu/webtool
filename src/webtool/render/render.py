@@ -21,6 +21,8 @@ def _fmt_filters(out):
         parts.append(f"广告过滤 {out['ad_filtered']} 条")
     if out.get('blocked_by_blocklist'):
         parts.append(f"黑名单剔除 {out['blocked_by_blocklist']} 条")
+    if out.get('date_filtered'):
+        parts.append(f"时间过滤 {out['date_filtered']} 条")
     return parts
 
 

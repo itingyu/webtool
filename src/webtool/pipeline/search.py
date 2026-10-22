@@ -301,6 +301,11 @@ def _do_search(args, cfg, filter_ad=True):
                              apply_blocklist=False, stats=stats,
                              max_n=getattr(args, 'max', None))
             dedup_removed += stats.get('dedup_removed', 0)
+            # 补量后要重跑时间过滤: 翻页补来的是"下一页"的内容, 很可能已经
+            # 掉出 --since 窗口。不重跑的话, 补量会把窗口外的条目塞回结果。
+            if getattr(args, 'since', None) or getattr(args, 'until', None):
+                from webtool.filters.datefilter import filter_by_date as _fbd
+                results = _fbd(results, {'args': args, 'cfg': cfg})
 
     n_blocked = stats.get('blocked', 0)
     n_floor = stats.get('floor_dropped', 0)
@@ -325,6 +330,7 @@ def _do_search(args, cfg, filter_ad=True):
            'dedup_removed': dedup_removed, 'blocked_by_blocklist': n_blocked,
            'dropped_by_floor': n_floor,
            'weight_floor': stats.get('weight_floor', 0),
+           'date_filtered': getattr(args, 'date_filtered', 0),
            'sorted_by': 'weight'}
     # 实际跑了哪组引擎要可观测: --preset 时不写出来, 消费方无法从结果反推
     # "这批用的是 zh 组还是我临时 --engine 拼的", 出问题也没法复现。

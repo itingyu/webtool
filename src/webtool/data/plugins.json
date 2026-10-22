@@ -475,6 +475,10 @@
   "blocklist": {
    "module": "webtool.filters.blocklist:filter_blocked",
    "desc": "低质量站点剔除 (黑名单域名, 支持用户增删)"
+  },
+  "date": {
+   "module": "webtool.filters.datefilter:filter_by_date",
+   "desc": "按时间过滤结果 (--since/--until; 关键词引擎不给日期, 从标题摘要里认)"
   }
  },
  "transformer": {},

@@ -100,7 +100,15 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
                                             help='黑名单覆盖: 逗号分隔域名, 前缀 ! 表白名单例外, '
                                                  '传 off 关闭黑名单'),
                jobs: int = typer.Option(None, '-j', '--jobs',
-                                        help='并发抓取的源数 (默认=源数, 自动最多 4; 显式最高 16; 1=串行)')):
+                                        help='并发抓取的源数 (默认=源数, 自动最多 4; 显式最高 16; 1=串行)'),
+               since: str = typer.Option(None, '--since',
+                                         help='只要这个时间之后的: YYYY-MM-DD 或 7d/2w/3m/1y '
+                                              '(关键词引擎不给日期, 从标题摘要里认)'),
+               until: str = typer.Option(None, '--until',
+                                         help='只要这个时间之前的 (只认 YYYY-MM-DD)'),
+               date_strict: bool = typer.Option(False, '--date-strict',
+                                                help='认不出日期的结果也剔掉 (默认保留, '
+                                                     '免得清空结果)')):
     """多引擎网页搜索"""
     a = _CTX['args']
     a.update = None
@@ -109,6 +117,7 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
     a.query, a.engine, a.preset, a.max = query, engine, preset, max
     a.operators, a.blocklist = operators, blocklist
     a.jobs = jobs
+    a.since, a.until, a.date_strict = since, until, date_strict
     a.no_ad = True
 
     def fn(args, cfg):
@@ -269,6 +278,10 @@ def site_cmd(site: str = typer.Argument(None, help='站点 key, `webtool site li
              query: str = typer.Argument(None, help='站内搜索词'),
              max: int = typer.Option(10, '-n', '--max', help='返回条数'),
              lang: str = typer.Option('zh', '--lang', help='wikipedia 语言版本'),
+             since: str = typer.Option(None, '--since',
+                                       help='只要这个时间之后的 (YYYY-MM-DD 或 7d/2w/3m/1y)'),
+             until: str = typer.Option(None, '--until',
+                                       help='只要这个时间之前的 (只认 YYYY-MM-DD)'),
              fmt: str = Fmt, output: str = Output,
              no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """站内搜索: 各站官方接口 (站点清单 webtool site list)"""
@@ -276,6 +289,7 @@ def site_cmd(site: str = typer.Argument(None, help='站点 key, `webtool site li
     a = _CTX['args']
     query = _stdin.read_input(query, what='站内搜索词')
     a.site, a.query, a.max, a.lang = site, query, max, lang
+    a.since, a.until = since, until
     return _run('data', _entry_fn('site'), fmt, output, no_cache, no_proxy)
 
 @app.command('rank')

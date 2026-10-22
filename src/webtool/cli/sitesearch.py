@@ -60,7 +60,8 @@ def do_site(args, cfg):
         return 2
 
     t0 = time.time()
-    ckey = f'{args.site}|{args.query}|{args.max}|{args.lang}'
+    ckey = (f'{args.site}|{args.query}|{args.max}|{args.lang}'
+            f'|{getattr(args, "since", "") or ""}|{getattr(args, "until", "") or ""}')
     cached = None if args.no_cache else cache.get(cfg, 'search', ckey)
     if cached is not None:
         results, src = cached, 'cache'
@@ -106,11 +107,21 @@ def do_site(args, cfg):
     results = _merge(results, args.query, use_semantic=True, dedupe=True)
     dedup_removed = n_before - len(results)
 
+    # 时间过滤 (与 search 同一套 date 过滤器)。站内源的日期字段通常比关键词
+    # 引擎全 (ithome_so 直接给 time), 这里过滤比在 search 里更管用。
+    n_date = 0
+    if getattr(args, 'since', None) or getattr(args, 'until', None):
+        from webtool.filters.datefilter import filter_by_date
+        _before = len(results)
+        results = filter_by_date(results, {'args': args, 'cfg': cfg})
+        n_date = _before - len(results)
+
     # filters_applied 由 render 层从 blocked_by_blocklist 等字段生成, 此处
     # 不再自建 filters 列表 (那是局部死变量)。
     out = {'site': args.site, 'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
            'source': src, 'total': len(results), 'results': results,
-           'dedup_removed': dedup_removed, 'blocked_by_blocklist': n_blocked}
+           'dedup_removed': dedup_removed, 'blocked_by_blocklist': n_blocked,
+           'date_filtered': n_date}
     from webtool.render.render import render
     render(out, args.format, 'site')
     return 0
