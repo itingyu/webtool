@@ -88,6 +88,7 @@ webtool search "查询词" --preset zh               # 引擎组合预设
 webtool search -s github "fastapi"               # 站内搜 (同一选择器)
 webtool search "query" -s exa,parallel           # 语义引擎
 webtool search "AI 芯片" -S 7d                   # 近 7 天 (相对: 7d/2周/3个月/1y/昨天)
+webtool search "AI 芯片" -A                     # 不限时间 (默认只搜近 15 天)
 webtool search "AI 芯片" -S 2026-10-01 -U 2026-10-23   # 绝对区间, 下推引擎原生参数
 ```
 

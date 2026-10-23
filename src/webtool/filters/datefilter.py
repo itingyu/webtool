@@ -251,8 +251,8 @@ def filter_by_date(results, ctx=None):
     --date-strict 时未知日期也剔掉。
     """
     args = (ctx or {}).get('args')
-    since_spec = getattr(args, 'since', None)
-    until_spec = getattr(args, 'until', None)
+    since_spec = getattr(args, 'win_start', None) or getattr(args, 'since', None)
+    until_spec = getattr(args, 'win_end', None) or getattr(args, 'until', None)
     strict = bool(getattr(args, 'date_strict', False))
     if not since_spec and not until_spec:
         return results

@@ -115,6 +115,13 @@ def _do_search(args, cfg, filter_ad=True):
     except ValueError as exc:
         print(f'error: {exc}', file=sys.stderr)
         return 2
+    # 默认时间窗: 近半个月。没给 -S/-U 也没 -A 时自动收窄, 与下推逻辑共用同一窗口
+    if not getattr(args, 'all_time', False) and not win_start and not win_end:
+        from webtool.core.datewindow import default_window
+        win_start, win_end = default_window()
+    # 已解析的窗口挂到 args: 补量/降级后的重过滤读得到 (datefilter 优先用它)
+    args.win_start = win_start.isoformat() if win_start else None
+    args.win_end = win_end.isoformat() if win_end else None
     # 配置文件默认值 ← 命令行覆盖 (config set 的持久配置是底线, CLI 参数可临时改)
     # 只有 blocklist / market / timeout 三项读 config; 去重、BM25、广告过滤
     # 行为固定, 没有开关。
@@ -338,7 +345,7 @@ def _do_search(args, cfg, filter_ad=True):
             dedup_removed += stats.get('dedup_removed', 0)
             # 补量后要重跑时间过滤: 翻页补来的是"下一页"的内容, 很可能已经
             # 掉出 --since 窗口。不重跑的话, 补量会把窗口外的条目塞回结果。
-            if getattr(args, 'since', None) or getattr(args, 'until', None):
+            if win_start or win_end:
                 from webtool.filters.datefilter import filter_by_date as _fbd
                 results = _fbd(results, {'args': args, 'cfg': cfg})
 
@@ -382,7 +389,7 @@ def _do_search(args, cfg, filter_ad=True):
                 results = _merge(results, args.query, use_semantic=True,
                                  dedupe=True, apply_blocklist=False,
                                  stats=stats, max_n=getattr(args, 'max', None))
-                if getattr(args, 'since', None) or getattr(args, 'until', None):
+                if win_start or win_end:
                     from webtool.filters.datefilter import filter_by_date as _fbd
                     results = _fbd(results, {'args': args, 'cfg': cfg})
 

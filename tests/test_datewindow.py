@@ -84,6 +84,26 @@ for mod in (google, bing, baidu, sogou):
     check('since' in sig.parameters and 'until' in sig.parameters,
           f'{mod.__name__.split(".")[-1]} search 接受 since/until')
 
+# 默认窗口: 近 15 天
+dw = __import__('webtool.core.datewindow', fromlist=['default_window'])
+check(dw.default_window(D(2026, 10, 23)) == (D(2026, 10, 8), D(2026, 10, 23)),
+      'default_window = 近 15 天')
+
+# datefilter 优先用已解析窗口 (win_start/win_end), 不再依赖 since/until 字符串
+from types import SimpleNamespace                                     # noqa: E402
+from webtool.filters.datefilter import filter_by_date                 # noqa: E402
+res = [{'title': '2019年1月1日 旧文', 'url': 'https://a.example/1', 'snippet': ''},
+       {'title': '2026年10月20日 新文', 'url': 'https://b.example/2', 'snippet': ''}]
+kept = filter_by_date(res, {'args': SimpleNamespace(win_start='2026-10-08',
+                                                   win_end='2026-10-23',
+                                                   date_strict=False), 'cfg': {}})
+check(len(kept) == 1 and '新文' in kept[0]['title'], 'datefilter 用显式窗口', kept)
+
+# bing RSS pubDate 解析 (HTML 无日期字段, RSS 兜底通道有)
+from webtool.engines.bing import _rss_date                          # noqa: E402
+check(_rss_date('周五, 23 10月 2026 07:34:00 GMT') == '2026-10-23', 'bing RSS 中文 pubDate')
+check(_rss_date('Fri, 23 Oct 2026 07:34:00 GMT') == '2026-10-23', 'bing RSS 英文 pubDate')
+
 print()
 if fails:
     print(f'{len(fails)} FAILED:', ', '.join(fails))

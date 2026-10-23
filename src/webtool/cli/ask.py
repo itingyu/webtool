@@ -47,6 +47,8 @@ def _search(question, args):
         argv += ['-S', args.since]
     if getattr(args, 'until', None):
         argv += ['-U', args.until]
+    if getattr(args, 'all_time', False):
+        argv.append('-A')
     if args.no_cache:
         argv.append('-N')
     if args.no_proxy:

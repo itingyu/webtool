@@ -14,7 +14,9 @@
 RSS 通道保留为兜底 (curl_cffi 被限流时), 但 RSS 是独立索引, 排序与主页
 差异大, 仅在 HTML 失败时使用。
 """
+import email.utils
 import re
+import time
 import urllib.parse
 
 from webtool.core import text
@@ -178,6 +180,32 @@ def _parse_html(html, max_results):
     return out
 
 
+def _rss_date(s):
+    """RSS pubDate → YYYY-MM-DD; bing 的中文本地化格式也能认 ("周五, 23 10月 2026 ...")"""
+    s = (s or '').strip()
+    if not s:
+        return ''
+    try:
+        return email.utils.parsedate_to_datetime(s).date().isoformat()
+    except (TypeError, ValueError):
+        pass
+    m = re.search(r'(\d{4})-(\d{2})-(\d{2})', s)                    # 2026-10-23
+    if m:
+        return m.group(0)
+    m = re.search(r'(\d{1,2})\s+(\d{1,2})月\s+(\d{4})', s)          # 23 10月 2026
+    if m:
+        return f'{int(m.group(3)):04d}-{int(m.group(2)):02d}-{int(m.group(1)):02d}'
+    if m:
+        return f'{int(m.group(3)):04d}-{int(m.group(2)):02d}-{int(m.group(1)):02d}'
+    m = re.search(r'(\d{1,2})\s+([A-Za-z]{3})[a-z]*\s+(\d{4})', s)  # 23 Oct 2026
+    if m:
+        try:
+            mon = time.strptime(m.group(2).title(), '%b').tm_mon
+            return f'{int(m.group(3)):04d}-{mon:02d}-{int(m.group(1)):02d}'
+        except ValueError:
+            return ''
+    return ''
+
 def _rss(query, max_results, proxy, timeout, market, page,
          since=None, until=None):
     """RSS 兜底: 独立索引, 排序与主页差异大, 仅兜底用"""
@@ -200,8 +228,13 @@ def _rss(query, max_results, proxy, timeout, market, page,
         snip = re.sub(r'<[^>]+>', '', d.group(1)) if d else ''
         if not link or link.startswith('http://' + 'bing.com'):
             continue
-        out.append({'rank': len(out) + 1, 'title': title, 'url': link,
-                    'snippet': _unescape(snip)[:300]})
+        pd = re.search(r'<pubDate>(.*?)</pubDate>', it, re.S)
+        iso = _rss_date(pd.group(1)) if pd else ''
+        rec = {'rank': len(out) + 1, 'title': title, 'url': link,
+               'snippet': _unescape(snip)[:300]}
+        if iso:
+            rec['date'] = iso
+        out.append(rec)
         if len(out) >= max_results:
             break
     if not out:

@@ -105,6 +105,13 @@ def parse_window(since=None, until=None, now=None):
     return start, end
 
 
+DEFAULT_DAYS = 15
+
+def default_window(now=None):
+    """默认搜索窗口: 近 15 天 (含今天), 返回 (start_date, end_date)"""
+    d = now.date() if isinstance(now, dt.datetime) else (now or dt.date.today())
+    return d - dt.timedelta(days=DEFAULT_DAYS), d
+
 def to_epoch(d):
     """date → 当地零点的时间戳 (百度 gpc 用)"""
     return int(dt.datetime.combine(d, dt.time()).timestamp())

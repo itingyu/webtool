@@ -112,12 +112,15 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
                since: str = typer.Option(None, '-S', '--since',
                                          help='起始: 相对 7d/2周/3个月/1y/today/yesterday '
                                               '或绝对 2026-10-01; 会下推给 google/bing/'
-                                              'baidu/sogou 的原生时间参数'),
+                                              'baidu/sogou 的原生时间参数; '
+                                              '不填默认只搜近 15 天 (-A 取消)'),
                until: str = typer.Option(None, '-U', '--until',
                                          help='截止: 同上, 相对与绝对都认'),
                date_strict: bool = typer.Option(False, '--date-strict',
                                                 help='认不出日期的结果也剔掉 (默认保留, '
                                                      '免得清空结果)'),
+               all_time: bool = typer.Option(False, '-A', '--all-time',
+                                             help='取消默认的"近 15 天"时间窗, 不限时间'),
                no_fallback: bool = typer.Option(False, '--no-fallback',
                                                 help='关闭免 key 引擎降级: 主引擎结果不足时'
                                                      '不再补跑 marginalia/exa/firecrawl/parallel')):
@@ -194,6 +197,7 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
     a.operators, a.blocklist = operators, blocklist
     a.jobs = jobs
     a.since, a.until, a.date_strict = since, until, date_strict
+    a.all_time = all_time
     a.no_fallback = no_fallback
     a.no_ad = True
 
@@ -288,6 +292,8 @@ def ask_cmd(question: list[str] = typer.Argument(None,
                                       help='只要这个时间之后的资料 (同 search -S: 7d/2周/2026-10-01)'),
             until: str = typer.Option(None, '-U', '--until',
                                       help='只要这个时间之前的资料 (同 search -U)'),
+            all_time: bool = typer.Option(False, '-A', '--all-time',
+                                          help='取消默认的"近 15 天"时间窗 (同 search -A)'),
             model: str = typer.Option(None, '--model', help='模型 id (默认取 zen.json / big-pickle)'),
             retries: int = typer.Option(2, '--retries', help='模型调用瞬时故障重试次数'),
             stream: bool = typer.Option(True, '--stream/--no-stream',
@@ -306,6 +312,7 @@ def ask_cmd(question: list[str] = typer.Argument(None,
     a.max_chars = max(200, max_chars)
     a.site, a.preset = site, preset
     a.since, a.until = since, until
+    a.all_time = all_time
     a.model = model
     a.system = None
     a.retries = max(1, retries)
