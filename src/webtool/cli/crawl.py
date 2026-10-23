@@ -71,6 +71,29 @@ def do_crawl(args, cfg):
     host = _lk.host_of(seed)
     rules = [] if getattr(args, 'no_robots', False) else _robots_rules(seed)
 
+    # 文本/表格直接透传时, 抓到一页就打一页 (不必等整站跑完)
+    fmt0 = getattr(args, 'format', 'text') or 'text'
+    stream = fmt0 != 'json' and getattr(args, 'output', None) in (None, '-')
+    if stream:
+        print(('## 爬取 %s (深度 %d)\n' if fmt0 == 'markdown'
+               else '爬取 %s (深度 %d)') % (seed, depth_max))
+
+    def _say(i, page, url):
+        if not stream:
+            return
+        if page and page.get('ok'):
+            if fmt0 == 'markdown':
+                print('%d. [%s](%s) — %d 字' % (i, page.get('title') or url,
+                                                url, page.get('chars', 0)))
+            else:
+                print('[%d] %s  (%d 字)' % (i, page.get('title') or url,
+                                           page.get('chars', 0)))
+                print('    %s' % url)
+        elif fmt0 == 'markdown':
+            print('%d. × %s (抓取失败)' % (i, url))
+        else:
+            print('[×] %s  (抓取失败)' % url)
+
     queue = [(seed, 0)]
     seen = {_norm(seed)}
     pages, skipped = [], 0
@@ -83,12 +106,14 @@ def do_crawl(args, cfg):
         data = _fetch_page(url, max_chars)
         if data is None:
             pages.append({'url': url, 'depth': depth, 'ok': False, 'chars': 0})
+            _say(len(pages), None, url)
             continue
         meta = data.get('metadata') or {}
         title = (meta.get('title') or '').strip()
         text = data.get('content') or ''
         pages.append({'url': url, 'depth': depth, 'ok': bool(text),
                       'chars': len(text), 'title': title, 'content': text})
+        _say(len(pages), pages[-1], url)
         if depth >= depth_max:
             continue
         for nxt in (data.get('links') or []):
@@ -100,7 +125,8 @@ def do_crawl(args, cfg):
                 continue
             seen.add(key)
             queue.append((nxt, depth + 1))
-    return _emit_crawl(args, seed, depth_max, pages, len(seen), skipped)
+    return _emit_crawl(args, seed, depth_max, pages, len(seen), skipped,
+                       streamed=stream)
 
 
 def _slug(url, idx):
@@ -110,7 +136,7 @@ def _slug(url, idx):
     return '%02d-%s.md' % (idx, raw or 'page')
 
 
-def _emit_crawl(args, seed, depth_max, pages, seen_n, skipped):
+def _emit_crawl(args, seed, depth_max, pages, seen_n, skipped, streamed=False):
     ok_pages = [p for p in pages if p.get('ok')]
     saved = 0
     outdir = getattr(args, 'save_dir', None)
@@ -136,6 +162,14 @@ def _emit_crawl(args, seed, depth_max, pages, seen_n, skipped):
                           'fetched': len(pages), 'ok_count': len(ok_pages),
                           'seen': seen_n, 'skipped': skipped, 'saved': saved},
                          ensure_ascii=False, indent=1))
+    elif streamed:
+        # 条目已经边抓边打, 这里只补总计
+        if skipped:
+            print('\n> 跳过 %d 个链接 (跨站/robots/规则不匹配)' % skipped)
+        print('\n爬取 %d 页 (深度 %d, 见过 %d 个链接, 失败 %d)'
+              % (len(ok_pages), depth_max, seen_n, len(pages) - len(ok_pages)))
+        if saved:
+            print('已存 %d 个文件到 %s' % (saved, outdir))
     elif fmt == 'markdown':
         print('## 爬取 %d 页 (深度 %d)\n' % (len(ok_pages), depth_max))
         for i, p in enumerate(ok_pages, 1):

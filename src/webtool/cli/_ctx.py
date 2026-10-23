@@ -107,14 +107,20 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='text'):
     args.format = _norm_fmt(fmt, cfg.get('default_format') or fmt_default)
     args.output = output
     if data_cmd:
+        # 文本/表格类结果直接透传: 命令内部 print 一条就出去一条 (crawl 抓到一页
+        # 打一页), 不再等全部跑完。只有两种必须缓冲: json (半截不可解析) 与
+        # 落盘 (-o 文件要拿到完整内容才能写)。
+        if (not output or output == '-') and args.format != 'json':
+            try:
+                rc = fn(args, cfg)
+            except ValueError as e:
+                raise _UsageError(str(e))
+            except ImportError as e:
+                from webtool.core import deps
+                raise _UsageError(deps.install_hint(e.name or ''))
+            return rc if rc not in (0, None) else 0
         buf = io.StringIO()
-        # 人在终端看文本输出 → 透传, 保留流式观感; 否则纯缓冲 (管道/文件不掺半截)
-        _real = getattr(sys, '__stdout__', None)
-        tee = None
-        if ((not output or output == '-') and args.format != 'json'
-                and _real is not None and getattr(_real, 'isatty', lambda: False)()):
-            tee = _Tee(buf, _real)
-        with redirect_stdout(tee or buf):
+        with redirect_stdout(buf):
             try:
                 rc = fn(args, cfg)
             except ValueError as e:
@@ -126,9 +132,6 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='text'):
                 from webtool.core import deps
                 raise _UsageError(deps.install_hint(e.name or ''))
         out = buf.getvalue()
-        if tee is not None:
-            # 内容已经实时打到终端了, 不再 emit 一遍 (否则屏幕上看两遍)
-            return rc if rc not in (0, None) else 0
         if rc not in (0, None):
             # 命令已经跑出报告了, 退出码只是"有没有可用结果"的判据 (如 zen
             # --check 全挂) —— 别因为退出码非零就把人要看的报告丢掉。
@@ -200,41 +203,4 @@ def _argv_format(argv):
             if a.startswith(pre):
                 return a[len(pre):].strip().lower()
     return ''
-class _Tee:
-    """边写缓冲边写真终端: 让"人在终端"时能看到流式输出。
-
-    数据命令的输出本来要整段捕获 (供 -f/-o 落盘), 但那样 zen 这种流式命令也
-    被憋到结束才一次性吐。这里只在"真 stdout 是终端 + 文本格式 + 不落盘"时
-    把输出同时透到终端, 其余一律纯缓冲 —— 管道/文件里绝不掺半截内容。
-    isatty() 如实转达真终端, 于是 zen 内部判断"人在看"的那套逻辑照常成立。
-    """
-
-    def __init__(self, buf, live):
-        object.__setattr__(self, '_buf', buf)
-        object.__setattr__(self, '_live', live)
-
-    def write(self, s):
-        self._buf.write(s)
-        try:
-            self._live.write(s)
-            self._live.flush()
-        except Exception:
-            pass
-        return len(s)
-
-    def flush(self):
-        try:
-            self._live.flush()
-        except Exception:
-            pass
-
-    def isatty(self):
-        try:
-            return bool(self._live.isatty())
-        except Exception:
-            return False
-
-    def __getattr__(self, name):          # encoding / fileno 等交给真终端
-        return getattr(object.__getattribute__(self, '_live'), name)
-
 

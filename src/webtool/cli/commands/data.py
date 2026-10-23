@@ -179,7 +179,11 @@ def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
               pdf_pages: str = typer.Option(None, '--pdf-pages',
                                             help='PDF 只抽这几页 (如 "1-5" / "1,3,5-7"); '
                                                  '不给=全文。配合本地 PDF 文本抽取')):
-    """抓取 URL 并提取正文"""
+    """抓取 URL 并提取正文
+
+    `--url-file` 多 URL 时, 文本输出谁先抓完谁先出 (不排在慢链接后面);
+    `-f json` 等全部收齐再输出 (半截数组不可解析)。
+    """
     a = _CTX['args']
     a.url, a.url_file = url, url_file
     a.proxy = proxy
@@ -392,6 +396,7 @@ def crawl_cmd(url: str = typer.Argument(None, help='起点 URL'),
 
     默认同 host、遵守 robots.txt、页间隔 0.5s, 深度和页数都有硬上限 ——
     是"把一个文档站读下来"的工具, 不是通用爬虫。正文照旧走 fetch (含缓存/抽取)。
+    文本/表格输出是一页抓到就打一页; `-f json` 等全部跑完再给完整数组。
     """
     a = _CTX['args']
     a.url, a.depth, a.max = url, depth, max(1, max_pages)

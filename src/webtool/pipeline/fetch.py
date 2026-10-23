@@ -351,29 +351,39 @@ def do_fetch(args, cfg):
                     return got
         return local
 
-    if single:
-        results = [work(urls[0])]
-    else:
-        from webtool.core.resilient import MAX_WORKERS, thread_pool
-        with thread_pool(min(MAX_WORKERS, len(urls))) as ex:
-            results = list(ex.map(work, urls))
-
-    if cp is not None:
-        for u, r in zip(urls, results):
-            if not r.get('error'):
-                cp.done(u)
-
     # 抓回来的是第三方网页内容, 不是用户指令。给出去的时候必须标清楚:
     # 下游(模型/Agent)拿这段文本当资料是安全的, 当成指令执行就是被注入。
     # 标记只在**出口**加, 不进缓存 —— 缓存存原样, 本次是否包裹由命令行决定。
     mark = bool(getattr(args, 'mark_untrusted', False))
-    for r in results:
-        if not isinstance(r, dict):
-            continue
-        if r.get('content') or r.get('html'):
-            r['trust'] = 'external_untrusted'
-        if mark and r.get('content'):
-            r['content'] = text.wrap_untrusted(r['content'], r.get('url'))
+
+    def finish(u, r):
+        if isinstance(r, dict):
+            if r.get('content') or r.get('html'):
+                r['trust'] = 'external_untrusted'
+            if mark and r.get('content'):
+                r['content'] = text.wrap_untrusted(r['content'], r.get('url'))
+            if cp is not None and not r.get('error'):
+                cp.done(u)
+        return r
+
+    # 多 URL + 文本输出: 谁先抓完谁先打, 不排在某条慢链接后面; json 必须等
+    # 全部收齐 (半截数组不可解析), 单 URL 也没有"先出"的意义。
+    stream = (not single and args.format != 'json'
+              and getattr(args, 'output', None) in (None, '-'))
+    if single:
+        results = [finish(urls[0], work(urls[0]))]
+    elif stream:
+        from concurrent.futures import as_completed
+        from webtool.core.resilient import MAX_WORKERS, thread_pool
+        with thread_pool(min(MAX_WORKERS, len(urls))) as ex:
+            futs = {ex.submit(work, u): u for u in urls}
+            for fu in as_completed(futs):
+                _emit(finish(futs[fu], fu.result()), args, False)
+        return 0
+    else:
+        from webtool.core.resilient import MAX_WORKERS, thread_pool
+        with thread_pool(min(MAX_WORKERS, len(urls))) as ex:
+            results = [finish(u, r) for u, r in zip(urls, ex.map(work, urls))]
 
     if args.format == 'json' and not single:
         print(json.dumps(results, ensure_ascii=False, indent=1))
