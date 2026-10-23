@@ -129,7 +129,7 @@ _COMMANDS_LOADED = set()
 # 全量导入约 200ms, 而 `stock -h` 用不上 data/media 那些。
 _CMD_MODULE = {
     'search': 'data', 'fetch': 'data', 'ask': 'data',
-    'diff': 'data', 'compare': 'data', 'watch': 'data', 'crawl': 'data',
+    'crawl': 'data',
     'rank': 'data', 'pydata': 'data',
     'feed': 'feedapp',
     'stock': 'stock',
