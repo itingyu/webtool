@@ -15,7 +15,8 @@ _MAX_HOPS = 6          # 挑战握手最多跟几跳
 _WAIT = 2.2            # 挑战倒计时 1s + 余量
 
 
-def search(query, max_results=10, proxy=None, timeout=15, market=None, page=1):
+def search(query, max_results=10, proxy=None, timeout=15, market=None, page=1,
+           since=None, until=None):
     if page > 3:                      # 深翻页无收益, 独立索引首页质量最高
         return []
     q = urllib.parse.quote(query)

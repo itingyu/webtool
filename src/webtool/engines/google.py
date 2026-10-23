@@ -32,7 +32,8 @@ def last_channel():
     return dict(_LAST)
 
 
-def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1):
+def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1,
+           since=None, until=None):
     """google 通道: 有代理 → web(常被IP级reCAPTCHA拦)→news RSS 自动降级;
     无代理 → news RSS 直连 (国内网络通常不可达, 报错带处置建议)
 
@@ -50,7 +51,8 @@ def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1
                          reason=f'web 端点{_cool.why}冷却中({_cool.left}s), 跳过')
         else:
             try:
-                out = _web(query, max_results, proxy, timeout, market, page)
+                out = _web(query, max_results, proxy, timeout, market, page,
+                           since=since, until=until)
                 _LAST.update(channel='web')
                 return out
             except transport.BlockedError as e:
@@ -71,12 +73,14 @@ def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1
     if _LAST['channel'] is None:
         _LAST.update(channel='news', degraded_from='web',
                      reason='未配代理, web 端点不可达' if not proxy else None)
-    return _news(query, max_results, proxy, timeout, market, page)
+    return _news(query, max_results, proxy, timeout, market, page,
+                 since=since, until=until)
 
 
 # Web HTML
 
-def _web(query, max_results, proxy, timeout, market, page):
+def _web(query, max_results, proxy, timeout, market, page,
+         since=None, until=None):
     if not proxy:
         raise RuntimeError('google web 需要代理')
     q = urllib.parse.quote(query)
@@ -85,6 +89,7 @@ def _web(query, max_results, proxy, timeout, market, page):
     hl, gl = ('zh-CN', 'CN') if market.startswith('zh') else ('en-US', 'US')
     url = (f'https://www.google.com/search?q={q}&num={num}&start={start}'
            f'&hl={hl}&gl={gl}&pws=0&udm=14')
+    url += _time_qs(since, until)
     # SOCS consent cookie: 排除欧盟同意墙变量 (CAISHAgB 即"拒绝全部"的骨架值)
     extra = {'Cookie': 'SOCS=CAISHAgBEhJnd3NfMjAyMzAxMjQtMF9SQzIaAmVuIAEgBkgB'}
     text, status, via = transport.get(
@@ -178,14 +183,32 @@ _text = text.plain
 
 # news RSS 降级
 
-def _news(query, max_results, proxy, timeout, market, page):
+def _time_qs(since, until):
+    """Google 自定义区间: tbs=cdr:1,cd_min:M/D/YYYY,cd_max:M/D/YYYY"""
+    if not since and not until:
+        return ''
+    import datetime as _dt
+    from webtool.core.datewindow import gfmt
+    lo = gfmt(since or _dt.date(1990, 1, 1))
+    hi = gfmt(until or _dt.date.today())
+    return '&' + urllib.parse.urlencode({'tbs': f'cdr:1,cd_min:{lo},cd_max:{hi}'})
+
+
+def _news(query, max_results, proxy, timeout, market, page,
+          since=None, until=None):
     lang, gl, ceid = _market(market)
-    q = urllib.parse.quote(query)
     # Web 语义借道新闻检索: 默认 1 年窗口, 翻页映射 start→offset
     offset = (page - 1) * max_results
-    when = 'when:1y'
-    url = (f'https://news.google.com/rss/search?q={q}+{when}'
-           f'&hl={lang}&gl={gl}&ceid={gl}:{ceid}')
+    extra = ''
+    if since:
+        extra += f' after:{since.isoformat()}'
+    if until:
+        extra += f' before:{until.isoformat()}'
+    when = '' if extra else 'when:1y'
+    q = urllib.parse.quote(query + extra)
+    url = (f'https://news.google.com/rss/search?q={q}'
+           + (f'+{when}' if when else '')
+           + f'&hl={lang}&gl={gl}&ceid={gl}:{ceid}')
     # RSS 用持久会话 (chrome 指纹 + cookie 预热): 首页领 NID 再拉 RSS,
     # 会话跨调用 state 持久化; 裸请求部分代理出口会被 302 challenge
     text = None

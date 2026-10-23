@@ -87,6 +87,8 @@ webtool search "query" -s marginalia             # 小站/老网页长尾
 webtool search "查询词" --preset zh               # 引擎组合预设
 webtool search -s github "fastapi"               # 站内搜 (同一选择器)
 webtool search "query" -s exa,parallel           # 语义引擎
+webtool search "AI 芯片" -S 7d                   # 近 7 天 (相对: 7d/2周/3个月/1y/昨天)
+webtool search "AI 芯片" -S 2026-10-01 -U 2026-10-23   # 绝对区间, 下推引擎原生参数
 ```
 
 - 引擎：`bing` / `sogou` / `baidu` / `so360`（境内直连）· `marginalia`（境内直连，独立索引的小站/老网页长尾；**默认关**，要就用 `-s marginalia`）· `google`（被墙，需代理；代理不可用时静默跳过，429 降级 news RSS，结果标 `channel: news`）· `exa` / `parallel` / `firecrawl`（语义搜索，匿名免 key，默认关）

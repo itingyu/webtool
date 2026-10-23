@@ -258,11 +258,15 @@ def filter_by_date(results, ctx=None):
         return results
 
     today = datetime.date.today()
-    since = parse_since(since_spec, today)
-    until = parse_until(until_spec, today)
-    if until_spec and until is None:
-        # until 只认绝对日期; 认不出就当作没给 (宁可不过滤也别全滤掉)
-        until = None
+    try:
+        from webtool.core.datewindow import parse_window
+        since, until = parse_window(since_spec, until_spec, today)
+    except ValueError:
+        # 语法错就别硬过滤, 交给调用方报错
+        return results
+    except Exception:
+        since = parse_since(since_spec, today)
+        until = parse_until(until_spec, today)
 
     # 距离很远的 --since: 低置信的相对时间/无年月日不可信
     wide = since is not None and (today - since).days > 30

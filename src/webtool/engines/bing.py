@@ -23,7 +23,8 @@ from webtool.net import intercept, transport
 _CN_ENDPOINT = 'https://cn.bing.com'   # 直连线路的站点端点, 供 search 解析 auto 用
 
 
-def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1):
+def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1,
+           since=None, until=None):
     """返回 [{title,url,snippet}]; chrome指纹 HTML → urllib HTML → RSS 三级降级"""
     # 归一一次: 'auto' 要问路由表才知道走不走代理, 而下面的 _host() 和
     # _new_session() 都要**实际线路**才能定 (www vs cn、要不要挂代理)。
@@ -32,16 +33,33 @@ def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1
     from webtool.net import netx
     route = netx.resolve_proxy(proxy, _CN_ENDPOINT + '/search')
     try:
-        return _cffi_html(query, max_results, route, timeout, market, page)
+        return _cffi_html(query, max_results, route, timeout, market, page,
+                          since=since, until=until)
     except transport.CooldownError:
         raise
     except Exception:
         pass
     try:
-        return _urllib_html(query, max_results, route, timeout, market, page)
+        return _urllib_html(query, max_results, route, timeout, market, page,
+                            since=since, until=until)
     except Exception:
         pass
-    return _rss(query, max_results, route, timeout, market, page)
+    return _rss(query, max_results, route, timeout, market, page,
+                since=since, until=until)
+
+
+def _time_qs(since, until):
+    """Bing 自定义区间: filters=ex1:"ez5_MM/DD/YYYY_MM/DD/YYYY"
+
+    只给一端时另一端补 1990-01-01 / 今天。
+    """
+    if not since and not until:
+        return ''
+    import datetime as _dt
+    from webtool.core.datewindow import gfmt
+    lo = gfmt(since or _dt.date(1990, 1, 1))
+    hi = gfmt(until or _dt.date.today())
+    return '&filters=' + urllib.parse.quote(f'ex1:"ez5_{lo}_{hi}"', safe='')
 
 
 def _host(proxy):
@@ -52,7 +70,8 @@ def _host(proxy):
     return 'www.bing.com' if proxy else 'cn.bing.com'
 
 
-def _cffi_html(query, max_results, proxy, timeout, market, page):
+def _cffi_html(query, max_results, proxy, timeout, market, page,
+               since=None, until=None):
     """curl_cffi chrome 指纹 (TLS/HTTP2 与浏览器一致)"""
     q = urllib.parse.quote(query)
     first = (page - 1) * max_results + 1
@@ -60,6 +79,7 @@ def _cffi_html(query, max_results, proxy, timeout, market, page):
     base = f'https://{_host(proxy)}'
     url = (f'{base}/search?q={q}&count={count}&first={first}'
            f'&setmkt={urllib.parse.quote(market)}')
+    url += _time_qs(since, until)
     # 线路照传 (归一已在上游做完): 写死 None 等于无视用户配的代理, 主机名
     # 换成了 www 却不挂代理, 出口 IP 与域名对不上, 拿到的还是国外版重排。
     # 补 `or 'direct'`: 上游归一出的 None 是"直连"的**结论**, 不是"没表态" ——
@@ -83,7 +103,8 @@ def _cffi_html(query, max_results, proxy, timeout, market, page):
     return out
 
 
-def _urllib_html(query, max_results, proxy, timeout, market, page):
+def _urllib_html(query, max_results, proxy, timeout, market, page,
+                 since=None, until=None):
     """urllib HTML 兜底"""
     q = urllib.parse.quote(query)
     first = (page - 1) * max_results + 1
@@ -91,6 +112,7 @@ def _urllib_html(query, max_results, proxy, timeout, market, page):
     mkt = f'&mkt={urllib.parse.quote(market)}' if market else ''
     url = (f'https://{_host(proxy)}/search?q={q}&count={count}&first={first}'
            f'&setlang={market.split("-")[0]}{mkt}')
+    url += _time_qs(since, until)
     h = transport.headers_for('nav', url, referer=f'https://{_host(proxy)}/',
                               full=True)
     text, status, _via = _resilient(url, proxy=proxy, timeout=timeout,
@@ -156,12 +178,14 @@ def _parse_html(html, max_results):
     return out
 
 
-def _rss(query, max_results, proxy, timeout, market, page):
+def _rss(query, max_results, proxy, timeout, market, page,
+         since=None, until=None):
     """RSS 兜底: 独立索引, 排序与主页差异大, 仅兜底用"""
     q = urllib.parse.quote(query)
     first = (page - 1) * max_results + 1
     url = (f'https://{_host(proxy)}/search?q={q}&format=rss&count={max_results}'
            f'&first={first}&setmkt={urllib.parse.quote(market)}')
+    url += _time_qs(since, until)
     h = transport.headers_for('nav', url, referer=f'https://{_host(proxy)}/',
                               full=True)
     xml, status, _via = _resilient(url, proxy=proxy, timeout=timeout, headers=h)

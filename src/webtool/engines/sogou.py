@@ -30,7 +30,7 @@ M_ENDPOINT = 'https://m.sogou.com/web/searchList.jsp'
 M_HOME = 'https://m.sogou.com/'
 
 def search(query, max_results=10, proxy=None, timeout=15, market=None,
-           _session=None):
+           _session=None, since=None, until=None):
     """PC 优先 (带摘要) → PC urllib 兜底 → 移动端 (直出真实 URL)"""
     q = urllib.parse.quote(query)
     sign = None
@@ -38,13 +38,13 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None,
     # 1) PC 主力: curl_cffi chrome131 指纹, 两次会话机会
     html = None
     for attempt in range(2):
-        html, sign = _pc_cffi(q, proxy, timeout)
+        html, sign = _pc_cffi(q, proxy, timeout, since=since, until=until)
         if html:
             break
         time.sleep(1.2 + attempt)
     # 2) PC 兜底: urllib 全指纹会话
     if not html:
-        html, sign = _pc_urllib(q, timeout)
+        html, sign = _pc_urllib(q, timeout, since=since, until=until)
     # 3) PC 命中 → 解析 (vr-title, 带摘要)
     #    "拿到 HTML" != "拿到结果": 上游已开始给 JS 壳页 (整页只有一个
     #    "加载中"), 这种页面有内容但解析 0 条。按老写法会把它当成功直接返回
@@ -59,7 +59,8 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None,
 
     # 4) PC 全拦 → 移动端 (两轮会话, 中途 PC 冷却不影响移动通道)
     for attempt in range(2):
-        out = _mobile_search(q, max_results, proxy, timeout)
+        out = _mobile_search(q, max_results, proxy, timeout,
+                             since=since, until=until)
         if out:
             return out
         time.sleep(1.5 + attempt)
@@ -71,9 +72,9 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None,
 
 # PC 主力 (curl_cffi)
 
-def _pc_cffi(q, proxy, timeout):
+def _pc_cffi(q, proxy, timeout, since=None, until=None):
     """持久 cookie 会话 + 导航预热; 返回 (html|None, sign|None)"""
-    url = f'{ENDPOINT}?query={q}'
+    url = f'{ENDPOINT}?query={q}' + _tsn_qs(since, until)
     s, p = transport._new_session('chrome131_win', proxy, 'sogou', url=url)
     try:
         # 导航预热: 领/刷新 SUID/SNUID (state 预载, 像回头客)
@@ -90,14 +91,14 @@ def _pc_cffi(q, proxy, timeout):
     except Exception as e:
         return None, f'{type(e).__name__}'
 
-def _pc_urllib(q, timeout):
+def _pc_urllib(q, timeout, since=None, until=None):
     """urllib 全套显式指纹会话兜底, 换新会话重试一次
 
     换的是"底层栈" (urllib 而非 cffi), 不是"策略" —— 线路、证书、头、cookie
     都交给 net.transport, 所以这里不会再出现"兜底路径自己判代理"的分裂。
     """
     sign = None
-    url = f'{ENDPOINT}?query={q}'
+    url = f'{ENDPOINT}?query={q}' + _tsn_qs(since, until)
     for _attempt in range(2):
         cj = http.cookiejar.CookieJar()
         try:
@@ -121,7 +122,8 @@ def _pc_urllib(q, timeout):
 
 # 移动端 (Android 指纹)
 
-def _mobile_search(q, max_results, proxy, timeout, _inner=False):
+def _mobile_search(q, max_results, proxy, timeout, _inner=False,
+                   since=None, until=None):
     """m.sogou Android 指纹: 首页预热 → searchList.jsp, url= 参数直出真实地址"""
     prof = transport.PROFILES['chrome131_android']
     # 导航头与 Android impersonate 会话同源 (sec-ch-ua 交给 impersonate,
@@ -143,7 +145,8 @@ def _mobile_search(q, max_results, proxy, timeout, _inner=False):
             transport.warm_session(s, M_HOME, timeout=timeout, profile=prof)
             if attempt:
                 time.sleep(1.2)          # 被拦后换会话稍微喘口气
-            r = s.get(f'{M_ENDPOINT}?keyword={q}', timeout=timeout,
+            r = s.get(f'{M_ENDPOINT}?keyword={q}' + _tsn_qs(since, until),
+                      timeout=timeout,
                       headers=dict(base, Referer=M_HOME))
             html = r.text
         except Exception:
@@ -183,6 +186,23 @@ def _mobile_search(q, max_results, proxy, timeout, _inner=False):
     return out
 
 # PC 结果解析
+
+def _tsn_qs(since, until):
+    """搜狗时间: tsn=1 日 / 2 周 / 3 月 / 4 年 / 5 自定义(ft=起,止)"""
+    if not since and not until:
+        return ''
+    if since and until:
+        days = (until - since).days
+        preset = {0: '1', 1: '1', 7: '2', 30: '3', 31: '3', 365: '4'}.get(days)
+        if preset:
+            return f'&tsn={preset}'
+        ft = f'{since.isoformat()},{until.isoformat()}'
+    elif since:
+        ft = f'{since.isoformat()},'
+    else:
+        ft = f',{until.isoformat()}'
+    return '&tsn=5&ft=' + urllib.parse.quote(ft)
+
 
 def _parse_pc(html, max_results):
     items = re.findall(r'<h3 class="vr-title[^"]*"[^>]*>(.*?)</h3>', html, re.S)

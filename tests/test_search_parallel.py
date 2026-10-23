@@ -49,7 +49,7 @@ SLEEP = {'slow': 0.5, 'mid': 0.35, 'fast': 0.1, 'boom': 0.05}
 
 
 def _fake_fn(name, delay):
-    def fn(q, max_results=10, proxy=None, timeout=15, market=None):
+    def fn(q, max_results=10, proxy=None, timeout=15, market=None, **kw):
         time.sleep(delay)
         if name == 'boom':
             raise RuntimeError('引擎自己炸了')

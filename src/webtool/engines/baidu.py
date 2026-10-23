@@ -12,11 +12,13 @@ from webtool.net import intercept, transport
 BAIDU = 'https://www.baidu.com'
 
 
-def search(query, max_results=10, proxy=None, timeout=15, market=None, page=1):
+def search(query, max_results=10, proxy=None, timeout=15, market=None, page=1,
+           since=None, until=None):
     q = urllib.parse.quote(query)
     first = (page - 1) * max_results + 1
     url = (f'{BAIDU}/s?wd={q}&rn={max_results}&pn={first - 1}'
            f'&ie=utf-8&rsv_dl=pc_search&rsv_enter=1')
+    url += _gpc_qs(since, until)
     html, via = _get_html(url, proxy, timeout)
     out = []
     seen = set()
@@ -50,6 +52,17 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, page=1):
     _resolve_links(out, proxy, timeout)
     intercept.note_ok(intercept.Ctx(engine='baidu', url=url))
     return out
+
+
+def _gpc_qs(since, until):
+    """百度自定义区间: gpc=stf=<起始秒>,<结束秒>|stftype=1"""
+    if not since and not until:
+        return ''
+    import datetime as _dt
+    from webtool.core.datewindow import to_epoch
+    lo = to_epoch(since or _dt.date(1990, 1, 1))
+    hi = to_epoch(until or _dt.date.today())
+    return '&gpc=' + urllib.parse.quote(f'stf={lo},{hi}|stftype=1')
 
 
 def _get_html(url, proxy, timeout):

@@ -110,10 +110,11 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
                jobs: int = typer.Option(None, '-j', '--jobs',
                                         help='并发抓取的源数 (默认=源数, 自动最多 4; 显式最高 16; 1=串行)'),
                since: str = typer.Option(None, '-S', '--since',
-                                         help='只要这个时间之后的: YYYY-MM-DD 或 7d/2w/3m/1y '
-                                              '(关键词引擎不给日期, 从标题摘要里认)'),
+                                         help='起始: 相对 7d/2周/3个月/1y/today/yesterday '
+                                              '或绝对 2026-10-01; 会下推给 google/bing/'
+                                              'baidu/sogou 的原生时间参数'),
                until: str = typer.Option(None, '-U', '--until',
-                                         help='只要这个时间之前的 (只认 YYYY-MM-DD)'),
+                                         help='截止: 同上, 相对与绝对都认'),
                date_strict: bool = typer.Option(False, '--date-strict',
                                                 help='认不出日期的结果也剔掉 (默认保留, '
                                                      '免得清空结果)'),
@@ -284,7 +285,7 @@ def ask_cmd(question: list[str] = typer.Argument(None,
                                      help='检索源 (同 search -s, 可混选引擎与站点)'),
             preset: str = typer.Option(None, '--preset', help='引擎组合预设 (同 search)'),
             since: str = typer.Option(None, '-S', '--since',
-                                      help='只要这个时间之后的资料 (同 search -S)'),
+                                      help='只要这个时间之后的资料 (同 search -S: 7d/2周/2026-10-01)'),
             until: str = typer.Option(None, '-U', '--until',
                                       help='只要这个时间之前的资料 (同 search -U)'),
             model: str = typer.Option(None, '--model', help='模型 id (默认取 zen.json / big-pickle)'),

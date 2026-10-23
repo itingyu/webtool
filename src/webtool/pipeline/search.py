@@ -107,6 +107,14 @@ def do_search(args, cfg):
 
 def _do_search(args, cfg, filter_ad=True):
     t0 = time.time()
+    # --since/--until: 相对时间 (7d/2周/3个月/yesterday) 与绝对日期都认
+    from webtool.core.datewindow import parse_window
+    try:
+        win_start, win_end = parse_window(getattr(args, 'since', None),
+                                          getattr(args, 'until', None))
+    except ValueError as exc:
+        print(f'error: {exc}', file=sys.stderr)
+        return 2
     # 配置文件默认值 ← 命令行覆盖 (config set 的持久配置是底线, CLI 参数可临时改)
     # 只有 blocklist / market / timeout 三项读 config; 去重、BM25、广告过滤
     # 行为固定, 没有开关。
@@ -170,7 +178,7 @@ def _do_search(args, cfg, filter_ad=True):
         返回 (结果列表, 缓存状态, 打掉的广告数)。只碰自己那一份数据,
         不写共享状态 —— 共享的累加与回填全在主线程做。
         """
-        ckey = f'{eng}|{qmap[eng]}|{_pull}|{market}'
+        ckey = f'{eng}|{qmap[eng]}|{_pull}|{market}|{win_start}|{win_end}'
         _t0 = time.monotonic()
         if not args.no_cache:
             cached = cache.get(cfg, 'search', ckey)
@@ -180,7 +188,8 @@ def _do_search(args, cfg, filter_ad=True):
                 return cached, 'cache', 0
         # 引擎自己的失败不在这里吞: 抛出去由调用方记 err_of, 保留原始异常串
         rs = _engines()[eng]['fn'](qmap[eng], max_results=_pull, proxy=proxy,
-                                   timeout=cfg.get('timeout', 15), market=market)
+                                   timeout=cfg.get('timeout', 15), market=market,
+                                   since=win_start, until=win_end)
         n_ad = sum(1 for r in rs if r.get('is_ad'))
         logger.debug('search | 引擎 %s 抓取完成 条数=%d 广告=%d 耗时=%dms',
                      eng, len(rs), n_ad, int((time.monotonic() - _t0) * 1000))

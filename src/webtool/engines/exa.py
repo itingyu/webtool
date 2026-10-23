@@ -90,7 +90,8 @@ def _parse(text, max_results):
     return res
 
 
-def search(query, max_results=10, proxy=None, timeout=15, market=None, **_):
+def search(query, max_results=10, proxy=None, timeout=15, market=None,
+           since=None, until=None, **_):
     """Exa 语义搜索。线路由规则表定 (要直连就给它的域名加一条 direct 规则)"""
     spec = _spec()
     tool = (spec.get('verbs') or {}).get('search')
@@ -98,9 +99,13 @@ def search(query, max_results=10, proxy=None, timeout=15, market=None, **_):
         raise RuntimeError('端点表未声明 search 动词, 无法作为搜索引擎使用')
 
     n = min(max_results or _MAX_UPSTREAM, _MAX_UPSTREAM)
+    payload = {'query': query, 'numResults': n}
+    if since:
+        payload['startPublishedDate'] = since.isoformat()
+    if until:
+        payload['endPublishedDate'] = until.isoformat()
     r = _mc.call_tool(
-        spec.get('url', ''), tool,
-        {'query': query, 'numResults': n},
+        spec.get('url', ''), tool, payload,
         api_key=os.environ.get(spec.get('api_key_env', ''), ''),
         timeout=max(timeout or 0, _MIN_TIMEOUT),
         proxy=proxy if proxy is not None else 'auto',
