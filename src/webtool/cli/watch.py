@@ -104,7 +104,7 @@ def _fetch_items(args, target):
         argv = ['search', target, '-n', str(getattr(args, 'num', 20) or 20),
                 '-f', 'json'] + nox
         if getattr(args, 'engine', None):
-            argv += ['-e', args.engine]
+            argv += ['-s', args.engine]
         if getattr(args, 'preset', None):
             argv += ['--preset', args.preset]
         if getattr(args, 'since', None):

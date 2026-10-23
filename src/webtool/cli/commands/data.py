@@ -95,8 +95,6 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
                                             help='列出全部检索源 (多引擎 + 站内) 后退出'),
                lang: str = typer.Option('zh', '-L', '--lang',
                                         help='站内搜索的语言版本参数 (wikipedia 等)'),
-               engine: str = typer.Option(None, '-e', '--engine', hidden=True,
-                                          help='(已合并到 -s, 保留兼容)'),
                preset: str = typer.Option(None, '-p', '--preset',
                                           help='引擎组合预设 (webtool plugins engines presets 查看); '
                                                '优先级低于 -s 指定引擎'),
@@ -125,6 +123,7 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
     """搜索: 默认多引擎; `-s` 选站点或引擎, `-l` 列全部检索源"""
     a = _CTX['args']
     a.update = None
+    engine = None
 
     def list_sources(args, cfg):
         import json as _json
@@ -171,7 +170,7 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
 
     # 引擎和站点都是"检索源": 一个 -s 全包。多个引擎可逗号并列; 站点只能单选
     # (各站参数/返回结构不同, 混着搜没法统一渲染)。
-    raw = site or engine
+    raw = site
     picked = [x.strip() for x in (raw or '').split(',') if x.strip()]
     if picked:
         from webtool.engines.status import listing as _listing
@@ -281,13 +280,13 @@ def ask_cmd(question: list[str] = typer.Argument(None,
                                         help='最多读几篇正文 (默认 4; 抓不到正文的退回搜索摘要)'),
             max_chars: int = typer.Option(4000, '-c', '--max-chars',
                                           help='单篇正文截断字符数 (默认 4000)'),
-            engine: str = typer.Option(None, '-e', '--engine',
-                                       help='搜索引擎 (同 search -e; 默认走默认预设)'),
+            site: str = typer.Option(None, '-s', '--site',
+                                     help='检索源 (同 search -s, 可混选引擎与站点)'),
             preset: str = typer.Option(None, '--preset', help='引擎组合预设 (同 search)'),
-            since: str = typer.Option(None, '--since',
-                                      help='只要这个时间之后的资料 (同 search --since)'),
-            until: str = typer.Option(None, '--until',
-                                      help='只要这个时间之前的资料 (同 search --until)'),
+            since: str = typer.Option(None, '-S', '--since',
+                                      help='只要这个时间之后的资料 (同 search -S)'),
+            until: str = typer.Option(None, '-U', '--until',
+                                      help='只要这个时间之前的资料 (同 search -U)'),
             model: str = typer.Option(None, '--model', help='模型 id (默认取 zen.json / big-pickle)'),
             retries: int = typer.Option(2, '--retries', help='模型调用瞬时故障重试次数'),
             stream: bool = typer.Option(True, '--stream/--no-stream',
@@ -304,7 +303,7 @@ def ask_cmd(question: list[str] = typer.Argument(None,
     a.num = max(1, num)
     a.sources = max(1, sources)
     a.max_chars = max(200, max_chars)
-    a.engine, a.preset = engine, preset
+    a.site, a.preset = site, preset
     a.since, a.until = since, until
     a.model = model
     a.system = None
@@ -424,7 +423,8 @@ def watch_cmd(target: list[str] = typer.Argument(None,
               kind: str = typer.Option('search', '--kind',
                                        help='search=关键词检索 / rank=热榜'),
               num: int = typer.Option(20, '-n', '--limit', help='每次取多少条'),
-              engine: str = typer.Option(None, '-e', '--engine', help='搜索引擎 (同 search -e)'),
+              site: str = typer.Option(None, '-s', '--site',
+                                       help='检索源 (同 search -s)'),
               preset: str = typer.Option(None, '--preset', help='引擎组合预设 (同 search)'),
               since: str = typer.Option(None, '--since', help='只看这个时间之后 (同 search)'),
               until: str = typer.Option(None, '--until', help='只看这个时间之前 (同 search)'),
@@ -445,7 +445,7 @@ def watch_cmd(target: list[str] = typer.Argument(None,
     a.target = ' '.join(target).strip() if target else ''
     a.kind = (kind or 'search').strip().lower()
     a.num = max(1, num)
-    a.engine, a.preset, a.since, a.until = engine, preset, since, until
+    a.engine, a.preset, a.since, a.until = site, preset, since, until
     a.name = name
     a.list, a.reset = list_, reset
     a.max_seen = max(50, max_seen)

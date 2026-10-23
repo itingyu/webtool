@@ -39,18 +39,18 @@ SYSTEM = (
 def _search(question, args):
     """跑 search 命令拿结果; 返回 (ok, 结果列表 或 错误文本)"""
     argv = ['search', question, '-n', str(max(1, args.num)), '-f', 'json']
-    if args.engine:
-        argv += ['-e', args.engine]
+    if getattr(args, 'site', None):
+        argv += ['-s', args.site]
     if getattr(args, 'preset', None):
         argv += ['--preset', args.preset]
     if getattr(args, 'since', None):
-        argv += ['--since', args.since]
+        argv += ['-S', args.since]
     if getattr(args, 'until', None):
-        argv += ['--until', args.until]
+        argv += ['-U', args.until]
     if args.no_cache:
-        argv.append('--no-cache')
+        argv.append('-N')
     if args.no_proxy:
-        argv.append('--no-proxy')
+        argv.append('-P')
     ok, data = _cli_json(argv)
     if not ok or not isinstance(data, dict):
         return False, str(data)[:300]
@@ -67,9 +67,9 @@ def _fetch(urls, args):
     argv = ['fetch', '--url-file', path, '-f', 'json',
             '--max-chars', str(max(200, args.max_chars))]
     if args.no_cache:
-        argv.append('--no-cache')
+        argv.append('-N')
     if args.no_proxy:
-        argv.append('--no-proxy')
+        argv.append('-P')
     try:
         ok, data = _cli_json(argv)
     finally:
