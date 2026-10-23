@@ -13,7 +13,7 @@ from concurrent.futures import as_completed
 from webtool.dao import cache
 from webtool.core import jsonfmt
 import webtool.feeds.feedhealth as feedhealth
-from webtool.feeds.sources import (FEEDS_FILE, FEED_STATE_FILE,
+from webtool.feeds.sources import (feeds_file, state_file,
                                    load_seed_feeds, load_user_feeds,
                                    save_user_feeds)
 from webtool.net import proxyhelper
@@ -50,7 +50,7 @@ def do_feed(args, cfg):
         user[args.add[0]] = {'url': args.add[1],
                              'desc': args.add[2] if len(args.add) > 2 else ''}
         save_user_feeds(user)
-        print(f'feed 源已保存: {args.add[0]} -> {args.add[1]}  ({FEEDS_FILE})',
+        print(f'feed 源已保存: {args.add[0]} -> {args.add[1]}  ({feeds_file()})',
               file=sys.stderr)
         return 0
     if getattr(args, 'del_src', None):
@@ -173,7 +173,7 @@ def do_feed(args, cfg):
             print('  webtool feed radar 36kr --pick 2 --param category=newsflashes   填参并直接拉数据')
             print('  webtool feed radar 36kr --pick 2 --example 用官方示例路径取数 (免填参)')
             print('  webtool feed radar 36kr --pick 2 --sample-row 2   用第 2 条真实样例取数 (免填参)')
-            print('  webtool feed radar --from-url https://space.bilibili.com/946974  反推路由')
+            print('  webtool feed radar url https://space.bilibili.com/946974        反推路由')
             print('  webtool feed radar 36kr --pick 2 --example --add r36kr   落地成订阅源')
             print('  webtool feed instances                      看公共实例今天哪些活着')
             print('  webtool feed radar --cat finance           按分类过滤')
@@ -290,7 +290,7 @@ def do_feed(args, cfg):
 
     # --new-only 增量: 对比 ~/.webtool/feed_state.json 上次已见 URL
     new_only = getattr(args, 'new_only', False)
-    seen_state = jsonfmt.read(FEED_STATE_FILE) if new_only else {}
+    seen_state = jsonfmt.read(state_file()) if new_only else {}
     if new_only:
         for nm in list(results):
             seen_urls = set(seen_state.get(nm) or [])
@@ -303,7 +303,7 @@ def do_feed(args, cfg):
             urls = [r.get('url') for r in items if r.get('url')]
             old = list(seen_state.get(nm) or [])
             seen_state[nm] = (urls + old)[:500]
-        jsonfmt.write(FEED_STATE_FILE, seen_state)
+        jsonfmt.write(state_file(), seen_state)
 
     # -q 语义筛选 (BM25 + 重排; 无 -q 完全原序)
     filtered_out = 0

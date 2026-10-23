@@ -4,13 +4,19 @@
 用户版本为准; 写盘失败静默, 种子只是便利, 挂了不该让命令报错。
 """
 
-import os
 
 from webtool.core import config_data
 from webtool.core import jsonfmt
 
-FEEDS_FILE = os.path.expanduser('~/.webtool/feeds.json')
-FEED_STATE_FILE = os.path.expanduser('~/.webtool/feed_state.json')
+from webtool.core.paths import user_path
+
+
+def feeds_file():
+    return str(user_path('feeds.json'))
+
+
+def state_file():
+    return str(user_path('feed_state.json'))
 # 随包分发的精选源种子 (~/.webtool/feeds.json 不存在时自动落盘)
 SEED_FILE = str(config_data.DATA_DIR / 'feeds.seed.json')
 
@@ -42,10 +48,10 @@ def _seed_user_feeds(user):
 
 def load_user_feeds():
     """用户自定义源: ~/.webtool/feeds.json {name: {url, desc}}"""
-    d = jsonfmt.read(FEEDS_FILE)
+    d = jsonfmt.read(feeds_file())
     user = {k: (v if isinstance(v, dict) else {'url': v}) for k, v in d.items()}
     return _seed_user_feeds(user)
 
 
 def save_user_feeds(d):
-    jsonfmt.write(FEEDS_FILE, d)
+    jsonfmt.write(feeds_file(), d)

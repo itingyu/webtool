@@ -13,7 +13,11 @@ import json
 import os
 import time
 
-PATH = os.path.expanduser('~/.webtool/feed_health.json')
+from webtool.core.paths import user_path
+
+
+def _path():
+    return str(user_path('feed_health.json'))
 
 # 源名 → 展示语义 (status 附加诊断), 人工 --mark 时也可传自由文本
 REASON_HINTS = {
@@ -29,20 +33,20 @@ REASON_HINTS = {
 
 def _load():
     try:
-        with open(PATH, encoding='utf-8') as f:
+        with open(_path(), encoding='utf-8') as f:
             return json.load(f)
     except Exception:
         return {}
 
 
 def _save(data):
-    d = os.path.dirname(PATH)
+    d = os.path.dirname(_path())
     if d:
         os.makedirs(d, exist_ok=True)
-    tmp = PATH + '.tmp'
+    tmp = _path() + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, PATH)
+    os.replace(tmp, _path())
 
 
 def record(key, url, status, reason=None):

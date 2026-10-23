@@ -13,19 +13,23 @@ import urllib.parse
 from webtool.core.resilient import fetch as rfetch
 from webtool.engines.sites import _headers
 
-SITES_DIR = os.path.expanduser('~/.webtool/sites')
+from webtool.core.paths import user_path
+
+
+def _sites_dir():
+    return str(user_path('sites'))
 
 
 def load_custom_sites():
     """加载所有自定义站点定义"""
     customs = {}
-    if not os.path.isdir(SITES_DIR):
+    if not os.path.isdir(_sites_dir()):
         return customs
-    for fn in sorted(os.listdir(SITES_DIR)):
+    for fn in sorted(os.listdir(_sites_dir())):
         if not fn.endswith('.json'):
             continue
         try:
-            with open(os.path.join(SITES_DIR, fn), encoding='utf-8') as f:
+            with open(os.path.join(_sites_dir(), fn), encoding='utf-8') as f:
                 data = json.load(f)
             for name, spec in data.items():
                 if _validate(spec):

@@ -138,9 +138,9 @@ webtool feed "https://example.com/rss.xml"   # 任意 RSS/Atom URL
 webtool feed --add myblog --add <URL> --add "描述"   # 自定义源
 webtool feed --del myblog                 # 删自定义源 (预设不可删)
 webtool feed health                       # 坏源登记表
-webtool feed --retest all                 # 复查坏源, 恢复即移除
-webtool feed --mark <key> --mark "原因"    # 人工登记坏源
-webtool feed sspai --no-url               # 输出不带链接 (只要标题/摘要)
+webtool feed sources retest all           # 复查坏源, 恢复即移除
+webtool feed sources mark <key> "原因"     # 人工登记坏源 (可再跟 URL)
+webtool feed get sspai --no-url           # 输出不带链接 (只要标题/摘要)
 ```
 
 - 111 个种子源随包分发，安装时并入（只增不覆盖，`WEBTOOL_NO_SEED=1` 关）；`--new-only` 状态存 `~/.webtool/feed_state.json`
@@ -149,12 +149,12 @@ webtool feed sspai --no-url               # 输出不带链接 (只要标题/摘
 RSSHub 路由库：
 
 ```bash
-webtool feed radar 36kr                                        # 搜路由卡片
-webtool feed radar 36kr --pick 2 --param category=newsflashes   # 填参拉数据
-webtool feed radar 36kr --pick 2 --example                      # 官方示例路径
-webtool feed radar 36kr --pick 2 --top 2                        # 用真实样例填参
-webtool feed radar --from-url <页面URL>                          # 反推路由
-webtool feed radar 36kr --pick 2 --example --add r36kr          # 落地成订阅源
+webtool feed radar find 36kr                                    # 搜路由卡片 (裸 radar 同)
+webtool feed radar find 36kr --pick 2 --param category=newsflashes  # 填参拉数据
+webtool feed radar find 36kr --pick 2 --example                 # 官方示例路径
+webtool feed radar find 36kr --pick 2 --sample-row 2            # 用真实样例填参
+webtool feed radar url <页面URL>                                 # 反推路由
+webtool feed radar find 36kr --pick 2 --example --add r36kr     # 落地成订阅源
 ```
 
 `--pick` 选第几条命中的路由（不给则取热度最高），`--param` 只作用于选中的那条。默认与官网 feed 交叉校验并据此取数（`--no-xcheck` 关）。实例探活 `webtool feed instances`（默认挑最快）；公共实例 rsshub.rssforever.com / hub.slarker.me / rss.wudifeixue.com / rsshub.isrss.com，429 时轮换 `--instance`。

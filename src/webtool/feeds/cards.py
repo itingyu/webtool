@@ -39,7 +39,10 @@ def print_route_cards(cards, kw, args, cfg):
     # 纯搜索: 只列卡片
     if not acting:
         base = _radar.best_instance(proxy=cfg.get('proxy'))
-        _out(f'"{kw}" 命中 {len(cards)} 条路由  (按 heat 排序, --cat 可过滤分类)')
+        if kw:
+            _out(f'"{kw}" 命中 {len(cards)} 条路由  (按 heat 排序, --cat 可过滤分类)')
+        else:
+            _out(f'分类 {args.cat} 共 {len(cards)} 条路由  (按 heat 排序)')
         _out(f'实例 {base}  (webtool feed instances 可看全部)\n')
         # 顺带探官网 feed: 官方优先, RSSHub 只在官方给不了目标栏目时才值得
         # 付实例可用性的代价 (探测有 7 天缓存)
