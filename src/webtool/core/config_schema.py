@@ -164,6 +164,10 @@ KEYS = {
     'blocklist': Key(
         None, '黑名单覆盖', '逗号分隔域名, ! 前缀表白名单例外, off 关闭',
         TEXT, None, None, True),
+    'fallback': _enum_key(
+        'off', '免 key 降级',
+        'on / off; 默认 off, 结果不足也不补跑来源不同的引擎',
+        ('on', 'off')),
     # ── 证书 ────────────────────────────────────────────────────────
     'ssl_verify': _enum_key(
         SSL_VERIFY_DEFAULT, '证书校验总开关',

@@ -67,11 +67,11 @@ def _args(**kw):
     base = dict(query='测试', engine='main', preset=None, max=5, blocklist='',
                 no_cache=True, no_proxy=True, no_ad=True, operators='passthrough',
                 jobs=1, since=None, until=None, date_strict=False,
-                no_fallback=False, format='json')
+                fallback=False, format='json')
     base.update(kw)
     return SimpleNamespace(**base)
 
-_rc = S.do_search(_args(), {'timeout': 5})
+_rc = S.do_search(_args(fallback=True), {'timeout': 5})
 check(_rc == 0, '集成: do_search 返回 0')
 check(_captured.get('total') == 5, '集成: 降级后拿到 5 条')
 check([f['engine'] for f in _captured.get('fallback') or []] == ['k1'],
@@ -83,9 +83,14 @@ check(any('兜底' in d for d in _captured.get('degraded') or []),
 
 _calls.clear()
 _captured.clear()
-S.do_search(_args(no_fallback=True), {'timeout': 5})
-check(_captured.get('total') == 0, '集成: --no-fallback 时 0 条')
-check('k1' not in _calls, '集成: --no-fallback 不跑免 key 引擎')
+S.do_search(_args(), {'timeout': 5})
+check(_captured.get('total') == 0, '集成: 默认不降级 → 0 条')
+check('k1' not in _calls, '集成: 默认不跑免 key 引擎')
+
+_calls.clear()
+_captured.clear()
+S.do_search(_args(), {'timeout': 5, 'fallback': 'on'})
+check(_captured.get('total') == 5, '集成: config fallback=on 才降级')
 
 _calls.clear()
 _captured.clear()

@@ -349,11 +349,11 @@ def _do_search(args, cfg, filter_ad=True):
                 from webtool.filters.datefilter import filter_by_date as _fbd
                 results = _fbd(results, {'args': args, 'cfg': cfg})
 
-    # 免 key 降级: 主引擎被拦/超时/空结果时, 按 fallback_rank 补跑免 key 引擎。
-    # 触发条件保守 (见 fallback.needed: 少于 min(n,3) 条), 正常搜索不多付请求。
-    # 降级来的条目统一打 fallback=True, 消费方能看出"这条不是主引擎给的"。
+    # 免 key 降级: **默认关**, 只有 --fallback 或 config fallback=on 才补跑。
+    # 补来的结果来源不同、质量不可控, 宁可少几条也不混入。
     fallback_used = []
-    if not getattr(args, 'no_fallback', False) and _fb_needed(len(results), _want):
+    _fb_on = bool(getattr(args, 'fallback', False) or cfg.get('fallback') == 'on')
+    if _fb_on and _fb_needed(len(results), _want):
         from webtool.pipeline import fallback as _fb
         cand = _fb.select(_engines(), engines, 3)
         if cand:

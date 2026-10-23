@@ -121,9 +121,9 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
                                                      '免得清空结果)'),
                all_time: bool = typer.Option(False, '-A', '--all-time',
                                              help='取消默认的"近 15 天"时间窗, 不限时间'),
-               no_fallback: bool = typer.Option(False, '--no-fallback',
-                                                help='关闭免 key 引擎降级: 主引擎结果不足时'
-                                                     '不再补跑 marginalia/exa/firecrawl/parallel')):
+               fallback: bool = typer.Option(False, '--fallback/--no-fallback',
+                                             help='结果不足时补跑免 key 语义引擎 '
+                                                  '(默认关, 只给真实引擎结果)')):
     """搜索: 默认多引擎; `-s` 选站点或引擎, `-l` 列全部检索源"""
     a = _CTX['args']
     a.update = None
@@ -198,7 +198,7 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
     a.jobs = jobs
     a.since, a.until, a.date_strict = since, until, date_strict
     a.all_time = all_time
-    a.no_fallback = no_fallback
+    a.fallback = fallback
     a.no_ad = True
 
     def fn(args, cfg):
