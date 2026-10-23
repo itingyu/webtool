@@ -29,17 +29,24 @@ def _print_feed_usage():
     print('  webtool feed sspai ithome        指定源 (预设名或任意 RSS/Atom URL)')
     print('  webtool feed                     无参数 = 默认源(标 *), 按源分组原序')
     print('  webtool feed sspai -q "汽车"     语义筛选 (BM25 + 按相关度重排)')
-    print('  webtool feed --add NAME --add URL [--add 描述]   添加自定义源 (存 ~/.webtool/feeds.json)')
-    print('  webtool feed --del NAME          删除自定义源 (预设源不可删)')
+    print('  webtool feed sources add NAME URL [描述]   添加自定义源 (存 ~/.webtool/feeds.json)')
+    print('  webtool feed sources del NAME    删除自定义源 (预设源不可删)')
     print('  webtool feed NAME --new-only     增量: 只出上次之后的新条目')
     print('  webtool feed health              查看坏源登记表 (官网挂了的站)')
-    print('  webtool feed --retest KEY|all    复查坏源, 恢复即移除登记')
-    print('  webtool feed --mark KEY "备注"   人工登记坏源原因 (如改走 RSSHub)')
+    print('  webtool feed sources retest all  复查坏源, 恢复即移除登记')
+    print('  webtool feed sources mark KEY "备注"   人工登记坏源原因 (如改走 RSSHub)')
+    print('  webtool feed <路由键> -p k=v     带参路由填参 (键名见 feed sources --radar)')
     print('  webtool feed radar <关键词>      查 RSSHub 路由库 (2069 站 / 3947 路由, 带参数说明)')
     print('  webtool feed instances             探活公共实例 (哪几个今天还活着)')
     print('  webtool feed sspai --no-url      输出不带链接 (只要标题/摘要)')
     print('  通用: -n 每源条数 -f json/text/markdown -o 文件 --no-cache --no-proxy')
     print('\n* = 默认源; feed 与 rank 的分工: rank 看热度榜, feed 看时序新内容')
+
+
+def _derived():
+    """RSSHub 路由物化出来的源 (radar 缓存更新后自动重建)"""
+    from webtool.feeds import radar_sources as _rs
+    return _rs.load()
 
 
 def do_feed(args, cfg):
@@ -119,6 +126,21 @@ def do_feed(args, cfg):
                     feedhealth.record(k, targets[k]['url'], st)
                     print(f'✗ {k}: 仍坏 [{st}] (保留登记)')
         return 0
+    # feed sources sync: 把 RSSHub 路由库重新物化成源
+    if len(args.sources) == 1 and args.sources[0] == 'sync':
+        from webtool.feeds import radar_sources as _rs
+        routes = None
+        if getattr(args, 'radar_refresh', False):
+            from webtool import radar as _radar
+            routes = _radar.load_routes(proxy=cfg.get('proxy'), refresh=True)
+        src = _rs.load(routes=routes, refresh=True)
+        if not src:
+            print('物化失败: 路由库载入不了, 先 webtool feed radar 看看', file=sys.stderr)
+            return 2
+        free = sum(1 for e in src.values() if not e.get('params'))
+        print(f'已物化 {len(src)} 条 feed 源 ({free} 条免填参) -> '
+              f'{_rs.FILE}; 带参数的要 -p/-e')
+        return 0
     # feed health: 查看健康登记表
     if len(args.sources) == 1 and args.sources[0] == 'health':
         print(feedhealth.render_text())
@@ -194,35 +216,34 @@ def do_feed(args, cfg):
             (len(args.sources) == 1 and args.sources[0] == 'list'):
         seed = load_seed_feeds()
         defaults = {k for k, v in seed.items() if v.get('default')}
-        # 给了 -f (含 json) 就走 render 层统一分发, 清单是可机读数据不是给人看的表格
-        if getattr(args, 'format', None):
-            rows = [{'name': k, 'url': v.get('url', ''), 'desc': v.get('desc') or '',
-                     'origin': 'seed', 'default': k in defaults}
-                    for k, v in seed.items()]
-            rows += [{'name': k, 'url': v.get('url', ''), 'desc': v.get('desc') or '',
-                      'origin': 'custom', 'default': False}
-                     for k, v in user.items() if k not in seed]
-            from webtool.render.hotrender import render_feed_list
-            render_feed_list({'results': rows, 'seed_count': len(seed),
-                              'user_count': len(user)}, args.format)
-            # 清单 + 用法是一套 (rank 无参也是两者都给); json 是给机器读的,
-            # 别往里掺人看的用法段
-            if args.format != 'json':
-                _print_feed_usage()
-            return 0
-        print(f'webtool feed 订阅源 ({len(seed)} 预设 + {len(user)} 自定义):\n')
-        for k, v in seed.items():
-            star = ' *' if k in defaults else ''
-            print(f'  {k:14s} {v.get("desc") or ""}{star}')
-        for k, v in user.items():
-            if k in seed:
-                continue
-            print(f'  {k:14s} {v.get("desc") or ""} (自定义) {v["url"]}')
-        _print_feed_usage()
+        # 清单是表格数据, 统一走 render 层 (text/json/markdown 都生效)
+        dsrc = _derived()
+        show_radar = bool(getattr(args, 'radar', False))
+        rows = [{'name': k, 'url': v.get('url', ''), 'desc': v.get('desc') or '',
+                 'origin': 'seed', 'default': k in defaults}
+                for k, v in seed.items()]
+        rows += [{'name': k, 'url': v.get('url', ''), 'desc': v.get('desc') or '',
+                  'origin': 'custom', 'default': False}
+                 for k, v in user.items() if k not in seed]
+        if show_radar:
+            rows += [{'name': k, 'url': e.get('template') or '',
+                      'desc': e.get('desc') or '', 'origin': 'radar',
+                      'default': False,
+                      'params': list((e.get('params') or {}).keys())}
+                     for k, e in sorted(dsrc.items()) if k not in user]
+        from webtool.render.hotrender import render_feed_list
+        render_feed_list({'results': rows, 'seed_count': len(seed),
+                          'user_count': len(user), 'radar_count': len(dsrc),
+                          'show_radar': show_radar}, args.format)
+        # 清单 + 用法是一套; json 是给机器读的, 别掺人看的用法段
+        if args.format != 'json':
+            _print_feed_usage()
         return 0
-    # 解析源名 → url (支持直接喂 URL)
+    # 解析源名 → url (种子/自定义优先, 其次 RSSHub 派生源; 也支持直接喂 URL)
     user = load_user_feeds()
-    all_names = dict(user)
+    derived = _derived()
+    all_names = dict(derived)
+    all_names.update(user)
     if not args.sources:
         # 无参数 = 默认源: 用户文件里 default:true 的; 一个都没有则回退 seed 元数据
         args.sources = [k for k, v in user.items() if isinstance(v, dict) and v.get('default')]
@@ -230,25 +251,65 @@ def do_feed(args, cfg):
             args.sources = [k for k, v in load_seed_feeds().items() if v.get('default')]
     names, specs, unknown = [], {}, []
     for s in args.sources:
-        if s in all_names:
+        entry = all_names.get(s)
+        if entry is not None:
             nm = s
-            url = all_names[s].get('url') or all_names[s].get('url') or all_names[s]
+            url = entry.get('url') or ''
         elif s.startswith('http://') or s.startswith('https://'):
             nm = 'feed:' + urllib.parse.urlparse(s).netloc
             url = s
+            entry = None
         else:
             unknown.append(s)
             continue
         if nm not in specs:
             names.append(nm)
-            specs[nm] = {'url': url, 'desc': all_names[s].get('desc') if s in all_names else ''}
+            spec = {'url': url,
+                    'desc': entry.get('desc') if entry else ''}
+            if entry and entry.get('template'):
+                spec['entry'] = entry          # 派生源: 取数时按实例现拼
+            specs[nm] = spec
     if unknown:
         print(f'unknown feed sources (skip): {", ".join(unknown)}; '
-              f'可选: {", ".join(sorted(all_names))} 或任意 RSS/Atom URL', file=sys.stderr)
+              f'可选: {", ".join(sorted(user)) or "(无)"} 或任意 RSS/Atom URL; '
+              f'RSSHub 路由用 webtool feed radar find <站名> 查键名', file=sys.stderr)
     if not names:
         print('无可用 feed 源; `webtool feed sources` 查看清单, 或直接传 RSS/Atom URL',
               file=sys.stderr)
         return 2
+
+    # 派生源: 填参 / 借官方 example / 拼当前最快实例
+    from webtool import radar as _radar
+    from webtool.feeds import radar_sources as _rs
+    params = {}
+    for kv in (getattr(args, 'param', None) or []):
+        if '=' not in kv:
+            print(f'--param 需要 K=V 形式, 收到 "{kv}"', file=sys.stderr)
+            return 2
+        k, v = kv.split('=', 1)
+        params[k.strip()] = v.strip()
+    use_example = getattr(args, 'example', False)
+    inst = getattr(args, 'instance', None)
+    if any('entry' in specs[nm] for nm in names) and not inst:
+        inst = _radar.best_instance(proxy=cfg.get('proxy'))
+    for nm in names:
+        e = specs[nm].get('entry')
+        if not e:
+            continue
+        if e.get('params') and not params and not use_example:
+            if e.get('required'):
+                print(_rs.hint(nm, e), file=sys.stderr)
+                return 2
+            print(f'提示: {nm} 有可选参数未填, 按默认路径抓; '
+                  f'要指定: -p {e["optional"][0]}=...', file=sys.stderr)
+        try:
+            specs[nm]['url'] = _rs.render(e, params, use_example, inst)
+        except _radar.MissingParams:
+            print(_rs.hint(nm, e), file=sys.stderr)
+            return 2
+        except Exception as exc:
+            print(f'{nm} 取数地址生成失败: {str(exc)[:160]}', file=sys.stderr)
+            return 2
 
     n = min(max(args.max, 3), 100)
     q = (getattr(args, 'query', None) or '').strip()

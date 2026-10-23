@@ -191,7 +191,8 @@ def render_feed_list(out, fmt):
         return
     if fmt == 'markdown':
         print(f"## feed 订阅源 ({out.get('seed_count')} 预设 + "
-              f"{out.get('user_count')} 自定义)\n")
+              f"{out.get('user_count')} 自定义 + "
+              f"{out.get('radar_count', 0)} RSSHub 派生)\n")
         print('| name | origin | default | desc | url |')
         print('|---|---|:-:|---|---|')
         for r in rows:
@@ -200,11 +201,18 @@ def render_feed_list(out, fmt):
         return
     # text
     print(f"webtool feed 订阅源 ({out.get('seed_count')} 预设 + "
-          f"{out.get('user_count')} 自定义):\n")
+          f"{out.get('user_count')} 自定义 + "
+          f"{out.get('radar_count', 0)} RSSHub 派生):\n")
     for r in rows:
         star = ' *' if r['default'] else ''
         tag = f" ({r['origin']})" if r['origin'] == 'custom' else ''
-        print(f"  {r['name']:14s} {r['desc']}{star}{tag} {r['url']}")
+        width = 24 if r['origin'] == 'radar' else 14
+        if r['origin'] == 'radar':
+            tag = ' [参数]' if r.get('params') else ''
+        print(f"  {r['name']:{width}s} {r['desc']}{star}{tag} {r['url']}".rstrip())
+    if not out.get('show_radar'):
+        print(f"\n另有 RSSHub 派生源 {out.get('radar_count', 0)} 条: "
+              f"feed sources --radar 查看")
 
 
 # 兼容旧别名 (hot 命令若仍被调用)

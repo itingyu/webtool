@@ -40,6 +40,7 @@ def _build(fmt, output, no_proxy, no_cache, **kw):
     a.radar_refresh = kw.get('radar_refresh', False)
     a.no_xcheck = kw.get('no_xcheck', False)
     a.items = kw.get('items', False)
+    a.radar = kw.get('radar', False)
     return _run('data', _entry_fn('feed'), fmt, output, no_cache, no_proxy)
 
 
@@ -65,21 +66,30 @@ def _get(sources: list[str] = typer.Argument(None, help='feed key 或任意 RSS/
                                          help='语义筛选阈值 (0=只重排不过滤)'),
          new_only: bool = typer.Option(False, '--new-only', help='增量: 只显示上次抓取后的新条目'),
          no_url: bool = typer.Option(False, '--no-url', help='输出不带链接'),
+         param: list[str] = typer.Option(None, '-p', '--param',
+                                         help='给带参路由填值, 可重复: -p category=news'),
+         example: bool = typer.Option(False, '-e', '--example',
+                                      help='用路由的官方 example 路径 (免填参)'),
+         instance: str = typer.Option(None, '-I', '--instance',
+                                      help='RSSHub 实例前缀 (默认挑最快)'),
          fmt: str = Fmt, output: str = Output,
          no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """抓取订阅源 (默认命令: webtool feed 36kr 等同 feed get 36kr)"""
     return _build(fmt, output, no_proxy, no_cache, sources=list(sources or []),
                   max=limit, query=query, threshold=threshold,
-                  new_only=new_only, no_url=no_url)
+                  new_only=new_only, no_url=no_url, param=param,
+                  example=example, instance=instance)
 
 
 sources_app = make_group('list', '订阅源: 清单 / 增删 / 登记坏源 / 复查恢复')
 
 @sources_app.command('list')
-def _src_list(fmt: str = Fmt, output: str = Output,
+def _src_list(radar: bool = typer.Option(False, '--radar',
+                                         help='同时列出 RSSHub 派生源 (4k 条)'),
+              fmt: str = Fmt, output: str = Output,
               no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """列出订阅源"""
-    return _build(fmt, output, no_proxy, no_cache, sources=[])
+    return _build(fmt, output, no_proxy, no_cache, sources=[], radar=radar)
 
 @sources_app.command('add')
 def _src_add(name: str = typer.Argument(..., help='源名'),
@@ -107,6 +117,16 @@ def _src_mark(key: str = typer.Argument(..., help='源名'),
     """登记坏源 / 改地址"""
     return _build(fmt, output, no_proxy, no_cache,
                   mark=[x for x in (key, url, note) if x])
+
+@sources_app.command('sync')
+def _src_sync(force: bool = typer.Option(False, '-R', '--refresh',
+                                         help='强制重拉 RSSHub 路由库再物化'),
+              fmt: str = Fmt, output: str = Output,
+              no_proxy: bool = NoProxy, no_cache: bool = NoCache):
+    """把 RSSHub 路由库重新物化成 feed 源"""
+    return _build(fmt, output, no_proxy, no_cache, sources=['sync'],
+                  radar_refresh=force)
+
 
 @sources_app.command('retest')
 def _src_retest(key: str = typer.Argument('all', help='源名或 all'),

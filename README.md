@@ -157,6 +157,18 @@ webtool feed radar url <页面URL>                                 # 反推路�
 webtool feed radar find 36kr --pick 2 --example --add r36kr     # 落地成订阅源
 ```
 
+RSSHub 路由也会自动变成 feed 源（物化到 `~/.webtool/feed_radar.json`，radar 缓存更新后自动重建）：
+键名 = 域名短名，同站多条路由用 `36kr_hot_list` 这种后缀。
+
+```bash
+webtool feed 36kr                  # 免填参路由直接抓 (可选参数按默认)
+webtool feed bilibili              # 缺必填 → 打印参数表 + 可照抄的示例
+webtool feed bilibili -p uid=2267573
+webtool feed bilibili -e           # 官方 example 路径, 免填参
+webtool feed sources --radar       # 看全部派生源 (4000+ 条, 带 [参数] 标记)
+webtool feed sources sync -R       # 重拉路由库并重建物化表
+```
+
 `--pick` 选第几条命中的路由（不给则取热度最高），`--param` 只作用于选中的那条。默认与官网 feed 交叉校验并据此取数（`--no-xcheck` 关）。实例探活 `webtool feed instances`（默认挑最快）；公共实例 rsshub.rssforever.com / hub.slarker.me / rss.wudifeixue.com / rsshub.isrss.com，429 时轮换 `--instance`。
 
 ## 站内搜索 (site)
