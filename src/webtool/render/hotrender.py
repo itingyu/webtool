@@ -211,8 +211,11 @@ def render_feed_list(out, fmt):
             tag = ' [参数]' if r.get('params') else ''
         print(f"  {r['name']:{width}s} {r['desc']}{star}{tag} {r['url']}".rstrip())
     if not out.get('show_radar'):
-        print(f"\n另有 RSSHub 派生源 {out.get('radar_count', 0)} 条: "
-              f"feed sources --radar 查看")
+        n = out.get('radar_count', 0)
+        if n:
+            print(f"\n另有 RSSHub 派生源 {n} 条: feed sources --radar 查看")
+        else:
+            print('\nRSSHub 派生源未物化: webtool feed sources sync 生成')
 
 
 # 兼容旧别名 (hot 命令若仍被调用)
