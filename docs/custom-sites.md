@@ -1,7 +1,7 @@
 # 自定义站点
 
 内置站点在 `data/plugins.json` 的 `site` 段。想加自己的站，不用改代码：
-在 `~/.webtool/sites/` 放一个 JSON，启动时自动并入（`webtool site list` 可见）。
+在 `~/.webtool/sites/` 放一个 JSON，启动时自动并入（`webtool search --sources` 可见）。
 
 ## 文件格式
 
@@ -31,9 +31,8 @@
 ## 使用与调试
 
 ```bash
-webtool site list
-webtool site example "关键词" -n 5
-webtool site example "关键词" --proxy none -v
+webtool search --sources
+webtool search -s example "关键词" -n 5
 ```
 
 - 先确认 `list` 选择器能选中 ≥1 个节点，再看 `item` 的相对选择器；写错不会

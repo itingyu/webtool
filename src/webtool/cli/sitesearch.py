@@ -1,4 +1,4 @@
-"""webtool site: 站内搜索调度 (区别于传统搜索引擎)"""
+"""站内搜索调度 (入口: webtool search -s <site> <query>)"""
 import json
 import sys
 import time
@@ -83,7 +83,7 @@ def do_site(args, cfg):
         near = difflib.get_close_matches(str(args.site), names + sorted(_SITE_ALIAS), n=3)
         hint = ('\n你是不是想找: ' + ', '.join(near)) if near else ''
         print(f'unknown site: {args.site}{hint}\navailable: {", ".join(names)}\n'
-              f'use `webtool site list` for detail', file=sys.stderr)
+              f'use `webtool search --sources` for detail', file=sys.stderr)
         return 2
 
     t0 = time.time()
@@ -116,7 +116,7 @@ def do_site(args, cfg):
             src = 'fresh'
         except Exception as e:
             print(json.dumps({'error': str(e)[:300], 'site': args.site,
-                              'hint': '可试 --proxy / --no-proxy 或降低 -n; `webtool site list` 查看站点'},
+                              'hint': '可试 --proxy / --no-proxy 或降低 -n; `webtool search --sources` 查看站点'},
                              ensure_ascii=False), file=sys.stderr)
             return 1
 

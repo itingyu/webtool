@@ -16,14 +16,14 @@ HELP = '''Agent 友好的网页搜索与内容获取工具
 最常用 (按想做的事找):
   搜东西    search <词>           多引擎, 主引擎不足自动降级兜底
   读网页    fetch <url>           正文提取 / PDF 抽取 / --structured 结构化
-  搜某站    site <站点> <词>      20 个站点, 站点名见 site list
+  搜某站    search -s <站点> <词>  20 个站点, 清单见 search --sources
   比口径    compare <url> <url>   多源并排: 哪些共有、哪些各有侧重
-  看热榜    rank <源>...          26 个榜单源, 不带参数=列全部源
+  看热榜    rank <源>...          19 个榜单源, 不带参数=列全部源
   问问题    ask <问题>            先检索再答, 每条结论带来源
   看股票    stock <子命令>        行情/涨停/资金/新闻/财报/K线/选股
 
 全部命令分组:
-  搜索  search  fetch  site  crawl  ask
+  搜索  search  fetch  crawl  ask
   对比  diff  compare
   监控  watch  feed
   榜单  rank

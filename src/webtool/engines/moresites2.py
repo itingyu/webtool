@@ -1,4 +1,4 @@
-"""webtool site 第二批: 关键词搜索型适配器, 全走指纹通道。
+"""站内搜索源 第二批: 关键词搜索型适配器, 全走指纹通道。
 
 csdn_so (CSDN 问答) / juejin2 (掘金) / bili2 (B站, 需 buvid cookie) /
 douban (HTML 版免登录) / gh_search (GitHub 仓库) / ithome_so (IT之家)。

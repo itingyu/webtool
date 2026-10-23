@@ -1,4 +1,4 @@
-"""webtool site 站点: thepaper/eastmoney, 全走 transport 指纹通道。
+"""站内搜索源 站点: thepaper/eastmoney, 全走 transport 指纹通道。
 
 热榜类源在 engines/hotsites.py (rank 命令用); 36kr 被火山引擎 JS 挑战
 拦截 (纯 HTTP 拿不到数据), 不进内置表。

@@ -94,7 +94,7 @@ webtool search "query" -e exa,parallel           # 语义引擎
 - `--operators passthrough|strip|strict` 控制高级操作符（支持 `site:` `intitle:` `inurl:` `-词`）；`--blocklist a.com,b.com` 覆盖黑名单（前缀 `!` 表例外，`off` 关闭）
 - **多引擎并发抓取**：一次搜索同时打所有引擎（不同站点、互不排队），墙钟≈最慢那个引擎而不是各家之和。默认并发=源数（上限 4，`core.resilient.MAX_WORKERS` 常量），`-j/--jobs N` 调（`1` = 串行，`config set jobs N` 持久化）。结果与报错一律按 `-e` 声明顺序回填，同一 query 的输出稳定可复现
 - 跳转链默认自动解码成真实 URL（`--no-resolve` 关）；结果综合加权排序，`-f json` 看 `weight` 与 `engines`（交叉验证数）
-- `webtool plugins engines list|test|presets`：清单与各站点冷却 / 实发体检 / 预设组合
+- `webtool search --sources`：引擎 + 站内源统一清单（含冷却状态）；`webtool plugins engines test|presets`：实发体检 / 预设组合
 
 ## fetch
 
@@ -158,14 +158,14 @@ webtool feed radar 36kr --pick 2 --example --add r36kr          # 落地成订�
 
 `--pick` 选第几条命中的路由（不给则取热度最高），`--param` 只作用于选中的那条。默认与官网 feed 交叉校验并据此取数（`--no-xcheck` 关）。实例探活 `webtool feed instances`（默认挑最快）；公共实例 rsshub.rssforever.com / hub.slarker.me / rss.wudifeixue.com / rsshub.isrss.com，429 时轮换 `--instance`。
 
-## site
+## 站内搜索 (site)
 
-18 站点：github / gh_search / so / hn / wikipedia / arxiv / csdn / csdn_so / juejin / juejin2 / bilibili / bili2 / sspai / npm / thepaper / eastmoney / sov2ex / douban。
+入口在 `search -s`，不再单独占一个命令。18 站点：github / gh_search / so / hn / wikipedia / arxiv / csdn / csdn_so / juejin / juejin2 / bilibili / bili2 / sspai / npm / thepaper / eastmoney / sov2ex / douban。
 
 ```bash
-webtool site list                     # 全部站点 (含自定义)
-webtool site github fastapi           # 站内搜
-webtool site wikipedia 量子计算 --lang en
+webtool search --sources              # 全部检索源 (引擎 + 站点)
+webtool search -s github fastapi      # 站内搜
+webtool search -s wikipedia 量子计算 --lang en
 ```
 
 自定义站点放 `~/.webtool/sites/*.json`（格式见 [docs/custom-sites.md](docs/custom-sites.md)）。

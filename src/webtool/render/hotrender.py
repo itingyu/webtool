@@ -142,7 +142,7 @@ def render_rank(out, fmt, filters):
 
 
 def render_keyed_list(out, fmt, kind='admin', title='清单', desc_fields=('desc',)):
-    """key-value 型清单的统一渲染 (site list / plugins list 等)
+    """key-value 型清单的统一渲染 (检索源清单 / 插件清单等)
 
     与 render_feed_list 的区别: 那是 feed 专属列 (name/origin/default),
     这里按行里实际出现的键自动定列, 一份实现覆盖各种清单。

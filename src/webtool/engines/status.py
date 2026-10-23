@@ -27,14 +27,19 @@ def status(args, cfg):
     return _list(cfg)
 
 
+def listing():
+    """引擎清单 (纯数据, 供 search --sources 与 engines list 共用)"""
+    return [{'engine': name, 'desc': meta['desc']}
+            for name, meta in _engines().items()]
+
+
 def _list(cfg):
     """列引擎清单 + 各站点冷却状态 (不发请求)
 
     冷却按站点记账: 同一引擎可能跨站 (google web / news), 所以冷却单独成表,
     不硬塞进引擎行里。
     """
-    out = [{'engine': name, 'desc': meta['desc']}
-           for name, meta in _engines().items()]
+    out = listing()
     cool = {site: f'{hit.left}s (此前{hit.why})'
             for site, hit in intercept.cooldowns().items()}
     if cool:

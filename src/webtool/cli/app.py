@@ -130,7 +130,7 @@ _COMMANDS_LOADED = set()
 _CMD_MODULE = {
     'search': 'data', 'fetch': 'data', 'ask': 'data',
     'diff': 'data', 'compare': 'data', 'watch': 'data', 'crawl': 'data',
-    'site': 'data', 'rank': 'data', 'pydata': 'data',
+    'rank': 'data', 'pydata': 'data',
     'feed': 'feedapp',
     'stock': 'stock',
     'zen': 'zenapp',

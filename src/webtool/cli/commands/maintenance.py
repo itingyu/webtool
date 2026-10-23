@@ -503,7 +503,7 @@ app.add_typer(config_app, name='config')
 
 engines_app = typer.Typer(
     add_completion=False, no_args_is_help=True, rich_markup_mode=None,
-    help='引擎状态: engines list | engines test [名] | engines presets',
+    help='引擎体检: engines test [名] | engines presets (清单见 webtool search --sources)',
     context_settings={'help_option_names': ['-h', '--help']})
 
 
@@ -524,11 +524,6 @@ def _eng_run(action, name, query, fmt, output):
         return status(args, cfg)
     return _run(None, fn, fmt, output, False, False)
 
-
-@engines_app.command('list')
-def _eng_list(fmt: str = Fmt, output: str = Output):
-    """引擎清单 + 冷却状态"""
-    return _eng_run('list', None, 'python', fmt, output)
 
 
 @engines_app.command('test')

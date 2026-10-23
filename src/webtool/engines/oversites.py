@@ -1,4 +1,4 @@
-"""webtool site 站点: sov2ex (V2EX 全文检索), 与 moresites 同约定, 走指纹通道。
+"""站内搜索源 站点: sov2ex (V2EX 全文检索), 与 moresites 同约定, 走指纹通道。
 
 热榜类源 (reddit/hn_official/lobsters/github_trend) 在 engines/hotsites.py。
 """

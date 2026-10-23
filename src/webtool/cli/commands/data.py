@@ -3,6 +3,8 @@
 从 app.py 拆出, 注册到共享的 Typer app。共享 plumbing 见 webtool.cli._ctx。
 """
 
+import sys
+
 import typer
 
 from webtool.cli._ctx import (
@@ -86,9 +88,16 @@ def pydata_cmd(qual: str = typer.Argument(None,
 
 @app.command('search')
 def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 stdin 读一行, 如 echo 词 | webtool search -)'),
+               site: str = typer.Option(None, '-s', '--site',
+                                        help='站内搜索: 站点 key (webtool search --sources 看全部); '
+                                             '与 -e 互斥'),
+               sources: bool = typer.Option(False, '--sources',
+                                            help='列出全部检索源 (多引擎 + 站内) 后退出'),
+               lang: str = typer.Option('zh', '--lang',
+                                        help='站内搜索的语言版本参数 (wikipedia 等)'),
                engine: str = typer.Option(None, '-e', '--engine',
                                           help='逗号分隔的引擎 key: bing, sogou, google, baidu, so360, marginalia, '
-                                                'exa, parallel, firecrawl (webtool plugins engines 看状态)'),
+                                                'exa, parallel, firecrawl (webtool search --sources 看状态)'),
                preset: str = typer.Option(None, '--preset',
                                           help='引擎组合预设 (webtool plugins engines presets 查看); 优先级低于 --engine'),
                max: int = typer.Option(8, '-n', '--limit', help='每引擎结果数'),
@@ -113,11 +122,58 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
                no_fallback: bool = typer.Option(False, '--no-fallback',
                                                 help='关闭免 key 引擎降级: 主引擎结果不足时'
                                                      '不再补跑 marginalia/exa/firecrawl/parallel')):
-    """多引擎网页搜索"""
+    """搜索: 默认多引擎; `--site` 走站内, `--sources` 列全部检索源"""
     a = _CTX['args']
     a.update = None
+
+    def list_sources(args, cfg):
+        import json as _json
+        from webtool.engines.customsites import load_custom_sites
+        from webtool.engines.status import listing
+        from webtool.cli.sitesearch import sites_table
+        engines = listing()
+        sites = [{'site': k, 'desc': v['desc'], 'source': 'builtin'}
+                 for k, v in sites_table().items()]
+        for k, v in load_custom_sites().items():
+            if v.get('_error'):
+                sites.append({'site': k, 'desc': v['_error'],
+                              'source': 'custom(BROKEN)'})
+            else:
+                sites.append({'site': k, 'desc': v.get('desc', ''),
+                              'source': 'custom'})
+        from webtool.net import intercept
+        cool = {k: '%ds (此前%s)' % (v.left, v.why)
+                for k, v in intercept.cooldowns().items()}
+        if args.format == 'json':
+            print(_json.dumps({'engines': engines, 'sites': sites,
+                               'cooldowns': cool},
+                              ensure_ascii=False, indent=1))
+            return 0
+        print('引擎 (%d):' % len(engines))
+        for e in engines:
+            print('  %-14s %s' % (e['engine'], e['desc']))
+        print('\n站点 (%d):' % len(sites))
+        for s in sites:
+            print('  %-14s %s' % (s['site'], s['desc']))
+        if cool:
+            print('\n冷却中: ' + ', '.join('%s=%s' % (k, v)
+                                          for k, v in cool.items()))
+        print('\n用法: webtool search "词" [-e 引擎]  |  '
+              'webtool search -s 站点 "词"')
+        return 0
+
+    if sources:
+        return _run('data', list_sources, fmt, output, False, False)
+    if site and engine:
+        print('--site 与 --engine 不能同时用 (站内搜索不走多引擎)',
+              file=sys.stderr)
+        return 2
     from webtool.core import stdin as _stdin
     query = _stdin.read_input(query, required=True, what='搜索词')
+    if site:
+        a.site, a.query, a.max, a.lang = site, query, max, lang
+        a.since, a.until = since, until
+        return _run('data', _entry_fn('site'), fmt, output, no_cache, no_proxy)
     a.query, a.engine, a.preset, a.max = query, engine, preset, max
     a.operators, a.blocklist = operators, blocklist
     a.jobs = jobs
@@ -404,25 +460,6 @@ def crawl_cmd(url: str = typer.Argument(None, help='起点 URL'),
     a.any_host, a.no_robots = any_host, no_robots
     a.max_chars, a.save_dir = max(0, max_chars), save_dir
     return _run('data', _entry_fn('crawl'), fmt, output, no_cache, no_proxy)
-
-@app.command('site')
-def site_cmd(site: str = typer.Argument(None, help='站点 key, `webtool site list` 查看全部'),
-             query: str = typer.Argument(None, help='站内搜索词'),
-             max: int = typer.Option(10, '-n', '--limit', help='返回条数'),
-             lang: str = typer.Option('zh', '--lang', help='wikipedia 语言版本'),
-             since: str = typer.Option(None, '--since',
-                                       help='只要这个时间之后的 (YYYY-MM-DD 或 7d/2w/3m/1y)'),
-             until: str = typer.Option(None, '--until',
-                                       help='只要这个时间之前的 (只认 YYYY-MM-DD)'),
-             fmt: str = Fmt, output: str = Output,
-             no_proxy: bool = NoProxy, no_cache: bool = NoCache):
-    """站内搜索: 各站官方接口 (站点清单 webtool site list)"""
-    from webtool.core import stdin as _stdin
-    a = _CTX['args']
-    query = _stdin.read_input(query, what='站内搜索词')
-    a.site, a.query, a.max, a.lang = site, query, max, lang
-    a.since, a.until = since, until
-    return _run('data', _entry_fn('site'), fmt, output, no_cache, no_proxy)
 
 @app.command('rank')
 def rank_cmd(sources: list[str] = typer.Argument(None, help='榜单源 key; 无参数 = 榜单清单+用法'),

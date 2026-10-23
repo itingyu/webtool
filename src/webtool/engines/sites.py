@@ -4,7 +4,7 @@
 1. 每个站点一个适配器, 统一输出 {title,url,snippet,score,site} 结构
 2. 优先收录有稳定公开 JSON/XML 接口的站点; 服务端渲染的 HTML 站可以收,
    但解析规则必须有离线 fixture 测试兜底 (改版时测试先红, 不静默失效)
-3. 与 search 子命令分开: webtool site <site> <query>
+3. 入口是 `webtool search -s <site> <query>` (不是独立命令)
 4. 失败信息带 hint, 代理策略继承全局配置
 5. 请求头走 transport 统一指纹: 浏览器站点用 XHR 指纹, 开放 API 用 API
    惯例头, 避免 header 与行为不一致触发反爬
