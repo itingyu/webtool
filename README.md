@@ -165,7 +165,10 @@ webtool feed 36kr                  # 免填参路由直接抓 (可选参数按�
 webtool feed bilibili              # 缺必填 → 打印参数表 + 可照抄的示例
 webtool feed bilibili -p uid=2267573
 webtool feed bilibili -e           # 官方 example 路径, 免填参
-webtool feed sources --radar       # 看全部派生源 (4000+ 条, 带 [参数] 标记)
+webtool feed sources find 知乎      # 按键名/站名/域名/描述模糊搜
+webtool feed sources find bilibili.com   # 按域名搜
+webtool feed sources --radar       # 派生源按分类分组, 每类再分免填参/带参
+webtool feed sources --radar -c finance   # 只看财经类
 webtool feed sources sync -R       # 重拉路由库并重建物化表
 ```
 

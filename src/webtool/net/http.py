@@ -199,7 +199,11 @@ def http_open(url, proxy=None, timeout=None, headers=None, opener=None, verify=N
     req = urllib.request.Request(url, headers=headers or {}, data=data,
                                  method=(method or 'GET').upper() if (method or data)
                                  else None)
-    return op.open(req, timeout=timeout)
+    try:
+        return op.open(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        # 4xx/5xx 也是响应: cffi 通道原样返回, 这里不能抛, 否则两条通道语义分裂
+        return e
 
 
 def _sniff_charset(data):

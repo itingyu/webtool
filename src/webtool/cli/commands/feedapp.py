@@ -85,11 +85,26 @@ sources_app = make_group('list', '订阅源: 清单 / 增删 / 登记坏源 / �
 
 @sources_app.command('list')
 def _src_list(radar: bool = typer.Option(False, '--radar',
-                                         help='同时列出 RSSHub 派生源 (4k 条)'),
+                                         help='列出 RSSHub 派生源 (按分类分组)'),
+              cat: str = typer.Option(None, '-c', '--cat',
+                                      help='只看某分类, 配合 --radar (如 finance)'),
               fmt: str = Fmt, output: str = Output,
               no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """列出订阅源"""
-    return _build(fmt, output, no_proxy, no_cache, sources=[], radar=radar)
+    return _build(fmt, output, no_proxy, no_cache, sources=[], radar=radar,
+                  cat=cat)
+
+@sources_app.command('find')
+def _src_find(word: str = typer.Argument(..., help='键名/站名/域名/描述 关键词'),
+              cat: str = typer.Option(None, '-c', '--cat',
+                                      help='按分类过滤 (RSSHub 派生源)'),
+              limit: int = typer.Option(20, '-n', '--limit', help='最多几条'),
+              fmt: str = Fmt, output: str = Output,
+              no_proxy: bool = NoProxy, no_cache: bool = NoCache):
+    """模糊搜源: 键名 / 站名 / 域名 / 描述"""
+    return _build(fmt, output, no_proxy, no_cache,
+                  sources=['find', word], cat=cat, max=limit)
+
 
 @sources_app.command('add')
 def _src_add(name: str = typer.Argument(..., help='源名'),

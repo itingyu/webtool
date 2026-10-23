@@ -29,6 +29,7 @@ def _print_feed_usage():
     print('  webtool feed sspai ithome        指定源 (预设名或任意 RSS/Atom URL)')
     print('  webtool feed                     无参数 = 默认源(标 *), 按源分组原序')
     print('  webtool feed sspai -q "汽车"     语义筛选 (BM25 + 按相关度重排)')
+    print('  webtool feed sources find <词>   按键名/站名/域名/描述搜源 (4000+ 派生源靠它找)')
     print('  webtool feed sources add NAME URL [描述]   添加自定义源 (存 ~/.webtool/feeds.json)')
     print('  webtool feed sources del NAME    删除自定义源 (预设源不可删)')
     print('  webtool feed NAME --new-only     增量: 只出上次之后的新条目')
@@ -141,6 +142,27 @@ def do_feed(args, cfg):
         print(f'已物化 {len(src)} 条 feed 源 ({free} 条免填参) -> '
               f'{_rs.FILE}; 带参数的要 -p/-e')
         return 0
+    # feed sources find <词>: 全量源里模糊搜 (键名/站名/域名/描述)
+    if len(args.sources) >= 2 and args.sources[0] == 'find':
+        from webtool.feeds import find as _find
+        word = args.sources[1]
+        rows = _find.search(load_user_feeds(), _derived(), word,
+                            limit=getattr(args, 'max', 20) or 20,
+                            cat=getattr(args, 'cat', None))
+        if not rows:
+            print(f'没有匹配 "{word}" 的源; 换站名/域名/描述词试试, '
+                  f'或 webtool feed radar find {word}', file=sys.stderr)
+            return 2
+        print(f'"{word}" 命中 {len(rows)} 个源 (键名/站名/域名/描述):\n')
+        for r in rows:
+            tags = []
+            if r['origin'] == 'radar':
+                tags.append('RSSHub')
+                if r['params']:
+                    tags.append('参数')
+            tag = (' [' + ' '.join(tags) + ']') if tags else ''
+            print(f"  {r['key']:24s} {r['desc']}{tag}  {r['url']}")
+        return 0
     # feed health: 查看健康登记表
     if len(args.sources) == 1 and args.sources[0] == 'health':
         print(feedhealth.render_text())
@@ -225,16 +247,20 @@ def do_feed(args, cfg):
         rows += [{'name': k, 'url': v.get('url', ''), 'desc': v.get('desc') or '',
                   'origin': 'custom', 'default': False}
                  for k, v in user.items() if k not in seed]
-        if show_radar:
-            rows += [{'name': k, 'url': e.get('template') or '',
-                      'desc': e.get('desc') or '', 'origin': 'radar',
-                      'default': False,
-                      'params': list((e.get('params') or {}).keys())}
-                     for k, e in sorted(dsrc.items()) if k not in user]
+        out = {'results': rows, 'seed_count': len(seed),
+               'user_count': len(user),
+               'radar_count': len(dsrc) - len(set(dsrc) & set(user)),
+               'show_radar': show_radar}
+        if show_radar:      # 按分类分段, 段内再分免填参/带参
+            from webtool.feeds import radar_sources as _rsrc
+            out['radar_groups'] = _rsrc.group_by_category(
+                dsrc, exclude=set(user), cat=getattr(args, 'cat', None))
+            if not out['radar_groups']:
+                print(f'没有分类 "{getattr(args, "cat", None)}" 的派生源',
+                      file=sys.stderr)
+                return 2
         from webtool.render.hotrender import render_feed_list
-        render_feed_list({'results': rows, 'seed_count': len(seed),
-                          'user_count': len(user), 'radar_count': len(dsrc),
-                          'show_radar': show_radar}, args.format)
+        render_feed_list(out, args.format)
         # 清单 + 用法是一套; json 是给机器读的, 别掺人看的用法段
         if args.format != 'json':
             _print_feed_usage()

@@ -70,6 +70,25 @@ text = rs.hint('demo_tag', src['demo_tag'])
 check('-p tag=' in text, '提示含填参写法', text)
 check('-e' in text and '/demo/tag/tech' in text, '提示含官方示例', text)
 
+GROUPS = {
+    'fin1': {'categories': ['finance'], 'params': {}},
+    'fin2': {'categories': ['finance'], 'params': {'id': ''}},
+    'fin3': {'categories': ['finance', 'other'], 'params': {}},
+    'game1': {'categories': ['game'], 'params': {}},
+    'misc': {'categories': [], 'params': {}},
+}
+gs = rs.group_by_category(GROUPS)
+check([g['cat'] for g in gs][0] == 'finance', '按分类分段, 条数多的在前',
+      [(g['cat'], len(g['free']) + len(g['param'])) for g in gs])
+fin = gs[0]
+check(fin['label'] == '财经', '分类有中文段名', fin['label'])
+check(set(fin['free']) == {'fin1', 'fin3'} and fin['param'] == ['fin2'],
+      '段内再分免填参/带参', fin)
+check([g['cat'] for g in rs.group_by_category(GROUPS, cat='game')] == ['game'],
+      'cat 过滤只留一类')
+check('fin1' not in [k for g in rs.group_by_category(GROUPS, exclude={'fin1'})
+                     for k in g['free']], 'exclude 去掉被用户源覆盖的键')
+
 print()
 if fails:
     print(f'{len(fails)} FAILED: {", ".join(fails)}')

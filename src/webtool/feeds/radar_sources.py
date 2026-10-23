@@ -16,6 +16,17 @@ from webtool.radar.template import parse_params
 
 FILE = 'feed_radar.json'
 
+# RSSHub 的英文分类 → 中文段名 (没列到的原样显示)
+CAT_LABELS = {
+    'new-media': '新媒体', 'traditional-media': '传统媒体',
+    'social-media': '社交媒体', 'finance': '财经', 'programming': '编程',
+    'program-update': '软件更新', 'university': '高校', 'government': '政务',
+    'multimedia': '多媒体', 'game': '游戏', 'anime': '二次元', 'blog': '博客',
+    'bbs': '论坛', 'picture': '图片', 'shopping': '购物', 'study': '学习',
+    'journal': '期刊', 'reading': '阅读', 'travel': '旅行', 'design': '设计',
+    'live': '直播', 'sport': '体育', 'forecast': '预报', 'other': '其他',
+}
+
 
 _SUFFIX = {'com', 'cn', 'net', 'org', 'io', 'co', 'tv', 'me', 'app', 'dev',
            'cc', 'xyz', 'info', 'gov', 'edu', 'top', 'site', 'us', 'uk',
@@ -55,6 +66,7 @@ def _entry(site, route, path, key, dom, heat):
         'site': site.get('name') or dom,
         'route_name': route.get('name') or path,
         'group': dom,
+        'domain': str(site.get('url') or ''),
         'heat': heat,
         'categories': route.get('categories') or site.get('categories') or [],
         'params': {name: params_meta.get(name) or '' for name, _, _ in specs},
@@ -136,6 +148,24 @@ def render(entry, params=None, example=False, instance=None):
     else:
         path = radar.fill_path(entry['template'], params or {}, strict=True)
     return base + '/' + path.lstrip('/')
+
+
+def group_by_category(derived, exclude=(), cat=None):
+    """按分类分段, 段内再分免填参/带参; 段按条数降序"""
+    buckets = {}
+    for k, e in (derived or {}).items():
+        if k in exclude:
+            continue
+        c = (e.get('categories') or ['other'])[0]
+        if cat and c != cat:
+            continue
+        b = buckets.setdefault(c, {'free': [], 'param': []})
+        b['param' if e.get('params') else 'free'].append(k)
+    out = [{'cat': c, 'label': CAT_LABELS.get(c, c),
+            'free': sorted(b['free']), 'param': sorted(b['param'])}
+           for c, b in buckets.items()]
+    out.sort(key=lambda g: -(len(g['free']) + len(g['param'])))
+    return out
 
 
 def hint(key, entry):

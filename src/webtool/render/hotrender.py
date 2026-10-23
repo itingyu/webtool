@@ -180,6 +180,36 @@ def render_keyed_list(out, fmt, kind='admin', title='清单', desc_fields=('desc
         print(f'  {label:16s} {desc} {extra}'.rstrip())
 
 
+def _wrap_names(names, width=78, indent='  '):
+    import textwrap
+    for line in textwrap.wrap(', '.join(names), width=width,
+                              initial_indent=indent,
+                              subsequent_indent=indent,
+                              break_long_words=False,
+                              break_on_hyphens=False):
+        print(line)
+
+
+def _print_radar_groups(out):
+    """派生源按分类分段, 段内再按有无参数分组, 只列名字 (逗号隔开)"""
+    groups = out.get('radar_groups') or []
+    total = sum(len(g['free']) + len(g['param']) for g in groups)
+    free_n = sum(len(g['free']) for g in groups)
+    print(f"\nRSSHub 派生源 {total} 条: {len(groups)} 类, "
+          f"免填参 {free_n} / 带参 {total - free_n}\n")
+    for g in groups:
+        n = len(g['free']) + len(g['param'])
+        print(f"【{g['label']}】{n} 条 (免填参 {len(g['free'])} / "
+              f"带参 {len(g['param'])})")
+        if g['free']:
+            print('无参数:')
+            _wrap_names(g['free'])
+        if g['param']:
+            print('带参数: (抓的时候用 -p k=v 或 -e)')
+            _wrap_names(g['param'])
+        print()
+
+
 def render_feed_list(out, fmt):
     """feed 清单输出 (webtool feed list -f <fmt>)
 
@@ -198,6 +228,13 @@ def render_feed_list(out, fmt):
         for r in rows:
             print(f"| {r['name']} | {r['origin']} | "
                   f"{'✓' if r['default'] else ''} | {r['desc']} | {r['url']} |")
+        if out.get('show_radar'):
+            for g in (out.get('radar_groups') or []):
+                print(f"### {g['label']} ({len(g['free']) + len(g['param'])})\n")
+                if g['free']:
+                    print('无参数: ' + ', '.join(g['free']) + '\n')
+                if g['param']:
+                    print('带参数: ' + ', '.join(g['param']) + '\n')
         return
     # text
     print(f"webtool feed 订阅源 ({out.get('seed_count')} 预设 + "
@@ -206,11 +243,10 @@ def render_feed_list(out, fmt):
     for r in rows:
         star = ' *' if r['default'] else ''
         tag = f" ({r['origin']})" if r['origin'] == 'custom' else ''
-        width = 24 if r['origin'] == 'radar' else 14
-        if r['origin'] == 'radar':
-            tag = ' [参数]' if r.get('params') else ''
-        print(f"  {r['name']:{width}s} {r['desc']}{star}{tag} {r['url']}".rstrip())
-    if not out.get('show_radar'):
+        print(f"  {r['name']:14s} {r['desc']}{star}{tag} {r['url']}".rstrip())
+    if out.get('show_radar'):
+        _print_radar_groups(out)
+    else:
         n = out.get('radar_count', 0)
         if n:
             print(f"\n另有 RSSHub 派生源 {n} 条: feed sources --radar 查看")

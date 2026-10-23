@@ -199,7 +199,10 @@ def get(url, *, kind='nav', referer=None, proxy=None, timeout=None,
     # 代理归一交给 netx (唯一该碰代理的地方): 'auto' → 问路由表, 'user@host' →
     # 补保险库密码。这里不自己判断, 免得出现第二份与 netx 不一致的副本。
     from webtool.net import netx as _netx
+    _direct = proxy == 'direct'
     proxy = _netx.resolve_proxy(proxy, url)
+    if _direct and not proxy:
+        proxy = 'direct'      # 保住"显式直连"语义: None 在下面等于 auto
 
     # 域级熔断: 同一个站在反复失败就别再打了 (阈值/冷却走 kind:breaker 规则)。
     # 这里只做短路, 不套 retry_call —— get 自己已有"换指纹→urllib"降级梯,
@@ -399,7 +402,10 @@ def open_stream(url, *, kind='nav', referer=None, proxy=None, timeout=None,
     """
     from webtool.net import netx as _netx
     timeout = _rule_timeout(url, timeout)
+    _direct = proxy == 'direct'
     proxy = _netx.resolve_proxy(proxy, url)
+    if _direct and not proxy:
+        proxy = 'direct'
     proxy_arg = None if proxy == 'direct' else proxy
     if proxy_arg:
         proxy_arg = secrets_store.resolve_auth(proxy_arg)
@@ -416,6 +422,8 @@ def open_stream(url, *, kind='nav', referer=None, proxy=None, timeout=None,
         h = headers_for(kind, url, referer=referer, lang=lang, profile=p, extra=headers)
         r = s.get(url, headers=h, timeout=timeout, allow_redirects=True,
                   verify=tls.policy(url, verify), stream=True)
+        if r.status_code == 502 and _is_loopback(url):
+            raise RuntimeError('loopback 502 via cffi')
         return r, r.status_code, 'cffi', _lower_keys(r.headers)
     except CertificateVerifyError as e:
         raise TlsError(_tls_msg(url, verify, e)) from e
@@ -424,7 +432,8 @@ def open_stream(url, *, kind='nav', referer=None, proxy=None, timeout=None,
         pass
     from webtool.net.http import http_open
     h = headers_for(kind, url, referer=referer, lang=lang, full=True, extra=headers)
-    r = http_open(url, proxy=proxy_arg, timeout=timeout, headers=h, verify=verify)
+    r = http_open(url, proxy='direct' if proxy == 'direct' else proxy_arg,
+                  timeout=timeout, headers=h, verify=verify)
     return _UrllibStream(r), r.status, 'urllib', _lower_keys(r.headers)
 
 
@@ -728,6 +737,10 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
         payload = r.content[:max_bytes] if raw else r.text[:max_bytes]
         if session is None:
             _persist_cookies(s, engine)
+        if r.status_code == 502 and _is_loopback(url):
+            # cffi 在部分沙箱里打不通 loopback (返回 502, urllib 正常),
+            # 本机调试 fetch http://127.0.0.1:... 不该因此失败
+            raise RuntimeError('loopback 502 via cffi')
         if raw:
             return payload, r.status_code, 'cffi', _lower_keys(r.headers)
         return payload, r.status_code, 'cffi', _lower_keys(r.headers)
@@ -742,6 +755,8 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
         logger.debug('transport | cffi 通道失败, 降级 urllib url=%s kind=%s: %s',
                      url, kind, last_cffi_err)
     # 通道2: urllib (仅 cffi 自身崩溃时)
+    # 注意 direct 要原样传: http_get(proxy=None) 等于 auto, 会偷偷走代理
+    uri_proxy = 'direct' if proxy == 'direct' else proxy_arg
     from webtool.net.http import http_get
     h = headers_for(kind, url, referer=referer, lang=lang, full=True,
                     extra=headers)
@@ -750,11 +765,11 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
         h = {**h, 'Cookie': _cookie_header(cookies)}
     try:
         if raw:
-            body, status, hdrs = http_get(url, proxy=proxy_arg, timeout=timeout,
+            body, status, hdrs = http_get(url, proxy=uri_proxy, timeout=timeout,
                                           headers=h, max_bytes=max_bytes,
                                           verify=verify, raw=True)
             return body, status, 'urllib', _lower_keys(hdrs)
-        text, status, hdrs = http_get(url, proxy=proxy_arg, timeout=timeout,
+        text, status, hdrs = http_get(url, proxy=uri_proxy, timeout=timeout,
                                       headers=h, max_bytes=max_bytes,
                                       verify=verify, with_headers=True)
         return text, status, 'urllib', _lower_keys(hdrs)
@@ -764,6 +779,12 @@ def _get_once(url, *, kind, referer, proxy, timeout, engine, headers,
             raise TlsError(_tls_msg(url, verify, e)) from e
         raise RuntimeError(f'GET {url} failed [cffi: {last_cffi_err}; '
                            f'urllib: {type(e).__name__}: {str(e)[:120]}]')
+
+
+def _is_loopback(url):
+    from urllib.parse import urlparse
+    host = (urlparse(url).hostname or '').lower()
+    return host in ('localhost', '127.0.0.1', '::1') or host.startswith('127.')
 
 
 def _tls_msg(url, verify, e):
