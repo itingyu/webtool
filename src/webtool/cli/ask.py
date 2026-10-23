@@ -20,7 +20,7 @@ import time
 
 from webtool.cli import zenproto as _zp
 from webtool.cli._bridge import cli_json as _cli_json
-from webtool.render.askrender import render_ask
+from webtool.render.askrender import render_ask, render_sources
 
 CITE_RE = re.compile(r'\[(\d+)\]')
 
@@ -147,7 +147,18 @@ def do_ask(args, cfg):
     prompt = _build_prompt(question, sources)
     model = args.model or _zp.defaults()['model']
     from webtool.cli.zen.client import call_zen_retry
-    res = call_zen_retry(model, prompt, args.system or SYSTEM, None, None,
+
+    # 流式: 正文边到边打; json 恒不流 (半截 JSON 不可解析), -o 落盘的也由
+    # _run 兜住整段, 但内容一致。--no-stream 可退回"整段再打"。
+    stream = bool(getattr(args, 'stream', True)) \
+        and (args.format or 'text').lower() not in ('json',)
+
+    def on_delta(t):
+        if stream:
+            sys.stdout.write(t)
+            sys.stdout.flush()
+
+    res = call_zen_retry(model, prompt, args.system or SYSTEM, None, on_delta,
                          'auto', None, cfg, max_attempts=args.retries,
                          reasoning_effort=getattr(args, 'think', None),
                          max_tokens=getattr(args, 'max_tokens', None))
@@ -157,7 +168,8 @@ def do_ask(args, cfg):
               file=sys.stderr)
         return 2
 
-    answer = (res.get('text') or '').strip()
+    raw = res.get('text') or ''
+    answer = raw.strip()
     if not answer:
         print('没查到。')
         return 1
@@ -175,5 +187,11 @@ def do_ask(args, cfg):
         'model': model,
         'took_ms': int((time.time() - t0) * 1000),
     }
-    print(render_ask(out, args.format or 'text'))
+    if stream:
+        # 正文已经实时输出; 只补"参考来源"段, 并保证与整段渲染同样的空行
+        tail = raw[len(raw.rstrip()):]
+        sys.stdout.write('\n' * max(0, 2 - tail.count('\n')))
+        print(render_sources(out, args.format or 'text'))
+    else:
+        print(render_ask(out, args.format or 'text'))
     return 0

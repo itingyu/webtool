@@ -214,6 +214,8 @@ def ask_cmd(question: list[str] = typer.Argument(None,
                                       help='只要这个时间之前的资料 (同 search --until)'),
             model: str = typer.Option(None, '--model', help='模型 id (默认取 zen.json / big-pickle)'),
             retries: int = typer.Option(2, '--retries', help='模型调用瞬时故障重试次数'),
+            stream: bool = typer.Option(True, '--stream/--no-stream',
+                                        help='边生成边输出 (json 格式恒不流式)'),
             fmt: str = Fmt, output: str = Output,
             no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """先检索再作答: 搜索 → 抓正文 → 归纳, 每条结论带来源 URL
@@ -231,6 +233,7 @@ def ask_cmd(question: list[str] = typer.Argument(None,
     a.model = model
     a.system = None
     a.retries = max(1, retries)
+    a.stream = stream
     a.think = None
     a.max_tokens = None
     return _run('data', _entry_fn('ask'), fmt, output, no_cache, no_proxy)
