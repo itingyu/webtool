@@ -8,6 +8,7 @@
     host_of    取 host 并去 www.
     registrable 可注册域 (含 com.cn/co.uk 等二级后缀), 用于同站判定
     section_of 取 URL 首段路径 (栏目), 用于 feed 栏目比对
+    is_serp_url 判是不是搜索引擎自己的结果页 (不能当正文抓)
     strip_scheme 去协议前缀
 """
 import re
@@ -65,3 +66,47 @@ def section_of(u):
     """URL 首段路径 = 栏目名 (https://x.com/news/1 → news); 无路径返回空串"""
     rest = strip_scheme(u or '').partition('/')[2].split('?')[0].split('#')[0]
     return rest.split('/')[0] if rest else ''
+# 各引擎自己的结果页 (host, 路径前缀) —— 它们是"索引", 不是页面正文。
+# 抓回来当资料只会得到一堆标题和跳转链, 必须挡在结果集之外。
+_SERP_PATHS = (
+    ('google.com', '/search'),
+    ('bing.com', '/search'),
+    ('baidu.com', '/s'),
+    ('sogou.com', '/sogou'),
+    ('sogou.com', '/web'),
+    ('so.com', '/s'),
+    ('search.yahoo.com', '/search'),
+    ('ecosia.org', '/search'),
+    ('brave.com', '/search'),
+    ('mojeek.com', '/search'),
+    ('yandex.com', '/search'),
+    ('yandex.ru', '/search'),
+    ('startpage.com', '/sp/search'),
+)
+
+
+def is_serp_url(u):
+    """是不是搜索引擎自己的结果页 (不能当正文/资料)
+
+    `search` 偶尔会把引擎的翻页/相关搜索页当成一条结果吐出来 (sogou 的
+    "相关资讯"卡片就是典型)。这类 URL 抓回去只有标题列表, 用在 ask/compare
+    里会直接污染答案, 所以统一在结果集入口剔除。
+    """
+    try:
+        p = urlparse(u or '')
+    except ValueError:
+        return False
+    host = (p.hostname or '').lower()
+    if not host:
+        return False
+    path = p.path or '/'
+    for dom, pref in _SERP_PATHS:
+        if not (host == dom or host.endswith('.' + dom)):
+            continue
+        if path == pref or path.startswith(pref.rstrip('/') + '/'):
+            return True
+    # DuckDuckGo 的结果页就在根路径, 只能靠 q= 参数认
+    if (host == 'duckduckgo.com' or host.endswith('.duckduckgo.com')) \
+            and path == '/' and 'q=' in (p.query or ''):
+        return True
+    return False

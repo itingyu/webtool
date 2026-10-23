@@ -194,9 +194,15 @@ def _parse_pc(html, max_results):
             continue
         u, t = a.group(1), a.group(2)
         title = _unescape(re.sub(r'<[^>]+>', '', t)).strip()
-        if not title:
+        # "相关搜索/还在搜"卡片不是结果 (移动端解析早已跳过, PC 端漏了)
+        if not title or '还在搜' in title or '相关搜索' in title:
             continue
         url = u if u.startswith('http') else 'https://www.sogou.com' + u
+        # 引擎自己的结果页 (如 /sogou?query=) 不是正文; /link? 是跳转链, 留给
+        # resolver 解码, 不能一并丢
+        from webtool.core.urls import is_serp_url
+        if is_serp_url(url):
+            continue
         if url in seen:
             continue
         seen.add(url)

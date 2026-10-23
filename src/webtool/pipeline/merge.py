@@ -120,6 +120,13 @@ def rerank(results, query, use_semantic=True, apply_blocklist=True,
         if not r.get('engines'):
             r['engines'] = [r.get('engine')] if r.get('engine') else []
 
+    # 引擎结果页 (sogou "相关资讯"之类) 不是正文, 进 ask/compare 只会污染答案
+    n_in = len(results)
+    results = [r for r in results if not urls.is_serp_url(r.get('url'))]
+    if stats is not None and n_in != len(results):
+        stats['serp_dropped'] = n_in - len(results)
+
+
     if use_semantic:
         sem_scores = _semantic_scores(query, results)
     else:
