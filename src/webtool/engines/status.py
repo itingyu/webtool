@@ -28,7 +28,7 @@ def status(args, cfg):
 
 
 def listing():
-    """引擎清单 (纯数据, 供 search --sources 与 engines list 共用)"""
+    """引擎清单 (纯数据, 供 search -l 与 engines list 共用)"""
     return [{'engine': name, 'desc': meta['desc']}
             for name, meta in _engines().items()]
 

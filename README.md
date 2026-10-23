@@ -83,18 +83,19 @@ webtool uninstall --purge-data --yes   # 连配置/凭据/缓存一起删 (缺 -
 
 ```bash
 webtool search "LLM 排行榜" -n 5                # 默认 bing,sogou,baidu
-webtool search "query" -e marginalia             # 小站/老网页长尾
+webtool search "query" -s marginalia             # 小站/老网页长尾
 webtool search "查询词" --preset zh               # 引擎组合预设
-webtool search "query" -e exa,parallel           # 语义引擎
+webtool search -s github "fastapi"               # 站内搜 (同一选择器)
+webtool search "query" -s exa,parallel           # 语义引擎
 ```
 
-- 引擎：`bing` / `sogou` / `baidu` / `so360`（境内直连）· `marginalia`（境内直连，独立索引的小站/老网页长尾；**默认关**，要就用 `-e marginalia`）· `google`（被墙，需代理；代理不可用时静默跳过，429 降级 news RSS，结果标 `channel: news`）· `exa` / `parallel` / `firecrawl`（语义搜索，匿名免 key，默认关）
-- 默认引擎集 `bing,sogou,baidu,so360`；`--preset zh|en|direct` 用预设组合（`webtool plugins engines presets` 列），优先级 `-e` > `--preset` > `config.default_engines` > 内置默认
+- 引擎：`bing` / `sogou` / `baidu` / `so360`（境内直连）· `marginalia`（境内直连，独立索引的小站/老网页长尾；**默认关**，要就用 `-s marginalia`）· `google`（被墙，需代理；代理不可用时静默跳过，429 降级 news RSS，结果标 `channel: news`）· `exa` / `parallel` / `firecrawl`（语义搜索，匿名免 key，默认关）
+- 默认引擎集 `bing,sogou,baidu,so360`；`--preset zh|en|direct` 用预设组合（`webtool plugins engines presets` 列），优先级 `-s` > `--preset` > `config.default_engines` > 内置默认
 - 语义引擎按需加：`exa` 召回条数常最多 / `parallel` 最快且返回带日期 / `firecrawl` 能过 JS（search 免费 500 次/月），与关键词引擎重叠少
 - `--operators passthrough|strip|strict` 控制高级操作符（支持 `site:` `intitle:` `inurl:` `-词`）；`--blocklist a.com,b.com` 覆盖黑名单（前缀 `!` 表例外，`off` 关闭）
-- **多引擎并发抓取**：一次搜索同时打所有引擎（不同站点、互不排队），墙钟≈最慢那个引擎而不是各家之和。默认并发=源数（上限 4，`core.resilient.MAX_WORKERS` 常量），`-j/--jobs N` 调（`1` = 串行，`config set jobs N` 持久化）。结果与报错一律按 `-e` 声明顺序回填，同一 query 的输出稳定可复现
+- **多引擎并发抓取**：一次搜索同时打所有引擎（不同站点、互不排队），墙钟≈最慢那个引擎而不是各家之和。默认并发=源数（上限 4，`core.resilient.MAX_WORKERS` 常量），`-j/--jobs N` 调（`1` = 串行，`config set jobs N` 持久化）。结果与报错一律按 `-s` 声明顺序回填，同一 query 的输出稳定可复现
 - 跳转链默认自动解码成真实 URL（`--no-resolve` 关）；结果综合加权排序，`-f json` 看 `weight` 与 `engines`（交叉验证数）
-- `webtool search --sources`：引擎 + 站内源统一清单（含冷却状态）；`webtool plugins engines test|presets`：实发体检 / 预设组合
+- `webtool search -l`：引擎 + 站内源统一清单（含冷却状态）；`webtool plugins engines test|presets`：实发体检 / 预设组合
 
 ## fetch
 
@@ -163,7 +164,7 @@ webtool feed radar 36kr --pick 2 --example --add r36kr          # 落地成订�
 入口在 `search -s`，不再单独占一个命令。18 站点：github / gh_search / so / hn / wikipedia / arxiv / csdn / csdn_so / juejin / juejin2 / bilibili / bili2 / sspai / npm / thepaper / eastmoney / sov2ex / douban。
 
 ```bash
-webtool search --sources              # 全部检索源 (引擎 + 站点)
+webtool search -l              # 全部检索源 (引擎 + 站点)
 webtool search -s github fastapi      # 站内搜
 webtool search -s wikipedia 量子计算 --lang en
 ```
@@ -235,7 +236,7 @@ webtool mcp call https://my.site/mcp my_tool '{"k":"v"}'
 - 传参两条通道：`--arg k=v`（可多次，值按 JSON 字面量猜类型）或位置 JSON；同给时 `--arg` 覆盖；`--tools a,b` 下发工具白名单
 - 端点别名在 `src/webtool/data/mcp.json`，用户可建 `~/.webtool/mcp.json` 同构覆盖：`{"mcp":{"my_srv":{"url":"...","api_key_env":"MY_KEY","verbs":{"search":"..."}}}}`
 - key 只经环境变量名映射，配置文件不存明文；免 key 服务不发认证头
-- exa / parallel / firecrawl 已并入 `search` 引擎池（`-e exa`），没有独立的 `webtool exa` 命令；其 `web_fetch` 也被 `fetch --via` 复用。exa 免 key 配额按出口 IP 计，走代理易 429，需保持 `exa.ai` 直连
+- exa / parallel / firecrawl 已并入 `search` 引擎池（`-s exa`），没有独立的 `webtool exa` 命令；其 `web_fetch` 也被 `fetch --via` 复用。exa 免 key 配额按出口 IP 计，走代理易 429，需保持 `exa.ai` 直连
 - 先 `probe`/`list` 再 `call`：免 key 与带 key 暴露的工具集可能不同；失败走 stderr + 退出码 1
 
 ## stock

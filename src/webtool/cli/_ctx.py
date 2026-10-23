@@ -32,9 +32,9 @@ Fmt = typer.Option(None, '-f', '--format',
 Output = typer.Option(None, '-o', '--output',
                       help='输出到文件 (按 -f 补扩展名; 目录则自动命名; -o - 强制 stdout)')
 
-NoProxy = typer.Option(False, '--no-proxy', help='本次不走代理(覆盖配置)')
+NoProxy = typer.Option(False, '-P', '--no-proxy', help='本次不走代理(覆盖配置)')
 
-NoCache = typer.Option(False, '--no-cache', help='跳过缓存')
+NoCache = typer.Option(False, '-N', '--no-cache', help='跳过缓存')
 
 def _norm_fmt(v, default):
     """归一化输出格式; 非法值直接报错退出, 不静默回落 text。

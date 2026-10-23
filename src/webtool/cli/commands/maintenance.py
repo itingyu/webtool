@@ -503,7 +503,7 @@ app.add_typer(config_app, name='config')
 
 engines_app = typer.Typer(
     add_completion=False, no_args_is_help=True, rich_markup_mode=None,
-    help='引擎体检: engines test [名] | engines presets (清单见 webtool search --sources)',
+    help='引擎体检: engines test [名] | engines presets (清单见 webtool search -l)',
     context_settings={'help_option_names': ['-h', '--help']})
 
 

@@ -38,6 +38,8 @@ def resolve_engines(args, cfg):
     explicit = (getattr(args, 'engine', '') or '').strip()
     if explicit:
         return ','.join(e.strip() for e in explicit.split(',') if e.strip()), None
+    if getattr(args, 'no_engines', False):
+        return '', None
     name = (getattr(args, 'preset', '') or '').strip()
     if name:
         spec = presets().get(name)
@@ -226,6 +228,29 @@ def _do_search(args, cfg, filter_ad=True):
     for eng in engines:
         if eng in err_of:
             errors.append({'engine': eng, 'error': err_of[eng]})
+
+    # 站点也是检索源: 结果并进同一个池子, 后面的解码/黑名单/去重/打分/渲染
+    # 全部共用 —— 不为站内单开一条输出管线。
+    site_names = [x for x in (getattr(args, 'sites', None) or []) if x]
+    if site_names:
+        from concurrent.futures import ThreadPoolExecutor
+        from webtool.cli.sitesearch import fetch_site
+
+        def _one_site(name):
+            try:
+                rs, st, _kind = fetch_site(name, args, cfg)
+                return name, rs, st, None
+            except LookupError:
+                return name, [], 'unknown', 'unknown site'
+            except Exception as e:
+                return name, [], 'error', str(e)[:200]
+
+        with ThreadPoolExecutor(max_workers=min(len(site_names), 4)) as _ex:
+            for name, rs, st, err in _ex.map(_one_site, site_names):
+                per_engine[name] = st
+                if err:
+                    errors.append({'engine': name, 'error': err})
+                results.extend([dict(r, engine=name) for r in rs])
 
     # 跳转链解码: 无条件执行 — 搜狗 link / baidu link / gnews articles 一律
     # 还原为原始 URL (带并发+缓存+熔断)。解码必须在黑名单/补量之前完成:

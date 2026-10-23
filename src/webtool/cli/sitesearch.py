@@ -43,6 +43,51 @@ def _site_kwargs(args, spec):
     return out
 
 
+def fetch_site(name, args, cfg):
+    """单站点取原始结果 (别名归一/自定义优先/参数透传/缓存)
+
+    返回 (results, status, kind)。未知站点抛 LookupError, 配置错抛 ValueError。
+    do_site 与 `search -s` 共用 —— 站点不进独立管线, 和多引擎一样交给 merge。
+    """
+    from webtool.engines.customsites import load_custom_sites, search_custom
+    site = _canon_site(name)
+    customs = load_custom_sites()
+    kind, spec = None, None
+    if site in customs and not customs[site].get('_error'):
+        kind, spec = 'custom', customs[site]
+    elif site in customs:
+        raise ValueError(f'site {site} 配置有误: {customs[site]["_error"]}')
+    elif site in sites_table():
+        kind, spec = 'builtin', sites_table()[site]
+    else:
+        raise LookupError(site)
+
+    ckey = (f'{site}|{args.query}|{args.max}|{getattr(args, "lang", "") or ""}'
+            f'|{getattr(args, "since", "") or ""}|{getattr(args, "until", "") or ""}')
+    if not getattr(args, 'no_cache', False):
+        cached = cache.get(cfg, 'search', ckey)
+        if cached is not None:
+            return cached, 'cache', kind
+
+    # 线路只有两个来源: 用户的显式要求 (--no-proxy, 或自定义站点配置里的
+    # proxy 字段), 其余一律交规则表 ('auto')。
+    if getattr(args, 'no_proxy', False):
+        proxy = 'direct'
+    elif kind == 'custom':
+        proxy = spec.get('proxy', 'auto')
+    else:
+        proxy = 'auto'
+    if kind == 'custom':
+        results = search_custom(site, spec, args.query, args.max,
+                                proxy, cfg.get('timeout', 15))
+    else:
+        results = spec['fn'](args.query, args.max, proxy,
+                             cfg.get('timeout', 15),
+                             **_site_kwargs(args, spec))
+    cache.put(cfg, 'search', ckey, results)
+    return results, 'fresh', kind
+
+
 def do_site(args, cfg):
     if args.site in (None, 'list'):
         from webtool.engines.customsites import load_custom_sites
@@ -66,59 +111,26 @@ def do_site(args, cfg):
         args.query = ''
     args.site = _canon_site(args.site)      # bili / 掘金 / v2ex 等别名先归一
 
-    # 自定义站点优先查 (允许覆盖内置)
-    from webtool.engines.customsites import load_custom_sites, search_custom
-    customs = load_custom_sites()
-    kind, spec = None, None
-    if args.site in customs and not customs[args.site].get('_error'):
-        kind, spec = 'custom', customs[args.site]
-    elif args.site in customs:
-        print(f'site {args.site} 配置有误: {customs[args.site]["_error"]}', file=sys.stderr)
-        return 2
-    elif args.site in sites_table():
-        kind, spec = 'builtin', sites_table()[args.site]
-    else:
+    t0 = time.time()
+    try:
+        results, src, kind = fetch_site(args.site, args, cfg)
+    except LookupError:
         import difflib
-        names = sorted(set(sites_table()) | set(customs))
+        from webtool.engines.customsites import load_custom_sites
+        names = sorted(set(sites_table()) | set(load_custom_sites()))
         near = difflib.get_close_matches(str(args.site), names + sorted(_SITE_ALIAS), n=3)
         hint = ('\n你是不是想找: ' + ', '.join(near)) if near else ''
         print(f'unknown site: {args.site}{hint}\navailable: {", ".join(names)}\n'
-              f'use `webtool search --sources` for detail', file=sys.stderr)
+              f'use `webtool search -l` for detail', file=sys.stderr)
         return 2
-
-    t0 = time.time()
-    ckey = (f'{args.site}|{args.query}|{args.max}|{args.lang}'
-            f'|{getattr(args, "since", "") or ""}|{getattr(args, "until", "") or ""}')
-    cached = None if args.no_cache else cache.get(cfg, 'search', ckey)
-    if cached is not None:
-        results, src = cached, 'cache'
-    else:
-        # 线路只有两个来源: 用户的显式要求 (--no-proxy, 或自定义站点自己配置里的
-        # proxy 字段), 其余一律交规则表 ('auto')。内置站点不带线路, 也没有任何
-        # 单站点/单引擎的覆盖配置。
-        if args.no_proxy:
-            proxy = 'direct'      # 强制直连只能写 'direct'; None 与 'auto' 同义
-        elif kind == 'custom':
-            proxy = spec.get('proxy', 'auto')      # 用户自己写的站点配置
-        else:
-            proxy = 'auto'
-        try:
-            if kind == 'custom':
-                results = search_custom(args.site, spec, args.query, args.max,
-                                        proxy, cfg.get('timeout', 15))
-            else:
-                # 站点在 params.args 声明要哪些额外参数 (如 wikipedia 的 lang),
-                # 命令行给了才带上 —— 不再按站点名写特例分支
-                results = spec['fn'](args.query, args.max, proxy,
-                                     cfg.get('timeout', 15),
-                                     **_site_kwargs(args, spec))
-            cache.put(cfg, 'search', ckey, results)
-            src = 'fresh'
-        except Exception as e:
-            print(json.dumps({'error': str(e)[:300], 'site': args.site,
-                              'hint': '可试 --proxy / --no-proxy 或降低 -n; `webtool search --sources` 查看站点'},
-                             ensure_ascii=False), file=sys.stderr)
-            return 1
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    except Exception as e:
+        print(json.dumps({'error': str(e)[:300], 'site': args.site,
+                          'hint': '可试 --proxy / --no-proxy 或降低 -n; `webtool search -l` 查看站点'},
+                         ensure_ascii=False), file=sys.stderr)
+        return 1
 
     # 站内搜索是白名单源 (官方 API, 站点本身已可信), 不走黑名单过滤;
     n_blocked = 0

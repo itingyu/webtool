@@ -52,7 +52,7 @@
 热更新特征：改 `plugins.json` 后 5 秒内生效；想立刻解除冷却，删
 `~/.webtool/state.json` 的 `captcha` 段。
 
-看当前谁在冷却：`webtool search --sources` 的 `cooldowns` 字段（键是站点），
+看当前谁在冷却：`webtool search -l` 的 `cooldowns` 字段（键是站点），
 代码里用 `intercept.cooldown_of(url)`。引擎名不是账本键 —— 同一引擎可能跨站
 （google 的搜索页与 news 页各记各的）。
 

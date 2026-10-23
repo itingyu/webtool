@@ -89,32 +89,32 @@ def pydata_cmd(qual: str = typer.Argument(None,
 @app.command('search')
 def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 stdin 读一行, 如 echo 词 | webtool search -)'),
                site: str = typer.Option(None, '-s', '--site',
-                                        help='站内搜索: 站点 key (webtool search --sources 看全部); '
-                                             '与 -e 互斥'),
-               sources: bool = typer.Option(False, '--sources',
+                                        help='检索源: 站点 key 或引擎 key, 逗号分隔多个引擎 '
+                                             '(清单: search -l)'),
+               sources: bool = typer.Option(False, '-l', '--list',
                                             help='列出全部检索源 (多引擎 + 站内) 后退出'),
-               lang: str = typer.Option('zh', '--lang',
+               lang: str = typer.Option('zh', '-L', '--lang',
                                         help='站内搜索的语言版本参数 (wikipedia 等)'),
-               engine: str = typer.Option(None, '-e', '--engine',
-                                          help='逗号分隔的引擎 key: bing, sogou, google, baidu, so360, marginalia, '
-                                                'exa, parallel, firecrawl (webtool search --sources 看状态)'),
-               preset: str = typer.Option(None, '--preset',
-                                          help='引擎组合预设 (webtool plugins engines presets 查看); 优先级低于 --engine'),
+               engine: str = typer.Option(None, '-e', '--engine', hidden=True,
+                                          help='(已合并到 -s, 保留兼容)'),
+               preset: str = typer.Option(None, '-p', '--preset',
+                                          help='引擎组合预设 (webtool plugins engines presets 查看); '
+                                               '优先级低于 -s 指定引擎'),
                max: int = typer.Option(8, '-n', '--limit', help='每引擎结果数'),
                fmt: str = Fmt, output: str = Output,
                no_proxy: bool = NoProxy, no_cache: bool = NoCache,
-               operators: str = typer.Option('passthrough', '--operators',
+               operators: str = typer.Option('passthrough', '-O', '--operators',
                                              help='高级操作符路由: passthrough/strip/strict '
                                                   '(支持 site: intitle: inurl: -词)'),
-               blocklist: str = typer.Option('',
+               blocklist: str = typer.Option('', '-b', '--blocklist',
                                             help='黑名单覆盖: 逗号分隔域名, 前缀 ! 表白名单例外, '
                                                  '传 off 关闭黑名单'),
                jobs: int = typer.Option(None, '-j', '--jobs',
                                         help='并发抓取的源数 (默认=源数, 自动最多 4; 显式最高 16; 1=串行)'),
-               since: str = typer.Option(None, '--since',
+               since: str = typer.Option(None, '-S', '--since',
                                          help='只要这个时间之后的: YYYY-MM-DD 或 7d/2w/3m/1y '
                                               '(关键词引擎不给日期, 从标题摘要里认)'),
-               until: str = typer.Option(None, '--until',
+               until: str = typer.Option(None, '-U', '--until',
                                          help='只要这个时间之前的 (只认 YYYY-MM-DD)'),
                date_strict: bool = typer.Option(False, '--date-strict',
                                                 help='认不出日期的结果也剔掉 (默认保留, '
@@ -122,7 +122,7 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
                no_fallback: bool = typer.Option(False, '--no-fallback',
                                                 help='关闭免 key 引擎降级: 主引擎结果不足时'
                                                      '不再补跑 marginalia/exa/firecrawl/parallel')):
-    """搜索: 默认多引擎; `--site` 走站内, `--sources` 列全部检索源"""
+    """搜索: 默认多引擎; `-s` 选站点或引擎, `-l` 列全部检索源"""
     a = _CTX['args']
     a.update = None
 
@@ -158,22 +158,38 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
         if cool:
             print('\n冷却中: ' + ', '.join('%s=%s' % (k, v)
                                           for k, v in cool.items()))
-        print('\n用法: webtool search "词" [-e 引擎]  |  '
-              'webtool search -s 站点 "词"')
+        print('\n用法: webtool search "词"                 # 默认引擎组合')
+        print('      webtool search -s bing,sogou "词"   # 指定引擎')
+        print('      webtool search -s github "词"       # 站内')
         return 0
 
     if sources:
         return _run('data', list_sources, fmt, output, False, False)
-    if site and engine:
-        print('--site 与 --engine 不能同时用 (站内搜索不走多引擎)',
-              file=sys.stderr)
-        return 2
+
     from webtool.core import stdin as _stdin
     query = _stdin.read_input(query, required=True, what='搜索词')
-    if site:
-        a.site, a.query, a.max, a.lang = site, query, max, lang
-        a.since, a.until = since, until
-        return _run('data', _entry_fn('site'), fmt, output, no_cache, no_proxy)
+
+    # 引擎和站点都是"检索源": 一个 -s 全包。多个引擎可逗号并列; 站点只能单选
+    # (各站参数/返回结构不同, 混着搜没法统一渲染)。
+    raw = site or engine
+    picked = [x.strip() for x in (raw or '').split(',') if x.strip()]
+    if picked:
+        from webtool.engines.status import listing as _listing
+        from webtool.cli.sitesearch import sites_table as _sites
+        from webtool.engines.customsites import load_custom_sites
+        eng_names = [e['engine'] for e in _listing()]
+        site_names = set(_sites()) | set(load_custom_sites())
+        unknown = [x for x in picked if x not in eng_names and x not in site_names]
+        if unknown:
+            print('未知检索源: %s' % ', '.join(unknown), file=sys.stderr)
+            print('用 `webtool search -l` 看全部源', file=sys.stderr)
+            return 2
+        # 引擎/站点不分工: 选中的源全部丢进 search 同一条管线并池 merge。
+        eng = [x for x in picked if x in eng_names]
+        sts = [x for x in picked if x not in eng_names]
+        engine = ','.join(eng)
+        a.sites, a.no_engines = sts, not eng
+        a.lang = lang
     a.query, a.engine, a.preset, a.max = query, engine, preset, max
     a.operators, a.blocklist = operators, blocklist
     a.jobs = jobs
@@ -188,51 +204,51 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
 
 @app.command('fetch')
 def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
-              url_file: str = typer.Option(None, '--url-file', help='从文件读多个 URL(每行一个)'),
-              proxy: str = typer.Option(None, '--proxy',
+              url_file: str = typer.Option(None, '-u', '--url-file', help='从文件读多个 URL(每行一个)'),
+              proxy: str = typer.Option(None, '-p', '--proxy',
                                         help='本次线路: auto(默认, 走规则表) / direct / '
                                              '代理名 (webtool proxy named list) / 完整 URL'),
               fmt: str = Fmt, output: str = Output,
               no_proxy: bool = NoProxy, no_cache: bool = NoCache,
-              resume: bool = typer.Option(False, '--resume',
+              resume: bool = typer.Option(False, '-r', '--resume',
                                           help='多 URL 批任务断点续跑: 跳过上批已成功的 URL '
                                                '(按 URL 集合指纹记账)'),
-              max_chars: int = typer.Option(0, '--max-chars', help='正文截断字符数, 0=不截断'),
-              raw: bool = typer.Option(False, '--raw', help='跳过正文提取, 输出原始 HTML'),
+              max_chars: int = typer.Option(0, '-c', '--max-chars', help='正文截断字符数, 0=不截断'),
+              raw: bool = typer.Option(False, '-R', '--raw', help='跳过正文提取, 输出原始 HTML'),
               with_metadata: bool = typer.Option(False, '--with-metadata',
                                                  help='json 格式附带标题/作者/日期'),
-              mark_untrusted: bool = typer.Option(False, '--mark-untrusted',
+              mark_untrusted: bool = typer.Option(False, '-M', '--mark-untrusted',
                                                   help='把正文裹进 <<<BEGIN-UNTRUSTED … >>> 边界再输出 '
                                                        '(喂给模型时区分"资料"与"指令")'),
-              structured: bool = typer.Option(False, '--structured',
+              structured: bool = typer.Option(False, '-S', '--structured',
                                               help='顺带抽 JSON-LD/OpenGraph 结构化字段 (商品价格/评分/发布时间等)'),
-              fields: str = typer.Option(None, '--fields',
+              fields: str = typer.Option(None, '-F', '--fields',
                                          help='只要这些结构化字段, 逗号分隔 (如 name,price,availability); '
                                               '隐含 --structured, 支持 offers.price 这类路径'),
-              links: bool = typer.Option(False, '--links',
+              links: bool = typer.Option(False, '-L', '--links',
                                          help='顺带抽出页面里的站内链接 (json 里给 links, 供 crawl 用)'),
               profile: str = typer.Option(None, '--profile',
                                           help='传输指纹档案: chrome131_win/mac/linux/android, '
                                                'safari18_4_ios 等 (移动站/拿不到数据时试 android/ios)'),
-              jobs: int = typer.Option(1, '--jobs',
+              jobs: int = typer.Option(1, '-j', '--jobs',
                                        help='下载用几条连接 (分片并发, 最多 4); '
                                             '默认 1 (对站点最客气), 大文件可 4; '
                                             '服务端不认 Range 会自动退回单连接'),
               progress: bool = typer.Option(None, '--progress/--no-progress',
                                             help='下载进度条; 默认只在终端里刷'
                                                  ' (管道/日志里只报结果, 不刷 \r)'),
-              save: str = typer.Option(None, '--save',
+              save: str = typer.Option(None, '-s', '--save',
                                        help='存到哪 (文件或目录); 网页存原始 HTML, '
                                             '二进制目标默认就存当前目录, 用它可以换落点'),
-              extract: str = typer.Option(None, '--extract',
+              extract: str = typer.Option(None, '-x', '--extract',
                                           help='正文提取器: auto(默认, 内容层择优, 最干净) / '
                                                'trafilatura / readability / boilerplate / '
                                                'inscriptis; 也可用 config set extract 固定'),
-              via: str = typer.Option('local', '--via',
+              via: str = typer.Option('local', '-v', '--via',
                                       help='取正文通道: local=本地提取链(默认, 免配额) / '
                                            'auto=本地失败时兜底远程 reader / '
                                            'parallel|exa|firecrawl=直接走对应 MCP 的 web_fetch'),
-              pdf_pages: str = typer.Option(None, '--pdf-pages',
+              pdf_pages: str = typer.Option(None, '-g', '--pdf-pages',
                                             help='PDF 只抽这几页 (如 "1-5" / "1,3,5-7"); '
                                                  '不给=全文。配合本地 PDF 文本抽取')):
     """抓取 URL 并提取正文
@@ -263,7 +279,7 @@ def ask_cmd(question: list[str] = typer.Argument(None,
                                     help='搜索取多少条 (默认 8)'),
             sources: int = typer.Option(4, '--sources',
                                         help='最多读几篇正文 (默认 4; 抓不到正文的退回搜索摘要)'),
-            max_chars: int = typer.Option(4000, '--max-chars',
+            max_chars: int = typer.Option(4000, '-c', '--max-chars',
                                           help='单篇正文截断字符数 (默认 4000)'),
             engine: str = typer.Option(None, '-e', '--engine',
                                        help='搜索引擎 (同 search -e; 默认走默认预设)'),
@@ -315,7 +331,7 @@ def _diff_run(left: str = typer.Argument(None,
                                            help='比正文时去掉开头的 YAML 元数据头 (跨 URL 对比时常需要)'),
               max_lines: int = typer.Option(400, '--max-lines',
                                             help='text/markdown 最多打印多少差异行'),
-              max_chars: int = typer.Option(0, '--max-chars',
+              max_chars: int = typer.Option(0, '-c', '--max-chars',
                                             help='抓 URL 时正文截断字符数, 0=不截断'),
               fmt: str = Fmt, output: str = Output,
               no_proxy: bool = NoProxy, no_cache: bool = NoCache):
@@ -342,7 +358,7 @@ def _snapshot_args(url=None, name=None, list_=False, history=None, rm=None,
 def _diff_save(url: str = typer.Argument(..., help='要存快照的 URL'),
                name: str = typer.Option(None, '--name',
                                         help='快照名 (默认从 URL 生成: 主机-路径)'),
-               max_chars: int = typer.Option(0, '--max-chars',
+               max_chars: int = typer.Option(0, '-c', '--max-chars',
                                              help='正文截断字符数, 0=不截断'),
                fmt: str = Fmt, output: str = Output,
                no_proxy: bool = NoProxy, no_cache: bool = NoCache):
@@ -390,7 +406,7 @@ app.add_typer(diff_app, name='diff')
 def compare_cmd(urls: list[str] = typer.Argument(None,
                                                  help='要对比的 URL (至少 2 个)'),
                 n: int = typer.Option(6, '-n', '--limit', help='每个来源取几条要点'),
-                max_chars: int = typer.Option(0, '--max-chars',
+                max_chars: int = typer.Option(0, '-c', '--max-chars',
                                               help='抓取时正文截断字符数, 0=不截断'),
                 fmt: str = Fmt, output: str = Output,
                 no_proxy: bool = NoProxy, no_cache: bool = NoCache):
@@ -437,15 +453,15 @@ def watch_cmd(target: list[str] = typer.Argument(None,
 
 @app.command('crawl')
 def crawl_cmd(url: str = typer.Argument(None, help='起点 URL'),
-              depth: int = typer.Option(2, '--depth', help='最多跟几层链接 (0=只抓这一页)'),
-              max_pages: int = typer.Option(20, '--max-pages', help='最多抓多少页'),
-              delay: float = typer.Option(0.5, '--delay', help='每页之间停几秒 (别把人家站打疼)'),
-              include: str = typer.Option(None, '--include', help='只跟匹配这个正则的 URL'),
-              exclude: str = typer.Option(None, '--exclude', help='跳过匹配这个正则的 URL'),
-              any_host: bool = typer.Option(False, '--any-host', help='允许跨域名'),
-              no_robots: bool = typer.Option(False, '--no-robots', help='不读 robots.txt'),
-              max_chars: int = typer.Option(0, '--max-chars', help='每页正文截断字符数, 0=不截断'),
-              save_dir: str = typer.Option(None, '--save', help='把每页存成 markdown 到这个目录'),
+              depth: int = typer.Option(2, '-d', '--depth', help='最多跟几层链接 (0=只抓这一页)'),
+              max_pages: int = typer.Option(20, '-m', '--max-pages', help='最多抓多少页'),
+              delay: float = typer.Option(0.5, '-w', '--delay', help='每页之间停几秒 (别把人家站打疼)'),
+              include: str = typer.Option(None, '-i', '--include', help='只跟匹配这个正则的 URL'),
+              exclude: str = typer.Option(None, '-X', '--exclude', help='跳过匹配这个正则的 URL'),
+              any_host: bool = typer.Option(False, '-a', '--any-host', help='允许跨域名'),
+              no_robots: bool = typer.Option(False, '-R', '--no-robots', help='不读 robots.txt'),
+              max_chars: int = typer.Option(0, '-c', '--max-chars', help='每页正文截断字符数, 0=不截断'),
+              save_dir: str = typer.Option(None, '-s', '--save', help='把每页存成 markdown 到这个目录'),
               fmt: str = Fmt, output: str = Output,
               no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """小站/文档站抓取: 从一页顺着站内链接爬有限几页
