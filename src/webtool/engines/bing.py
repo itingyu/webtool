@@ -11,8 +11,9 @@
 行为** (两个域名给不同索引序), 不是出网策略。线路本身仍由 netx.resolve_proxy
 按配置 + 路由表决定, 本模块不判断、也不降级换线。
 
-RSS 通道保留为兜底 (curl_cffi 被限流时), 但 RSS 是独立索引, 排序与主页
-差异大, 仅在 HTML 失败时使用。
+RSS 通道保留为兜底 (curl_cffi 被限流时), 仅在 HTML 失败时使用。实测它
+(1) 最多 8 条, count/first 都不生效; (2) 忽略时间过滤参数; (3) pubDate 是
+抓取/索引时间而非发布时间; (4) 多数 query 与 HTML 同序同结果。
 """
 import email.utils
 import re
@@ -208,7 +209,7 @@ def _rss_date(s):
 
 def _rss(query, max_results, proxy, timeout, market, page,
          since=None, until=None):
-    """RSS 兜底: 独立索引, 排序与主页差异大, 仅兜底用"""
+    """RSS 兜底: 最多 8 条, 忽略翻页与时间参数; pubDate 为索引时间 (打 date_src=index)"""
     q = urllib.parse.quote(query)
     first = (page - 1) * max_results + 1
     url = (f'https://{_host(proxy)}/search?q={q}&format=rss&count={max_results}'
@@ -234,6 +235,7 @@ def _rss(query, max_results, proxy, timeout, market, page,
                'snippet': _unescape(snip)[:300]}
         if iso:
             rec['date'] = iso
+            rec['date_src'] = 'index'   # RSS pubDate 是抓取/索引时间, 不是发布时间
         out.append(rec)
         if len(out) >= max_results:
             break
