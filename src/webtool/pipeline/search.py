@@ -268,7 +268,7 @@ def _do_search(args, cfg, filter_ad=True):
                     errors.append({'engine': name, 'error': err})
                 results.extend([dict(r, engine=name) for r in rs])
 
-    # 跳转链解码: 无条件执行 — 搜狗 link / baidu link / gnews articles 一律
+    # 跳转链解码: 无条件执行 — 搜狗 link / baidu link 一律
     # 还原为原始 URL (带并发+缓存+熔断)。解码必须在黑名单/补量之前完成:
     # ①link 包装链的真实域名只有解码后才知道, 黑名单按真域判定才不漏
     # ②补量的粗去重按真 URL, 不重复计数。不解码则 URL 全是 /link?url=,

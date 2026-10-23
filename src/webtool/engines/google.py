@@ -34,47 +34,20 @@ def last_channel():
 
 def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1,
            since=None, until=None):
-    """google 通道: 有代理 → web(常被IP级reCAPTCHA拦)→news RSS 自动降级;
-    无代理 → news RSS 直连 (国内网络通常不可达, 报错带处置建议)
+    """google 通道: 仅 Web HTML (需代理); news RSS 降级通道已移除
 
-    线路由规则表定 (全局 proxy 只决定用哪条代理). web 端点即使 chrome131
-    指纹+SOCS+udm14 也大概率被 IP 级 reCAPTCHA 拦 (纯 HTTP 无解) —
-    news RSS 通道是主力, 结果标 channel=news, news.google.com 文章链经
-    batchexecute 自动还原真实 URL.
+    web 端点即使 chrome131 指纹 + udm14 也可能被 IP 级 reCAPTCHA 拦;
+    被拦或无代理就直接报错, 不再退回新闻 RSS —— 那是新闻检索不是 Web 搜索,
+    且会把索引时间当发布时间。
     """
-    _LAST.update(channel=None, degraded_from=None, reason=None)
-    if proxy:
-        _cool = intercept.cooldown_of('https://www.google.com/search')
-        if _cool is not None:
-            # 冷却期内不再试 web, 直接 news (谁封的、封多久由插件说)
-            _LAST.update(channel='news', degraded_from='web',
-                         reason=f'web 端点{_cool.why}冷却中({_cool.left}s), 跳过')
-        else:
-            try:
-                out = _web(query, max_results, proxy, timeout, market, page,
-                           since=since, until=until)
-                _LAST.update(channel='web')
-                return out
-            except transport.BlockedError as e:
-                # transport 降级梯 3 跳全撞 reCAPTCHA (IP 级, 指纹无解) → news
-                # 冷却按站点记账: web 是 www.google.com, news 是 news.google.com,
-                # 两个站各记各的 — web 被拦不会锁死 news
-                _LAST.update(channel='news', degraded_from='web', reason=str(e)[:120])
-            except RuntimeError as e:
-                # IP 级反爬特征时降级 news (错误串含状态码/unusual/sorry);
-                # enablejs 壳页 (200 但要求 JS) 同样是风控信号, 一并降级
-                s = str(e)
-                if not ('429' in s or 'unusual' in s or '/sorry/' in s
-                        or '403' in s or 'enablejs' in s):
-                    raise
-                _LAST.update(channel='news', degraded_from='web', reason=s[:120])
-    # 无代理或 web 被封: news RSS (国内直连可达性差但配了代理就能通,
-    # gnews 域名不在 /search 的限流范围内)
-    if _LAST['channel'] is None:
-        _LAST.update(channel='news', degraded_from='web',
-                     reason='未配代理, web 端点不可达' if not proxy else None)
-    return _news(query, max_results, proxy, timeout, market, page,
-                 since=since, until=until)
+    _LAST.update(channel='web', degraded_from=None, reason=None)
+    if not proxy:
+        raise RuntimeError('google 需要代理 (news RSS 通道已停用, 无代理无结果)')
+    _cool = intercept.cooldown_of('https://www.google.com/search')
+    if _cool is not None:
+        raise RuntimeError(f'google web 端点{_cool.why}冷却中({_cool.left}s)')
+    return _web(query, max_results, proxy, timeout, market, page,
+                since=since, until=until)
 
 
 # Web HTML
@@ -194,84 +167,12 @@ def _time_qs(since, until):
     return '&' + urllib.parse.urlencode({'tbs': f'cdr:1,cd_min:{lo},cd_max:{hi}'})
 
 
-def _news(query, max_results, proxy, timeout, market, page,
-          since=None, until=None):
-    lang, gl, ceid = _market(market)
-    # Web 语义借道新闻检索: 默认 1 年窗口, 翻页映射 start→offset
-    offset = (page - 1) * max_results
-    extra = ''
-    if since:
-        extra += f' after:{since.isoformat()}'
-    if until:
-        extra += f' before:{until.isoformat()}'
-    when = '' if extra else 'when:1y'
-    q = urllib.parse.quote(query + extra)
-    url = (f'https://news.google.com/rss/search?q={q}'
-           + (f'+{when}' if when else '')
-           + f'&hl={lang}&gl={gl}&ceid={gl}:{ceid}')
-    # RSS 用持久会话 (chrome 指纹 + cookie 预热): 首页领 NID 再拉 RSS,
-    # 会话跨调用 state 持久化; 裸请求部分代理出口会被 302 challenge
-    text = None
-    rss_url = url
-    try:
-        s, p = transport._new_session('chrome131_win', proxy, 'google',
-                                      url=rss_url)
-        # 预热失败不致命, RSS 照打
-        transport.warm_session(s, 'https://news.google.com/', timeout=timeout,
-                               profile=p)
-        text, status = transport.session_get(rss_url, s, kind='plain',
-                                             timeout=timeout, profile=p)
-        transport._persist_cookies(s, 'google')
-        if status != 200 or '<item>' not in text:
-            text = None
-    except Exception:
-        text = None
-    if text is None:
-        # urllib 兜底 (transport 指纹通道异常时)
-        text, status, _via = transport.get(url, kind='plain', proxy=proxy,
-                                           timeout=timeout, engine=None)
-    items = re.findall(r'<item>(.*?)</item>', text, re.S)
-    out = []
-    for it in items[offset:offset + max_results]:
-        t = re.search(r'<title>(.*?)</title>', it, re.S)
-        l = re.search(r'<link>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</link>', it, re.S)
-        d = re.search(r'<pubDate>(.*?)</pubDate>', it, re.S)
-        src = re.search(r'<source[^>]*>(.*?)</source>', it, re.S)
-        title = _unescape(t.group(1)) if t else ''
-        if not title:
-            continue
-        out.append({'rank': len(out) + 1, 'title': title.strip(),
-                    'url': (l.group(1).strip() if l else ''),
-                    'snippet': (src.group(1).strip() + ' · ' if src else '')
-                               + (d.group(1).strip() if d else ''),
-                    'source': src.group(1).strip() if src else '',
-                    'date': (d.group(1).strip() if d else ''),
-                    'channel': 'news'})
-    # 无新闻覆盖不算错误: 返回空列表, 上层自然跳过该引擎贡献
-    return out
-
-
-def _market(market):
-    if market.startswith('zh'):
-        return 'zh-Hans', 'CN', 'zh-Hans'
-    if market.startswith('en'):
-        return 'en-US', 'US', 'en-US'
-    return 'zh-Hans', 'CN', 'zh-Hans'
-
-
-_unescape = text.unescape
-
-
 def resolve_link(url, proxy=None, timeout=10):
-    """跳转链还原: /url?q= 老式内链直接解; news.google.com/articles
-    走 gnews batchexecute 解码 (纯 HTTP, 带缓存+熔断)
+    """跳转链还原: /url?q= 老式内链直接解
 
     解不出来返回 None (**不返回原链**): 调用方据此判定"没解出来"。返回原链会被
     上层当成解码成功写进缓存, 一次失败即永久失败。
     """
-    if 'news.google.com/rss/articles/' in url or 'news.google.com/articles/' in url:
-        from webtool.engines import gnews
-        return gnews.decode(url, proxy=proxy, timeout=timeout)
     if 'google.com/url' not in url:
         return None                     # 非跳转链, 无需解码
     m = _URL_RE.search(url)

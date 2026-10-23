@@ -99,10 +99,10 @@ kept = filter_by_date(res, {'args': SimpleNamespace(win_start='2026-10-08',
                                                    date_strict=False), 'cfg': {}})
 check(len(kept) == 1 and '新文' in kept[0]['title'], 'datefilter 用显式窗口', kept)
 
-# bing RSS pubDate 解析 (HTML 无日期字段, RSS 兜底通道有)
-from webtool.engines.bing import _rss_date                          # noqa: E402
-check(_rss_date('周五, 23 10月 2026 07:34:00 GMT') == '2026-10-23', 'bing RSS 中文 pubDate')
-check(_rss_date('Fri, 23 Oct 2026 07:34:00 GMT') == '2026-10-23', 'bing RSS 英文 pubDate')
+# RSS 通道已移除 (bing/google), 防止回潮
+from webtool.engines import bing as _b, google as _g               # noqa: E402
+check(not hasattr(_b, '_rss'), 'bing 无 RSS 通道')
+check(not hasattr(_g, '_news'), 'google 无 news RSS 通道')
 
 print()
 if fails:

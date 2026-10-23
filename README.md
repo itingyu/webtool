@@ -92,7 +92,7 @@ webtool search "AI 芯片" -A                     # 不限时间 (默认只搜�
 webtool search "AI 芯片" -S 2026-10-01 -U 2026-10-23   # 绝对区间, 下推引擎原生参数
 ```
 
-- 引擎：`bing` / `sogou` / `baidu` / `so360`（境内直连）· `marginalia`（境内直连，独立索引的小站/老网页长尾；**默认关**，要就用 `-s marginalia`）· `google`（被墙，需代理；代理不可用时静默跳过，429 降级 news RSS，结果标 `channel: news`）· `exa` / `parallel` / `firecrawl`（语义搜索，匿名免 key，默认关）
+- 引擎：`bing` / `sogou` / `baidu` / `so360`（境内直连）· `marginalia`（境内直连，独立索引的小站/老网页长尾；**默认关**，要就用 `-s marginalia`）· `google`（被墙，需代理；无代理或被风控直接跳过，**不再降级 news RSS**）· `exa` / `parallel` / `firecrawl`（语义搜索，匿名免 key，默认关）
 - 默认引擎集 `bing,sogou,baidu,so360`；`--preset zh|en|direct` 用预设组合（`webtool plugins engines presets` 列），优先级 `-s` > `--preset` > `config.default_engines` > 内置默认
 - 语义引擎按需加：`exa` 召回条数常最多 / `parallel` 最快且返回带日期 / `firecrawl` 能过 JS（search 免费 500 次/月），与关键词引擎重叠少
 - `--operators passthrough|strip|strict` 控制高级操作符（支持 `site:` `intitle:` `inurl:` `-词`）；`--blocklist a.com,b.com` 覆盖黑名单（前缀 `!` 表例外，`off` 关闭）

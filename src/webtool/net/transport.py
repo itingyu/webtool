@@ -607,8 +607,8 @@ def _request_once(method, url, *, kind='api', referer=None, proxy=None, timeout=
     多读一遍正文的开销。
 
     via 选底层: 'auto' (cffi 指纹优先, 失败退 urllib) / 'urllib' (强制) /
-    'cffi' (强制)。**它是兜底路径的立身之本**: sogou 的 urllib 兜底、gnews 的
-    article 通道之所以能当兜底, 靠的就是换一套 HTTP/TLS 栈, 全塞回 cffi 就等于
+    'cffi' (强制)。**它是兜底路径的立身之本**: sogou 的 urllib 兜底之所以能当
+    兜底, 靠的就是换一套 HTTP/TLS 栈, 全塞回 cffi 就等于
     没有兜底。cookie 连续性三种给法: `session` (cffi Session) / `cookiejar`
     (stdlib CookieJar, 走 urllib)。
 

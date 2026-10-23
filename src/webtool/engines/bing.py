@@ -11,13 +11,10 @@
 行为** (两个域名给不同索引序), 不是出网策略。线路本身仍由 netx.resolve_proxy
 按配置 + 路由表决定, 本模块不判断、也不降级换线。
 
-RSS 通道保留为兜底 (curl_cffi 被限流时), 仅在 HTML 失败时使用。实测它
-(1) 最多 8 条, count/first 都不生效; (2) 忽略时间过滤参数; (3) pubDate 是
-抓取/索引时间而非发布时间; (4) 多数 query 与 HTML 同序同结果。
+RSS 通道已移除: 实测最多 8 条、忽略翻页与时间参数, 且 pubDate 是抓取/索引
+时间而非发布时间 —— 作为搜索结果没有额外价值。
 """
-import email.utils
 import re
-import time
 import urllib.parse
 
 from webtool.core import text
@@ -28,27 +25,27 @@ _CN_ENDPOINT = 'https://cn.bing.com'   # 直连线路的站点端点, 供 search
 
 def search(query, max_results=10, proxy=None, timeout=15, market='zh-CN', page=1,
            since=None, until=None):
-    """返回 [{title,url,snippet}]; chrome指纹 HTML → urllib HTML → RSS 三级降级"""
+    """返回 [{title,url,snippet}]; chrome指纹 HTML → urllib HTML 两级, 无 RSS 通道"""
     # 归一一次: 'auto' 要问路由表才知道走不走代理, 而下面的 _host() 和
     # _new_session() 都要**实际线路**才能定 (www vs cn、要不要挂代理)。
     # 'auto' 原样往下传会让 _host 以为走代理、_new_session 却是直连 ——
     # 两者必须来自同一次决策。
     from webtool.net import netx
     route = netx.resolve_proxy(proxy, _CN_ENDPOINT + '/search')
+    err = None
     try:
         return _cffi_html(query, max_results, route, timeout, market, page,
                           since=since, until=until)
     except transport.CooldownError:
         raise
-    except Exception:
-        pass
+    except Exception as e:
+        err = e
     try:
         return _urllib_html(query, max_results, route, timeout, market, page,
                             since=since, until=until)
-    except Exception:
-        pass
-    return _rss(query, max_results, route, timeout, market, page,
-                since=since, until=until)
+    except Exception as e:
+        err = e
+    raise RuntimeError(f'bing HTML 通道均失败: {str(err)[:160] if err else "未知错误"}')
 
 
 def _time_qs(since, until):
@@ -178,69 +175,6 @@ def _parse_html(html, max_results):
                     'snippet': snip[:300]})
         if len(out) >= max_results:
             break
-    return out
-
-
-def _rss_date(s):
-    """RSS pubDate → YYYY-MM-DD; bing 的中文本地化格式也能认 ("周五, 23 10月 2026 ...")"""
-    s = (s or '').strip()
-    if not s:
-        return ''
-    try:
-        return email.utils.parsedate_to_datetime(s).date().isoformat()
-    except (TypeError, ValueError):
-        pass
-    m = re.search(r'(\d{4})-(\d{2})-(\d{2})', s)                    # 2026-10-23
-    if m:
-        return m.group(0)
-    m = re.search(r'(\d{1,2})\s+(\d{1,2})月\s+(\d{4})', s)          # 23 10月 2026
-    if m:
-        return f'{int(m.group(3)):04d}-{int(m.group(2)):02d}-{int(m.group(1)):02d}'
-    if m:
-        return f'{int(m.group(3)):04d}-{int(m.group(2)):02d}-{int(m.group(1)):02d}'
-    m = re.search(r'(\d{1,2})\s+([A-Za-z]{3})[a-z]*\s+(\d{4})', s)  # 23 Oct 2026
-    if m:
-        try:
-            mon = time.strptime(m.group(2).title(), '%b').tm_mon
-            return f'{int(m.group(3)):04d}-{mon:02d}-{int(m.group(1)):02d}'
-        except ValueError:
-            return ''
-    return ''
-
-def _rss(query, max_results, proxy, timeout, market, page,
-         since=None, until=None):
-    """RSS 兜底: 最多 8 条, 忽略翻页与时间参数; pubDate 为索引时间 (打 date_src=index)"""
-    q = urllib.parse.quote(query)
-    first = (page - 1) * max_results + 1
-    url = (f'https://{_host(proxy)}/search?q={q}&format=rss&count={max_results}'
-           f'&first={first}&setmkt={urllib.parse.quote(market)}')
-    url += _time_qs(since, until)
-    h = transport.headers_for('nav', url, referer=f'https://{_host(proxy)}/',
-                              full=True)
-    xml, status, _via = _resilient(url, proxy=proxy, timeout=timeout, headers=h)
-    items = re.findall(r'<item>(.*?)</item>', xml, re.S)
-    out = []
-    for it in items:
-        t = re.search(r'<title>(.*?)</title>', it, re.S)
-        l = re.search(r'<link>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</link>', it, re.S)
-        d = re.search(r'<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</description>', it, re.S)
-        title = _unescape((t.group(1) if t else '').strip())
-        link = (l.group(1) if l else '').strip()
-        snip = re.sub(r'<[^>]+>', '', d.group(1)) if d else ''
-        if not link or link.startswith('http://' + 'bing.com'):
-            continue
-        pd = re.search(r'<pubDate>(.*?)</pubDate>', it, re.S)
-        iso = _rss_date(pd.group(1)) if pd else ''
-        rec = {'rank': len(out) + 1, 'title': title, 'url': link,
-               'snippet': _unescape(snip)[:300]}
-        if iso:
-            rec['date'] = iso
-            rec['date_src'] = 'index'   # RSS pubDate 是抓取/索引时间, 不是发布时间
-        out.append(rec)
-        if len(out) >= max_results:
-            break
-    if not out:
-        raise RuntimeError(f'bing RSS 0 条 (status={status})')
     return out
 
 
