@@ -155,7 +155,7 @@ def profile_for_impersonate(name, ua=None):
 
     同名档案直接复用 (UA/客户端提示一套); 没有就借默认档案, 只换 impersonate
     —— UA 与 TLS 版本本来就是 impersonate 自己保证的, 这里只是给 headers_for
-    一个"该报哪个 UA"的依据 (stock 各源给的就是这个名, 别再各建一张 UA 表)。
+    一个"该报哪个 UA"的依据 (数据源给的就是这个名, 别再各建一张 UA 表)。
     """
     if name in PROFILES:                   # 档案名 (chrome131_win 等) 优先
         return PROFILES[name]

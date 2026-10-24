@@ -61,10 +61,8 @@ webtool = "webtool.cli.fastpath:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-# 键是包名, 值是**相对该包根目录**的路径。所以 `data/*.json` 只覆盖
-# webtool/data/, 覆盖不到 webtool/stock/data/ —— 实测 wheel 里 stock 的
-# 11 个数据文件 (460KB: 7 本逆向文档 + em 配方 + 接口分类) 一个都没打进去,
-# 装包后 `stock docs-*` / `em-*` 全废 (源码树里跑是好的, 所以本地测不出来)。
+# 键是包名, 值是**相对该包根目录**的路径。`data/*.json` 覆盖 webtool/data/;
+# 子目录的 json/md/pem 分别列出, 否则源码树能跑、wheel 装完却缺文件。
 webtool = [
   "data/*.json",
   # banner --font big 的随包字体 (Noto Sans CJK SC 子集, 4736 字): 带上它,
@@ -81,9 +79,6 @@ webtool = [
   # geo 数据 (geosite/geoip): 随包分发一份基线, 首次运行由 bootstrap 落到
   # ~/.webtool/geo/, 规则 {geosite/geoip} 装完即用; `proxy geo update` 刷新用户态
   "data/geo/*.dat",
-  "stock/data/*.json",
-  "stock/data/**/*.json",
-  "stock/data/**/*.md",
   # engine/ 是纯代码包 (靠 __init__.py), 由 packages.find 自动收进 wheel,
   # 不必手写进 package-data —— 文档与自测脚本留在技能目录, 不随包分发。
 ]

@@ -17,7 +17,7 @@ webtool 是**全装**形态 —— 所有依赖 (含 pandas/numpy/akshare/crypto
 让 pip 去装**, 得用 Termux 自己的包 (`pkg install python-cryptography`)。
 这种时候还甩一句 "重装 webtool" 是把人往坑里带: 他照着重装一百次还是一样报错。
 
-**别在这里写"pip install webtool[stock]"**: extras 已经没有了, 那样只会让
+**别在这里写"pip install webtool[xxx]"**: extras 已经没有了, 那样只会让
 pip 打印 "does not provide the extra" 警告, 什么也没修。
 """
 

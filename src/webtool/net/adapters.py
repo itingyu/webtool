@@ -1,6 +1,6 @@
 """requests 兼容适配器 (L7 适配层): 让 requests 的调用点原样复用 transport 通道
 
-stock 有 61 处 `self._std.get(url, …)`, 逐个改成 transport.request 既费事又会漏。
+业务代码里有大量 `self._std.get(url, …)`, 逐个改成 transport.request 既费事又会漏。
 适配器把 requests.Session 的 send() 桥到 transport.request, 于是调用点写什么都
 不影响线路与证书的判断 —— 真正出网的是 transport 层。
 
@@ -29,7 +29,7 @@ _ADAPTER = {}
 
 def requests_session(*, proxy='auto', kind='api', profile=None, timeout=None,
                      retries=2):
-    """stock/data 源用的 requests.Session: 每个请求都回到 transport 层出网
+    """业务数据源用的 requests.Session: 每个请求都回到 transport 层出网
 
     调用点不必改 (仍是 `s.get` / `s.post` / …), 但请求由 transport 发出:
 
@@ -38,7 +38,7 @@ def requests_session(*, proxy='auto', kind='api', profile=None, timeout=None,
     - 连接按 (线路, 主机) 复用 —— 一次调用打十余个域名也不会每请求重开 TLS
     - 幂等请求带收敛重试 (RemoteDisconnected/5xx 换连接重试)
 
-    也就是说 stock 与搜索引擎共用同一条通道, 不再是"抓网页走代理、取行情直连"。
+    也就是说业务数据源与搜索引擎共用同一条通道, 不再是"抓网页走代理、取行情直连"。
     """
     import requests
     ad = _transport_adapter()(proxy=proxy, kind=kind, profile=profile,
@@ -92,8 +92,9 @@ def _transport_adapter():
     class TransportAdapter(requests.adapters.BaseAdapter):
         """requests → transport 的桥
 
-        stock 有 61 处 `self._std.get(url, …)`, 逐个改成 transport.request 既
-        费事又会漏。真正出网的是 transport 层, 调用点写什么都不影响线路与证书的判断。
+        业务代码里有大量 `self._std.get(url, …)`, 逐个改成 transport.request
+        既费事又会漏。真正出网的是 transport 层, 调用点写什么都不影响线路与
+        证书的判断。
         """
 
         def __init__(self, *, proxy='auto', kind='api', profile=None,
@@ -186,7 +187,7 @@ def _safe_close(r):
 def _raise_as_requests(e, url):
     """把 transport 层的错误翻成 requests 的异常类型
 
-    stock 里有 `except requests.exceptions.*` 与 tls 的判定, 拿错类型会让
+    业务代码里有 `except requests.exceptions.*` 与 tls 的判定, 拿错类型会让
     "证书问题"被当成"网络问题"重试到底。
     """
     import requests
@@ -198,7 +199,7 @@ def _raise_as_requests(e, url):
 
 
 def _as_requests_response(r, request):
-    """Resp → requests.Response (stock 的调用点要的就是 requests 那个壳)"""
+    """Resp → requests.Response (调用点要的就是 requests 那个壳)"""
     import requests
     resp = requests.models.Response()
     resp.status_code = r.status_code
@@ -215,7 +216,7 @@ def _as_requests_response(r, request):
 
 # ── 延迟补丁: 谁先用 requests, 谁触发 ────────────────────────────────────
 # patch_requests() 本身要 import requests (~0.5s: requests + urllib3 + 编解码)。
-# 以前每条命令启动都先付这笔钱, 连 `stock calendar` / `config get` 这种纯本地
+# 以前每条命令启动都先付这笔钱, 连 `config get` / `render` 这种纯本地
 # 动作也一样。改成挂在 requests 的首次导入上: 补丁仍然**早于任何 Session 创建**
 # (第三方库 import requests 之后才会建 Session), 但不用它的命令一分不付。
 _HOOK = None

@@ -2,7 +2,7 @@
 
 把「数据源只负责取数, 不关心给谁用」从口号变成可落地的契约:
 
-- 取数方 (engines / feeds / stock) 各自实现 `SourceBase.fetch`, 返回 `DataPacket`
+- 取数方 (engines / feeds) 各自实现 `SourceBase.fetch`, 返回 `DataPacket`
 - 用数方 (pipeline / render / cli) 只认识 `DataPacket`, 不认识任何具体数据源
 - 工厂 (`sources.registry.get`) 按名字造实例, 调用点没有 if-else 链
 

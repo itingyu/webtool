@@ -200,7 +200,7 @@ check(wnetx.resolve_proxy('http://127.0.0.1:2080', _socks_url) ==
 # --- 7. requests 会话必须照样问规则表 -----------------------------------------
 # requests 的 Session.send 每回都把 merge_setting(request.proxies, session.proxies)
 # 塞给适配器, 而 requests_session 建出来的 session 恰好 proxies={} —— 老代码把这
-# 个空 dict 读成"调用点表态: 强制直连", 于是整个 stock 桥 (61 处 requests_session)
+# 个空 dict 读成"调用点表态: 强制直连", 于是整批业务桥 (requests_session)
 # 一律直连, rules.json 形同虚设: 实测规则写着走代理, 日志却是"线路=直连
 # (显式direct)", 请求照样直连出门。
 check(wtx._proxy_choice({}, 'auto') == 'auto',
@@ -221,9 +221,9 @@ with open(os.path.join(TMP, 'rules.json'), 'w', encoding='utf-8') as f:
                           'action': 'proxy:fake'}]}, f)
 try:
     _r7 = wtx.requests_session(proxy='auto', timeout=10).get(
-        'http://stock.invalid/zt')
+        'http://api.invalid/zt')
     check(_r7.status_code == 204
-          and any('stock.invalid' in p for p in _FakeProxy.seen),
+          and any('api.invalid' in p for p in _FakeProxy.seen),
           '规则说走代理, requests 会话就得走代理 (不许写死直连)',
           f'{_r7.status_code} {_FakeProxy.seen}')
 except Exception as e:

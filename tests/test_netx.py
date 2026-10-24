@@ -239,8 +239,8 @@ check(not stray2, 'resolve_auth 没扩散到未经审计的模块', str(stray2))
 out3 = subprocess.run(
     ['rg', '-n', '-l', r'proxies=', 'src'],
     cwd=ROOT, capture_output=True, text=True).stdout.strip().splitlines()
-# 例外按路径片段匹配, 不用硬编码全路径 —— stock 的 HTTP 通道已下沉到
-# bridge/http.py, 写死 'stock/http.py' 会让它混进 bad3 而误报
+# 例外按路径片段匹配, 不用硬编码全路径 —— HTTP 通道在 net/http.py,
+# 写死整条路径会让它混进 bad3 而误报
 # 例外 = 合法传 proxies 的通道: netx 自己、三条 webtool HTTP 通道, 以及
 # 路由层 (net/routing + sources/_adapter/_base: 那里是按 URL 现算代理的
 # 实现, 正是本测试想确保的"唯一的合法出处")
