@@ -510,6 +510,18 @@ _ENGINE_DIR = _eng.ENGINE_DIR
 _STOCK_DIR = os.path.dirname(_ENGINE_DIR)
 _SOURCES_DIR = os.path.join(_STOCK_DIR, 'bridge', 'sources')
 
+
+# 帮助页里的数量文案必须和注册表一致 (硬编码最易漂)
+from webtool.cli import fastpath as _fp                              # noqa: E402
+from webtool.core import plugins as _pl                              # noqa: E402
+import re as _re                                                     # noqa: E402
+_m_site = _re.search(r'(\d+) 个站点', _fp.HELP)
+_m_hot = _re.search(r'(\d+) 个榜单源', _fp.HELP)
+check(bool(_m_site) and int(_m_site.group(1)) == len(_pl.table('site')),
+      '帮助页站点数与插件表一致', _m_site.group(0) if _m_site else '缺失')
+check(bool(_m_hot) and int(_m_hot.group(1)) == len(_pl.table('hot')),
+      '帮助页榜单源数与插件表一致', _m_hot.group(0) if _m_hot else '缺失')
+
 print()
 print('=== stock engine (包内静态 import) ===')
 check(os.path.isfile(os.path.join(_ENGINE_DIR, '__init__.py')),

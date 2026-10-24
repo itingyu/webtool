@@ -31,6 +31,18 @@ def _save_dir(args, cfg, seed):
     return os.path.join(os.path.expanduser(root), f'{host}-{time.strftime("%Y%m%d-%H%M%S")}')
 
 
+def _front_title(md):
+    """fetch 输出的 front matter 里就有正文标题 (h1), 比 metadata.title 准
+
+    文档站整页导航的 <title>/short_title 常被当成标题 ("Python 3.13 文档"),
+    正文 h1 才是页面名。取不到再退回 metadata。
+    """
+    m = re.match(r'\A---\s*\n(.*?)\n---\s*\n', md or '', re.S)
+    if not m:
+        return ''
+    t = re.search(r'^title:\s*(.+)$', m.group(1), re.M)
+    return t.group(1).strip().strip('"\'') if t else ''
+
 def _fetch_page(url, max_chars):
     argv = ['fetch', url, '-f', 'json', '--links', '--with-metadata',
             '--max-chars', str(max(0, max_chars))]
@@ -128,8 +140,8 @@ def do_crawl(args, cfg):
             _say(len(pages), None, url)
             continue
         meta = data.get('metadata') or {}
-        title = (meta.get('title') or '').strip()
         text = data.get('content') or ''
+        title = _front_title(text) or (meta.get('title') or '').strip()
         pages.append({'url': url, 'depth': depth, 'ok': bool(text),
                       'chars': len(text), 'title': title, 'content': text})
         _say(len(pages), pages[-1], url)

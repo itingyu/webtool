@@ -590,6 +590,11 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
             f'|{"1" if getattr(args, "links_same_host", True) else "0"}')
     cached = None if (args.no_cache or args.raw) else cache.get(cfg, 'fetch', ckey)
     if cached is not None:
+        # metadata 只在 --with-metadata 时对外暴露, 但要一直留一份在缓存里 ——
+        # 否则"先不带 flag 抓一次, 再带 flag 抓"命中缓存就没有 metadata 了
+        _md = cached.pop('_meta', None)
+        if getattr(args, 'with_metadata', False) and args.format == 'json' and _md:
+            cached['metadata'] = _md
         cached['cache'] = 'hit'
         return cached
     from webtool.core.resilient import open_stream
@@ -694,7 +699,7 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
             if args.with_metadata and args.format == 'json':
                 out['metadata'] = meta
             _attach_struct(out, html, url, args)
-            cache.put(cfg, 'fetch', ckey, out)
+            cache.put(cfg, 'fetch', ckey, dict(out, _meta=meta))
             out['cache'] = 'miss'
             return out
     if js_shell:
@@ -723,7 +728,7 @@ def _fetch_one(url, args, cfg, proxy, timeout, extract_mode='auto'):
         out['metadata'] = meta
     _attach_struct(out, html, url, args)
     if out['content']:
-        cache.put(cfg, 'fetch', ckey, out)
+        cache.put(cfg, 'fetch', ckey, dict(out, _meta=meta))
     else:
         out['hint'] = 'extract empty: try --format html --raw or site needs JS'
     out['cache'] = 'miss'
