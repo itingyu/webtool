@@ -21,7 +21,7 @@ HELP = '''Agent 友好的网页搜索与内容获取工具
   问问题    ask <问题>            先检索再答, 每条结论带来源
 
 全部命令分组:
-  搜索  search  fetch  crawl  ask
+  搜索  search  site  fetch  crawl  ask
   订阅  feed
   榜单  rank
   基建  proxy  pkg  mcp  plugins  config

@@ -62,6 +62,7 @@ webtool uninstall --purge-data --yes   # 连配置/凭据/缓存一起删 (缺 -
 | 命令 | 用途 |
 |---|---|
 | `search` | 多引擎网页搜索（含 exa/parallel/firecrawl 语义搜索） |
+| `site` | 站内搜索（单站点内部检索，独立于搜索引擎） |
 | `fetch` | 抓 URL 提取正文；二进制直接下载 |
 | `crawl` | 站内定向爬取；默认落盘到 `crawl_dir`（`~/.webtool/crawl`） |
 | `rank` | 榜单聚合：19 个热榜源 |
@@ -81,10 +82,9 @@ webtool uninstall --purge-data --yes   # 连配置/凭据/缓存一起删 (缺 -
 ## search
 
 ```bash
-webtool search "LLM 排行榜" -n 5                # 默认 bing,sogou,baidu
+webtool search "LLM 排行榜" -n 5                # 默认 bing,sogou,baidu,so360
 webtool search "query" -s marginalia             # 小站/老网页长尾
 webtool search "查询词" --preset zh               # 引擎组合预设
-webtool search -s github "fastapi"               # 站内搜 (同一选择器)
 webtool search "query" -s exa,parallel           # 语义引擎
 webtool search "AI 芯片" -S 7d                   # 近 7 天 (相对: 7d/2周/3个月/1y/昨天)
 webtool search "AI 芯片" -A                     # 不限时间 (默认只搜近 15 天)
@@ -97,7 +97,7 @@ webtool search "AI 芯片" -S 2026-10-01 -U 2026-10-23   # 绝对区间, 下推�
 - `--operators passthrough|strip|strict` 控制高级操作符（支持 `site:` `intitle:` `inurl:` `-词`）；`--blocklist a.com,b.com` 覆盖黑名单（前缀 `!` 表例外，`off` 关闭）
 - **多引擎并发抓取**：一次搜索同时打所有引擎（不同站点、互不排队），墙钟≈最慢那个引擎而不是各家之和。默认并发=源数（上限 4，`core.resilient.MAX_WORKERS` 常量），`-j/--jobs N` 调（`1` = 串行，`config set jobs N` 持久化）。结果与报错一律按 `-s` 声明顺序回填，同一 query 的输出稳定可复现
 - 跳转链默认自动解码成真实 URL（`--no-resolve` 关）；结果综合加权排序，`-f json` 看 `weight` 与 `engines`（交叉验证数）
-- `webtool search -l`：引擎 + 站内源统一清单（含冷却状态）；`webtool plugins engines test|presets`：实发体检 / 预设组合
+- `webtool search -l`：引擎清单（含冷却状态）；站内源用 `webtool site` 无参列；`webtool plugins engines test|presets`：实发体检 / 预设组合
 
 ## fetch
 
@@ -176,15 +176,22 @@ webtool feed sources sync -R       # 重拉路由库并重建物化表
 
 `--pick` 选第几条命中的路由（不给则取热度最高），`--param` 只作用于选中的那条。默认与官网 feed 交叉校验并据此取数（`--no-xcheck` 关）。实例探活 `webtool feed instances`（默认挑最快）；公共实例 rsshub.rssforever.com / hub.slarker.me / rss.wudifeixue.com / rsshub.isrss.com，429 时轮换 `--instance`。
 
-## 站内搜索 (search -s)
+## 站内搜索 (site)
 
-入口在 `search -s`，不再单独占一个命令。20 站点：github / gh_search / so / hn / wikipedia / arxiv / csdn / csdn_so / juejin / juejin2 / bilibili / bili2 / sspai / npm / thepaper / eastmoney / sov2ex / douban。
+独立命令，不与搜索引擎混跑：站内要相关度，不需要引擎那套时间窗/跨源加权。
 
 ```bash
-webtool search -l              # 全部检索源 (引擎 + 站点)
-webtool search -s github fastapi      # 站内搜
-webtool search -s wikipedia 量子计算 --lang en
+webtool site                   # 列 20 个站点
+webtool site github fastapi
+webtool site juejin Python -n 5
+webtool site wikipedia 量子计算 -L en
+webtool site sspai 效率 -S 90d  # 显式时间过滤才生效
+webtool site juejin Python -f json
 ```
+
+- 站点 key：github / gh_search / so / hn / wikipedia / arxiv / csdn / csdn_so / juejin / juejin2 / bilibili / bili2 / sspai / npm / thepaper / eastmoney / sov2ex / douban
+- 别名可用：`掘金`、`b站`、`gh`、`v2ex`、`少数派` 等
+- `search -s <站点>` 会明确报错并提示改用 `site`，不再自动混用
 
 自定义站点放 `~/.webtool/sites/*.json`（格式见 [docs/custom-sites.md](docs/custom-sites.md)）。
 

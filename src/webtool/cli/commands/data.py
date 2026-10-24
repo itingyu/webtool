@@ -74,23 +74,20 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
         from webtool.net import intercept
         cool = {k: '%ds (此前%s)' % (v.left, v.why)
                 for k, v in intercept.cooldowns().items()}
+        # search 只列引擎; 站点清单归 `webtool site` (两条链路分开维护)
         if args.format == 'json':
-            print(_json.dumps({'engines': engines, 'sites': sites,
-                               'cooldowns': cool},
+            print(_json.dumps({'engines': engines, 'cooldowns': cool},
                               ensure_ascii=False, indent=1))
             return 0
         print('引擎 (%d):' % len(engines))
         for e in engines:
             print('  %-14s %s' % (e['engine'], e['desc']))
-        print('\n站点 (%d):' % len(sites))
-        for s in sites:
-            print('  %-14s %s' % (s['site'], s['desc']))
         if cool:
             print('\n冷却中: ' + ', '.join('%s=%s' % (k, v)
                                           for k, v in cool.items()))
         print('\n用法: webtool search "词"                 # 默认引擎组合')
         print('      webtool search -s bing,sogou "词"   # 指定引擎')
-        print('      webtool search -s github "词"       # 站内')
+        print('      webtool site github "词"            # 站内搜索 (%d 个站点)' % len(sites))
         return 0
 
     if sources:
@@ -99,8 +96,8 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
     from webtool.core import stdin as _stdin
     query = _stdin.read_input(query, required=True, what='搜索词')
 
-    # 引擎和站点都是"检索源": 一个 -s 全包。多个引擎可逗号并列; 站点只能单选
-    # (各站参数/返回结构不同, 混着搜没法统一渲染)。
+    # search 只管搜索引擎; 站内搜索是另一条链路 (`webtool site <站点> <词>`)。
+    # 两条链路的源清单、参数、时间窗语义都不同, 混在一个 -s 里只会互相拖累。
     raw = site
     picked = [x.strip() for x in (raw or '').split(',') if x.strip()]
     if picked:
@@ -109,16 +106,17 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
         from webtool.engines.customsites import load_custom_sites
         eng_names = [e['engine'] for e in _listing()]
         site_names = set(_sites()) | set(load_custom_sites())
-        unknown = [x for x in picked if x not in eng_names and x not in site_names]
+        site_picked = [x for x in picked if x in site_names]
+        if site_picked:
+            print(f'"{site_picked[0]}" 是站内源, 用 `webtool site {site_picked[0]} <词>`',
+                  file=sys.stderr)
+            return 2
+        unknown = [x for x in picked if x not in eng_names]
         if unknown:
-            print('未知检索源: %s' % ', '.join(unknown), file=sys.stderr)
+            print('未知引擎: %s' % ', '.join(unknown), file=sys.stderr)
             print('用 `webtool search -l` 看全部源', file=sys.stderr)
             return 2
-        # 引擎/站点不分工: 选中的源全部丢进 search 同一条管线并池 merge。
-        eng = [x for x in picked if x in eng_names]
-        sts = [x for x in picked if x not in eng_names]
-        engine = ','.join(eng)
-        a.sites, a.no_engines = sts, not eng
+        engine = ','.join(picked)
         a.lang = lang
     a.query, a.engine, a.preset, a.max = query, engine, preset, max
     a.operators, a.blocklist = operators, blocklist
@@ -132,6 +130,32 @@ def search_cmd(query: str = typer.Argument(None, help='搜索词 (留空时从 s
         from webtool.pipeline.search import do_search
         return do_search(args, cfg)
     return _run('data', fn, fmt, output, no_cache, no_proxy)
+
+@app.command('site')
+def site_cmd(site: str = typer.Argument(None,
+                                       help='站点 key (github/juejin/sspai/...); 省略 = 列出全部站点'),
+             query: list[str] = typer.Argument(None,
+                                               help='站内搜索词; 省略 = 读 stdin'),
+             n: int = typer.Option(10, '-n', '--limit', help='条数'),
+             lang: str = typer.Option('zh', '-L', '--lang',
+                                      help='站点的语言版本参数 (wikipedia 等)'),
+             since: str = typer.Option(None, '-S', '--since',
+                                       help='起始: 7d/2周/3个月/1年 或 2026-10-01; 不给=不限'),
+             until: str = typer.Option(None, '-U', '--until',
+                                       help='截止: 同上'),
+             fmt: str = Fmt, output: str = Output,
+             no_proxy: bool = NoProxy, no_cache: bool = NoCache):
+    """站内搜索: 单个站点内部检索, 不与搜索引擎混跑"""
+    a = _CTX['args']
+    from webtool.core import stdin as _stdin
+    q = ' '.join(query) if query else None
+    if site not in (None, 'list'):
+        q = _stdin.read_input(q, required=True, what='搜索词')
+    a.site, a.query, a.max = site, q, n
+    a.lang, a.since, a.until = lang, since, until
+
+    from webtool.cli.sitesearch import do_site
+    return _run('site', do_site, fmt, output, no_cache, no_proxy)
 
 @app.command('fetch')
 def fetch_cmd(url: str = typer.Argument(None, help='要抓取的 URL'),
