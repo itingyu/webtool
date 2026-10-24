@@ -1,17 +1,11 @@
-"""Google 引擎: Web HTML 优先 (需代理), news RSS 降级, 结果带 quality 标注
+"""Google 引擎: 仅 Web HTML 通道 (需代理), 结果带 quality 标注
 
 数据中心代理出口 IP 对 www.google.com/search 会触发 IP 级 reCAPTCHA
-(429 + 'unusual traffic', consent cookie/TLD/参数变体均无效, 纯 HTTP 不可解)
-— 429 时自动降级 news.google.com RSS (同 IP 全端点 200, 跳转链需浏览器
-打开, 靠 title 内 source 后缀供二次定位)。
+(429 + 'unusual traffic', consent cookie/TLD/参数变体均无效, 纯 HTTP 不可解)。
+news RSS 降级通道已移除: 新闻检索不是 Web 搜索, 宁可报错也不拿新闻冒充结果。
 
 web 通道走 transport 统一指纹; consent cookie (SOCS) 预置排除欧盟同意墙
 变量; 冷却记忆持久化 (state)。
-
-news RSS 是新闻检索不是全 Web 搜索:
-- 结果带 channel='news' 标注, 消费方 (agent) 可据此判断覆盖面
-- 支持 when: 相对时间窗 (Web 语义下默认 1y, 避免被旧闻淹没)
-- 直搜语义可用 (LMArena/Artificial Analysis 等高相关命中)
 """
 import re
 import urllib.parse
@@ -154,7 +148,7 @@ def _attach_snippets(html, out):
 _text = text.plain
 
 
-# news RSS 降级
+# 时间参数
 
 def _time_qs(since, until):
     """Google 自定义区间: tbs=cdr:1,cd_min:M/D/YYYY,cd_max:M/D/YYYY"""

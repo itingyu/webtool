@@ -156,7 +156,7 @@
  "engine": {
   "bing": {
    "module": "webtool.engines.bing:search",
-   "desc": "Bing HTML 主通道+RSS兜底, chrome指纹, 国内 cn. 直连",
+   "desc": "Bing HTML 主通道, chrome 指纹, 国内 cn. 直连",
    "base": 0.9,
    "params": {
     "ops": [
@@ -213,7 +213,7 @@
   },
   "google": {
    "module": "webtool.engines.google:search",
-   "desc": "Google: web(需代理,常IP级reCAPTCHA)→news RSS 自动降级+文章链还原",
+   "desc": "Google web(需代理, 常 IP 级 reCAPTCHA), 无代理直接报错",
    "base": 0.95,
    "params": {
     "ops": [
