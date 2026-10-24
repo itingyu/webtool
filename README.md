@@ -66,7 +66,6 @@ webtool uninstall --purge-data --yes   # 连配置/凭据/缓存一起删 (缺 -
 | `crawl` | 站内定向爬取；默认落盘到 `crawl_dir`（`~/.webtool/crawl`） |
 | `rank` | 榜单聚合：19 个热榜源 |
 | `feed` | RSS/Atom 订阅抓取，含 RSSHub 路由库查询 |
-| `site` | 18 个站点站内搜索 |
 | `zen` | OpenCode Zen 免费层对话，无需 key |
 | `mcp` | 通用 MCP 客户端 |
 | `stock` | 股票：行情/选股/研报 + 1300+ 底层接口 |
@@ -180,7 +179,7 @@ webtool feed sources sync -R       # 重拉路由库并重建物化表
 
 ## 站内搜索 (site)
 
-入口在 `search -s`，不再单独占一个命令。18 站点：github / gh_search / so / hn / wikipedia / arxiv / csdn / csdn_so / juejin / juejin2 / bilibili / bili2 / sspai / npm / thepaper / eastmoney / sov2ex / douban。
+入口在 `search -s`，不再单独占一个命令。20 站点：github / gh_search / so / hn / wikipedia / arxiv / csdn / csdn_so / juejin / juejin2 / bilibili / bili2 / sspai / npm / thepaper / eastmoney / sov2ex / douban。
 
 ```bash
 webtool search -l              # 全部检索源 (引擎 + 站点)
