@@ -247,10 +247,7 @@ out3 = subprocess.run(
 _ok_exc = ('netx.py', 'transport.py', 'net/http.py', 'adapters.py',
            'bridge/http.py', 'bridge/_eco_net.py',
            'bridge/sources/_adapter.py', 'net/routing.py',
-           'bridge/sources/_base.py',
-           # pyshim 是 requests 的补丁通道: 打补丁后必须把路由算出的 proxy 显式
-           # 传给底层 session, 否则补丁形同虚设
-           'pyshim.py')
+           'bridge/sources/_base.py')
 bad3 = [f for f in out3 if f.endswith('.py')
         and not any(x in f for x in _ok_exc)]
 check(not bad3, '只有已知通道给底层库传 proxies', str(bad3))
@@ -831,18 +828,17 @@ print('\n=== 13. 出网原语必须登记 (新出口不许悄悄开) ===')
 # 又开了一个不受设计与测试照看的口子 —— 必须来这里签字 (顺手想清楚它要不要
 # 反爬判定、走不走路由表)。
 _NET_CHANNELS = {
-    # 这三个不是"另开出口": 是补丁/类型层 —— tls.py 与 pyshim.py patch
-    # requests.Session.request 把调用桥回 transport, fingerprints.py 只
+    # 这两个不是"另开出口": 是补丁/类型层 —— tls.py patch
+    # requests 会话的证书校验 (桥回 transport), fingerprints.py 只
     # 是导 curl_cffi 的类型字面量
     'net/tls.py': 'patch requests 会话的证书校验 (桥回 transport)',
-    'net/pyshim.py': 'patch requests.Session.request (桥回 transport)',
     'net/fingerprints.py': '指纹档案: 导 curl_cffi 类型字面量, 不出网',
     'net/http.py': 'urllib 通道本体 (transport 备胎/探活)',
     'engines/sogou.py': 'PC cffi / urllib / 移动端 三通道',
     'net/netx.py': '决策层 + 参考通道 netx.get (当前无生产调用者)',
     'net/transport.py': '主通道: 指纹会话 + 降级梯 + 拦截判定',
     'net/adapters.py': 'requests 兼容适配器: 桥到 transport.request (转发, 不自己出网)',
-    'net/routing.py': '出网路由: 逐请求线路 + cffi 会话 (数据源与 pyshim 共用)',
+    'net/routing.py': '出网路由: 逐请求线路 + cffi 会话',
     'net/proxy/reach.py': '代理可达性探测: 一次 TCP 握手判"代理没起" (决定改不改走直连)',
 }
 _PRIMS = [r'^\s*import\s+requests\b', r'^\s*from\s+requests\b',

@@ -24,7 +24,6 @@ HELP = '''Agent 友好的网页搜索与内容获取工具
   搜索  search  fetch  crawl  ask
   订阅  feed
   榜单  rank
-  金融  pydata
   基建  proxy  pkg  mcp  plugins  config
   其他  zen  render  upgrade  uninstall  intercept-log
 

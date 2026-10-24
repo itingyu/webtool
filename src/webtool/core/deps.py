@@ -1,18 +1,17 @@
 """装包完整性: 少依赖时给出"照抄就能修"的命令
 
-webtool 是**全装**形态 —— 所有依赖 (含 pandas/numpy/akshare/cryptography 这些
+webtool 是**全装**形态 —— 所有依赖 (含 numpy/pypdf/pillow/cryptography 这些
 重的) 都在 pyproject 的 dependencies 里, 没有 extras 分档。所以运行期 import
 不到某个依赖, 只有两种可能:
 
   1. 装的时候用了 `--no-deps` 之类的非常规姿势, 依赖没跟着进来;
-  2. 装完之后环境被动过 (有人卸了 pandas, 或 pipx venv 被清理)。
+  2. 装完之后环境被动过 (有人卸了 pillow, 或 pipx venv 被清理)。
 
 两种情况都用同一条指引修复, 只是命令随装法不同 (pipx 要用 pipx 重装, 系统级
 被 PEP 668 挡着不能裸 pip)。装法判断复用 core/uninstall.py, 两处口径一致。
 
 **Termux / Android 是唯一的例外, 而且方向完全不同**: PyPI 上没有任何
-`android_*` 平台的轮子 (只发 manylinux/macos/win), `cryptography`/`numpy`/
-`pandas` 在 Termux 上只能从源码构建 —— cryptography 要 Rust 且 rustup 不认
+`android_*` 平台的轮子 (只发 manylinux/macos/win), `cryptography`/`numpy` 在 Termux 上只能从源码构建 —— cryptography 要 Rust 且 rustup 不认
 `aarch64-unknown-linux-android` 这个 target, 直接构建失败。所以那边**不能
 让 pip 去装**, 得用 Termux 自己的包 (`pkg install python-cryptography`)。
 这种时候还甩一句 "重装 webtool" 是把人往坑里带: 他照着重装一百次还是一样报错。

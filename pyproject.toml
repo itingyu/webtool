@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "webtool"
-version = "1.50.0"
+version = "1.51.0"
 description = "Agent-friendly web search & content fetch CLI: clean markdown/text/json output"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -40,8 +40,6 @@ dependencies = [
     # 网络层直接 import (socks 会话 / Retry)
     "requests>=2.31",
     "urllib3>=2.0",
-    # pydata / pyshim 的 DataFrame 输出 (懒加载, 但审计按 import 算)
-    "pandas>=2.0",
     # PDF 本地文本抽取 (pipeline/pdftext.py)。PDF 原来只能下载不能读 ——
     # 正文得靠 --via auto 走远程 reader (耗配额、依赖对方在线)。论文/财报/
     # 白皮书是高频刚需, 本地能抽就不该逼用户花配额。
