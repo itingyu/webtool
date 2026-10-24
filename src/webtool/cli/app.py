@@ -126,13 +126,12 @@ def main(argv=None):
 _COMMANDS_LOADED = set()
 
 # 顶层命令 → 定义它的模块。只为"这次真的要跑/要看帮助的那一个"付 import 钱:
-# 全量导入约 200ms, 而 `stock -h` 用不上 data/media 那些。
+# 全量导入约 200ms, 而 `feed -h` 用不上 data/media 那些。
 _CMD_MODULE = {
     'search': 'data', 'fetch': 'data', 'ask': 'data',
     'crawl': 'data',
     'rank': 'data', 'pydata': 'data',
     'feed': 'feedapp',
-    'stock': 'stock',
     'zen': 'zenapp',
     'render': 'renderapp',
     'intercept-log': 'intercept',
@@ -162,7 +161,7 @@ def _load_commands(wanted=None):
         _load_module(mod)
         return
     for name in ('data', 'feedapp', 'intercept', 'maintenance',
-                 'renderapp', 'stock', 'zenapp'):
+                 'renderapp', 'zenapp'):
         _load_module(name)
 
 

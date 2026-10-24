@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "webtool"
-version = "1.49.1"
+version = "1.50.0"
 description = "Agent-friendly web search & content fetch CLI: clean markdown/text/json output"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -37,18 +37,11 @@ dependencies = [
     "cryptography>=41",
     # GeoIP ASN 查询 (规则里的 {"asn": [...]})
     "maxminddb>=2.4",
-    # 股票能力。requests 是 stock/http.py 的**顶层** import (雪球会话走它,
-    # curl_cffi 过不了 hexin-v)。numpy / urllib3 / efinance 同理 —— 审计扫出
-    # src 真实 import: numpy 在 engine/analysis/tech_indicators.py 顶层,
-    # urllib3 供 sources/_adapter.py 的 Retry, efinance 是东财源。
+    # 网络层直接 import (socks 会话 / Retry)
     "requests>=2.31",
-    "pandas>=2.0",
-    "numpy>=1.24",
     "urllib3>=2.0",
-    "efinance>=0.5",
-    "openpyxl>=3.1",
-    # `stock data` / `stock eco` 的默认库 (体积最大的一件, 但也在全装之内)
-    "akshare>=1.12,<2",
+    # pydata / pyshim 的 DataFrame 输出 (懒加载, 但审计按 import 算)
+    "pandas>=2.0",
     # PDF 本地文本抽取 (pipeline/pdftext.py)。PDF 原来只能下载不能读 ——
     # 正文得靠 --via auto 走远程 reader (耗配额、依赖对方在线)。论文/财报/
     # 白皮书是高频刚需, 本地能抽就不该逼用户花配额。

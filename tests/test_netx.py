@@ -4,7 +4,7 @@
 所以这里测的重点不是 netx 自己能不能发请求, 而是:
 
   1. 各通道面对同一个 proxy 参数, 解析结果必须一致
-  2. 曾经漏接策略的通道 (stock / probe) 现在接上了 —— 用规则拦截证明
+  2. 曾经漏接策略的通道 (probe) 现在接上了 —— 用规则拦截证明
   3. 证书策略在各通道语义一致 (尤其 tls.policy 返回 CA 路径 vs urllib 只认布尔)
 
 需要联网的部分 (打真站点) 由 NETX_LIVE=1 开启; 默认全离线跑, 断言的是
@@ -95,7 +95,7 @@ from webtool.net import tls           # noqa: E402
 
 print('\n=== 1. resolve_proxy: 各通道共享的归一语义 ===')
 # None / 'direct' / 'auto' / URL 四种形态的语义必须全库一致,
-# 否则会出现"stock 走直连、transport 走代理"这种无法排查的分裂
+# 否则会出现"某通道走直连、transport 走代理"这种无法排查的分裂
 check(netx.resolve_proxy(None) is None, 'None = 直连')
 check(netx.resolve_proxy('direct') is None, "'direct' = 直连")
 check(netx.resolve_proxy('') is None, '空串 = 直连')
@@ -172,23 +172,6 @@ if tls.ca_available()[0]:
 check(netx.verify_arg(False) is False, 'False 原样保留 (豁免不丢)')
 check(netx.verify_arg(True) is True, 'True 原样保留')
 
-print('\n=== 5. stock 通道接上了代理 (改造前的漏洞) ===')
-from webtool.stock.bridge.http import Http, _py_proxies    # noqa: E402
-write_rules({'default': 'direct',
-             'rules': [{'match': {'domain': ['push2.eastmoney.com']},
-                        'action': 'block'}]})
-h = Http(timeout=10)
-try:
-    h.get('https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=1')
-    check(False, 'stock 通道应受规则约束')
-except Exception as e:
-    check(type(e).__name__ == 'RuleError' and '拦截' in str(e),
-          'stock 通道按规则被拦 (改造前完全无视路由)', str(e)[:70])
-# 显式 direct 要能绕过 —— 否则用户没法临时关掉某条规则
-hd = Http(timeout=10, proxy='direct')
-check(hd.proxy == 'direct', 'Http(proxy=direct) 记录该设置')
-check(Http(timeout=10).proxy == 'auto', 'Http 默认 auto (问路由表)')
-
 print('\n=== 6. socks 代理的远端解析必须收口在归一层 ===')
 # requests / curl 都把 socks5:// 读成**本地**解析 DNS, 代理服务器根本用不上;
 # 远端解析必须写 socks5h:// —— 这个坑只会表现为"配了 socks 却还直连"。
@@ -201,15 +184,6 @@ check(netx.resolve_proxy('socks5h://1.2.3.4:1080', _s5u) ==
       'socks5h://1.2.3.4:1080', 'socks5h 不被二次改写')
 check(netx.resolve_proxy('http://1.2.3.4:8080', _s5u) == 'http://1.2.3.4:8080',
       'http 代理原样, 不被误改')
-# 下游 (_py_proxies) 只转形状, 不再自己判线路/改 scheme —— 一份知识只留一处
-p = _py_proxies('socks5h://1.2.3.4:1080')
-check(p['http'] == 'socks5h://1.2.3.4:1080' and p['https'] ==
-      'socks5h://1.2.3.4:1080', '归一结果原样转成 requests 的 proxies 字典',
-      str(p))
-check(_py_proxies('http://1.2.3.4:8080')['https'] == 'http://1.2.3.4:8080',
-      'http 代理原样')
-check(_py_proxies(None) is None, '无代理 → None (不走 proxies 参数)')
-
 print('\n=== 7. probe 探活也要补密码 ===')
 # 探活拿不到密码就会把"带认证的代理"误判成不可用, 上层据此放弃重试,
 # 排查方向完全指不到真实原因
@@ -367,7 +341,7 @@ check('allow_fallback' not in inspect.signature(_T.get).parameters,
 print('\n=== 13. cffi 主通道必须真跑 (不带 engine 的调用) ===')
 # 回归: _get_cffi 里 `import transport as _t` 曾经写在 `if engine:` 分支内,
 # 而 else 分支又直接用 _t.PROFILES —— 于是所有**不带 engine** 的调用
-# (探活 / 站点 / feed / stock 走的都是这条) 一进来就 UnboundLocalError,
+# (探活 / 站点 / feed 走的都是这条) 一进来就 UnboundLocalError,
 # cffi 一次没真跑, 全部静默落到 urllib。症状极隐蔽: 结果照样对, 只是指纹
 # 和代理错误信息全失真, 只有真正依赖浏览器指纹的站才会挂。
 import curl_cffi.requests as _cr                    # noqa: E402
@@ -868,7 +842,6 @@ _NET_CHANNELS = {
     'net/netx.py': '决策层 + 参考通道 netx.get (当前无生产调用者)',
     'net/transport.py': '主通道: 指纹会话 + 降级梯 + 拦截判定',
     'net/adapters.py': 'requests 兼容适配器: 桥到 transport.request (转发, 不自己出网)',
-    'stock/bridge/_eco_net.py': '生态库 (akshare/tushare) 的 requests 打补丁, 改不动',
     'net/routing.py': '出网路由: 逐请求线路 + cffi 会话 (数据源与 pyshim 共用)',
     'net/proxy/reach.py': '代理可达性探测: 一次 TCP 握手判"代理没起" (决定改不改走直连)',
 }
@@ -982,7 +955,7 @@ check(not _bad_np,
 # 代理归一必须带目标 URL: 只传代理、不传 URL 等于规则表拿不到域名, 只能退默认动作,
 # 域名规则对那条请求就是失效的 —— 用户看到的"规则没起作用"多半是这个。
 # netx.resolve_proxy / proxyhelper.resolve 形参是 (proxy, url) → 必须两参;
-# stock 的 _routing.resolve 是 (url, override) → 一参正常。
+# _routing.resolve 是 (url, override) → 一参正常。
 # 只认这几个具名入口, 免得 Path.resolve() 之类混进来。
 _bare_resolve = []
 for _f in _SRC.rglob('*.py'):

@@ -24,7 +24,7 @@ MODULES = [
     'webtool.net.tls', 'webtool.net.http', 'webtool.net.connectivity', 'webtool.net.stream',
     'webtool.net.fingerprints', 'webtool.net.pacing', 'webtool.net.adapters',
     'webtool.net.rules', 'webtool.net.rules.router', 'webtool.net.rules.loader',
-    'webtool.render.render', 'webtool.render.hotrender', 'webtool.render.output', 'webtool.render.kline_svg',
+    'webtool.render.render', 'webtool.render.hotrender', 'webtool.render.output',
     'webtool.feeds.command', 'webtool.feeds.sources', 'webtool.feeds.parse', 'webtool.feeds.fetch', 'webtool.feeds.cards', 'webtool.radar', 'webtool.radar.race', 'webtool.radar.template',
     'webtool.radar.routes', 'webtool.radar.instances',
     'webtool.radar.official', 'webtool.radar.instances_cfg', 'webtool.cli.zen',
@@ -39,10 +39,6 @@ MODULES = [
     'webtool.net.download', 'webtool.net.download.transfer',
     'webtool.net.download.resume', 'webtool.net.download.progress',
     'webtool.cli.zen.think', 'webtool.cli.zen.client',
-    'webtool.stock.command', 'webtool.stock.error',
-    'webtool.stock.bridge', 'webtool.stock.bridge.engine',
-    'webtool.stock.bridge.srv', 'webtool.stock.bridge.rawapi',
-    'webtool.stock.bridge.eco', 'webtool.stock.bridge.sources',
 ]
 
 fails = []
@@ -491,355 +487,11 @@ check(_ft._reader_arg('parallel', 'https://x.com') == {'urls': ['https://x.com']
 check('firecrawl' in _ft._VIA_CHANNELS and 'firecrawl' in _ft._MCP_CHANNELS,
       'firecrawl 已进 --via 通道表')
 
-# ---------- stock engine (包内静态 import) ----------
-# engine 是本仓第一方代码, 装在 `webtool/stock/engine/` (原 stock-master 技能
-# 的业务脚本层搬进来, 取数已全部并进 bridge/sources)。装包后若漏收,
-# `webtool stock` 的 analyze/screen/report 全线不可用, 而源码树里跑永远正常
-# —— 只有查 wheel 内容才能发现。这里锁住最容易退化的四点:
-#   1. 能 import, 且导入过程不碰 sys.path
-#   2. 顶层 'api_client' 不被创建 (双副本的根源)
-#   3. 编排层与 rawapi 落在同一个数据源模块对象上
-#   4. engine 不出网 (取数只有 sources 一个出口)
+import pathlib as _pl  # noqa: E402
+import subprocess as _sp  # noqa: E402
+import tempfile as _tf  # noqa: E402
 
-from webtool.stock.bridge import engine as _eng
-from webtool.stock.bridge import orchestrate as _orch
-from webtool.stock.bridge import rawapi as _raw
-from webtool.stock.bridge import srv as _srv_probe
-
-_ENGINE_DIR = _eng.ENGINE_DIR
-_STOCK_DIR = os.path.dirname(_ENGINE_DIR)
-_SOURCES_DIR = os.path.join(_STOCK_DIR, 'bridge', 'sources')
-
-
-# 帮助页里的数量文案必须和注册表一致 (硬编码最易漂)
-from webtool.cli import fastpath as _fp                              # noqa: E402
-from webtool.core import plugins as _pl                              # noqa: E402
-import re as _re                                                     # noqa: E402
-_m_site = _re.search(r'(\d+) 个站点', _fp.HELP)
-_m_hot = _re.search(r'(\d+) 个榜单源', _fp.HELP)
-check(bool(_m_site) and int(_m_site.group(1)) == len(_pl.table('site')),
-      '帮助页站点数与插件表一致', _m_site.group(0) if _m_site else '缺失')
-check(bool(_m_hot) and int(_m_hot.group(1)) == len(_pl.table('hot')),
-      '帮助页榜单源数与插件表一致', _m_hot.group(0) if _m_hot else '缺失')
-
-print()
-print('=== stock engine (包内静态 import) ===')
-check(os.path.isfile(os.path.join(_ENGINE_DIR, '__init__.py')),
-      'engine 下有 __init__.py (哨兵判据是代码, 不是文档)')
-check(os.path.isdir(os.path.join(_ENGINE_DIR, 'screening')),
-      'engine 下有业务子包 (screening/analysis/...)')
-# 目录名必须是合法标识符: 'stock-master' 带连字符, 当不了包名
-check(os.path.basename(_ENGINE_DIR) == 'engine',
-      '目录名是 engine (合法包名), 不是 stock-master')
-check(not os.path.exists(os.path.join(_STOCK_DIR, 'bridge', '_stockmaster_net.py')),
-      'engine 不出网: bridge/_stockmaster_net.py 已删')
-# sys.path 零注入 —— sys.path 是全局可变状态, 谁先 import 谁改变后续所有
-# import 的结果
-_path_before = list(sys.path)
-try:
-    _eng.mod('clients')
-    _srv_probe._server_mod()
-    _raw.client()
-    check(list(sys.path) == _path_before,
-          '导入技能与数据源全程没有改 sys.path')
-    # 顶层 api_client 不该被创建: 同名模块两份 = 两套 token/session 缓存,
-    # rawapi 与编排层数据状态不共享
-    check('api_client' not in sys.modules,
-          "没有创建顶层 'api_client' (双副本的根源)")
-    check('webtool.stock.bridge.sources' in sys.modules,
-          '数据源包是包内模块, 各方共享同一份')
-except Exception as _e:                                     # noqa: BLE001
-    check(False, f'包内 import 失败: {type(_e).__name__}: {_e}')
-
-# engine 内容完整: 代码是执行体, 文档不随包 (在技能目录维护)
-_n_py = len([1 for r, _, fs in os.walk(_ENGINE_DIR)
-             for f in fs if f.endswith('.py')])
-check(_n_py > 12, f'engine 内容完整 (py {_n_py})')
-# engine 内部不该再有裸 'from scripts' —— 包化时改成绝对路径, 漏改则
-# 运行时只能靠 sys.path 里的外部目录才能 import 到
-_left = []
-for _r, _d, _fs in os.walk(_ENGINE_DIR):
-    for _fn in _fs:
-        if _fn.endswith('.py'):
-            _p = os.path.join(_r, _fn)
-            with open(_p, encoding='utf-8') as _fh:
-                if 'from scripts' in _fh.read():
-                    _left.append(os.path.relpath(_p, _STOCK_DIR))
-check(not _left, 'engine 内部 import 已全部包化')
-# 取数不得绕过 sources: engine 侧不该出现裸 urllib / requests 出网
-_bypass = []
-for _r, _d, _fs in os.walk(_ENGINE_DIR):
-    for _fn in _fs:
-        if not _fn.endswith('.py'):
-            continue
-        _t = open(os.path.join(_r, _fn), encoding='utf-8').read()
-        if 'urlopen(' in _t or 'requests.get(' in _t:
-            _bypass.append(os.path.relpath(os.path.join(_r, _fn), _STOCK_DIR))
-check(not _bypass, 'engine 侧没有绕过 sources 的裸 HTTP' + (f': {_bypass}' if _bypass else ''))
-
-# 只走包内: rawapi 与编排层必须解析到同一个数据源模块对象
-import webtool.stock.bridge.sources as _pkg_api
-check(_raw._module_ref() is _pkg_api, 'rawapi 用包内那份数据源包')
-check(_orch.APIClient is _pkg_api.APIClient,
-      '编排层与 rawapi 共用同一个数据源包的 APIClient')
-# 没有任何环境变量能改"能力来自包内"这件事
-check(not any(k.startswith('STOCK_') and k.endswith('_HOME')
-              for k in os.environ), '没有 STOCK_*_HOME 环境变量')
-
-# MCP 协议已剥除: 这层现在是编排层, 不该再有 jsonrpc / stdin 主循环 / 注册表。
-# 留着就说明协议外壳没删干净, 而那会让"能力在本进程内"这件事变回假象。
-#
-# 判据只扫**真实代码**: 用 AST 剥掉文档字符串再查。按"跳过以引号开头的行"来
-# 过滤是不行的 —— 多行文档字符串的续行不以引号开头, 于是"过去叫 xxx, 带一套
-# jsonrpc 信封"这类**历史说明**会被误判成残留协议代码。
-def _code_without_docstrings(path):
-    import ast
-    tree = ast.parse(open(path, encoding='utf-8').read())
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
-                             ast.AsyncFunctionDef)):
-            body = node.body
-            if (body and isinstance(body[0], ast.Expr)
-                    and isinstance(body[0].value, ast.Constant)
-                    and isinstance(body[0].value.value, str)):
-                node.body = body[1:] or [ast.Pass()]
-    return ast.unparse(tree)
-
-
-_orch_code = _code_without_docstrings(_orch.__file__)
-check('jsonrpc' not in _orch_code and 'stdin' not in _orch_code,
-      '编排层没有 jsonrpc / stdin 主循环 (MCP 协议已剥除)')
-check(not hasattr(_orch, 'TOOLS'),
-      '编排层没有 TOOLS 注册表 (工具清单由 t_stock_* 函数名决定)')
-check(len(_srv_probe.tool_names()) >= 20,
-      f'编排层动作可枚举 (共 {len(_srv_probe.tool_names())} 个)')
-
-# 打包规则: 纯文本查覆盖。键是包名, 值是相对包根的路径, `data/**` 够不到
-# `stock/` 下的子目录
-import tomllib as _toml
-_pp = _toml.load(open(os.path.join(os.path.dirname(__file__), '..',
-                                   'pyproject.toml'), 'rb'))
-_pats = _pp['tool']['setuptools']['package-data']['webtool']
-for _need in ('stock/data/**',):
-    check(any(_need.split('**')[0] in p for p in _pats),
-          f'package-data 覆盖 {_need}')
-# engine 是真包, 靠 __init__.py 被 packages.find 自动收, 不必手写进
-# package-data —— 它现在没有非代码资源要列 (文档留在技能目录)
-check(os.path.isfile(os.path.join(_ENGINE_DIR, '__init__.py')),
-      'engine 是包 (靠 __init__.py)')
-
-# 上面那些只证明源码树是好的 —— 源码树里跑永远正常, 漏打包只有装包后才炸。
-# 真验: 现场打一个 wheel, 比对文件清单。判据是**逐个文件**而不是"包在不在":
-# 漏掉某个子包时包还在、只是少一半 py, 装包后 import 才报错。
-import subprocess as _sp, tempfile as _tf, zipfile as _zf
-with _tf.TemporaryDirectory() as _td:
-    _r = _sp.run([sys.executable, 'setup.py', 'bdist_wheel', '-d', _td],
-                 cwd=os.path.join(os.path.dirname(__file__), '..'),
-                 capture_output=True, text=True)
-    _whl = [f for f in os.listdir(_td) if f.endswith('.whl')]
-    check(_r.returncode == 0 and _whl,
-          f'wheel 能打出来 (rc={_r.returncode})'
-          + ('' if _whl else f': {_r.stderr[-300:]}'))
-    if _whl:
-        _names = set(_zf.ZipFile(os.path.join(_td, _whl[0])).namelist())
-        for _need in ('webtool/stock/bridge/orchestrate.py',
-                      'webtool/stock/bridge/engine.py',
-                      'webtool/stock/engine/clients/__init__.py',
-                      'webtool/stock/data/api_categories.json'):
-            check(_need in _names, f'wheel 内含 {_need}')
-        # 数据源池按源拆成十个模块, 漏一个那个源整条不可用 —— 逐个点名。
-        # em 是**包** (按端点族拆的 mixin 子模块), 所以对它逐文件比对而不是
-        # 断言一个 sources/em.py: 包拆出来之后那个路径就不存在了, 断言不跟着改
-        # 就成了恒 FAIL 的死检查 (守卫看着还在, 实际早就不看任何东西了)。
-        for _s in ('_base', 'ths', 'xueqiu', 'sina', 'tencent',
-                   'cninfo', 'csindex', 'sse', 'np', 'ef'):
-            check(f'webtool/stock/bridge/sources/{_s}.py' in _names,
-                  f'wheel 内含 sources/{_s}.py')
-        _em_dir = os.path.join(_SOURCES_DIR, 'em')
-        _em_py = sorted(f for f in os.listdir(_em_dir) if f.endswith('.py'))
-        _em_miss = [f for f in _em_py
-                    if f'webtool/stock/bridge/sources/em/{f}' not in _names]
-        check(not _em_miss,
-              f'sources/em 包全部 {len(_em_py)} 个 py 都进了 wheel'
-              + (f' (缺 {len(_em_miss)}: {_em_miss[:3]})' if _em_miss else ''))
-        # engine 逐文件比对: 源码树有 py, wheel 就必须有同名条目
-        _src_py = {os.path.relpath(os.path.join(r, f),
-                                   _ENGINE_DIR).replace(os.sep, '/')
-                   for r, _, fs in os.walk(_ENGINE_DIR)
-                   for f in fs if f.endswith('.py')}
-        _got = {n.split('engine/', 1)[1] for n in _names
-                if 'stock/engine/' in n and n.endswith('.py')}
-        _miss = sorted(_src_py - _got)
-        check(not _miss,
-              f'engine 全部 {len(_src_py)} 个 py 都进了 wheel'
-              + (f' (缺 {len(_miss)}: {_miss[:3]})' if _miss else ''))
-
-# ── 出网路由: 四条通道都必须问规则表 ──────────────────────────────
-print('\n=== 代理路由 (配置说了算) ===')
-from webtool.net import routing as _routing
-from webtool.stock.bridge.sources import APIClient as _NewClient
-from webtool.stock.bridge import _eco_net as _econet
-
-_a = _NewClient()
-_adt = _a._std.get_adapter('https://push2.eastmoney.com/')
-check(_adt.__class__.__name__ == 'TransportAdapter',
-      'sources 的 requests 会话挂在 net.transport 上 (61 处调用点零改动生效)')
-check(_a._xueqiu_session().__class__.__name__ == 'RoutedCffiSession',
-      'sources 的 curl_cffi 会话也走规则表')
-check(_NewClient(proxy='direct')._px('https://push2.eastmoney.com/') is None,
-      'proxy=direct 强制直连 (显式优先于规则表)')
-# push2 的直连曾经写在一份硬编码名单里 (_DIRECT_SUFFIXES), 判断发生在问
-# 规则表**之前**, 于是显式传入的代理会被静默吃掉。名单已删, 现在只有规则表
-# 说话 —— 这两条断言就是防止有人再把名单加回来。
-check(not hasattr(_routing, '_DIRECT_SUFFIXES'),
-      '不再有硬编码直连名单 (push2 的直连由规则表决定)')
-check(not hasattr(_routing, 'DEFAULT_PROXY'),
-      '选线没有环境变量旁路 (STOCK_PROXY 已删, 只认 config.json + rules.json)')
-# 全仓扫一遍: 不许有任何模块拿环境变量决定线路
-import glob as _glob, re as _re
-_env_route = []
-for _f in _glob.glob('src/webtool/**/*.py', recursive=True):
-    for _i, _line in enumerate(open(_f, encoding='utf-8').read().splitlines(), 1):
-        if _re.search(r'environ|getenv', _line) and _re.search(r'PROXY', _line):
-            _env_route.append(f'{_f}:{_i}')
-check(not _env_route,
-      '没有模块用环境变量决定线路 (代理只由配置文件决定)'
-      + (f' — 命中 {_env_route[:5]}' if _env_route else ''))
-# 环境变量不是线路决策源。容器里常配 http_proxy/https_proxy, 一旦被各库的
-# 默认行为吃进去 (urllib 的默认 ProxyHandler / requests 与 curl_cffi 的
-# trust_env), 规则表判定的"直连"就名存实亡 —— 这里把环境变量设成死代理,
-# 验证每类会话都不认它。
-_env_bak = {_k: os.environ.get(_k)
-            for _k in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY')}
-try:
-    for _k in _env_bak:
-        os.environ[_k] = 'http://127.0.0.1:9'
-    import urllib.request as _urlreq
-    from webtool.net import http as _core_http
-    from webtool.net import transport as _transport
-    _op = _core_http.build_opener(None, url='https://example.com/')
-    check(not any(isinstance(h, _urlreq.ProxyHandler) and h.proxies
-                  for h in _op.handlers),
-          'urllib 直连时不读 http_proxy (空 ProxyHandler 顶掉默认处理器)')
-    _sess, _ = _transport._new_session('chrome131_win', proxy=None,
-                                       url='https://example.com/')
-    check(getattr(_sess, 'trust_env', True) is False,
-          'curl_cffi 会话 trust_env=False (不读环境变量)')
-    check(_NewClient()._std.trust_env is False,
-          '数据源 requests 会话 trust_env=False')
-    check(_routing.RoutedCffiSession()._s.trust_env is False,
-          '数据源 curl_cffi 会话 trust_env=False')
-finally:
-    for _k, _v in _env_bak.items():
-        if _v is None:
-            os.environ.pop(_k, None)
-        else:
-            os.environ[_k] = _v
-check(_routing.resolve('https://push2.eastmoney.com/api/qt/clist/get',
-                       'http://127.0.0.1:2080') == 'http://127.0.0.1:2080',
-      '显式构造参数代理不再被硬编码直连名单吃掉 (构造参数 > 规则表)')
-check(_econet.probe('akshare').get('routed') is True,
-      'eco: akshare 走 requests → 规则表能管到')
-check(_econet.probe('baostock').get('routed') is False,
-      'eco: baostock 自建 socket → 体检如实标 routed=False (不假装覆盖)')
-# 死代理必须被所有通道采用 —— 这是"配置说了算"的判定性证据
-#
-# 这段**必须**在临时目录里跑: 早前它直接改真实 ~/.webtool/config.json, 写进去的
-# `proxy: http://127.0.0.1:9` 会被 `_migrate_legacy_config` 顺手搬进 rules.json
-# 的 proxies.default —— 而 finally 只还原了 config.json, 于是每跑一次测试就把
-# 用户现网的默认代理改成死端口 (实测: 2080 → :9), 用户看到的却是"我没改, 它自己
-# 变的"。规则文件和配置文件都指向临时目录, 一个字节都不许落到 HOME。
-import json as _json, tempfile as _tf, shutil as _sh
-from pathlib import Path as _Path
-from webtool.core import config_data as _cd
-_tmpdir = _Path(_tf.mkdtemp(prefix='webtool-smoke-'))
-import hashlib as _hl
-
-def _real_rules_md5():
-    '''真实 rules.json 的指纹, 用来证明这段测试一个字节都没往外写'''
-    p = _old_user_dir / 'rules.json'
-    return _hl.md5(p.read_bytes()).hexdigest() if p.exists() else 'absent'
-
-_old_user_dir = _cd.USER_DIR
-_real_before = _real_rules_md5()
-# 光改 config_data.USER_DIR 不够: 路由/配置读取走的是 net.proxy 模块自己的全局
-# (CONFIG_PATH / USER_DIR), 只改前者会让这段测试其实在读写真实配置 (踩过)。
-from webtool.net import proxy as _px
-_px_old_cfg, _px_old_dir = _px.store.CONFIG_PATH, _px.store.USER_DIR
-_px.store.CONFIG_PATH, _px.store.USER_DIR = str(_tmpdir / 'config.json'), _tmpdir
-try:
-    _cd.USER_DIR = _tmpdir
-    # proxy_fallback 必须关: 兜底会去探 :9 (死端口) 然后"本次改走直连",
-    # 那是另一个功能 (net/proxy/reach.py, 默认 on); 这条断言要验的是
-    # "线路严格跟随配置", 不是"代理挂了怎么办"。
-    # proxies 是老键, 白名单已不认 (写进去只会刷告警), 别再往配置里塞。
-    _json.dump({'proxy': 'http://127.0.0.1:9',
-                'proxy_fallback': 'off',
-                'rules_file': str(_tmpdir / 'rules.json')},
-               open(_tmpdir / 'config.json', 'w'), ensure_ascii=False)
-    _routing.reset_cache()
-    # push2/push2delay 的直连现在只由规则表决定, 没有硬编码名单抢在它前面;
-    # 注意 hq.sinajs.cn 会被 '*.cn' → direct 命中, 所以用一个不被任何规则
-    # 覆盖的假域名来验证"配置说了算"
-    check(_routing.resolve('https://followcase.example.com/')
-          == 'http://127.0.0.1:9',
-          '改配置 → resolve 立即跟随 (无硬编码代理)')
-    check(_NewClient(proxy='auto')._px('https://followcase.example.com/')
-          == 'http://127.0.0.1:9', '改配置 → sources 会话跟随')
-except Exception as e:                                   # noqa: BLE001
-    check(False, f'路由断言异常: {type(e).__name__}: {e}')
-finally:
-    _cd.USER_DIR = _old_user_dir
-    _px.store.CONFIG_PATH, _px.store.USER_DIR = _px_old_cfg, _px_old_dir
-    _sh.rmtree(_tmpdir, ignore_errors=True)
-    _routing.reset_cache()
-check(_real_rules_md5() == _real_before, '真实 rules.json 未被测试改动')
-
-
-
-# 局部自建 session 会绕过代理路由 —— 漏一处就是一个接口静默脱管
-_bad_sess = []
-import pathlib as _pl
-_SRC_ROOT = _pl.Path(__file__).parent.parent / 'src' / 'webtool' / 'stock'
-for _f in sorted((_SRC_ROOT / 'bridge' / 'sources').glob('*.py')):
-    if _f.name in ('_routing.py', '_base.py', 'selftest.py'):
-        continue
-    _t = _f.read_text(encoding='utf-8')
-    for _pat in ('cffi.Session(', 'cffi_requests.Session(', 'requests.Session('):
-        if _pat in _t:
-            _bad_sess.append(f'{_f.name}: {_pat}')
-check(not _bad_sess,
-      '源模块不自建 session (只能经 _std/_xueqiu_session, 否则绕过代理路由)'
-      + (f' 违规 {_bad_sess}' if _bad_sess else ''))
-
-# ── 源模块内部一致性: self.X( 必须有定义 ────────────────────────
-print('\n=== 源模块内部一致性 ===')
-import re as _re, pathlib as _pl
-from webtool.stock.bridge import sources as _srcpkg
-
-# 这里**不**跟"切分前的原单体文件"对账。那种比对测的是"迁移有没有漏拆",
-# 迁移早就完成、结论永远为真 —— 留着它只是把 148KB 历史文件养在仓里, 而且
-# 逼着功能代码跟它扯上关系。真会随时炸的是下面这条: 漏拆一个私有辅助后
-# `self.X(` 悬空, 模块照样 import 成功, 只有真调到那个方法才 AttributeError。
-_src_dir = _pl.Path(_srcpkg.__file__).parent
-_have = set()
-# rglob: 源已按族拆包 (sources/em/*.py), 只扫 *.py 会把子包当不存在 → 误报
-for _f in _src_dir.rglob('*.py'):
-    if _f.name != 'selftest.py':
-        _have |= set(_re.findall(r'^\s*def (\w+)\(', _f.read_text(encoding='utf-8'), _re.M))
-_known = _have | {'_proxy', '_px', '_kw'}
-_dangling = []
-for _f in sorted(_src_dir.rglob('*.py')):
-    if _f.name in ('_base.py', '__init__.py', 'selftest.py'):
-        continue
-    for _m in _re.findall(r'self\.(\w+)\(', _f.read_text(encoding='utf-8')):
-        if _m not in _known:
-            _dangling.append(f'{_f.name}:self.{_m}')
-check(not _dangling, f'self.X( 都有定义 (悬空的私有辅助当场暴露, 共 {len(_have)} 个 def)'
-      + (f' 悬空 {_dangling}' if _dangling else ''))
-
-
-# ===== 依赖声明 (2026-10-15 审计补漏: certifi / numpy / urllib3 / efinance) =====
+# ===== 依赖声明 (2026-10-15 审计补漏: certifi / urllib3) =====
 # 三件事都要锁住, 否则装完包才在某个子命令里 ImportError:
 #   ① src 里 import 的第三方库必须都在 pyproject 里声明 (审计脚本判)
 #   ② requirements*.txt 由 pyproject 生成, 不能各说各话
@@ -868,15 +520,13 @@ _core = ' '.join(_proj['dependencies'])
 check(all(k in _core for k in ('trafilatura', 'curl_cffi', 'typer', 'pysocks',
                                'certifi')),
       '核心依赖: 装包即装 (抓取/通道/CLI/CA 四件套在内)')
-check(all(k in _core for k in ('cryptography', 'maxminddb', 'requests', 'pandas',
-                               'numpy', 'urllib3', 'efinance', 'openpyxl',
-                               'akshare')),
-      '全装是唯一形态: 原先的可选依赖 (secrets/geoip/stock/eco) 全部进了基座')
+check(all(k in _core for k in ('cryptography', 'maxminddb', 'requests', 'urllib3')),
+      '全装是唯一形态: secrets/geoip 等依赖全部进了基座')
 check('optional-dependencies' not in _proj,
       '不再有 optional-dependencies (只允许全装)')
 from webtool.core import deps as _deps                         # noqa: E402
-_h = _deps.install_hint('numpy')
-check('numpy' in _h and '重装' in _h and 'webtool[' not in _h,
+_h = _deps.install_hint('cryptography')
+check('cryptography' in _h and '重装' in _h and 'webtool[' not in _h,
       '缺依赖的指引给"重装"命令, 不再指向已取消的 extras')
 import webtool.core.uninstall as _un                            # noqa: E402
 for _mode, _need in (('pipx', 'pipx'), ('venv', 'pip'),
@@ -884,13 +534,13 @@ for _mode, _need in (('pipx', 'pipx'), ('venv', 'pip'),
     _orig = _un.install_mode
     _un.install_mode = lambda m=_mode: (m, '', '')
     try:
-        _t = _deps.install_hint('numpy')
+        _t = _deps.install_hint('cryptography')
     finally:
         _un.install_mode = _orig
     check(_need in _t and 'pip install "webtool[' not in _t,
           '装法 %s 给对命令 (%s)' % (_mode, _t.split('重装: ')[-1]))
 
-# Termux/Android: PyPI 没有 android 轮子, cryptography/numpy/pandas 只能构建
+# Termux/Android: PyPI 没有 android 轮子, cryptography 只能构建
 # (cryptography 还要 Rust), 让他"重装 webtool"就是让他原地打转。
 check(_deps.on_termux() is False, '沙箱不是 Termux: 判定不许误报')
 _o_termux = _deps.on_termux
@@ -899,10 +549,6 @@ try:
     _tc = _deps.install_hint('cryptography')
     check('pkg install python-cryptography' in _tc and '重装' not in _tc,
           'Termux: 缺 cryptography 指 pkg install, 不说"重装 webtool"')
-    check('tur-repo' in _deps.install_hint('pandas'),
-          'Termux: pandas 只在 TUR, 指引要带 tur-repo 那一步')
-    check('pkg install' not in _deps.install_hint('akshare'),
-          'Termux: 纯 Python 的库仍走 pip 重装, 不乱指系统包')
 finally:
     _deps.on_termux = _o_termux
 
@@ -1307,29 +953,6 @@ check(_out['errors'] == {'x': 'boom'}, '非条目字段 (errors) 不动')
 check(_out.get('no_url') is True,
       '留 no_url 标记 (链接是被要求去掉的, 不是源里没有)')
 
-print('\n=== 19. 交易日历随包分发, 不许读项目外文件 ===')
-# 曾经读 /var/minis/shared/短线复盘/holidays-YYYY.json —— 换台机器就没有, 而
-# "节假日被当成交易日"的后果是把 10-01 交给接口, 涨停池对无效日期静默回旧数据,
-# 报出来的错完全指不到日历。日历是运行必需数据, 必须跟代码在一起。
-import datetime as _dt2
-from webtool.stock.engine import clients as _cls
-_THIS_YEAR = _dt2.date.today().year
-_cpath = _cls.holidays_path(_THIS_YEAR)
-check(_pl.Path(_cpath).is_file(),
-      f'内置节假日表覆盖今年 {_THIS_YEAR} ({_cls.holidays_path(_THIS_YEAR)})')
-check('webtool/stock/data' in _cpath,
-      f'日历从包内读, 不指向项目外 ({_cpath})')
-_hol = sorted(_cls._holidays(_THIS_YEAR))
-_bad_fmt = [d for d in _hol if not _re.match(r'^\d{4}-\d{2}-\d{2}$', d)]
-_bad_year = [d for d in _hol if not d.startswith(str(_THIS_YEAR))]
-check(_hol and not _bad_fmt, f'日期格式都是 YYYY-MM-DD ({_bad_fmt[:3]})')
-check(not _bad_year, f'表里的日期都属于 {_THIS_YEAR} 年 ({_bad_year[:3]})')
-# 国庆/春节这类长假必须落在表里 —— 只按周末判会把它们当交易日
-check(any(d.startswith(f'{_THIS_YEAR}-10-0') for d in _hol),
-      f'{_THIS_YEAR} 国庆长假在非交易日表里 (缺了会把 10-01 当交易日)')
-check(not _cls.is_trading_day(f'{_THIS_YEAR}-01-01'),
-      '元旦判定为非交易日 (日历真的生效, 不是读了空表)')
-
 print('\n=== 20. 运行必需的数据不许落在项目外 (AST 扫常量) ===')
 # 出过一次: 交易日历读项目外的 shared/短线复盘/*.json, 本地跑得通, 换机器
 # 静默降级成"只按周末判交易日"。这类依赖的共同长相是"代码里写死的仓外路径",
@@ -1432,6 +1055,17 @@ with _tf.TemporaryDirectory() as _td22:
     _w22b = _cli22('config', 'get', 'ca_bundle').stderr
     check('没人认的键' not in _o22b and '键不在白名单' not in _w22b,
           '删干净后: list 不再列、警告不再刷', _o22b[-200:] + _w22b[-200:])
+
+# 帮助页里的数量文案必须和注册表一致 (硬编码最易漂)
+from webtool.cli import fastpath as _fp                              # noqa: E402
+from webtool.core import plugins as _plugins                        # noqa: E402
+import re as _re                                                     # noqa: E402
+_m_site = _re.search(r'(\d+) 个站点', _fp.HELP)
+_m_hot = _re.search(r'(\d+) 个榜单源', _fp.HELP)
+check(bool(_m_site) and int(_m_site.group(1)) == len(_plugins.table('site')),
+      '帮助页站点数与插件表一致')
+check(bool(_m_hot) and int(_m_hot.group(1)) == len(_plugins.table('hot')),
+      '帮助页榜单源数与插件表一致')
 
 if fails:
     sys.exit(1)

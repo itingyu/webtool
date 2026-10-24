@@ -1,6 +1,6 @@
 # webtool
 
-网页搜索与内容获取 CLI。搜索、抓正文、热榜、RSS、站内搜索、免费层大模型对话、MCP 客户端、股票数据，输出 markdown / text / json。
+网页搜索与内容获取 CLI。搜索、抓正文、热榜、RSS、站内搜索、免费层大模型对话、MCP 客户端，输出 markdown / text / json。
 
 ## 安装
 
@@ -68,7 +68,6 @@ webtool uninstall --purge-data --yes   # 连配置/凭据/缓存一起删 (缺 -
 | `feed` | RSS/Atom 订阅抓取，含 RSSHub 路由库查询 |
 | `zen` | OpenCode Zen 免费层对话，无需 key |
 | `mcp` | 通用 MCP 客户端 |
-| `stock` | 股票：行情/选股/研报 + 1300+ 底层接口 |
 | `proxy` | 代理配置、凭据、按域名/IP/端口分流 |
 | `pkg` | 包管理器/git 等命令透传，线路按规则表换算成环境变量 |
 | `config` / `plugins` / `cache` / `blocklist` | 配置、插件、缓存、黑名单 |
@@ -256,62 +255,6 @@ webtool mcp call https://my.site/mcp my_tool '{"k":"v"}'
 - key 只经环境变量名映射，配置文件不存明文；免 key 服务不发认证头
 - exa / parallel / firecrawl 已并入 `search` 引擎池（`-s exa`），没有独立的 `webtool exa` 命令；其 `web_fetch` 也被 `fetch --via` 复用。exa 免 key 配额按出口 IP 计，走代理易 429，需保持 `exa.ai` 直连
 - 先 `probe`/`list` 再 `call`：免 key 与带 key 暴露的工具集可能不同；失败走 stderr + 退出码 1
-
-## stock
-
-```bash
-# 行情与单股
-webtool stock quote 600519 600036 创业板指     # 实时行情 (指数别名可用)
-webtool stock pool --date last --only-buy     # 涨停池
-webtool stock check 600519 300913             # 可买性 (创业板/科创板标不可买)
-webtool stock calendar --n 5                  # 交易日历
-webtool stock flow --scope north              # 资金流 industry/individual/north
-webtool stock news 600519 -n 5                # 新闻 / announcement 公告
-webtool stock financials 600519               # 核心财务指标
-webtool stock analyze 600519                  # 单股深度 (技术面 + 100 分制评分 + 信号)
-webtool stock screen --pool short --min-score 70   # 选股池 short/mid/long
-webtool stock risk 600623                     # 风险核查 (重组/减持/立案/预亏)
-webtool stock report 600519                   # 成稿研报 (--pool short 出短线池研报, 约 70s)
-webtool stock excel --excel picks.xlsx        # 选股池导出 xlsx (需 openpyxl)
-webtool stock sentiment 600519                # 消息面打分 (-100~+100; 也可 --text "...")
-webtool stock diagram --kind tree             # mermaid: tree/logic/chain
-webtool stock kline 600519 --bars 120          # K 线 (A股/港股/美股)
-webtool stock kline 半导体 --chart             # 行业板块: 中文名或 BK 代码都行 (东财 BKxxxx)
-webtool stock intraday 电信运营商 --chart      # 板块分时 (仅东财, 无竞价段)
-webtool stock kline 600519 --chart             # 出图: SVG (红涨绿跌 + MA + 量能)
-webtool stock holder 600519                   # 股东研究摘要
-webtool stock forecast 600519                 # 盈利预测
-webtool stock mcp --tool stock_kline --arg symbol=600519 --arg period=day
-webtool stock tools                           # 24 个动作清单
-webtool stock health                          # 探活
-
-# 底层取数: 15 个功能域, 1300+ 接口
-webtool stock data                             # 入口导航 (各域接口数)
-webtool stock data list [域]                    # 域总览 / 域内明细
-webtool stock data find <关键词>                # 跨域搜 (eco/api/em配方/docs)
-webtool stock data call <接口名> --arg k=v      # 按名调
-webtool stock data url "<URL>"                 # 裸 HTTP 直调 (反爬内置)
-webtool stock data list api                    # 数据源层 157 个方法 (按源分组)
-
-# 生态库 (akshare/tushare/baostock/efinance, 约 1300 接口, 返回 DataFrame)
-webtool stock eco-health
-webtool stock eco-search 龙虎榜
-webtool stock eco --method stock_zh_a_hist --arg symbol=600519     # 默认给形状+前 5 行, --full 取全量
-webtool stock api --method ths_rank_cxfl --arg sort_type=1
-
-# 逆向接口文档 (7 分册 / 122 reportName / 322 端点)
-webtool stock docs-search companyType
-webtool stock docs-report RPT_LICO_FN_CPD
-webtool stock docs-stats
-```
-
-- 单股动作的代码走位置参数（`quote`/`check`/`risk` 可给多个）；**没有 `--code` 选项**
-- `kline` / `intraday` 支持**板块**：中文名（`半导体`/`通信运营商`，带不带"行业"后缀都行，全量目录 1h 缓存内解析→BK 代码）、或直接给 `BKxxxx`。K 线/分时都走东财 `90.BKxxxx`；板块没有撮合竞价，分时无竞价段，均价（黄线）按成分股加权价（系数固定×100）。名字对不上时（如东财把"光模块"叫"光通信模块"）会列相近候选；全表用 `webtool stock boards <关键词>` 查
-- `--ascii` 直出终端字符画（影线 `│`/阳 `█`/阴 `▓` 形状级区分；盲文点阵分时），颜色自动探测：`NO_COLOR`/`TERM=dumb`/非 tty 降级无色，`FORCE_COLOR=1` 管道强制；`boards` 表的涨跌% 同口径红涨绿跌
-- `--arg` 的值纯数字一律留字符串（600519 是代码），与 `webtool mcp` 的猜测口径不同
-- `report` / `diagram` / `excel` 原样透传（markdown、mermaid 源码、落盘确认）；`screen` 输出含剔除清单与闸门原因
-- 口径：涨停池输出必带真实数据日；北向等数据缺位标 ⚠「未取得」，不当 0；上游未解析出条目时显式标注
-- 退出码：0 成功 / 1 数据动作失败 / 2 用法错误
 
 ## pydata (外部金融库经 webtool 出网)
 

@@ -13,12 +13,8 @@ certifi
 cryptography>=41
 maxminddb>=2.4
 requests>=2.31
-pandas>=2.0
-numpy>=1.24
 urllib3>=2.0
-efinance>=0.5
-openpyxl>=3.1
-akshare>=1.12,<2
+pandas>=2.0
 pypdf>=4.0
 pillow>=10
 beautifulsoup4>=4.12

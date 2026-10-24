@@ -3,12 +3,11 @@
 
 规则 (docs/coding-standard.md §1, 依赖只许向下):
 
-  cli → 业务(feeds/stock/radar/pipeline/render/engines) → net → core
-  - core    不 import 任何上层 (net/engines/pipeline/render/feeds/stock/radar/cli)
+  cli → 业务(feeds/radar/pipeline/render/engines) → net → core
+  - core    不 import 任何上层 (net/engines/pipeline/render/feeds/radar/cli)
   - net     不 import 业务与 cli (core 可以)
-  - engines 不 import pipeline/feeds/stock/radar/cli (net/core 可以)
-  - render  是纯函数层, 不 import net/engines/stock/feeds/cli
-  - stock/bridge/sources 只 import net/core + 本包 (不出业务层)
+  - engines 不 import pipeline/feeds/radar/cli (net/core 可以)
+  - render  是纯函数层, 不 import net/engines/feeds/cli
 
 例外以显式白名单登记, 注释写原因 —— 没写注释的例外直接 FAIL。
 
@@ -51,23 +50,23 @@ def imports_of(path):
 
 UPPER = {
     'core':    {'webtool.net', 'webtool.engines', 'webtool.pipeline',
-                'webtool.render', 'webtool.feeds', 'webtool.stock',
+                'webtool.render', 'webtool.feeds',
                 'webtool.radar', 'webtool.cli', 'webtool.filters'},
     'dao':     {'webtool.net', 'webtool.engines', 'webtool.pipeline',
-                'webtool.render', 'webtool.feeds', 'webtool.stock',
+                'webtool.render', 'webtool.feeds',
                 'webtool.radar', 'webtool.cli', 'webtool.filters',
                 'webtool.core'},
     # sources 是契约层: 只出 DataPacket/SourceBase/工厂, 实现由采集层提供
     'sources': {'webtool.net', 'webtool.engines', 'webtool.pipeline',
-                'webtool.render', 'webtool.feeds', 'webtool.stock',
+                'webtool.render', 'webtool.feeds',
                 'webtool.radar', 'webtool.cli', 'webtool.filters'},
     'net':     {'webtool.engines', 'webtool.pipeline', 'webtool.render',
-                'webtool.feeds', 'webtool.stock', 'webtool.radar',
+                'webtool.feeds', 'webtool.radar',
                 'webtool.cli', 'webtool.filters'},
-    'engines': {'webtool.pipeline', 'webtool.feeds', 'webtool.stock',
+    'engines': {'webtool.pipeline', 'webtool.feeds',
                 'webtool.radar', 'webtool.cli'},
     'render':  {'webtool.net', 'webtool.engines', 'webtool.pipeline',
-                'webtool.stock', 'webtool.feeds', 'webtool.radar', 'webtool.cli'},
+                'webtool.feeds', 'webtool.radar', 'webtool.cli'},
 }
 
 # 显式白名单: (文件相对路径子串, 允许的上层包) — 必须写原因, 并标注清理批次
@@ -94,37 +93,6 @@ for pkg, forbidden in UPPER.items():
                        if w_file in rel}
             bad = found - allowed
             check(not bad, f'{rel} 不依赖上层', sorted(bad) and str(sorted(bad)))
-
-# 数据源包: 只吃 net/core/本包
-src_dir = os.path.join(ROOT, 'stock', 'bridge', 'sources')
-for dirpath, dirnames, filenames in os.walk(src_dir):
-    dirnames[:] = [d for d in dirnames if d != '__pycache__']
-    for fn in filenames:
-        if not fn.endswith('.py'):
-            continue
-        path = os.path.join(dirpath, fn)
-        rel = os.path.relpath(path, ROOT)
-        found = imports_of(path) - {'webtool', 'webtool.net', 'webtool.core',
-                                    'webtool.stock'}
-        check(not found, f'{rel} 只依赖 net/core/stock', str(sorted(found)))
-
-# 源注册表与 APIClient 一致性
-from webtool.stock.bridge import sources as S
-names = sorted(S.SOURCES)
-check(len(names) == 10, '注册表覆盖全部源 (10 个)', str(names))
-try:
-    S.source_class('nope')
-    check(False, 'source_class 未知名字抛 KeyError')
-except KeyError as e:
-    check('可用' in str(e), 'source_class 未知名字抛 KeyError 并列可用项')
-for n, c in S.SOURCES.items():
-    check(isinstance(c, type), f'注册表 {n} -> {c.__name__}')
-
-# gtimg 迁移后: SinaSource 不再持 gtimg, TencentSource 持有
-check(all(hasattr(S.TencentSource, m)
-          for m in ('gtimg_hq', 'gtimg_quote_flat', 'gtimg_fund'))
-      and not any(m.startswith('gtimg_') for m in dir(S.SinaSource)),
-      'gtimg_* 已归位 TencentSource')
 
 print()
 if fails:

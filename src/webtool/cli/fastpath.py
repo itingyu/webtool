@@ -19,13 +19,12 @@ HELP = '''Agent 友好的网页搜索与内容获取工具
   搜某站    search -s <站点> <词>  20 个站点, 清单见 search -l
   看热榜    rank <源>...          19 个榜单源, 不带参数=列全部源
   问问题    ask <问题>            先检索再答, 每条结论带来源
-  看股票    stock <子命令>        行情/涨停/资金/新闻/财报/K线/选股
 
 全部命令分组:
   搜索  search  fetch  crawl  ask
   订阅  feed
   榜单  rank
-  金融  stock  pydata
+  金融  pydata
   基建  proxy  pkg  mcp  plugins  config
   其他  zen  render  upgrade  uninstall  intercept-log
 

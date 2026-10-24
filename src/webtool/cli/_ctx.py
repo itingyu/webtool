@@ -127,8 +127,7 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='text'):
                 # 渲染层的用法错误不该甩 traceback
                 raise _UsageError(str(e))
             except ImportError as e:
-                # stock 是延迟导入 + requests 顶层 import, 少装依赖时表现是
-                # 一串 importlib 栈, 而其余命令完全正常, 很难联想到缺包。
+                # 可选依赖缺失时表现是一串 importlib 栈, 很难联想到缺包。
                 from webtool.core import deps
                 raise _UsageError(deps.install_hint(e.name or ''))
         out = buf.getvalue()
@@ -152,10 +151,8 @@ def _run(data_cmd, fn, fmt, output, no_cache, no_proxy, fmt_default='text'):
         try:
             rc = fn(args, cfg)
         except ImportError as e:
-            # stock 是延迟导入 + requests 顶层 import, 少装依赖时表现是一串
-            # importlib 栈, 而 search/fetch 等其余命令完全正常, 很难联想到
-            # 是缺包。两条分支都要接住, 否则管理命令分支 (data_cmd 为空)
-            # 会绕过这里的转换。
+            # 可选依赖缺失时表现是一串 importlib 栈, 很难联想到是缺包。
+            # 两条分支都要接住, 否则管理命令分支 (data_cmd 为空) 会绕过转换。
             from webtool.core import deps
             raise _UsageError(deps.install_hint(e.name or ''))
     from webtool.cli.adminfmt import adapt
@@ -184,7 +181,6 @@ def _entry_fn(name):
                'rank': ('pipeline.rank', 'do_rank'),
                'ask': ('cli.ask', 'do_ask'),
                'crawl': ('cli.crawl', 'do_crawl'),
-               'stock': ('stock.command', 'do_stock'),
                'feed': ('feeds.command', 'do_feed')}[name]
         m = importlib.import_module('webtool.' + mod[0])
         return getattr(m, mod[1])(args, cfg)

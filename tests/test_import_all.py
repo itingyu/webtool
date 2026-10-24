@@ -50,7 +50,7 @@ for m, e in bad:
 
 # 顶层包也要能 import (__init__ 里往往有导出面)
 for top in ('webtool', 'webtool.cli', 'webtool.net', 'webtool.core',
-            'webtool.stock', 'webtool.pipeline', 'webtool.engines',
+            'webtool.pipeline', 'webtool.engines',
             'webtool.feeds', 'webtool.radar', 'webtool.render'):
     try:
         importlib.import_module(top)
