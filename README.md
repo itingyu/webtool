@@ -329,9 +329,10 @@ webtool pydata akshare.stock_zh_a_tick_tx_js '"sz300750"' -n 50
 - 仅 `pydata` 与 `webtool.net.pyshim.install()` 生效，webtool 自身桥不经过它；`uninstall()` 随时还原原生 requests
 - 已知边界：`files`（文件上传）不支持；库函数若返回非 DataFrame/list/dict 会按文本带 `kind=text` 返回
 
-## 字符渲染 (banner / pic / video / music)
+## 字符渲染 (render: banner / pic / video / music)
 
-终端里把文字、图片、视频、音乐画成字符动画，渲染全在本地。Python 依赖已随包（Pillow）；
+终端里把文字、图片、视频、音乐画成字符动画，渲染全在本地。**与检索功能无关的娱乐工具**，
+已从主帮助收起，能力保留。Python 依赖已随包（Pillow）；
 `video` / `music` 另需 **ffmpeg**（ffprobe 可选，来源见文首「依赖」段）。
 
 ```bash

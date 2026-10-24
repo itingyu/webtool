@@ -27,8 +27,7 @@ HELP = '''Agent 友好的网页搜索与内容获取工具
   榜单  rank
   金融  stock  pydata
   基建  proxy  pkg  mcp  plugins  config
-  展示  render
-  其他  zen  upgrade  uninstall  intercept-log
+  其他  zen  render  upgrade  uninstall  intercept-log
 
 每个命令:  webtool <命令> -h
 '''
