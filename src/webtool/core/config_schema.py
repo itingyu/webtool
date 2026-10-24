@@ -138,6 +138,10 @@ KEYS = {
         None, '默认输出格式', 'json / text / markdown',
         ('json', 'text', 'markdown')),
     'cache': _enum_key(None, '缓存开关', 'on / off', ('on', 'off')),
+    'crawl_dir': Key(
+        str(USER_DIR / 'crawl'), '爬取存档根目录',
+        '默认 ~/.webtool/crawl; 每次 crawl 在其下新建 <站点>-<时间> 子目录, '
+        '--no-save 关闭落盘', TEXT, None, None, True),
     'cache_dir': Key(
         str(USER_DIR / 'cache'), '缓存目录', '默认 ~/.webtool/cache; 换目录后旧缓存不迁移',
         TEXT, None, None, True),

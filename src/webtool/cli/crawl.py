@@ -3,6 +3,7 @@
 深度/页数都有硬上限, 默认同 host + 遵守 robots.txt + 每页之间 sleep ——
 是给"把某个小站/文档站抓下来"用的, 不是通用爬虫。
 """
+import os
 import re
 import sys
 import time
@@ -10,6 +11,24 @@ from urllib.parse import urlsplit
 
 from webtool.cli._bridge import cli_json
 from webtool.core import links as _lk
+from webtool.core import paths as _paths
+
+def _save_dir(args, cfg, seed):
+    """存档目录: --no-save → None; -s 显式 → 原样; 否则 crawl_dir/<站点>-<时间>
+
+    默认落盘且每次单独子目录, 避免同名文件 (01-index.md) 互相覆盖。
+    """
+    if getattr(args, 'no_save', False):
+        return None
+    explicit = getattr(args, 'save_dir', None)
+    if explicit:
+        return os.path.expanduser(explicit)
+    root = (cfg.get('crawl_dir') or '').strip() or str(_paths.user_path('crawl'))
+    host = (_lk.host_of(seed) or 'site').split(':')[0]
+    if host.startswith('www.'):
+        host = host[4:]
+    host = re.sub(r'[^A-Za-z0-9._-]', '-', host) or 'site'
+    return os.path.join(os.path.expanduser(root), f'{host}-{time.strftime("%Y%m%d-%H%M%S")}')
 
 
 def _fetch_page(url, max_chars):
@@ -126,7 +145,7 @@ def do_crawl(args, cfg):
             seen.add(key)
             queue.append((nxt, depth + 1))
     return _emit_crawl(args, seed, depth_max, pages, len(seen), skipped,
-                       streamed=stream)
+                       cfg, streamed=stream)
 
 
 def _slug(url, idx):
@@ -136,10 +155,10 @@ def _slug(url, idx):
     return '%02d-%s.md' % (idx, raw or 'page')
 
 
-def _emit_crawl(args, seed, depth_max, pages, seen_n, skipped, streamed=False):
+def _emit_crawl(args, seed, depth_max, pages, seen_n, skipped, cfg, streamed=False):
     ok_pages = [p for p in pages if p.get('ok')]
     saved = 0
-    outdir = getattr(args, 'save_dir', None)
+    outdir = _save_dir(args, cfg, seed)
     if outdir:
         import os
         os.makedirs(outdir, exist_ok=True)
@@ -160,7 +179,8 @@ def _emit_crawl(args, seed, depth_max, pages, seen_n, skipped, streamed=False):
                           'pages': [{k: v for k, v in p.items() if k != 'content'}
                                     for p in pages],
                           'fetched': len(pages), 'ok_count': len(ok_pages),
-                          'seen': seen_n, 'skipped': skipped, 'saved': saved},
+                          'seen': seen_n, 'skipped': skipped, 'saved': saved,
+                          'save_dir': outdir or ''},
                          ensure_ascii=False, indent=1))
     elif streamed:
         # 条目已经边抓边打, 这里只补总计
@@ -177,6 +197,8 @@ def _emit_crawl(args, seed, depth_max, pages, seen_n, skipped, streamed=False):
                                             p['url'], p.get('chars', 0)))
         if skipped:
             print('\n> 跳过 %d 个链接 (跨站/robots/规则不匹配)' % skipped)
+        if saved:
+            print('已存 %d 个文件到 %s' % (saved, outdir))
     else:
         print('爬取 %d 页 (种子 %s, 深度 %d, 见过 %d 个链接)'
               % (len(ok_pages), seed, depth_max, seen_n))

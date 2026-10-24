@@ -63,6 +63,7 @@ webtool uninstall --purge-data --yes   # 连配置/凭据/缓存一起删 (缺 -
 |---|---|
 | `search` | 多引擎网页搜索（含 exa/parallel/firecrawl 语义搜索） |
 | `fetch` | 抓 URL 提取正文；二进制直接下载 |
+| `crawl` | 站内定向爬取；默认落盘到 `crawl_dir`（`~/.webtool/crawl`） |
 | `rank` | 榜单聚合：19 个热榜源 |
 | `feed` | RSS/Atom 订阅抓取，含 RSSHub 路由库查询 |
 | `site` | 18 个站点站内搜索 |

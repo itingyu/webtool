@@ -55,16 +55,16 @@ C.cli_json = lambda argv: (True, {'url': 'robots', 'content': 'User-agent: *\nDi
 def _args(**kw):
     base = dict(url='https://s.test/', depth=2, max=10, delay=0, include=None,
                 exclude=None, any_host=False, no_robots=False, max_chars=0,
-                save_dir=None, format='text', no_proxy=True, no_cache=True)
+                save_dir=None, no_save=True, format='text', no_proxy=True, no_cache=True)
     base.update(kw)
     return SimpleNamespace(**base)
 
 
-def _run(**kw):
+def _run(cfg=None, **kw):
     _fetched.clear()
     buf = io.StringIO()
     with redirect_stdout(buf):
-        rc = C.do_crawl(_args(**kw), {})
+        rc = C.do_crawl(_args(**kw), cfg or {})
     return rc, buf.getvalue()
 rc, out = _run(depth=2)
 pages = [u for u in _fetched if not u.endswith('robots.txt')]
@@ -104,6 +104,20 @@ check(rc == 0, 'max_pages 至少按 1 处理')
 
 rc, out = _run(url='https://nothere.test/', depth=1)
 check(rc == 2, '起点抓不到 → 退出码 2')
+
+# 默认落盘: crawl_dir 下按 <站点>-<时间> 建子目录
+import tempfile as _tf
+_tmp = _tf.mkdtemp()
+rc, out = _run(depth=0, no_save=False, cfg={'crawl_dir': _tmp})
+_subs = os.listdir(_tmp)
+check(rc == 0 and len(_subs) == 1, '默认落盘建 <站点>-<时间> 子目录')
+_files = os.listdir(os.path.join(_tmp, _subs[0])) if _subs else []
+check(bool(_files) and _files[0].endswith('.md'), '默认落盘写出 markdown')
+
+# --no-save 不落盘
+_tmp2 = _tf.mkdtemp()
+rc, out = _run(depth=0, no_save=True, cfg={'crawl_dir': _tmp2})
+check(os.listdir(_tmp2) == [], '--no-save 不写文件')
 
 print()
 if _fails:

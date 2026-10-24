@@ -330,20 +330,26 @@ def crawl_cmd(url: str = typer.Argument(None, help='起点 URL'),
               any_host: bool = typer.Option(False, '-a', '--any-host', help='允许跨域名'),
               no_robots: bool = typer.Option(False, '-R', '--no-robots', help='不读 robots.txt'),
               max_chars: int = typer.Option(0, '-c', '--max-chars', help='每页正文截断字符数, 0=不截断'),
-              save_dir: str = typer.Option(None, '-s', '--save', help='把每页存成 markdown 到这个目录'),
+              save_dir: str = typer.Option(None, '-s', '--save',
+                                           help='存档目录 (默认 config crawl_dir 下按 '
+                                                '<站点>-<时间> 新建子目录)'),
+              no_save: bool = typer.Option(False, '--no-save',
+                                           help='不落盘, 只在终端输出'),
               fmt: str = Fmt, output: str = Output,
               no_proxy: bool = NoProxy, no_cache: bool = NoCache):
     """小站/文档站抓取: 从一页顺着站内链接爬有限几页
 
     默认同 host、遵守 robots.txt、页间隔 0.5s, 深度和页数都有硬上限 ——
     是"把一个文档站读下来"的工具, 不是通用爬虫。正文照旧走 fetch (含缓存/抽取)。
-    文本/表格输出是一页抓到就打一页; `-f json` 等全部跑完再给完整数组。
+    默认把每页存成 markdown 到 config crawl_dir 下按 <站点>-<时间> 新建的子目录
+    (--no-save 关闭, -s 指定目录); 文本/表格输出是一页抓到就打一页。
     """
     a = _CTX['args']
     a.url, a.depth, a.max = url, depth, max(1, max_pages)
     a.delay, a.include, a.exclude = delay, include, exclude
     a.any_host, a.no_robots = any_host, no_robots
     a.max_chars, a.save_dir = max(0, max_chars), save_dir
+    a.no_save = no_save
     return _run('data', _entry_fn('crawl'), fmt, output, no_cache, no_proxy)
 
 @app.command('rank')
