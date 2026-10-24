@@ -71,7 +71,11 @@ def _render_search(out, fmt):
     else:  # text
         if not results:
             where = f'站点 {out["site"]} ' if out.get('site') else ''
-            print(f'{where}没有搜索结果 (共 0 条) —— 换个关键词, 或 `webtool search -l` 看站点状态')
+            hint = ''
+            if out.get('date_filtered'):
+                hint = f' (已按时间窗过滤 {out["date_filtered"]} 条, 加 -A 取消近 15 天限制)'
+            print(f'{where}没有搜索结果 (共 0 条) —— 换个关键词{hint}, '
+                  f'或 `webtool search -l` 看站点状态')
             return
         for r in results:
             eng = ','.join(r['engines']) if r.get('engines') else r.get('engine', '')

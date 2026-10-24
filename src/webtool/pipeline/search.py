@@ -115,8 +115,13 @@ def _do_search(args, cfg, filter_ad=True):
     except ValueError as exc:
         print(f'error: {exc}', file=sys.stderr)
         return 2
-    # 默认时间窗: 近半个月。没给 -S/-U 也没 -A 时自动收窄, 与下推逻辑共用同一窗口
-    if not getattr(args, 'all_time', False) and not win_start and not win_end:
+    # 默认时间窗: 近半个月。没给 -S/-U 也没 -A 时自动收窄, 与下推逻辑共用同一窗口。
+    # 纯站内搜索 (-s juejin 这类) 不吃默认窗: 站内要的是相关度, 不是新近度 ——
+    # 掘金/CSDN 的高相关文章多是几年前的, 卡 15 天会直接返回 0 条, 看着像源坏了。
+    # 显式 -S/-U 仍然生效; 引擎+站点混选时保留窗口 (引擎侧需要新近度)。
+    _pure_site = bool(getattr(args, 'no_engines', False))
+    if not getattr(args, 'all_time', False) and not _pure_site \
+            and not win_start and not win_end:
         from webtool.core.datewindow import default_window
         win_start, win_end = default_window()
     # 已解析的窗口挂到 args: 补量/降级后的重过滤读得到 (datefilter 优先用它)
