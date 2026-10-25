@@ -1,0 +1,46 @@
+{
+  "default": "proxy:default",
+  "proxies": {},
+  "rules": [
+    {
+      "match": {
+        "geosite": [
+          "cn"
+        ]
+      },
+      "action": "direct"
+    },
+    {
+      "match": {
+        "geoip": [
+          "cn"
+        ]
+      },
+      "action": "direct"
+    },
+    {
+      "match": {
+        "domain": [
+          "*.cn",
+          "*.eastmoney.com",
+          "*.xueqiu.com",
+          "*.qq.com",
+          "*.163.com",
+          "*.weibo.com",
+          "*.hexun.com",
+          "*.ifeng.com",
+          "*.baidu.com",
+          "*.zhihu.com",
+          "*.toutiao.com",
+          "*.sohu.com",
+          "*.sogou.com",
+          "*.so.com",
+          "*.bing.com",
+          "opencode.ai",
+          "*.exa.ai"
+        ]
+      },
+      "action": "direct"
+    }
+  ]
+}

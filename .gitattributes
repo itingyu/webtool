@@ -1,0 +1,2 @@
+# geo 数据 (geosite/geoip) 是 protobuf 二进制, 别让 git 当文本算逐行 diff
+src/webtool/data/geo/*.dat binary

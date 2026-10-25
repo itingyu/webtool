@@ -1,0 +1,282 @@
+"""搜狗搜索引擎: 中文内容覆盖好
+
+通道策略 (PC 优先, 双端全指纹):
+1. PC 主力 (www.sogou.com/web): chrome131 Win 指纹 + state 持久 cookie
+   (SUID/SNUID 回头客会话) + 导航预热 + 换会话梯度重试; PC 版结果带摘要
+2. PC 兜底: urllib 全套显式指纹会话
+3. 移动端 (m.sogou.com): Android 指纹 —— PC 端对数据中心/无历史 IP 会弹
+   antispider 滑块, 移动端风控更松, 且结果 href 的 url= 参数直出真实地址,
+   无需二次跳转解析; 缺点是移动端无摘要
+
+数据中心 IP 下 PC 端可能常态 403, 移动端随机弹滑块, 频繁连打后全站记名,
+数分钟后逐步解封 —— 是 IP 信誉问题, 住宅 IP / 低频使用下 PC 通道是主力。
+被拦处置: 拦截器 (net.intercept) 记冷却 + 换新会话/新指纹重试。
+"""
+
+from webtool.core import text
+from webtool.core.logging import get_logger
+import http.cookiejar
+import re
+import time
+import urllib.parse
+
+from webtool.net import intercept, netx, tls, transport
+
+logger = get_logger(__name__)
+
+ENDPOINT = 'https://www.sogou.com/web'
+SOUGOU = 'https://www.sogou.com'
+M_ENDPOINT = 'https://m.sogou.com/web/searchList.jsp'
+M_HOME = 'https://m.sogou.com/'
+
+def search(query, max_results=10, proxy=None, timeout=15, market=None,
+           _session=None, since=None, until=None):
+    """PC 优先 (带摘要) → PC urllib 兜底 → 移动端 (直出真实 URL)"""
+    q = urllib.parse.quote(query)
+    sign = None
+
+    # 1) PC 主力: curl_cffi chrome131 指纹, 两次会话机会
+    html = None
+    for attempt in range(2):
+        html, sign = _pc_cffi(q, proxy, timeout, since=since, until=until)
+        if html:
+            break
+        time.sleep(1.2 + attempt)
+    # 2) PC 兜底: urllib 全指纹会话
+    if not html:
+        html, sign = _pc_urllib(q, timeout, since=since, until=until)
+    # 3) PC 命中 → 解析 (vr-title, 带摘要)
+    #    "拿到 HTML" != "拿到结果": 上游已开始给 JS 壳页 (整页只有一个
+    #    "加载中"), 这种页面有内容但解析 0 条。按老写法会把它当成功直接返回
+    #    0 条, 既不走移动通道也不报错 —— 静默退化最坏。改成解析为空就继续往下走。
+    if html:
+        out = _parse_pc(html, max_results)
+        if out:
+            intercept.note_ok(intercept.Ctx(engine='sogou', url=ENDPOINT))
+            return out
+        logger.debug('sogou | PC 页有内容但解析 0 条 (%d 字节), 判为壳页, '
+                     '转移动通道', len(html))
+
+    # 4) PC 全拦 → 移动端 (两轮会话, 中途 PC 冷却不影响移动通道)
+    for attempt in range(2):
+        out = _mobile_search(q, max_results, proxy, timeout,
+                             since=since, until=until)
+        if out:
+            return out
+        time.sleep(1.5 + attempt)
+
+    _cool = intercept.cooldown_of(ENDPOINT)
+    raise RuntimeError(f'sogou 反爬拦截({sign or "unknown"}); '
+                       f'PC+移动双通道均被拦, '
+                       f'冷却{_cool.left if _cool else 0}s, 请换 -e bing,baidu')
+
+# PC 主力 (curl_cffi)
+
+def _pc_cffi(q, proxy, timeout, since=None, until=None):
+    """持久 cookie 会话 + 导航预热; 返回 (html|None, sign|None)"""
+    url = f'{ENDPOINT}?query={q}' + _tsn_qs(since, until)
+    s, p = transport._new_session('chrome131_win', proxy, 'sogou', url=url)
+    try:
+        # 导航预热: 领/刷新 SUID/SNUID (state 预载, 像回头客)
+        transport.warm_session(s, SOUGOU + '/', timeout=timeout, profile=p)
+        text, status = transport.session_get(url, s,
+                                             kind='nav', referer=SOUGOU + '/',
+                                             timeout=timeout, profile=p)
+        transport._persist_cookies(s, 'sogou')
+        # 本通道的判定与记账走 intercept: 新加的拦截器插件才管得到这条路
+        hit, _ctx = intercept.gate(text, url=url, status=status)
+        if hit is None:
+            return text, None
+        return None, hit.sign
+    except Exception as e:
+        return None, f'{type(e).__name__}'
+
+def _pc_urllib(q, timeout, since=None, until=None):
+    """urllib 全套显式指纹会话兜底, 换新会话重试一次
+
+    换的是"底层栈" (urllib 而非 cffi), 不是"策略" —— 线路、证书、头、cookie
+    都交给 net.transport, 所以这里不会再出现"兜底路径自己判代理"的分裂。
+    """
+    sign = None
+    url = f'{ENDPOINT}?query={q}' + _tsn_qs(since, until)
+    for _attempt in range(2):
+        cj = http.cookiejar.CookieJar()
+        try:
+            transport.request('GET', SOUGOU + '/', kind='nav', timeout=timeout,
+                              via='urllib', cookiejar=cj,
+                              allow_redirects=False)
+            r = transport.request('GET', url, kind='nav', referer=SOUGOU + '/',
+                                  timeout=timeout, via='urllib', cookiejar=cj,
+                                  allow_redirects=False)
+            html = r.text
+        except Exception as e:                 # noqa: BLE001 网络错误换会话再试
+            sign = f'{type(e).__name__}'
+            time.sleep(1.5)
+            continue
+        hit, _ctx = intercept.gate(html, url=ENDPOINT)
+        if hit is None:
+            return html, None
+        sign = hit.sign
+        time.sleep(1.5)
+    return None, sign
+
+# 移动端 (Android 指纹)
+
+def _mobile_search(q, max_results, proxy, timeout, _inner=False,
+                   since=None, until=None):
+    """m.sogou Android 指纹: 首页预热 → searchList.jsp, url= 参数直出真实地址"""
+    prof = transport.PROFILES['chrome131_android']
+    # 导航头与 Android impersonate 会话同源 (sec-ch-ua 交给 impersonate,
+    # 只补 sec-fetch/priority 等浏览器导航头)
+    base = transport.headers_for('nav', M_HOME, profile=prof)
+    # 线路归一: 这里曾直接 `proxy=proxy or None`, 而 search 管线传的是 'auto'
+    # —— curl 于是去解析一个叫 "auto" 的主机名 (Could not resolve proxy: auto),
+    # 移动通道整条废掉 (PC 通道用的是 _new_session, 已经归一过)。
+    px = netx.resolve_proxy(proxy, M_ENDPOINT)
+    html = None
+    for attempt in range(2):
+        try:
+            # impersonate 与 UA 档案同源: Android UA 必须配 chrome131_android
+            # TLS 指纹 (桌面 chrome131 TLS + Android UA 是自曝组合)
+            s = transport._cr.Session(impersonate='chrome131_android',
+                                      proxy=px or None,
+                                      # 证书策略跟其他通道同一份决定, 别让这条腿自己挑根
+                                      verify=tls.policy(M_ENDPOINT))
+            transport.warm_session(s, M_HOME, timeout=timeout, profile=prof)
+            if attempt:
+                time.sleep(1.2)          # 被拦后换会话稍微喘口气
+            r = s.get(f'{M_ENDPOINT}?keyword={q}' + _tsn_qs(since, until),
+                      timeout=timeout,
+                      headers=dict(base, Referer=M_HOME))
+            html = r.text
+        except Exception:
+            html = None
+        # 判定全交给拦截器插件 (sogou 的 antispider 特征在 plugins.json 里,
+        # 这里再硬编码一句会让自定义插件管不到这条路径)
+        if html and intercept.gate(html, url=M_ENDPOINT)[0] is None:
+            break
+        html = None
+    if not html:
+        return None
+    out, seen = [], set()
+    for m in re.finditer(r'<h3[^>]*>(.*?)</h3>', html, re.S):
+        title = _unescape(re.sub(r'<[^>]+>', '', m.group(1))).strip()
+        if not title or '还在搜' in title or '相关搜索' in title:
+            continue
+        after = html[m.end():m.end() + 1500]
+        # url= 参数可能出现在同块任一 href (含视频聚合卡片), 取第一个外链;
+        # 排除图片 CDN (qqpublic.qpic.cn / sogoucdn.com / myqcloud.com 头像图)
+        for a in re.finditer(r'[?&]url=(https?%3A[^&"\s]+)', after):
+            url = urllib.parse.unquote(a.group(1))
+            if not url.startswith('http'):
+                continue
+            host = urllib.parse.urlparse(url).netloc
+            if ('sogou' in host or 'qpic.cn' in host or 'qlogo.cn' in host
+                    or 'gtimg.com' in host or 'myqcloud.com' in host
+                    or re.search(r'\.(jpg|jpeg|png|gif|webp)(\?|$)', url, re.I)):
+                continue
+            if url in seen:
+                continue
+            seen.add(url)
+            out.append({'rank': len(out) + 1, 'title': title, 'url': url,
+                        'snippet': '', 'via_mobile': True})
+            break
+        if len(out) >= max_results:
+            break
+    return out
+
+# PC 结果解析
+
+def _tsn_qs(since, until):
+    """搜狗时间: tsn=1 日 / 2 周 / 3 月 / 4 年 / 5 自定义(ft=起,止)"""
+    if not since and not until:
+        return ''
+    if since and until:
+        days = (until - since).days
+        preset = {0: '1', 1: '1', 7: '2', 30: '3', 31: '3', 365: '4'}.get(days)
+        if preset:
+            return f'&tsn={preset}'
+        ft = f'{since.isoformat()},{until.isoformat()}'
+    elif since:
+        ft = f'{since.isoformat()},'
+    else:
+        ft = f',{until.isoformat()}'
+    return '&tsn=5&ft=' + urllib.parse.quote(ft)
+
+
+def _parse_pc(html, max_results):
+    items = re.findall(r'<h3 class="vr-title[^"]*"[^>]*>(.*?)</h3>', html, re.S)
+    out = []
+    seen = set()
+    for blk in items[:max_results * 2]:
+        a = re.search(r'<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>', blk, re.S)
+        if not a:
+            continue
+        u, t = a.group(1), a.group(2)
+        title = _unescape(re.sub(r'<[^>]+>', '', t)).strip()
+        # "相关搜索/还在搜"卡片不是结果 (移动端解析早已跳过, PC 端漏了)
+        if not title or '还在搜' in title or '相关搜索' in title:
+            continue
+        url = u if u.startswith('http') else 'https://www.sogou.com' + u
+        # 引擎自己的结果页 (如 /sogou?query=) 不是正文; /link? 是跳转链, 留给
+        # resolver 解码, 不能一并丢
+        from webtool.core.urls import is_serp_url
+        if is_serp_url(url):
+            continue
+        if url in seen:
+            continue
+        seen.add(url)
+        out.append({'rank': len(out) + 1, 'title': title, 'url': url,
+                    'snippet': ''})
+        if len(out) >= max_results:
+            break
+    _fill_snippets(html, out)
+    return out
+
+def _fill_snippets(html, out):
+    """尽力提取每个结果下方的摘要文本"""
+    blocks = re.split(r'<h3 class="vr-title[^"]*"[^>]*>', html)
+    for i, b in enumerate(blocks[1:len(out) + 1]):
+        m = re.search(r'class="(?:fz-mid space-txt|str-text-info)[^"]*"[^>]*>(.*?)</(?:div|p|span)>', b, re.S)
+        if m:
+            txt = _unescape(re.sub(r'<[^>]+>', '', m.group(1))).strip()
+            out[i]['snippet'] = txt[:300]
+
+def resolve_link(link_url, proxy=None, timeout=15):
+    """把 /link?url=xxx 解析为真实 URL: 需带搜索会话 cookie (state 持久会话优先)"""
+    try:
+        target = link_url if link_url.startswith('http') else SOUGOU + link_url
+        s, p = transport._new_session('chrome131_win', proxy, 'sogou',
+                                      url=target)
+        transport.session_get(SOUGOU + '/', s, kind='nav', timeout=timeout,
+                              profile=p)
+        text, _ = transport.session_get(
+            target, s, kind='nav', referer=f'{SOUGOU}/web', timeout=timeout,
+            profile=p)
+        transport._persist_cookies(s, 'sogou')
+        m = (re.search(r'window\.location\.replace\("([^"]+)"\)', text)
+             or re.search(r"URL='([^']+)'", text)
+             or re.search(r'href="(https?://[^"]+)"', text))
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    # urllib 兜底 (换底层栈, 策略仍归 transport: 线路/证书/头/cookie)
+    cj = http.cookiejar.CookieJar()
+    tgt = (link_url if link_url.startswith('http')
+           else 'https://www.sogou.com' + link_url)
+    try:
+        transport.request('GET', SOUGOU + '/', kind='nav', timeout=timeout,
+                          via='urllib', cookiejar=cj, allow_redirects=False)
+    except Exception:                          # noqa: BLE001 预热失败不致命
+        pass
+    body = transport.request('GET', tgt, kind='nav', referer=f'{SOUGOU}/web',
+                             timeout=timeout, via='urllib', cookiejar=cj,
+                             allow_redirects=False).text
+    m = (re.search(r'window\.location\.replace\("([^"]+)"\)', body)
+         or re.search(r"URL='([^']+)'", body)
+         or re.search(r'href="(https?://[^"]+)"', body))
+    return m.group(1) if m else None
+
+# 与 baidu/google 同款: 转义与去标签只有 core.text 一份实现, 这里只起个短名字
+_unescape = text.unescape

@@ -1,0 +1,124 @@
+{
+ "adfilter": {
+  "keywords": [
+   "百度营销",
+   "招商加盟",
+   "免费注册领取",
+   "限时优惠",
+   "立即咨询",
+   "官方网站注册",
+   "点击咨询",
+   "在线客服",
+   "预约试听",
+   "领取优惠券",
+   "低价",
+   "促销",
+   "代办理",
+   "一站式服务",
+   "官方授权经销商",
+   "sponsored",
+   "ad ·",
+   "promo"
+  ],
+  "domains": [
+   "baidujc.com",
+   "pos.baidu.com",
+   "recommend_list.baidu.com",
+   "nourl.ubs.baidu.com",
+   "ocsp.baidu.com"
+  ],
+  "url_patterns": [
+   "[?&](prosite=1|tn=baiduad|bd_vid=)"
+  ]
+ },
+ "blocklist": {
+  "domains": [
+   "csdn.net",
+   "cdnbaidujc.com",
+   "baijiahao.baidu.com",
+   "zhimind.com",
+   "kaipuyun.cn",
+   "chinanpo.gov.cn",
+   "wenda.so.com",
+   "yisu.com",
+   "php.cn",
+   "divcss5.com",
+   "dazhuanlan.com",
+   "xiaoheiseo.com",
+   "win7xzb.com",
+   "pc6.com",
+   "downxia.com",
+   "greenxiazai.com",
+   "baibaidu.com",
+   "pythonlang.cn",
+   "cainiaojc.com",
+   "hanyuguoxue.com",
+   "hgcha.com",
+   "gushici.net",
+   "youdao.com",
+   "zhihu.com"
+  ],
+  "notes": {
+   "csdn.net": "正文需登录, 大量搬运",
+   "jb51.net": "脚本之家: 无署名搬运",
+   "baibaidu.com": "傍 baidu 品牌模板页",
+   "pythonlang.cn": "克隆 python.org 冒充官网",
+   "cainiaojc.com": "克隆 runoob 洗稿",
+   "baike.baidu.com": "由 merge.ref_hosts + prior 降权接管 (曾与 blocklist 冲突, 硬过滤使 prior 永不生效)",
+   "zhihu.com": "正文 403 需登录态, fetch 拿不到",
+   "iciba.com": "同上"
+  }
+ },
+ "merge": {
+  "ref_hosts": [
+   "baike.baidu.com",
+   "iciba.com",
+   "dict.youdao.com",
+   "hanyu.baidu.com",
+   "dict.baidu.com",
+   "www.zdic.net",
+   "m.zdic.net"
+  ],
+  "track_params": [
+   "utm_source",
+   "utm_medium",
+   "utm_campaign",
+   "utm_term",
+   "utm_content",
+   "from",
+   "refer",
+   "refer_flag",
+   "fr",
+   "share_token",
+   "share_appid",
+   "vd",
+   "ns",
+   "seid",
+   "sc"
+  ],
+  "short_entities": [
+   "GPT",
+   "LLM",
+   "API",
+   "CSS",
+   "SQL",
+   "AWS",
+   "K8S",
+   "GO",
+   "JS",
+   "AI"
+  ],
+  "low_prior": [
+   "jb51.net",
+   "51cto.com",
+   "easylearn.baidu.com",
+   "huaweicloud.com",
+   "aliyun.com",
+   "chagushici.com"
+  ],
+  "low_prior_value": 0.7
+ },
+ "spa": {
+  "extra_state_names": []
+ }
+}

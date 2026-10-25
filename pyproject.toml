@@ -1,0 +1,88 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "webtool"
+version = "0.0.2"
+description = "Web search & content fetch CLI: clean markdown/text/json output"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "itingyu"}]
+keywords = ["web-scraping", "search", "markdown", "llm", "cli"]
+classifiers = [
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: WWW/HTTP",
+]
+
+dependencies = [
+    "trafilatura>=2.0",
+    "readability-lxml",
+    "html2text",
+    "inscriptis",
+    "pysocks",
+    "curl_cffi>=0.16",
+    "typer>=0.13",
+    # typer 0.26 起 vendor 了自己的 click, 不再依赖顶层 click; 更早的 typer 才用它,
+    # cli/app.py 的异常类导入会按 typer 版本二选一, 所以要自己声明
+    "click>=8",
+    # 核心路径直接 import: net/tls.py 的 CA 探测最后一跳就是 certifi.where(),
+    # 没它时 _probe_ca() 直接 ImportError (不是可选降级)。curl_cffi/requests 会
+    # 顺带带进来, 但直接 import 的东西必须自己声明, 免得哪天上游不带了就炸。
+    "certifi",
+    # ---- 以下原先是 extras, 现在一律随包安装: 全装是唯一形态 ----
+    # 代理密码加密存储 (webtool proxy setpass); 没有它就只能拒绝存密码
+    "cryptography>=41",
+    # GeoIP ASN 查询 (规则里的 {"asn": [...]})
+    "maxminddb>=2.4",
+    # 网络层直接 import (socks 会话 / Retry)
+    "requests>=2.31",
+    "urllib3>=2.0",
+    # PDF 本地文本抽取 (pipeline/pdftext.py)。PDF 原来只能下载不能读 ——
+    # 正文得靠 --via auto 走远程 reader (耗配额、依赖对方在线)。论文/财报/
+    # 白皮书是高频刚需, 本地能抽就不该逼用户花配额。
+    "pypdf>=4.0",
+    # 终端图像渲染 (pic / banner --font big)。Pillow 只在函数内延迟 import,
+    # 但 scripts/audit_deps.py 的规矩是延迟 import 也要声明。
+    "pillow>=10",
+    # 公众号正文抽取 (engines/wechat.py) 用 bs4 解析 HTML。同样是函数内
+    # 延迟 import, 但用过就得声明, 否则装最小依赖的用户一抓公众号就崩。
+    "beautifulsoup4>=4.12",
+    # BeautifulSoup(html, 'lxml') 指定 lxml 解析器; 虽未直接 import, 但解析器名
+    # 依赖它存在。trafilatura/readability-lxml 会顺带带入, 这里仍显式钉住。
+    "lxml>=4.9",
+    # 测试工具同样随包安装, 不分 dev/optional; 全装是唯一形态。
+    "pytest>=8",
+    "tomli>=1.1",
+]
+
+[project.scripts]
+webtool = "webtool.cli.fastpath:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# 键是包名, 值是**相对该包根目录**的路径。`data/*.json` 覆盖 webtool/data/;
+# 子目录的 json/md/pem 分别列出, 否则源码树能跑、wheel 装完却缺文件。
+webtool = [
+  "data/*.json",
+  # banner --font big 的随包字体 (Noto Sans CJK SC 子集, 4736 字): 带上它,
+  # 装完就能画汉字, PC 上也不必另配字体。许可原文是同目录的 *-OFL.md, 已随
+  # data/**/*.md 打进去
+  "data/*.otf",
+  "data/**/*.json",
+  "data/**/*.md",
+  # 自带的 CA 包与站点专有证书 (data/certs/): 不带上的话 wheel 装完等于
+  # 又回到"宿主没 ca-certificates 就不校验证书"——正是它们要解决的问题
+  "data/certs/*.pem",
+  "data/certs/**/*.pem",
+  "data/certs/**/*.md",
+  # geo 数据 (geosite/geoip): 随包分发一份基线, 首次运行由 bootstrap 落到
+  # ~/.webtool/geo/, 规则 {geosite/geoip} 装完即用; `proxy geo update` 刷新用户态
+  "data/geo/*.dat",
+  # engine/ 是纯代码包 (靠 __init__.py), 由 packages.find 自动收进 wheel,
+  # 不必手写进 package-data —— 文档与自测脚本留在技能目录, 不随包分发。
+]

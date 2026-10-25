@@ -1,0 +1,292 @@
+"""出网统一决策层 + 一个现成的参考通道
+
+**这一层统一的是「怎么打出去」的决策, 不是出网实现**: 各通道保留自己的调用方式
+(session 预热、指纹降级梯、LLM 流式、第三方数据库的 requests/cffi), 但下面四件事
+只许从这里拿, 谁都不许自己判断:
+
+1. `proxy='auto'` → 问路由表 (域名/端口/GeoIP/geosite/命名代理)
+2. `resolve_auth` 补保险库密码 —— 明文只在这里出现, 不落盘不进日志
+3. 证书策略 `tls.policy()` → 每个通道拿同一个决定, 不会出现「curl_cffi 拒了
+   urllib 放行」的分裂
+4. 默认 UA 走浏览器指纹档案 (`default_headers`), 禁止裸 Python-urllib 指纹出网
+
+出网实现本身也收口到了 `net/transport.py` —— 本仓自己的代码都经它 (搜索引擎、
+抓取、feeds、MCP、LLM、探活)。仅存的例外:
+
+- `net/http.py` — urllib 通道本体: transport 的备胎 (cffi 崩了才走)
+- `cli/zenproto.py` — LLM 流式直连 (http.client, 要拿裸流)
+- `pip` / `git` 子进程 (pkg / upgrade) — 环境变量代理, 判定在 upgrade 那边
+
+清单钉在 `tests/test_netx.py` 的 "出网原语必须登记" 一节: 新增 `requests.` /
+`_cr.Session` / `urlopen` 会被测试拦下, 逼你想清楚它要不要过路由表与拦截器。
+
+`netx.get()` 是给**新出口**备的现成实现 (cffi 指纹 → urllib 兜底, 全部策略已接线),
+当前生产代码没有调用者 (只有测试在跑)。注意它**不含**反爬判定/降级梯 —— `engine`
+参数在这里只用来挑 UA 档案; 要那套能力请用 `net.transport.get`。
+"""
+import gzip
+import io
+import urllib.error
+import urllib.request
+
+from webtool.net import tls
+from webtool.core.logging import get_logger
+from webtool.core.secrets_store import resolve_auth
+
+logger = get_logger(__name__)
+
+
+class NetError(RuntimeError):
+    """出网层统一错误 (上层只需认这一个, 不必逐个库去认异常)"""
+
+
+def resolve_proxy(proxy, url=None):
+    """把 proxy 参数归一成「实际代理 URL / None」。
+
+    - `None` / `'auto'` → 问路由表 (需要 url); 没给 url 就只能退默认动作
+    - `'direct'`        → 直连 (调用方**显式**要求, 规则表不说话)
+    - `<url>`           → 强制走这条, 并补上保险库密码
+
+    **None 与 'auto' 同义**, 都是"调用方没表态, 交规则表定"。这条曾经不一致:
+    本函数把 None 当直连, 而 `proxyhelper.resolve` 把 None 升成 auto —— 同一份
+    规则在两条入口上给出相反结果。最坑的是调用方看不出区别: 引擎签名都是
+    `proxy=None`, 谁忘了把管线传下来的 'auto' 再传下去, 谁的会话就永远直连、
+    规则表连问都不问一次。强制直连请写 'direct' (CLI 的 --no-proxy 就是这么传的)。
+
+    这是**唯一**该碰代理的地方: 其他模块拿到的 proxy 一律是已归一、可直接
+    交给底层库的值, 不再各自去 resolve_auth / 判断 auto。
+    """
+    via_rules = proxy is None or proxy == 'auto'
+    if proxy is None or proxy == 'auto':
+        if not url:
+            # 没有目标 URL 就拿不到域名, 只能退默认动作 (本轮仍由规则表说了算)
+            from webtool.net import rules as _rules
+            proxy = _rules.resolve_route(None)
+        else:
+            from webtool.net import rules as _rules
+            proxy = _rules.resolve_route(url)
+    # 走规则表的结论由 rules 日志统一报 (带命中的动作, 信息更全), 这里只补
+    # "调用方显式指定了线路"的情况, 避免同一次请求两条日志说同一件事
+    if not proxy or proxy == 'direct':
+        if not via_rules and proxy == 'direct':
+            logger.debug('netx | 线路=直连 (显式direct) (%s)', url or '')
+        return None
+    # 缺密码要立刻说清楚, 不能拿空密码去撞 407 (那报错完全指不到原因)
+    p = resolve_auth(proxy)
+    # SOCKS5 的 DNS 归属: curl 和 requests 都把 `socks5://` 读成**本地**解析
+    # (域名先在本机解析成 IP, 代理只转 IP), `socks5h://` 才是把域名交给代理远端解析。
+    # 国内本机 DNS 常被污染, 写 socks5:// 等于代理白配、看着走了其实还是本地网络。
+    # 统一在这里升级一次, 各通道 (curl_cffi/urllib/requests/--proxy 环境变量) 一起到位。
+    if p.startswith('socks5://'):
+        p = 'socks5h://' + p[len('socks5://'):]
+    # 日志只落 host:port —— 归一后的 URL 可能带保险库密码, 整串打进日志就是泄密
+    from webtool.net.proxy import proxy_url_parts as _pp
+    try:
+        _, _, _, host, port = _pp(p)
+        where = '%s:%s' % (host, port) if port else host
+    except Exception:
+        where = '<unparsed>'
+    if not via_rules:
+        logger.debug('netx | 线路=代理 %s (显式) (%s)', where, url or '')
+    # 代理没起来就改走直连: 本地代理没开是最常见的失败, 表现却是"每条请求都失败",
+    # 报错完全指不到"代理没启动"。只认"连不上" (拒绝/超时/DNS 不通), 代理自己返回
+    # 的错误不算; `webtool config set proxy_fallback off` 可关掉这条兜底。
+    #
+    # 只管**规则表/配置定下来的那条线** (via_rules): 调用方显式传进来的代理
+    # (`--proxy <url>`) 是当场的选择, 探不通就照旧报错 —— 否则"我明明让它走这条"
+    # 会被一次探测悄悄改成直连, 与"显式优先"直接冲突。
+    if via_rules:
+        from webtool.net.proxy import reach as _reach
+        if not _reach.usable(p, url or ''):
+            return None
+    return p
+
+
+def default_headers(url, headers=None, kind='nav', referer=None):
+    """补默认头。反探测优先: UA/Accept-Language 取 transport 的浏览器指纹档案,
+    裸 Python-urllib 指纹一律不出网。调用方显式给的头不被覆盖。"""
+    h = dict(headers or {})
+    if not h.get('User-Agent'):
+        try:
+            import webtool.net.transport as _t
+            p = _t.PROFILES[_t._pick_profile(None)]
+            h.setdefault('User-Agent', p['ua'])
+            h.setdefault('Accept-Language', _t.LANG_ZH)
+        except Exception:
+            # 指纹档案不可用不能连带把请求搞挂, 但也不能发空 UA 出去
+            h.setdefault('User-Agent',
+                         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                         'AppleWebKit/537.36 (KHTML, like Gecko) '
+                         'Chrome/131.0.0.0 Safari/537.36')
+    return h
+
+
+def get(url, *, proxy=None, timeout=None, headers=None, verify=None,
+        engine=None, opener=None, max_bytes=8 * 1024 * 1024, session=None,
+        kind='nav', referer=None):
+    """GET → (text, status)
+
+    通道顺序: curl_cffi 浏览器指纹 → (它崩了) urllib 兜底。证书失败**不重试**,
+    直接抛 —— 证书不对就是不对, 重试只会把 1 次失败放大成多次。
+
+    引擎名 (engine) 只影响上层反爬策略, 这里只用于挑选 UA 档案。
+    """
+    from webtool.net.pacing import rule_timeout
+    proxy = resolve_proxy(proxy, url)
+    timeout = rule_timeout(url, timeout)   # 规则 → config.json → 15
+    ver = tls.policy(url, verify)
+
+    if session is not None:
+        # 外部管理的会话 (引擎自带 warmup 流程): 尊重它的代理与证书设置,
+        # 只补默认头, 不去改会话本身 —— 那属于引擎自己的预热逻辑
+        h = default_headers(url, headers, kind, referer)
+        r = session.get(url, headers=h, timeout=timeout,
+                        allow_redirects=True)
+        return _decode(r.content, r.headers, max_bytes), r.status_code
+
+    try:
+        return _get_cffi(url, proxy=proxy, timeout=timeout, headers=headers,
+                         ver=ver, engine=engine, max_bytes=max_bytes,
+                         kind=kind, referer=referer)
+    except tls.TlsError:
+        raise                       # 证书硬失败, 不进兜底梯
+    except Exception as cffi_err:
+        # curl_cffi 不可用/崩溃时退回 urllib。保留原异常, 兜底也失败时报它
+        try:
+            return _get_urllib(url, proxy=proxy, timeout=timeout,
+                               headers=headers, ver=ver, max_bytes=max_bytes,
+                               kind=kind, referer=referer, opener=opener)
+        except tls.TlsError:
+            raise
+        except Exception as url_err:
+            raise NetError(
+                f'GET {url[:120]} 两条通道都失败\n'
+                f'  curl_cffi: {type(cffi_err).__name__}: {str(cffi_err)[:160]}\n'
+                f'  urllib: {type(url_err).__name__}: {str(url_err)[:160]}'
+            ) from url_err
+
+
+def verify_arg(ver):
+    """把 tls.policy 的返回值转成 urllib 那侧认的形态。
+
+    tls.policy 返回 False 或 **CA 路径** (路径是给 curl_cffi/requests 的, 它们
+    见 True 就各自去读环境变量, 三通道就可能用三套信任根)。但 urllib 侧
+    `ssl_context(url, verify)` 的 verify 只认布尔 —— 把路径塞进去会被当成
+    `ssl_verify` 的取值解析, 报 "ssl_verify 只认 on/off"。
+    CA 的活交给 ssl_context 自己做 (它能拿到 policy), 这里只回传"要不要验"。
+    """
+    return ver is not False
+
+
+def _new_cffi_session():
+    """每次请求新建 curl_cffi 会话 (trust_env=False, 线路只认配置文件)
+
+    trust_env 只能在**会话级**设: 模块级 `cr.get()` / `Session.get()` 都不
+    接受这个参数, 传了当场 TypeError, 而调用方又会静默回退 urllib —— 指纹
+    和线路一起失真, 症状是"结果照样对, 反爬照挡"。同一类坑这是第二次:
+    上一次是 `import transport as _t` 写在 `if engine:` 分支里, 不带 engine
+    的调用全落 urllib。
+
+    每次新建而不复用: 复用会把 cookie 带到后续请求上 (会话级 jar),
+    与 transport 的做法也不一致。反复建会话要付握手成本, 但行为可预期。
+    """
+    from curl_cffi import requests as cr
+    return cr.Session(trust_env=False)
+
+
+def _get_cffi(url, *, proxy, timeout, headers, ver, engine, max_bytes,
+              kind, referer):
+    try:
+        sess = _new_cffi_session()
+    except ImportError as e:
+        raise NetError(f'curl_cffi 不可用: {e}') from e
+    h = default_headers(url, headers, kind, referer)
+    kw = {}
+    if proxy:
+        kw['proxy'] = proxy
+    # cffi 认 CA 路径或 bool, 由 tls.policy 决定 (有 CA 给路径, 无 CA 给 False)
+    if ver is not None:
+        kw['verify'] = ver
+    # 指纹档案两条分支都要用, 必须在 if 外面导入 —— 放进 `if engine:` 里,
+    # 不带 engine 的调用 (探活/站点/feed) 会 UnboundLocalError
+    import webtool.net.transport as _t
+    prof = _t.PROFILES[_t._pick_profile(engine)]
+    try:
+        r = sess.get(url, headers=h, timeout=timeout,
+                     impersonate=prof['impersonate'], **kw)
+    except Exception as e:
+        if tls.is_tls_error(e):
+            raise tls.TlsError(_tls_msg(url, e)) from e
+        raise
+    return _decode(r.content, r.headers, max_bytes), r.status_code
+
+
+def _get_urllib(url, *, proxy, timeout, headers, ver, max_bytes, kind,
+                referer, opener=None):
+    from webtool.net import http as _http
+    h = default_headers(url, headers, kind, referer)
+    req = urllib.request.Request(url, headers=h)
+    op = opener or _http.build_opener(proxy, url=url, verify=verify_arg(ver))
+    try:
+        r = op.open(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        # 4xx/5xx 也把响应体读出来: 上层 (captcha/google) 要状态码+特征做识别
+        try:
+            text = e.read(max_bytes).decode('utf-8', errors='replace')
+        except Exception:
+            text = ''
+        return text, e.code
+    except Exception as e:
+        if tls.is_tls_error(e):
+            raise tls.TlsError(_tls_msg(url, e)) from e
+        raise
+    return _decode(r.read(max_bytes), r.headers, max_bytes), r.status
+
+
+def _tls_msg(url, e):
+    host = url.split('/')[2] if '://' in url else url
+    kind, fix = tls.cert_advice(e, host)
+    head = f'{url[:120]} 证书校验失败'
+    if kind:
+        head += f' ({kind})'
+    return (f'{head}: {str(e)[:160]}\n'
+            f'  修法 → {fix or ("自签/过期证书站: webtool config set verify_hosts " + host)}')
+
+
+def _decode(data, headers, max_bytes):
+    """bytes → text。gzip 解码 + charset 嗅探, 与旧 urllib 通道行为一致。"""
+    if not isinstance(data, (bytes, bytearray)):
+        return data
+    data = bytes(data)
+    if len(data) > max_bytes:
+        data = data[:max_bytes]
+    if headers and headers.get('Content-Encoding') == 'gzip':
+        try:
+            data = gzip.GzipFile(fileobj=io.BytesIO(data)).read()
+        except Exception:
+            pass
+    charset = 'utf-8'
+    ct = (headers.get('Content-Type', '') if headers else '')
+    m = None
+    if 'charset=' in ct:
+        m = ct.split('charset=')[-1].split(';')[0].strip()
+    if not m:
+        m = _sniff_charset(data)
+    if m:
+        charset = m.lower()
+    try:
+        return data.decode(charset, errors='replace')
+    except LookupError:
+        return data.decode('utf-8', errors='replace')
+
+
+def _sniff_charset(data):
+    import re
+    mm = re.search(rb'charset=["\']?([\w-]+)', data[:2048], re.I)
+    if mm:
+        return mm.group(1).decode('ascii', 'ignore')
+    try:
+        data.decode('utf-8')
+        return 'utf-8'
+    except UnicodeDecodeError:
+        return None

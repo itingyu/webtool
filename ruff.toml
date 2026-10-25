@@ -1,0 +1,14 @@
+# webtool lint 门禁 —— 只挡真问题, 不搞风格洁癖
+# E9 = 语法/未定义名 (F821, F823) / F = pyflakes (未用导入 F401、未定义 F821、
+#      重定义 F811、字符串插值 F5xx、比较 F632)
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E9", "F"]
+# F401 未使用导入已清零, 纳入门禁; 其余 F 全挡
+ignore = []
+
+[lint.per-file-ignores]
+# 测试脚本是手写序列, 容许一些灵活性
+"tests/*" = ["F841"]

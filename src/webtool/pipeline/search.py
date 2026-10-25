@@ -1,0 +1,491 @@
+"""多引擎搜索调度"""
+import concurrent.futures
+import logging
+import sys
+import time
+
+from webtool.dao import cache
+from webtool.core import config_data
+from webtool.core.resilient import thread_pool
+from webtool.core.plugins import table as _plugin_table
+from webtool.filters.blocklist import filter_blocklist, is_blocked
+from webtool.pipeline.fallback import needed as _fb_needed
+
+logger = logging.getLogger(__name__)
+
+
+def _engines():
+    """引擎表 (name -> spec); 每次现取插件表, 清单改动即时生效"""
+    return _plugin_table('engine')
+
+
+def presets():
+    """引擎预设表 (name -> {desc, engines}); 与引擎表同文件不同段。
+
+    走 config_data 而不是插件注册表 —— preset 是纯数据配置, 没有 module/params
+    可执行字段, 注册表那套 fn 解析用不上。同文件意味着用户覆盖
+    ~/.webtool/plugins.json 时引擎与预设一起生效。
+    """
+    return config_data.load('presets', 'plugins.json')
+
+
+def resolve_engines(args, cfg):
+    """引擎优先级: --engine > --preset > cfg.default_engines > 默认开启的引擎。
+
+    返回 (逗号串, 用的 preset 名或 None)。preset 名不存在直接退 2 —— 静默
+    回退到默认组合会让用户以为跑了 A 组其实跑了 B 组。
+    """
+    explicit = (getattr(args, 'engine', '') or '').strip()
+    if explicit:
+        return ','.join(e.strip() for e in explicit.split(',') if e.strip()), None
+    if getattr(args, 'no_engines', False):
+        return '', None
+    name = (getattr(args, 'preset', '') or '').strip()
+    if name:
+        spec = presets().get(name)
+        if not spec:
+            print(f'error: 未知 preset {name!r}, 可用: '
+                  f'{", ".join(presets()) or "(无)"}', file=sys.stderr)
+            raise SystemExit(2)
+        engs = spec.get('engines') or []
+        return ','.join(engs), name
+    return cfg.get('default_engines') or default_engines(), None
+
+
+
+def default_engines():
+    """默认引擎组合 = 清单里 enabled_by_default 为真的引擎"""
+    on = [n for n, s in _engines().items() if s.get('enabled_by_default')]
+    return ','.join(on) if on else 'bing,sogou,baidu'
+
+
+def parse_blocklist(spec):
+    """--blocklist 参数 → (off, block, allow)
+
+    语法: 逗号分隔域名; 前缀 ! 表白名单例外 (优先于黑名单); 值为 off 时
+    完全关闭黑名单。替代原先的 --block/--allow/--no-blocklist 三个开关。
+    """
+    spec = (spec or '').strip()
+    # 只在整串恰为 off 时关闭 —— 逐项小写化会让 "a.com,OFF" 里的 off
+    # 变成一个黑名单域名。
+    if spec.lower() in ('off', '0', 'false', 'none'):
+        return True, (), ()
+    blk, alw = [], []
+    for part in spec.split(','):
+        d = part.strip().lower()
+        if not d:
+            continue
+        (alw if d.startswith('!') else blk).append(d.lstrip('!'))
+    return False, tuple(blk), tuple(alw)
+
+
+def _jobs(args, cfg, n):
+    """并发度: --jobs > config 的 jobs > 自动 (源数, 上限 MAX_WORKERS=4)
+
+    默认不是"全开": 一次 search 打的是不同站点, 但出口是同一条代理/同一条网,
+    4 条并发已能把首轮墙钟压到接近最慢那个引擎; 再往上收益是零头, 风险是
+    把自己这条线路打满导致超时。显式给 --jobs 则照给 (硬钳在 1..16)。
+    """
+    from webtool.core.resilient import MAX_WORKERS
+    raw = getattr(args, 'jobs', None)
+    if raw in (None, ''):
+        raw = cfg.get('jobs')
+    try:
+        j = int(raw)
+    except (TypeError, ValueError):
+        j = 0
+    if j <= 0:
+        j = min(n, MAX_WORKERS)
+    return max(1, min(j, 16, max(n, 1)))
+
+def do_search(args, cfg):
+    """默认入口: 广告恒过滤 (无 --keep-ad 开关)"""
+    return _do_search(args, cfg, filter_ad=True)
+
+
+
+
+def _do_search(args, cfg, filter_ad=True):
+    t0 = time.time()
+    # --since/--until: 相对时间 (7d/2周/3个月/yesterday) 与绝对日期都认
+    from webtool.core.datewindow import parse_window
+    try:
+        win_start, win_end = parse_window(getattr(args, 'since', None),
+                                          getattr(args, 'until', None))
+    except ValueError as exc:
+        print(f'error: {exc}', file=sys.stderr)
+        return 2
+    # 默认时间窗: 近半个月。没给 -S/-U 也没 -A 时自动收窄, 与下推逻辑共用同一窗口
+    if not getattr(args, 'all_time', False) and not win_start and not win_end:
+        from webtool.core.datewindow import default_window
+        win_start, win_end = default_window()
+    # 已解析的窗口挂到 args: 补量/降级后的重过滤读得到 (datefilter 优先用它)
+    args.win_start = win_start.isoformat() if win_start else None
+    args.win_end = win_end.isoformat() if win_end else None
+    # 配置文件默认值 ← 命令行覆盖 (config set 的持久配置是底线, CLI 参数可临时改)
+    # 只有 blocklist / market / timeout 三项读 config; 去重、BM25、广告过滤
+    # 行为固定, 没有开关。
+    _bl_cfg = cfg.get('blocklist') or ''
+    if not args.blocklist and _bl_cfg:
+        args.blocklist = _bl_cfg
+    # market 由 config 提供 (config set market en-US), 不占命令行选项 ——
+    # 它只对 bing 生效, 而 bing 端点恒为 cn.bing.com, setmkt 影响有限。
+    market = cfg.get('market') or 'zh-CN'
+    _eng_spec, _preset_used = resolve_engines(args, cfg)
+    engines = [e.strip() for e in _eng_spec.split(',') if e.strip()]
+    # default_format 已在 cli._ctx 统一收口 (所有数据命令同源), 这里不再重复读
+    if cfg.get('cache') == 'off':
+        args.no_cache = True
+    errors = []
+    err_of = {}                      # 引擎名 → 错误 (回填时按原序输出)
+    results = []
+    per_engine = {}
+    ad_filtered = 0
+    # 首轮多拉进池再选 top n; 引擎端各有单页上限, 超出无害
+    _pull = max(args.max, 15)
+
+    # 操作符路由: 每引擎按支持面拿到各自查询串; qmap 参与 cache key
+    from webtool.pipeline.query_ops import apply as _apply_ops
+    qmap, unsupported = _apply_ops(
+        args.query, engines, getattr(args, 'operators', 'passthrough'))
+    if qmap is None:                                   # --operators strict 报错
+        lines = ['error: --operators strict: 以下引擎不支持查询里的操作符:']
+        for name, bad in unsupported.items():
+            lines.append(f'  {name}: ' + ', '.join(f'{op}:{val}' for op, val in bad))
+        lines += ['', '用 --operators strip 静默剔除不支持的操作符, '
+                       '或去掉这些操作符重试。']
+        print('\n'.join(lines), file=sys.stderr)
+        return 2
+    for name, bad in unsupported.items():
+        logger.debug('search | %s 已剔除不支持的操作符: %s → %r', name,
+                     ', '.join(f'{op}:{val}' for op, val in bad), qmap[name])
+
+    # 线路只由规则表决定 (netx 是唯一归一点): 这里只传用户的显式选择 ——
+    # --no-proxy 就是强制直连, 其余一律 'auto' 交规则表。引擎不自报线路, 也
+    # 不在这里被静默跳过。三级 (首轮抓取/补量/跳转链解码) 共用同一条。
+    proxy = 'direct' if args.no_proxy else 'auto'
+
+    # 多引擎并发抓取。串行时一次搜索的墙钟 = 各引擎耗时之和 (google 一个就能
+    # 拖十几秒), 而引擎之间是不同站点、彼此不排队 —— 并发是纯赚。
+    #
+    # 两条纪律:
+    # 1. **结果按 --engine 原序回填**: merge 的排序对并列项是稳定的, 回填顺序
+    #    变了排名就会飘, 同一 query 两次跑出不同顺序没法交代;
+    # 2. **错误也按原序报**: 否则"哪个引擎挂了"会随线程完成顺序变化。
+    live = [e for e in engines if (_engines().get(e) or {}).get('fn')]
+    for eng in engines:
+        if eng not in live:
+            err_of[eng] = ('unknown engine, available: '
+                           + ','.join(_engines()))
+
+    def fetch(eng):
+        """单引擎抓取: 缓存 → 抓取 → 广告过滤
+
+        返回 (结果列表, 缓存状态, 打掉的广告数)。只碰自己那一份数据,
+        不写共享状态 —— 共享的累加与回填全在主线程做。
+        """
+        ckey = f'{eng}|{qmap[eng]}|{_pull}|{market}|{win_start}|{win_end}'
+        _t0 = time.monotonic()
+        if not args.no_cache:
+            cached = cache.get(cfg, 'search', ckey)
+            if cached is not None:
+                logger.debug('search | 引擎 %s 缓存命中 条数=%d key=%s',
+                             eng, len(cached), ckey)
+                return cached, 'cache', 0
+        # 引擎自己的失败不在这里吞: 抛出去由调用方记 err_of, 保留原始异常串
+        rs = _engines()[eng]['fn'](qmap[eng], max_results=_pull, proxy=proxy,
+                                   timeout=cfg.get('timeout', 15), market=market,
+                                   since=win_start, until=win_end)
+        n_ad = sum(1 for r in rs if r.get('is_ad'))
+        logger.debug('search | 引擎 %s 抓取完成 条数=%d 广告=%d 耗时=%dms',
+                     eng, len(rs), n_ad, int((time.monotonic() - _t0) * 1000))
+        if filter_ad:
+            rs = [r for r in rs if not r.get('is_ad')]
+        else:
+            from webtool.filters.adfilter import mark_ads
+            mark_ads(rs)
+        cache.put(cfg, 'search', ckey, rs)      # 每引擎一个 key, 互不打架
+        return rs, 'fresh', n_ad
+
+    got = {}
+    jobs = _jobs(args, cfg, len(live))
+    # 一次搜索的"输入侧全景": 排查先看这行 —— 引擎集合/并发度/单引擎拉取量/
+    # 市场/线路/cache 开关任一不对, 后面的结果都不用看了
+    logger.debug('search | 调度 q=%r engines=%s jobs=%d pull=%d market=%s '
+                 'proxy=%s cache=%s',
+                 args.query, ','.join(engines), jobs, _pull, market, proxy,
+                 'off' if args.no_cache else 'on')
+    if jobs > 1 and len(live) > 1:
+        with thread_pool(jobs) as ex:
+            futs = {ex.submit(fetch, e): e for e in live}
+            for fu in concurrent.futures.as_completed(futs):
+                eng = futs[fu]
+                try:
+                    got[eng] = fu.result()
+                except Exception as e:
+                    err_of[eng] = str(e)[:200]
+                    logger.debug('search | 引擎 %s 失败: %s', eng, err_of[eng])
+    else:                                       # 单引擎 / --jobs 1: 不绕线程
+        for eng in live:
+            try:
+                got[eng] = fetch(eng)
+            except Exception as e:
+                err_of[eng] = str(e)[:200]
+                logger.debug('search | 引擎 %s 失败: %s', eng, err_of[eng])
+
+    for eng in engines:
+        if eng not in got:
+            continue
+        rs, status, n_ad = got[eng]
+        per_engine[eng] = status
+        ad_filtered += n_ad
+        results.extend([dict(r, engine=eng) for r in rs])
+    for eng in engines:
+        if eng in err_of:
+            errors.append({'engine': eng, 'error': err_of[eng]})
+
+    # 跳转链解码: 无条件执行 — 搜狗 link / baidu link 一律
+    # 还原为原始 URL (带并发+缓存+熔断)。解码必须在黑名单/补量之前完成:
+    # ①link 包装链的真实域名只有解码后才知道, 黑名单按真域判定才不漏
+    # ②补量的粗去重按真 URL, 不重复计数。不解码则 URL 全是 /link?url=,
+    # 去重与黑名单均失效, 故不提供开关。
+    _resolve_sogou_links(results, cfg, proxy)
+
+    # 黑名单先行 (按真域拦截), 再 merge 去重排序:
+    # ① 排序只算有资格留下的条目 (不白算被拦的)
+    # ② quality 批内断层阈值 (cut=max(0.12, top*0.35)) 基于真实保留批 → 标签更真实
+    # 注: BM25 的 IDF 基于传入批自身, 所以 sem 随黑名单配置漂移, 跨配置不可比。
+    from webtool.pipeline.merge import merge as _merge
+    from webtool.core.plugins import table as _pt
+    # 过滤器走插件表, 顺序即优先级; blocklist 先行硬过滤。
+    # 硬过滤放在算分之前: 黑名单站不该占 top n 名额, 也没必要参与去重与 BM25
+    # 统计 (只会稀释 IDF 并让权重分布失真)。
+    n_blocked = 0
+    _off, _blk, _alw = parse_blocklist(getattr(args, 'blocklist', ''))
+    for fname, spec in _pt('filter').items():
+        if fname == 'blocklist':
+            if not _off:
+                kept, nb = filter_blocklist(results,
+                                            extra_block=_blk, extra_allow=_alw)
+                n_blocked += nb
+                results = kept
+        else:
+            results = spec['fn'](results, {'args': args, 'cfg': cfg})
+    _n_in_pool = len(results)        # 去重前的入池条数 (汇总日志用)
+    stats = {'blocked': n_blocked}
+    results = _merge(results, args.query,
+                     use_semantic=True, dedupe=True,
+                     apply_blocklist=False, stats=stats,
+                     max_n=getattr(args, 'max', None))
+    # dedup_removed 只算去重掉的; merge 里的剔除另由 stats 分项计数,
+    # 混在一起会把 "黑名单过滤" 误报成 "重复合并"。
+    dedup_removed = stats.get('dedup_removed', 0)
+
+    # 自动补量: 过滤后不足 requested 且有翻页能力 → 翻页补拉重过滤
+    # 触发条件: 总数 < args.max (去重与黑名单恒开, 无开关可关)
+    # (补拉翻页对反爬引擎是额外风险, 上限 2 页/引擎 + 页间随机延迟)
+    topup_fetched = 0
+    _want = args.max
+    if len(results) < _want:
+        from webtool.pipeline.topup import top_up
+        seen_urls = {r.get('url') for r in results}
+        for eng in engines:
+            spec = _engines().get(eng)
+            fn = spec['fn'] if spec else None
+            if not fn or len(results) >= _want:
+                break
+            extra, fetched = top_up(
+                eng, fn, qmap[eng], _want, min(_want, len(results)),
+                proxy, cfg.get('timeout', 15), market,
+                filter_ad=filter_ad,
+                is_blocked_fn=(None if _off
+                               else lambda u, _b=(), _a=(): is_blocked(
+                                   u, extra_block=_b, extra_allow=_a)))
+            topup_fetched += fetched
+            # 补来的先解码: 引擎翻页给的是 link 包装链 (baidu/sogou),
+            # 不解码则黑名单按包装域误判、粗去重按包装 URL 重复计数
+            if extra:
+                _resolve_sogou_links(extra, cfg, proxy)
+            # 补来的进同一合并管线 (dedupe 会在下一轮统一做, 这里先粗去重)
+            for r in extra:
+                if r.get('url') not in seen_urls:
+                    seen_urls.add(r.get('url'))
+                    results.append(dict(r, engine=eng))
+        if topup_fetched:
+            # 补量后重过滤+重排序: 补来的已在 top_up 内过广告+黑名单(按真域,
+            # 补前已解码), 这里再整体 merge 去重排序即可
+            results = _merge(results, args.query,
+                             use_semantic=True, dedupe=True,
+                             apply_blocklist=False, stats=stats,
+                             max_n=getattr(args, 'max', None))
+            dedup_removed += stats.get('dedup_removed', 0)
+            # 补量后要重跑时间过滤: 翻页补来的是"下一页"的内容, 很可能已经
+            # 掉出 --since 窗口。不重跑的话, 补量会把窗口外的条目塞回结果。
+            if win_start or win_end:
+                from webtool.filters.datefilter import filter_by_date as _fbd
+                results = _fbd(results, {'args': args, 'cfg': cfg})
+
+    # 免 key 降级: **默认关**, 只有 --fallback 或 config fallback=on 才补跑。
+    # 补来的结果来源不同、质量不可控, 宁可少几条也不混入。
+    fallback_used = []
+    _fb_on = bool(getattr(args, 'fallback', False) or cfg.get('fallback') == 'on')
+    if _fb_on and _fb_needed(len(results), _want):
+        from webtool.pipeline import fallback as _fb
+        cand = _fb.select(_engines(), engines, 3)
+        if cand:
+            _fbq, _ = _apply_ops(args.query, cand,
+                                 getattr(args, 'operators', 'passthrough'))
+            qmap.update({k: v for k, v in (_fbq or {}).items() if v})
+            logger.debug('search | 降级链触发 结果=%d/%d 候选=%s',
+                         len(results), _want, ','.join(cand))
+            for eng in cand:
+                if len(results) >= _want:
+                    break
+                try:
+                    rs, status, n_ad = fetch(eng)
+                except Exception as e:
+                    err_of[eng] = str(e)[:200]
+                    errors.append({'engine': eng, 'error': err_of[eng],
+                                   'fallback': True})
+                    logger.debug('search | 降级引擎 %s 失败: %s', eng, err_of[eng])
+                    continue
+                per_engine[eng] = status
+                ad_filtered += n_ad
+                _resolve_sogou_links(rs, cfg, proxy)
+                seen = {r.get('url') for r in results}
+                add = [dict(r, engine=eng, fallback=True) for r in rs
+                       if r.get('url') not in seen
+                       and (_off or not is_blocked(r.get('url'),
+                                                    extra_block=_blk,
+                                                    extra_allow=_alw))]
+                if add:
+                    results.extend(add)
+                    fallback_used.append({'engine': eng, 'added': len(add)})
+            if fallback_used:
+                results = _merge(results, args.query, use_semantic=True,
+                                 dedupe=True, apply_blocklist=False,
+                                 stats=stats, max_n=getattr(args, 'max', None))
+                if win_start or win_end:
+                    from webtool.filters.datefilter import filter_by_date as _fbd
+                    results = _fbd(results, {'args': args, 'cfg': cfg})
+
+    n_blocked = stats.get('blocked', 0)
+    n_floor = stats.get('floor_dropped', 0)
+    # 输出侧全景: 进来多少条、被去重/黑名单/权重地板各砍掉多少 ——
+    # "怎么少了这么多" 一眼能定位到是哪一层砍的
+    logger.debug('search | 汇总 入池=%d 输出=%d 去重=%d 黑名单=%d '
+                 '低权重=%d 广告=%d 权重地板=%s 失败引擎=%d',
+                 _n_in_pool, len(results), dedup_removed, n_blocked,
+                 n_floor, ad_filtered, stats.get('weight_floor'), len(errors))
+
+    # 最终截断: 排序后取质量最高的 n 条 (多引擎大池 → top n, 硬上限语义)
+    if len(results) > args.max:
+        results = results[:args.max]
+
+    # transformer 插件: 解码完成后逐条改写 (补字段/规范化/重写 url), 顺序即优先级
+    from webtool.core.plugins import table as _pt
+    for tname, tspec in _pt('transformer').items():
+        results = tspec['fn'](results, {'args': args, 'cfg': cfg})
+
+    out = {'query': args.query, 'took_ms': int((time.time() - t0) * 1000),
+           'cache': per_engine, 'total': len(results), 'results': results,
+           'dedup_removed': dedup_removed, 'blocked_by_blocklist': n_blocked,
+           'dropped_by_floor': n_floor,
+           'weight_floor': stats.get('weight_floor', 0),
+           'date_filtered': getattr(args, 'date_filtered', 0),
+           'sorted_by': 'weight'}
+    # 实际跑了哪组引擎要可观测: --preset 时不写出来, 消费方无法从结果反推
+    # "这批用的是 zh 组还是我临时 --engine 拼的", 出问题也没法复现。
+    if _preset_used:
+        out['preset'] = _preset_used
+        out['engines_used'] = engines
+    if topup_fetched:
+        out['topup'] = {'fetched': topup_fetched,
+                        'note': '翻页补拉(最多2页/引擎)'}
+        out['requested'] = _want
+    if fallback_used:
+        out['fallback'] = fallback_used
+        out['requested'] = _want
+
+    # 引擎通道自报 + 结果证据: 降级是静默的 (429 被引擎内部 catch 换通道,
+    # 不进 errors), 消费方无法从结果反推"这批是全 Web 搜索还是新闻检索"。
+    # 两个来源互补: 引擎实跑时用自报 (带降级原因); 命中缓存时引擎压根没被调用,
+    # 只能靠结果里的 channel 字段判定。
+    ch, reasons = {}, {}
+    for r in results:
+        if r.get('channel'):
+            for e in (r.get('engines') or [r.get('engine')]):
+                if e:
+                    ch.setdefault(e, r['channel'])
+    if 'google' in per_engine:
+        from webtool.engines.google import last_channel as _gch
+        info = _gch()
+        if info.get('channel'):
+            ch['google'] = info['channel']          # 自报优先 (更权威)
+            if info.get('reason'):
+                reasons['google'] = info['reason']
+    if ch:
+        out['engine_channels'] = ch
+        # news 通道 = 新闻检索而非全 Web 搜索, 覆盖范围可能明显小于预期
+        degraded = [f"{e} 实际走 {c} 通道(新闻检索, 非全 Web 搜索)"
+                    + (f": {reasons[e]}" if reasons.get(e) else '')
+                    for e, c in ch.items() if c == 'news']
+        if degraded:
+            out['degraded'] = degraded
+    if fallback_used:
+        out.setdefault('degraded', []).append(
+            '主引擎结果不足, 已用免 key 引擎兜底: '
+            + ', '.join(f"{f['engine']}(+{f['added']})" for f in fallback_used))
+    from webtool.pipeline.query_ops import describe as _describe_ops, parse as _parse_ops
+    if _parse_ops(args.query).has_operators:
+        out['query_operators'] = {'used': _describe_ops(args.query),
+                                  'stripped': {k: [f'{op}:{v}' for op, v in vs]
+                                               for k, vs in unsupported.items()},
+                                  'engine_query': qmap}
+    if errors:
+        out['errors'] = errors
+    from webtool.render.render import render
+    render(out, args.format, 'search')
+    return 0
+
+
+
+def _resolve_sogou_links(results, cfg, proxy='auto'):
+    """跳转链批量解码成原始 URL
+
+    解码器与匹配规则都来自 resolver 插件表 (data/plugins.json):
+    每条按 match 特征认出某种跳转链, 交给对应解码器。排序无所谓,
+    匹配到就解, 与结果来自哪个引擎无关。
+    """
+    from webtool.core.plugins import resolve_match, table as _pt
+
+    resolvers = _pt('resolver')
+    timeout = cfg.get('timeout', 15)
+
+    todo = []
+    for i, r in enumerate(results):
+        kind = resolve_match(r['url'], resolvers)
+        if kind:
+            todo.append((i, r, kind))
+    if not todo:
+        return
+
+    def work(item):
+        i, r, kind = item
+        real = cache.get(cfg, 'resolve', r['url'])
+        if not real:
+            # 线路沿用触发这次抓取的那条 (规则表判的), 解码器不另判一套
+            real = resolvers[kind]['fn'](r['url'], proxy=proxy, timeout=timeout)
+            # 只有"真的解出了另一个 URL"才写缓存: 解码失败时解码器会把原链原样
+            # 返回, 若照单全收就会把跳转链当成解码结果缓存, 之后永久短路
+            if real and real != r['url']:
+                cache.put(cfg, 'resolve', r['url'], real)
+        return i, real
+
+    with thread_pool(5) as ex:
+        for i, real in ex.map(work, todo):
+            if real and real != results[i]['url']:
+                results[i]['url'] = real
+                results[i]['resolved'] = True
+            elif not real:
+                results[i]['resolved'] = False

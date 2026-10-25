@@ -1,0 +1,8 @@
+__pycache__/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+# geodata 测试样本: 由 tests/make_geodata_fixtures.py 生成, 不入库
+tests/data/
+.ruff_cache/

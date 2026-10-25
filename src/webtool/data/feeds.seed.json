@@ -1,0 +1,453 @@
+{
+ "zhihu_weekly": {
+  "url": "https://hub.slarker.me/zhihu/weekly",
+  "desc": "知乎周刊 (RSSHub)"
+ },
+ "zhihu_daily": {
+  "url": "https://hub.slarker.me/zhihu/daily",
+  "desc": "知乎日报 (RSSHub)"
+ },
+ "ArsTechnica": {
+  "url": "https://feeds.arstechnica.com/arstechnica/index",
+  "desc": "🌐 科技媒体 · valid"
+ },
+ "JohonoTodai": {
+  "url": "https://joho-todai.com/pinterest-rss/",
+  "desc": "🌐 科技媒体"
+ },
+ "MITTechnologyReview": {
+  "url": "https://www.technologyreview.com/feed/",
+  "desc": "🌐 科技媒体 · valid"
+ },
+ "TechCrunch": {
+  "url": "https://techcrunch.com/feed/",
+  "desc": "🌐 科技媒体 · valid"
+ },
+ "TheVerge": {
+  "url": "https://www.theverge.com/rss/index.xml",
+  "desc": "🌐 科技媒体 · valid"
+ },
+ "Wired": {
+  "url": "https://www.wired.com/feed/rss",
+  "desc": "🌐 科技媒体 · valid"
+ },
+ "AListApart": {
+  "url": "https://alistapart.com/main/feed/",
+  "desc": "🎨 前端 & 设计 · valid"
+ },
+ "AstroBlog": {
+  "url": "https://astro.build/rss.xml",
+  "desc": "🎨 前端 & 设计 · valid"
+ },
+ "CSS-Tricks": {
+  "url": "https://css-tricks.com/feed/",
+  "desc": "🎨 前端 & 设计 · valid"
+ },
+ "ChromeDeveloperBlog": {
+  "url": "https://developer.chrome.com/blog/feed.xml",
+  "desc": "🎨 前端 & 设计 · valid"
+ },
+ "Dev.to": {
+  "url": "https://dev.to/feed",
+  "desc": "🎨 前端 & 设计 · valid"
+ },
+ "DribbbleStories": {
+  "url": "https://dribbble.com/stories.rss",
+  "desc": "🎨 前端 & 设计 · valid"
+ },
+ "Next.jsBlog": {
+  "url": "https://nextjs.org/feed.xml",
+  "desc": "🎨 前端 & 设计 · valid"
+ },
+ "NuxtBlog": {
+  "url": "https://nuxt.com/blog/rss.xml",
+  "desc": "🎨 前端 & 设计 · valid"
+ },
+ "ProductHunt": {
+  "url": "https://www.producthunt.com/feed",
+  "desc": "🎨 前端 & 设计 · valid"
+ },
+ "SmashingMagazine": {
+  "url": "https://www.smashingmagazine.com/feed/",
+  "desc": "🎨 前端 & 设计 · valid"
+ },
+ "SvelteBlog": {
+  "url": "https://svelte.dev/blog/rss.xml",
+  "desc": "🎨 前端 & 设计 · valid"
+ },
+ "TailwindCSSBlog": {
+  "url": "https://tailwindcss.com/feeds/feed.xml",
+  "desc": "🎨 前端 & 设计 · valid"
+ },
+ "AWSBlog": {
+  "url": "https://aws.amazon.com/blogs/aws/feed/",
+  "desc": "🏢 大厂技术博客 · valid"
+ },
+ "CloudflareBlog": {
+  "url": "https://blog.cloudflare.com/rss/",
+  "desc": "🏢 大厂技术博客 · valid"
+ },
+ "GitHubBlog": {
+  "url": "https://github.blog/feed/",
+  "desc": "🏢 大厂技术博客 · valid"
+ },
+ "GitHubChangelog": {
+  "url": "https://github.blog/changelog/feed/",
+  "desc": "🏢 大厂技术博客 · valid"
+ },
+ "GitHubCopilotChangelog": {
+  "url": "https://github.blog/changelog/label/copilot/feed/",
+  "desc": "🏢 大厂技术博客 · valid"
+ },
+ "GoogleDevelopers": {
+  "url": "https://developers.googleblog.com/feeds/posts/default/",
+  "desc": "🏢 大厂技术博客 · valid"
+ },
+ "MetaEngineering": {
+  "url": "https://engineering.fb.com/feed/",
+  "desc": "🏢 大厂技术博客 · valid"
+ },
+ "MozillaHacks": {
+  "url": "https://hacks.mozilla.org/feed/",
+  "desc": "🏢 大厂技术博客 · valid"
+ },
+ "NetflixTechBlog": {
+  "url": "https://netflixtechblog.com/feed",
+  "desc": "🏢 大厂技术博客 · valid"
+ },
+ "SpotifyEngineering": {
+  "url": "https://engineering.atspotify.com/feed/",
+  "desc": "🏢 大厂技术博客 · valid"
+ },
+ "StripeBlog": {
+  "url": "https://stripe.com/blog/feed.rss",
+  "desc": "🏢 大厂技术博客 · valid"
+ },
+ "SupabaseBlog": {
+  "url": "https://supabase.com/rss.xml",
+  "desc": "🏢 大厂技术博客 · valid"
+ },
+ "VercelBlog": {
+  "url": "https://vercel.com/atom",
+  "desc": "🏢 大厂技术博客 · valid"
+ },
+ "HackerNewsAsk": {
+  "url": "https://hnrss.org/ask",
+  "desc": "💻 技术社区 · valid"
+ },
+ "HackerNewsShow": {
+  "url": "https://hnrss.org/show",
+  "desc": "💻 技术社区 · valid"
+ },
+ "HackerNews最佳": {
+  "url": "https://hnrss.org/best",
+  "desc": "💻 技术社区 · valid"
+ },
+ "HackerNews最新": {
+  "url": "https://hnrss.org/newest",
+  "desc": "💻 技术社区 · valid"
+ },
+ "HackerNews首页": {
+  "url": "https://hnrss.org/frontpage",
+  "desc": "💻 技术社区 · valid"
+ },
+ "LinuxDo最新帖子": {
+  "url": "https://linux.do/posts.rss",
+  "desc": "💻 技术社区 · limited"
+ },
+ "LinuxDo最新话题": {
+  "url": "https://linux.do/latest.rss",
+  "desc": "💻 技术社区 · limited"
+ },
+ "LinuxDo热门话题": {
+  "url": "https://linux.do/top.rss",
+  "desc": "💻 技术社区 · limited"
+ },
+ "NodeSeek最新话题": {
+  "url": "https://rss.nodeseek.com/",
+  "desc": "💻 技术社区 · valid"
+ },
+ "V2EX全站最新": {
+  "url": "https://www.v2ex.com/index.xml",
+  "desc": "💻 技术社区 · valid"
+ },
+ "V2EX创意": {
+  "url": "https://www.v2ex.com/feed/tab/creative.xml",
+  "desc": "💻 技术社区 · valid"
+ },
+ "V2EX好玩": {
+  "url": "https://www.v2ex.com/feed/tab/play.xml",
+  "desc": "💻 技术社区 · valid"
+ },
+ "V2EX技术": {
+  "url": "https://www.v2ex.com/feed/tab/tech.xml",
+  "desc": "💻 技术社区 · valid"
+ },
+ "V2EX最新": {
+  "url": "https://www.v2ex.com/feed/tab/all.xml",
+  "desc": "💻 技术社区 · valid"
+ },
+ "奶昔论坛最新话题": {
+  "url": "https://forum.naixi.net/forum.php?mod=rss",
+  "desc": "💻 技术社区 · valid"
+ },
+ "少数派": {
+  "url": "https://sspai.com/feed",
+  "desc": "💻 技术社区 · valid"
+ },
+ "阮一峰的网络日志": {
+  "url": "https://www.ruanyifeng.com/blog/atom.xml",
+  "desc": "💻 技术社区 · limited"
+ },
+ "Nature": {
+  "url": "https://www.nature.com/nature.rss",
+  "desc": "📚 学术论文 · valid"
+ },
+ "arXiv计算机视觉": {
+  "url": "https://rss.arxiv.org/rss/cs.CV",
+  "desc": "📚 学术论文 · valid"
+ },
+ "DenoBlog": {
+  "url": "https://deno.com/feed",
+  "desc": "📦 编程语言官方博客"
+ },
+ "GoBlog": {
+  "url": "https://go.dev/blog/feed.atom",
+  "desc": "📦 编程语言官方博客 · valid"
+ },
+ "KotlinBlog": {
+  "url": "https://blog.jetbrains.com/kotlin/feed/",
+  "desc": "📦 编程语言官方博客 · valid"
+ },
+ "Node.jsBlog": {
+  "url": "https://nodejs.org/en/feed/blog.xml",
+  "desc": "📦 编程语言官方博客 · valid"
+ },
+ "PythonBlog": {
+  "url": "https://blog.python.org/feeds/posts/default",
+  "desc": "📦 编程语言官方博客 · valid"
+ },
+ "ReactBlog": {
+  "url": "https://react.dev/rss.xml",
+  "desc": "📦 编程语言官方博客 · valid"
+ },
+ "RustBlog": {
+  "url": "https://blog.rust-lang.org/feed.xml",
+  "desc": "📦 编程语言官方博客 · valid"
+ },
+ "SwiftBlog": {
+  "url": "https://www.swift.org/atom.xml",
+  "desc": "📦 编程语言官方博客 · valid"
+ },
+ "TypeScriptBlog": {
+  "url": "https://devblogs.microsoft.com/typescript/feed/",
+  "desc": "📦 编程语言官方博客 · valid"
+ },
+ "VueBlog": {
+  "url": "https://blog.vuejs.org/feed.rss",
+  "desc": "📦 编程语言官方博客 · valid"
+ },
+ "ByteByteGo": {
+  "url": "https://blog.bytebytego.com/feed",
+  "desc": "📮 技术周刊 · valid"
+ },
+ "GolangWeekly": {
+  "url": "https://golangweekly.com/rss/",
+  "desc": "📮 技术周刊 · valid"
+ },
+ "JavaScriptWeekly": {
+  "url": "https://javascriptweekly.com/rss/",
+  "desc": "📮 技术周刊 · valid"
+ },
+ "ThisWeekinRust": {
+  "url": "https://this-week-in-rust.org/atom.xml",
+  "desc": "📮 技术周刊 · valid"
+ },
+ "IT之家": {
+  "url": "https://www.ithome.com/rss/",
+  "desc": "📰 新闻资讯 · valid"
+ },
+ "FluentReaderReleases": {
+  "url": "https://github.com/yang991178/fluent-reader/releases.atom",
+  "desc": "🔧 RSS 工具更新 · valid"
+ },
+ "FreshRSSReleases": {
+  "url": "https://github.com/FreshRSS/FreshRSS/releases.atom",
+  "desc": "🔧 RSS 工具更新 · valid"
+ },
+ "NetNewsWireReleases": {
+  "url": "https://github.com/Ranchero-Software/NetNewsWire/releases.atom",
+  "desc": "🔧 RSS 工具更新 · valid"
+ },
+ "RSSHubRadarReleases": {
+  "url": "https://github.com/DIYgod/RSSHub-Radar/releases.atom",
+  "desc": "🔧 RSS 工具更新 · valid"
+ },
+ "RSSHubReleases": {
+  "url": "https://github.com/DIYgod/RSSHub/releases.atom",
+  "desc": "🔧 RSS 工具更新 · valid"
+ },
+ "CISANews": {
+  "url": "https://www.cisa.gov/news.xml",
+  "desc": "🛡️ 安全资讯 · valid"
+ },
+ "FreeBuf": {
+  "url": "https://www.freebuf.com/feed",
+  "desc": "🛡️ 安全资讯 · limited"
+ },
+ "GoogleSecurityBlog": {
+  "url": "https://security.googleblog.com/atom.xml",
+  "desc": "🛡️ 安全资讯 · valid"
+ },
+ "KrebsonSecurity": {
+  "url": "https://krebsonsecurity.com/feed/",
+  "desc": "🛡️ 安全资讯 · valid"
+ },
+ "SchneieronSecurity": {
+  "url": "https://www.schneier.com/feed/",
+  "desc": "🛡️ 安全资讯 · valid"
+ },
+ "TheHackerNews": {
+  "url": "https://feeds.feedburner.com/TheHackersNews",
+  "desc": "🛡️ 安全资讯 · valid"
+ },
+ "安全客": {
+  "url": "https://api.anquanke.com/data/v1/rss",
+  "desc": "🛡️ 安全资讯 · valid"
+ },
+ "ClaudeCodeReleases": {
+  "url": "https://github.com/anthropics/claude-code/releases.atom",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "GeminiCLIReleases": {
+  "url": "https://github.com/google-gemini/gemini-cli/releases.atom",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "GoogleAIBlog": {
+  "url": "https://blog.google/technology/ai/rss/",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "GoogleDeepMind": {
+  "url": "https://deepmind.google/blog/rss.xml",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "GoogleResearchBlog": {
+  "url": "https://research.google/blog/rss/",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "HackerNewsAI": {
+  "url": "https://hnrss.org/newest?q=AI",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "HackerNewsLLM": {
+  "url": "https://hnrss.org/newest?q=LLM",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "HackerNewsOpenClaw": {
+  "url": "https://hnrss.org/newest?q=OpenClaw",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "HuggingFace博客": {
+  "url": "https://huggingface.co/blog/feed.xml",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "MCPServersReleases": {
+  "url": "https://github.com/modelcontextprotocol/servers/releases.atom",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "MCPSpecificationReleases": {
+  "url": "https://github.com/modelcontextprotocol/specification/releases.atom",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "OpenAICodexReleases": {
+  "url": "https://github.com/openai/codex/releases.atom",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "OpenAI博客": {
+  "url": "https://openai.com/news/rss.xml",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "OpenClawCommits": {
+  "url": "https://github.com/openclaw/openclaw/commits/main.atom",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "OpenClawReleases": {
+  "url": "https://github.com/openclaw/openclaw/releases.atom",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "SimonWillison'sBlog": {
+  "url": "https://simonwillison.net/atom/everything/",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "arXivAI": {
+  "url": "https://rss.arxiv.org/rss/cs.AI",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "arXivNLP": {
+  "url": "https://rss.arxiv.org/rss/cs.CL",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "arXiv机器学习": {
+  "url": "https://rss.arxiv.org/rss/cs.LG",
+  "desc": "🤖 AI 专题 · valid"
+ },
+ "BiomeReleases": {
+  "url": "https://github.com/biomejs/biome/releases.atom",
+  "desc": "🧰 开发工具版本追踪 · valid"
+ },
+ "BunReleases": {
+  "url": "https://github.com/oven-sh/bun/releases.atom",
+  "desc": "🧰 开发工具版本追踪 · valid"
+ },
+ "LangChainReleases": {
+  "url": "https://github.com/langchain-ai/langchain/releases.atom",
+  "desc": "🧰 开发工具版本追踪 · valid"
+ },
+ "ZedReleases": {
+  "url": "https://github.com/zed-industries/zed/releases.atom",
+  "desc": "🧰 开发工具版本追踪 · valid"
+ },
+ "uvReleases": {
+  "url": "https://github.com/astral-sh/uv/releases.atom",
+  "desc": "🧰 开发工具版本追踪 · valid"
+ },
+ "36氪官网": {
+  "url": "https://www.36kr.com/feed",
+  "desc": "📰 新闻资讯 · 官方 feed (主站文章 /p 10 + 快讯 /newsflashes 20, 两种都有, 不必借 RSSHub)"
+ },
+ "sspai": {
+  "url": "https://sspai.com/feed",
+  "desc": "少数派文章",
+  "default": true
+ },
+ "ithome": {
+  "url": "https://www.ithome.com/rss/",
+  "desc": "IT之家资讯 (60条)",
+  "default": true
+ },
+ "ifanr": {
+  "url": "https://www.ifanr.com/feed",
+  "desc": "爱范儿",
+  "default": true
+ },
+ "ruanyifeng": {
+  "url": "https://www.ruanyifeng.com/blog/atom.xml",
+  "desc": "阮一峰科技爱好者周刊",
+  "default": true
+ },
+ "cnode": {
+  "url": "https://cnodejs.org/rss",
+  "desc": "CNode 社区",
+  "default": false
+ },
+ "github_blog": {
+  "url": "https://github.blog/feed/",
+  "desc": "GitHub Blog",
+  "default": true
+ },
+ "v2ex": {
+  "url": "https://www.v2ex.com/index.xml",
+  "desc": "V2EX 全站新帖",
+  "default": false
+ }
+}

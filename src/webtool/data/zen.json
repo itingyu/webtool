@@ -1,0 +1,12 @@
+{
+  "zen": {
+    "chat_url": "https://opencode.ai/inference/v1/chat/completions",
+    "models_url": "https://opencode.ai/zen/v1/models",
+    "model": "big-pickle",
+    "max_tokens": 200000,
+    "reasoning_effort": "medium",
+    "tool_choice": "auto",
+    "tools": "min",
+    "live": true
+  }
+}

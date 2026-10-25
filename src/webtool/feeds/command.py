@@ -1,0 +1,438 @@
+"""feed 子命令: 源增删、路由查询、实例探活、健康登记表、多源聚合
+
+本模块只做编排 —— 清单在 feeds.sources, 解析在 feeds.parse, 取数在
+feeds.fetch, 路由卡片在 feeds.cards; 数据层出的结论 (重叠率/健康状态)
+这里只负责选择分支与呈现。
+"""
+import re
+import sys
+import time
+import urllib.parse
+from concurrent.futures import as_completed
+
+from webtool.dao import cache
+from webtool.core import jsonfmt
+import webtool.feeds.feedhealth as feedhealth
+from webtool.feeds.sources import (feeds_file, state_file,
+                                   load_seed_feeds, load_user_feeds,
+                                   save_user_feeds)
+from webtool.net import proxyhelper
+from webtool.feeds.fetch import pull_one
+from webtool.feeds.cards import print_route_cards
+
+from webtool.core.resilient import MAX_WORKERS as _MAX_W, thread_pool
+
+
+def _print_feed_usage():
+    """feed 无参/`list` 时的用法段 (清单之后打, 与 rank 的无参行为对齐)"""
+    print('\n用法:')
+    print('  webtool feed sspai ithome        指定源 (预设名或任意 RSS/Atom URL)')
+    print('  webtool feed                     无参数 = 默认源(标 *), 按源分组原序')
+    print('  webtool feed sspai -q "汽车"     语义筛选 (BM25 + 按相关度重排)')
+    print('  webtool feed sources find <词>   按键名/站名/域名/描述搜源 (4000+ 派生源靠它找)')
+    print('  webtool feed sources add NAME URL [描述]   添加自定义源 (存 ~/.webtool/feeds.json)')
+    print('  webtool feed sources del NAME    删除自定义源 (预设源不可删)')
+    print('  webtool feed NAME --new-only     增量: 只出上次之后的新条目')
+    print('  webtool feed health              查看坏源登记表 (官网挂了的站)')
+    print('  webtool feed sources retest all  复查坏源, 恢复即移除登记')
+    print('  webtool feed sources mark KEY "备注"   人工登记坏源原因 (如改走 RSSHub)')
+    print('  webtool feed <路由键> -p k=v     带参路由填参 (键名见 feed sources --radar)')
+    print('  webtool feed radar <关键词>      查 RSSHub 路由库 (2069 站 / 3947 路由, 带参数说明)')
+    print('  webtool feed instances             探活公共实例 (哪几个今天还活着)')
+    print('  webtool feed sspai --no-url      输出不带链接 (只要标题/摘要)')
+    print('  通用: -n 每源条数 -f json/text/markdown -o 文件 --no-cache --no-proxy --meta')
+    print('\n* = 默认源; feed 与 rank 的分工: rank 看热度榜, feed 看时序新内容')
+
+
+def _derived():
+    """RSSHub 路由物化出来的源 (radar 缓存更新后自动重建)"""
+    from webtool.feeds import radar_sources as _rs
+    return _rs.load()
+
+
+def do_feed(args, cfg):
+    t0 = time.time()
+    # feed --add NAME URL [desc] / --del NAME
+    if getattr(args, 'add', None) and len(args.add) >= 2:
+        user = load_user_feeds()
+        user[args.add[0]] = {'url': args.add[1],
+                             'desc': args.add[2] if len(args.add) > 2 else ''}
+        save_user_feeds(user)
+        print(f'feed 源已保存: {args.add[0]} -> {args.add[1]}  ({feeds_file()})',
+              file=sys.stderr)
+        return 0
+    if getattr(args, 'del_src', None):
+        user = load_user_feeds()
+        if args.del_src not in user:
+            if args.del_src in load_seed_feeds():
+                print(f'"{args.del_src}" 是内置预设源, 不可删除 (自定义源才可删; '
+                      f'不想订阅可在 feeds.json 里把 "default" 置 false 或整条删掉后用 WEBTOOL_NO_SEED=1)',
+                      file=sys.stderr)
+            else:
+                print(f'自定义源 "{args.del_src}" 不存在; 现有: '
+                      f'{", ".join(sorted(user)) or "(无)"}', file=sys.stderr)
+            return 2
+        desc = user.pop(args.del_src)
+        save_user_feeds(user)
+        print(f'feed 源已删除: {args.del_src} ({desc.get("url")})', file=sys.stderr)
+        return 0
+    # feed --mark KEY [URL] NOTE: 人工登记坏源
+    if getattr(args, 'mark', None):
+        mark = args.mark
+        if len(mark) >= 2 and not mark[1].startswith('http'):
+            key, url, note = mark[0], '', mark[1]
+            if len(mark) >= 3:
+                note = ' '.join(mark[1:])
+        elif len(mark) >= 3:
+            key, url, note = mark[0], mark[1], ' '.join(mark[2:])
+        else:
+            key, url, note = mark[0], '', ''
+        user = load_user_feeds()
+        if not url and key in user:
+            url = user[key].get('url')
+        e = feedhealth.manual(key, url, note)
+        print(f'已登记: {key} [{e.get("status")}] {note}', file=sys.stderr)
+        return 0
+    # feed --retest KEY|all: 复查登记的坏源, 恢复即移除
+    if getattr(args, 'retest', None):
+        rows = dict(feedhealth.entries())
+        targets = rows if args.retest == 'all' else {
+            k: v for k, v in rows.items() if k == args.retest}
+        if args.retest != 'all' and not targets:
+            print(f'登记表中无 "{args.retest}"; 现有: '
+                  f'{", ".join(rows) or "(空)"}', file=sys.stderr)
+            return 2
+        # 单线路: 线路由路由表一次决定, 失败直接报错 —— 不先探直连再换代理
+        # (那会让"源恢复没恢复"取决于它先在哪条线挂, 且慢一倍)。
+        gproxy = cfg.get('proxy') or 'auto'
+
+        def _probe(k, v):
+            try:
+                items = pull_one(k, v['url'], 3, gproxy, 12)
+                return k, ('ok' if items else 'empty'), len(items), None
+            except Exception as e1:
+                return k, feedhealth.classify_error(str(e1)[:120]), 0, None
+
+        with thread_pool(min(len(targets), _MAX_W)) as ex:
+            futs = [ex.submit(_probe, k, v) for k, v in targets.items()]
+            for fu in as_completed(futs):
+                k, st, cnt, _ = fu.result()
+                if st == 'ok':
+                    feedhealth.mark_ok(k)
+                    print(f'✓ {k}: 已恢复 ({cnt} 条) → 从登记表移除')
+                elif st == 'empty':
+                    feedhealth.record(k, targets[k]['url'], 'empty')
+                    print(f'· {k}: 可达但 0 条 (保留登记)')
+                else:
+                    feedhealth.record(k, targets[k]['url'], st)
+                    print(f'✗ {k}: 仍坏 [{st}] (保留登记)')
+        return 0
+    # feed sources sync: 把 RSSHub 路由库重新物化成源
+    if len(args.sources) == 1 and args.sources[0] == 'sync':
+        from webtool.feeds import radar_sources as _rs
+        routes = None
+        if getattr(args, 'radar_refresh', False):
+            from webtool import radar as _radar
+            routes = _radar.load_routes(proxy=cfg.get('proxy'), refresh=True)
+        src = _rs.load(routes=routes, refresh=True)
+        if not src:
+            print('物化失败: 路由库载入不了, 先 webtool feed radar 看看', file=sys.stderr)
+            return 2
+        free = sum(1 for e in src.values() if not e.get('params'))
+        print(f'已物化 {len(src)} 条 feed 源 ({free} 条免填参) -> '
+              f'{_rs.FILE}; 带参数的要 -p/-e')
+        return 0
+    # feed sources find <词>: 全量源里模糊搜 (键名/站名/域名/描述)
+    if len(args.sources) >= 2 and args.sources[0] == 'find':
+        from webtool.feeds import find as _find
+        word = args.sources[1]
+        rows = _find.search(load_user_feeds(), _derived(), word,
+                            limit=getattr(args, 'max', 20) or 20,
+                            cat=getattr(args, 'cat', None))
+        if not rows:
+            print(f'没有匹配 "{word}" 的源; 换站名/域名/描述词试试, '
+                  f'或 webtool feed radar find {word}', file=sys.stderr)
+            return 2
+        print(f'"{word}" 命中 {len(rows)} 个源 (键名/站名/域名/描述):\n')
+        for r in rows:
+            tags = []
+            if r['origin'] == 'radar':
+                tags.append('RSSHub')
+                if r['params']:
+                    tags.append('参数')
+            tag = (' [' + ' '.join(tags) + ']') if tags else ''
+            print(f"  {r['key']:24s} {r['desc']}{tag}  {r['url']}")
+        return 0
+    # feed health: 查看健康登记表
+    if len(args.sources) == 1 and args.sources[0] == 'health':
+        print(feedhealth.render_text())
+        return 0
+    # feed instances: 公共实例探活
+    if len(args.sources) == 1 and args.sources[0] == 'instances':
+        from webtool import radar as _radar
+        print('公共实例探活 (探测路由 %s, 缓存 1h):\n'
+              % _radar._PROBE_ROUTE)
+        for it in _radar.instances(proxy=cfg.get('proxy'),
+                                   refresh=getattr(args, 'radar_refresh', False)):
+            mark = '✓' if it['ok'] else '✗'
+            detail = (f"{it['items']} 条 {it['ms']}ms" if it['ok']
+                      else (it['err'] or 'unreachable'))
+            print(f"  {mark} {it['instance']:34s} {detail}")
+        print('\n--instance https://xxx 可指定; 默认自动挑响应最快的可用实例')
+        return 0
+    # feed radar [--from-url URL | <关键词>]: 查 RSSHub 路由库, 填参出订阅 URL
+    if len(args.sources) >= 1 and args.sources[0] == 'radar':
+        from webtool import radar as _radar
+        kw = args.sources[1] if len(args.sources) > 1 else ''
+        from_url = getattr(args, 'from_url', None)
+        try:
+            routes = _radar.load_routes(proxy=cfg.get('proxy'),
+                                        refresh=getattr(args, 'radar_refresh', False))
+        except Exception as e:
+            print(f'路由库载入失败: {str(e)[:200]}\n'
+                  '  (docs.rsshub.app 直连超时, 需配代理: webtool proxy set <代理地址>)',
+                  file=sys.stderr)
+            return 2
+        if from_url:
+            cards = _radar.from_url(routes, from_url)
+            if not cards:
+                # radar.source 没覆盖这个页面 (只有部分路由声明了反推规则),
+                # 退回按域名/站名搜, 至少给出该站有哪些路由
+                dom = re.sub(r'^https?://', '', from_url).split('/')[0]
+                dom = dom[4:] if dom.startswith('www.') else dom   # 去掉 www. 再匹配
+                cards = _radar.search_routes(routes, dom, limit=10)
+                if not cards:
+                    print(f'无路由能反推 {from_url}, 也没有 {dom} 相关路由; '
+                          f'试 webtool feed radar <站名或域名>', file=sys.stderr)
+                    return 2
+                print(f'⚠ {from_url} 没有 radar 反推规则, 改为按域名 "{dom}" 搜索\n')
+            kw = from_url
+        elif not kw and not getattr(args, 'cat', None):
+            sites, n_routes, n_free = _radar.routes_stats(routes)
+            print(f'RSSHub 官方路由库: {sites} 站点 / {n_routes} 路由 '
+                  f'({n_free} 条无需填参)\n')
+            print('用法:')
+            print('  webtool feed radar 36kr                    搜路由 (站名/域名/路由/参数/分类)')
+            print('  webtool feed radar 36kr --pick 2           选定第 2 条 (或 --pick <模板子串>)')
+            print('  webtool feed radar 36kr --pick 2 --param category=newsflashes   填参并直接拉数据')
+            print('  webtool feed radar 36kr --pick 2 --example 用官方示例路径取数 (免填参)')
+            print('  webtool feed radar 36kr --pick 2 --sample-row 2   用第 2 条真实样例取数 (免填参)')
+            print('  webtool feed radar url https://space.bilibili.com/946974        反推路由')
+            print('  webtool feed radar 36kr --pick 2 --example --add r36kr   落地成订阅源')
+            print('  webtool feed instances                      看公共实例今天哪些活着')
+            print('  webtool feed radar --cat finance           按分类过滤')
+            print('\n填参只作用于 --pick 选中的那一条, 模板保持原样, 数据直接输出 (-f/-n 通用)')
+            return 0
+        else:
+            cards = _radar.search_routes(
+                routes, kw, limit=max(getattr(args, 'max', 10) or 10, 10),
+                cat=getattr(args, 'cat', None))
+            if not cards:
+                print(f'路由库无 "{kw}" 命中; 试英文域名 (36kr/bilibili/weibo/ithome)、'
+                      f'站名, 或 --cat <分类>', file=sys.stderr)
+                return 2
+        return print_route_cards(cards, kw, args, cfg)
+    # feed 无参/list: 清单+用法 (与 rank 同约定)
+    user = load_user_feeds()
+    if (not args.sources) or \
+            (len(args.sources) == 1 and args.sources[0] == 'list'):
+        seed = load_seed_feeds()
+        defaults = {k for k, v in seed.items() if v.get('default')}
+        # 清单是表格数据, 统一走 render 层 (text/json/markdown 都生效)
+        dsrc = _derived()
+        show_radar = bool(getattr(args, 'radar', False))
+        rows = [{'name': k, 'url': v.get('url', ''), 'desc': v.get('desc') or '',
+                 'origin': 'seed', 'default': k in defaults}
+                for k, v in seed.items()]
+        rows += [{'name': k, 'url': v.get('url', ''), 'desc': v.get('desc') or '',
+                  'origin': 'custom', 'default': False}
+                 for k, v in user.items() if k not in seed]
+        out = {'results': rows, 'seed_count': len(seed),
+               'user_count': len(user),
+               'radar_count': len(dsrc) - len(set(dsrc) & set(user)),
+               'show_radar': show_radar}
+        if show_radar:      # 按分类分段, 段内再分免填参/带参
+            from webtool.feeds import radar_sources as _rsrc
+            out['radar_groups'] = _rsrc.group_by_category(
+                dsrc, exclude=set(user), cat=getattr(args, 'cat', None))
+            if not out['radar_groups']:
+                print(f'没有分类 "{getattr(args, "cat", None)}" 的派生源',
+                      file=sys.stderr)
+                return 2
+        from webtool.render.hotrender import render_feed_list
+        render_feed_list(out, args.format)
+        # 清单 + 用法是一套; json 是给机器读的, 别掺人看的用法段
+        if args.format != 'json':
+            _print_feed_usage()
+        return 0
+    # 解析源名 → url (种子/自定义优先, 其次 RSSHub 派生源; 也支持直接喂 URL)
+    user = load_user_feeds()
+    derived = _derived()
+    all_names = dict(derived)
+    all_names.update(user)
+    if not args.sources:
+        # 无参数 = 默认源: 用户文件里 default:true 的; 一个都没有则回退 seed 元数据
+        args.sources = [k for k, v in user.items() if isinstance(v, dict) and v.get('default')]
+        if not args.sources:
+            args.sources = [k for k, v in load_seed_feeds().items() if v.get('default')]
+    names, specs, unknown = [], {}, []
+    for s in args.sources:
+        entry = all_names.get(s)
+        if entry is not None:
+            nm = s
+            url = entry.get('url') or ''
+        elif s.startswith('http://') or s.startswith('https://'):
+            nm = 'feed:' + urllib.parse.urlparse(s).netloc
+            url = s
+            entry = None
+        else:
+            unknown.append(s)
+            continue
+        if nm not in specs:
+            names.append(nm)
+            spec = {'url': url,
+                    'desc': entry.get('desc') if entry else ''}
+            if entry and entry.get('template'):
+                spec['entry'] = entry          # 派生源: 取数时按实例现拼
+            specs[nm] = spec
+    if unknown:
+        print(f'unknown feed sources (skip): {", ".join(unknown)}; '
+              f'可选: {", ".join(sorted(user)) or "(无)"} 或任意 RSS/Atom URL; '
+              f'RSSHub 路由用 webtool feed radar find <站名> 查键名', file=sys.stderr)
+    if not names:
+        print('无可用 feed 源; `webtool feed sources` 查看清单, 或直接传 RSS/Atom URL',
+              file=sys.stderr)
+        return 2
+
+    # 派生源: 填参 / 借官方 example / 拼当前最快实例
+    from webtool import radar as _radar
+    from webtool.feeds import radar_sources as _rs
+    params = {}
+    for kv in (getattr(args, 'param', None) or []):
+        if '=' not in kv:
+            print(f'--param 需要 K=V 形式, 收到 "{kv}"', file=sys.stderr)
+            return 2
+        k, v = kv.split('=', 1)
+        params[k.strip()] = v.strip()
+    use_example = getattr(args, 'example', False)
+    inst = getattr(args, 'instance', None)
+    if any('entry' in specs[nm] for nm in names) and not inst:
+        inst = _radar.best_instance(proxy=cfg.get('proxy'))
+    for nm in names:
+        e = specs[nm].get('entry')
+        if not e:
+            continue
+        if e.get('params') and not params and not use_example:
+            if e.get('required'):
+                print(_rs.hint(nm, e), file=sys.stderr)
+                return 2
+            print(f'提示: {nm} 有可选参数未填, 按默认路径抓; '
+                  f'要指定: -p {e["optional"][0]}=...', file=sys.stderr)
+        try:
+            specs[nm]['url'] = _rs.render(e, params, use_example, inst)
+        except _radar.MissingParams:
+            print(_rs.hint(nm, e), file=sys.stderr)
+            return 2
+        except Exception as exc:
+            print(f'{nm} 取数地址生成失败: {str(exc)[:160]}', file=sys.stderr)
+            return 2
+
+    n = min(max(args.max, 3), 100)
+    q = (getattr(args, 'query', None) or '').strip()
+    threshold = getattr(args, 'threshold', 0.15) if q else 0.0
+
+    def pull(name):
+        ckey = f'feed2|{name}|{n}|{q}'
+        if not args.no_cache:
+            c = cache.get(cfg, 'hot', ckey)
+            if c is not None:
+                return name, c, None
+        # 单线路: 由 proxyhelper/路由表一次决定, 失败直接报错
+        # --no-proxy 要的是"强制直连", 那是字符串 'direct'; None 与 'auto' 同义
+        px = proxyhelper.resolve('direct' if args.no_proxy else cfg.get('proxy'),
+                                 specs[name]['url'])
+        try:
+            items = pull_one(name, specs[name]['url'], n, px, cfg.get('timeout', 15))
+        except Exception as e:
+            return name, None, str(e)[:160]
+        cache.put(cfg, 'hot', ckey, items)
+        return name, items, None
+
+    results, errors = {}, {}
+    with thread_pool(min(len(names), _MAX_W)) as ex:
+        futs = {ex.submit(pull, nm): nm for nm in names}
+        for fu in as_completed(futs):
+            nm, items, err = fu.result()
+            if err:
+                errors[nm] = err
+                # 健康登记: 失败记录, 成功自动消除
+                feedhealth.record(nm, specs[nm]['url'],
+                                  feedhealth.classify_error(err))
+            elif items:
+                results[nm] = items
+                feedhealth.mark_ok(nm)
+            else:
+                errors[nm] = 'no data'
+                feedhealth.record(nm, specs[nm]['url'], 'empty')
+
+    # --new-only 增量: 对比 ~/.webtool/feed_state.json 上次已见 URL
+    new_only = getattr(args, 'new_only', False)
+    seen_state = jsonfmt.read(state_file()) if new_only else {}
+    if new_only:
+        for nm in list(results):
+            seen_urls = set(seen_state.get(nm) or [])
+            fresh = [r for r in results[nm] if r.get('url') not in seen_urls]
+            results[nm] = fresh
+            if not fresh:
+                del results[nm]          # 全旧: 从 ok 里剔除
+        # 已见状态保留最近 500 条 URL
+        for nm, items in results.items():
+            urls = [r.get('url') for r in items if r.get('url')]
+            old = list(seen_state.get(nm) or [])
+            seen_state[nm] = (urls + old)[:500]
+        jsonfmt.write(state_file(), seen_state)
+
+    # -q 语义筛选 (BM25 + 重排; 无 -q 完全原序)
+    filtered_out = 0
+    threshold_fallback = False
+    flat = []
+    if q and results:
+        from webtool.pipeline.merge import _semantic_scores
+        pool = []
+        for nm in names:
+            for r in results.get(nm) or []:
+                r = dict(r)
+                r['source'] = nm
+                pool.append(r)
+        scores = _semantic_scores(q, pool)
+        if threshold > 0:
+            kept = [r for i, r in enumerate(pool) if scores.get(i, 0) >= threshold]
+            filtered_out = len(pool) - len(kept)
+            if not kept:
+                filtered_out = 0
+                threshold_fallback = True
+            else:
+                pool = kept
+        for i, r in enumerate(pool):
+            r['sem_score'] = round(scores.get(i, 0.0), 3)
+        pool.sort(key=lambda r: -r['sem_score'])
+        for i, r in enumerate(pool):
+            r['rank'] = i + 1
+        flat = pool
+
+    out = {'cmd': 'feed', 'sources': names, 'requested': n,
+           'query': q or None, 'threshold': threshold if q else None,
+           'took_ms': int((time.time() - t0) * 1000),
+           'ok': sorted(results), 'failed': sorted(errors),
+           'sources_data': {k: results[k] for k in names if k in results},
+           'errors': errors, 'filtered_out': filtered_out,
+           'total': sum(len(v) for v in results.values())}
+    if threshold_fallback:
+        out['threshold_fallback'] = True
+    if flat:
+        out['results'] = flat
+    from webtool.render.hotrender import render_hot, strip_urls
+    if getattr(args, 'no_url', False):
+        strip_urls(out)
+    render_hot(out, args.format, bool(getattr(args, 'meta', False)))
+    return 0
